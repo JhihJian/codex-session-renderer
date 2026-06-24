@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "check": "node --check server.mjs"
+    "check": "node --check server.mjs && node --check src/session-events.mjs && node --check src/jsonl-reader.mjs && node --check public/app.js",
+    "test": "npm run check && node --test"
   },
   "dependencies": {
     "markdown-it": "^14.2.0"

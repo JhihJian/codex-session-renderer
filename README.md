@@ -30,11 +30,31 @@ $env:CODEX_HOME='C:\Users\user\.codex'
 npm start
 ```
 
+## 项目结构
+
+- `server.mjs`：HTTP 路由、静态文件服务、SQLite 查询、会话文件定位、缓存和接口编排。
+- `src/jsonl-reader.mjs`：UTF-8 JSONL 流式读取工具；支持按逻辑行数上限读取和按事件索引读取单条事件。
+- `src/session-events.mjs`：会话事件纯解析逻辑，包括事件分类、turn 聚合、Trace 模型、精简视图模型和 Markdown 导出。
+- `public/`：无构建前端，包含页面、样式、交互脚本和本地 `markdown-it` 浏览器包。
+- `test/`：Node 内置测试，覆盖 JSONL 读取、事件解析、去重、工具输出合并和 Markdown 导出等回归点。
+
+后续维护时，优先把可纯函数化的事件解析、摘要、导出逻辑放在 `src/session-events.mjs` 并补测试；`server.mjs` 只负责数据来源、缓存、错误响应和接口组合。
+
+## 检查与测试
+
+```powershell
+npm run check
+npm test
+```
+
+`npm run check` 会对服务端入口、拆分后的 `src/` 模块和前端脚本做语法检查。`npm test` 会先运行语法检查，再运行 `node --test` 下的轻量回归测试。
+
 ## 设计说明
 
 - 服务端只读访问本地文件，不写入 `.codex`。
 - 前端使用原生 HTML/CSS/JavaScript，无构建步骤；Markdown 渲染通过本地 `markdown-it` 浏览器包完成。
 - 会话列表优先读取 SQLite `threads` 表，不再默认遍历全部 JSONL；只有 SQLite 不可用时才回退扫描文件。
+- JSONL 读取使用流式逐行解析；列表回退读取前若干条事件时不会把整个大文件一次性读入内存。
 - 解析器把 JSONL 中的 `session_meta`、`turn_context`、`event_msg`、`response_item` 聚合为 turn 和 item。
 - 工具调用会合并 `function_call`、`function_call_output`、`custom_tool_call`、`custom_tool_call_output`、`mcp_tool_call_end`、`patch_apply_end` 等 Codex 事件。
 - 同一条用户/助手消息如果同时出现在 response item 和事件消息里，会在渲染层去重。
