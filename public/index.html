@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Codex 本机会话渲染器</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell" id="appShell" data-left="open" data-right="open" data-panel="thread">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-button" id="toggleLeft" type="button" title="切换会话列表" aria-label="切换会话列表">☰</button>
+          <div class="brand">
+            <span class="brand-mark" aria-hidden="true">C</span>
+            <div class="brand-copy">
+              <strong>Codex 本机会话</strong>
+              <span id="healthStatus">接口检查中</span>
+            </div>
+          </div>
+        </div>
+
+        <nav class="mobile-tabs" aria-label="移动端视图切换">
+          <button class="mobile-tab" data-panel-target="sessions" type="button">会话</button>
+          <button class="mobile-tab" data-panel-target="thread" type="button">内容</button>
+          <button class="mobile-tab" data-panel-target="inspector" type="button">检查</button>
+        </nav>
+
+        <div class="topbar-actions">
+          <button class="ghost-button" id="refreshButton" type="button">刷新</button>
+          <button class="ghost-button" id="copyMarkdownButton" type="button" disabled>复制 Markdown</button>
+          <button class="primary-button" id="downloadMarkdownButton" type="button" disabled>下载 Markdown</button>
+          <button class="icon-button" id="toggleRight" type="button" title="切换检查器" aria-label="切换检查器">◫</button>
+        </div>
+      </header>
+
+      <aside class="sidebar panel" id="sessionsPanel" aria-label="会话列表">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Sessions</p>
+            <h1>会话列表</h1>
+          </div>
+          <span class="count-pill" id="sessionCount">0</span>
+        </div>
+
+        <div class="control-stack">
+          <label class="field-label" for="sessionSearch">搜索会话</label>
+          <input class="text-input" id="sessionSearch" type="search" autocomplete="off" placeholder="标题、路径、项目..." />
+
+          <label class="field-label" for="sessionTypeFilter">会话类型</label>
+          <select class="select-input" id="sessionTypeFilter">
+            <option value="all">全部会话</option>
+            <option value="project">项目会话</option>
+            <option value="projectless">无项目会话</option>
+            <option value="error">包含错误</option>
+            <option value="tool">包含工具调用</option>
+          </select>
+        </div>
+
+        <div class="hierarchy-tree" id="sessionHierarchy"></div>
+
+        <div class="session-list" id="sessionList" role="list"></div>
+      </aside>
+
+      <main class="thread-panel panel" id="threadPanel" aria-label="会话内容">
+        <section class="thread-toolbar">
+          <div class="thread-title-block">
+            <p class="eyebrow" id="sessionMetaLabel">未选择</p>
+            <h2 id="sessionTitle">选择一个会话</h2>
+          </div>
+
+          <div class="thread-controls">
+            <div class="view-switch" role="tablist" aria-label="视图切换">
+              <button class="view-tab active" id="readViewButton" type="button" data-view-mode="read">阅读</button>
+              <button class="view-tab" id="traceViewButton" type="button" data-view-mode="trace">Trace</button>
+            </div>
+            <input class="text-input compact" id="itemSearch" type="search" autocomplete="off" placeholder="搜索内容、命令、输出..." />
+            <select class="select-input compact" id="itemTypeFilter">
+              <option value="all">全部类型</option>
+              <option value="message">用户/助手消息</option>
+              <option value="tool">工具与命令</option>
+              <option value="output">工具输出</option>
+              <option value="reasoning">推理摘要</option>
+              <option value="system">系统事件</option>
+              <option value="error">错误事件</option>
+            </select>
+            <label class="toggle-control">
+              <input id="importantOnly" type="checkbox" />
+              <span>重要事件</span>
+            </label>
+          </div>
+        </section>
+
+        <section class="stats-strip" id="statsStrip" aria-label="会话统计"></section>
+
+        <section class="thread-content" id="threadContent" tabindex="-1"></section>
+        <section class="trace-content" id="traceContent" tabindex="-1" hidden></section>
+      </main>
+
+      <aside class="inspector panel" id="inspectorPanel" aria-label="详情和事件检查器">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Inspector</p>
+            <h2>详情 / 事件</h2>
+          </div>
+          <button class="ghost-button small" id="copyRawButton" type="button" disabled>复制原始</button>
+        </div>
+
+        <section class="inspector-section" id="sessionDetails"></section>
+
+        <section class="inspector-section">
+          <div class="section-title-row">
+            <h3>原始事件</h3>
+            <span class="count-pill" id="eventCount">0</span>
+          </div>
+          <div class="raw-event-list" id="rawEventList"></div>
+          <button class="ghost-button full-width" id="showMoreEventsButton" type="button" hidden>显示更多事件</button>
+        </section>
+
+        <section class="inspector-section raw-preview-section">
+          <div class="section-title-row">
+            <h3>事件详情</h3>
+            <span class="muted" id="selectedEventLabel">未选择</span>
+          </div>
+          <div class="inspector-actions" id="inspectorActions"></div>
+          <pre class="raw-preview" id="rawPreview">选择左侧事件查看 JSON</pre>
+        </section>
+      </aside>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="./app.js" defer></script>
+  </body>
+</html>
