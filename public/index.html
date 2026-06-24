@@ -57,8 +57,6 @@
           </select>
         </div>
 
-        <div class="hierarchy-tree" id="sessionHierarchy"></div>
-
         <div class="session-list" id="sessionList" role="list"></div>
       </aside>
 
@@ -72,6 +70,7 @@
           <div class="thread-controls">
             <div class="view-switch" role="tablist" aria-label="视图切换">
               <button class="view-tab active" id="readViewButton" type="button" data-view-mode="read">阅读</button>
+              <button class="view-tab" id="compactViewButton" type="button" data-view-mode="compact">精简</button>
               <button class="view-tab" id="traceViewButton" type="button" data-view-mode="trace">Trace</button>
             </div>
             <input class="text-input compact" id="itemSearch" type="search" autocomplete="off" placeholder="搜索内容、命令、输出..." />
@@ -94,6 +93,7 @@
         <section class="stats-strip" id="statsStrip" aria-label="会话统计"></section>
 
         <section class="thread-content" id="threadContent" tabindex="-1"></section>
+        <section class="compact-content" id="compactContent" tabindex="-1" hidden></section>
         <section class="trace-content" id="traceContent" tabindex="-1" hidden></section>
       </main>
 

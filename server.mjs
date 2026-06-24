@@ -29,6 +29,7 @@ const previewLimits = {
   traceText: 160,
   traceArguments: 160,
   traceOutput: 160,
+  compactMessage: 2400,
 };
 
 const jsonHeaders = {
@@ -461,8 +462,9 @@ async function getSessionDetail(id) {
   if (!session) return null;
   const stat = await fs.stat(session.path);
   const sessionWithStat = withFileStat(session, stat);
+  const hierarchy = await getThreadHierarchy(id);
   const cached = sessionDetailCache.get(id);
-  if (cached && cached.mtimeMs === fileTimeMs(stat) && cached.size === stat.size) return cached.detail;
+  if (cached && cached.mtimeMs === fileTimeMs(stat) && cached.size === stat.size && hierarchy.children.length === 0) return cached.detail;
 
   const rawEvents = await readJsonl(session.path);
   const analysisEvents = rawEvents.map((event, index) => ({
@@ -489,9 +491,9 @@ async function getSessionDetail(id) {
     payloadSize: event.payloadSize,
   }));
   const turns = buildTurns(rawEvents);
-  const hierarchy = await getThreadHierarchy(id);
   const publicTurns = compactTurnsForClient(turns);
   const trace = buildTrace(sessionWithStat, rawEvents, analysisEvents, turns, hierarchy);
+  const compact = await buildCompactView(sessionWithStat, analysisEvents, turns, hierarchy);
   const stats = {
     ...summarizeSessionEvents(rawEvents),
     eventCount: rawEvents.length,
@@ -502,7 +504,7 @@ async function getSessionDetail(id) {
     codexHome,
     dataPath: sessionWithStat.path,
   };
-  const detail = { session: sessionWithStat, turns: publicTurns, events: publicEvents, stats, trace };
+  const detail = { session: sessionWithStat, turns: publicTurns, events: publicEvents, stats, trace, compact };
   sessionDetailCache.set(id, { mtimeMs: fileTimeMs(stat), size: stat.size, detail });
   return detail;
 }
@@ -582,6 +584,251 @@ function compactItemForClient(item, turnIndex, itemIndex) {
   }
   if (base.truncatedFields?.length) base.truncated = true;
   return base;
+}
+
+async function buildCompactView(session, normalizedEvents, turns, hierarchy, options = {}) {
+  const depth = options.depth ?? 0;
+  const maxDepth = options.maxDepth ?? 3;
+  const childById = new Map(hierarchy.children.map((child) => [child.childThreadId, child]));
+  const spawnByChildId = findSpawnAgentEvents(normalizedEvents, childById);
+  const notificationByChildId = findSubagentNotifications(normalizedEvents, childById);
+  const childNodes = new Map();
+
+  if (depth < maxDepth) {
+    for (const child of hierarchy.children) {
+      const childSummary = await buildCompactChildNode(child, {
+        depth,
+        maxDepth,
+        spawnEvent: spawnByChildId.get(child.childThreadId),
+        notificationEvent: notificationByChildId.get(child.childThreadId),
+      });
+      childNodes.set(child.childThreadId, childSummary);
+    }
+  } else {
+    for (const child of hierarchy.children) {
+      childNodes.set(
+        child.childThreadId,
+        compactChildPlaceholder(child, {
+          depth,
+          reason: "max-depth",
+          spawnEvent: spawnByChildId.get(child.childThreadId),
+          notificationEvent: notificationByChildId.get(child.childThreadId),
+        }),
+      );
+    }
+  }
+
+  const placedChildIds = new Set();
+  const compactTurns = turns.map((turn, turnIndex) => {
+    const turnStart = toMs(turn.startedAt) ?? -Infinity;
+    const turnEnd = toMs(turn.completedAt) ?? Infinity;
+    const children = [];
+    for (const child of hierarchy.children) {
+      const spawnEvent = spawnByChildId.get(child.childThreadId);
+      const notificationEvent = notificationByChildId.get(child.childThreadId);
+      const anchor = spawnEvent || notificationEvent;
+      const anchorMs = toMs(anchor?.timestamp);
+      if (anchor && anchorMs != null && anchorMs >= turnStart && anchorMs <= turnEnd) {
+        const childNode = childNodes.get(child.childThreadId);
+        if (childNode) {
+          children.push(childNode);
+          placedChildIds.add(child.childThreadId);
+        }
+      }
+    }
+
+    return compactTurnForView(turn, turnIndex, children);
+  });
+
+  const unplacedChildren = hierarchy.children
+    .filter((child) => !placedChildIds.has(child.childThreadId))
+    .map((child) => childNodes.get(child.childThreadId))
+    .filter(Boolean);
+
+  return {
+    session: compactCompactSession(session),
+    depth,
+    maxDepth,
+    turns: compactTurns,
+    children: unplacedChildren,
+  };
+}
+
+async function buildCompactChildNode(child, context) {
+  const thread = child.thread || {};
+  const base = compactChildBase(child, context);
+  if (!thread.id || !thread.path) {
+    return {
+      ...base,
+      unavailable: true,
+      unavailableReason: "missing-thread-path",
+      turns: [],
+      children: [],
+    };
+  }
+
+  try {
+    const childSession = await getSessionById(thread.id);
+    if (!childSession?.path) {
+      return {
+        ...base,
+        unavailable: true,
+        unavailableReason: "missing-session",
+        turns: [],
+        children: [],
+      };
+    }
+    const stat = await fs.stat(childSession.path);
+    const childSessionWithStat = withFileStat(childSession, stat);
+    const rawEvents = await readJsonl(childSession.path);
+    const normalizedEvents = rawEvents.map((event, index) => ({
+      index,
+      timestamp: eventTime(event),
+      kind: classifyEvent(event),
+      important: isImportantEvent(event),
+      type: event.type,
+      payloadType: event.payload?.type ?? null,
+      role: event.payload?.role ?? null,
+      title: summarizeEventTitle(event),
+      preview: summarizeEventPreview(event),
+      payloadSize: event.payload == null ? 0 : JSON.stringify(event.payload).length,
+      payload: event.payload,
+    }));
+    const childTurns = buildTurns(rawEvents);
+    const childHierarchy = await getThreadHierarchy(thread.id);
+    const compact = await buildCompactView(childSessionWithStat, normalizedEvents, childTurns, childHierarchy, {
+      depth: context.depth + 1,
+      maxDepth: context.maxDepth,
+    });
+
+    return {
+      ...base,
+      session: compact.session,
+      turns: compact.turns,
+      children: compact.children,
+    };
+  } catch (error) {
+    return {
+      ...base,
+      unavailable: true,
+      unavailableReason: error?.message || "read-failed",
+      turns: [],
+      children: [],
+    };
+  }
+}
+
+function compactTurnForView(turn, turnIndex, children) {
+  const userMessages = turn.items
+    .filter((item) => item.type === "user-message" && normalizeText(item.text))
+    .map(compactUserMessageForView)
+    .filter(Boolean);
+  const assistant = [...turn.items]
+    .reverse()
+    .find((item) => item.type === "assistant-message" && normalizeText(item.text));
+  return {
+    id: turn.id,
+    turnNumber: turnIndex + 1,
+    startedAt: turn.startedAt || null,
+    completedAt: turn.completedAt || null,
+    status: turn.status || null,
+    userMessages,
+    assistantMessage: assistant ? compactMessageForView(assistant) : null,
+    children,
+  };
+}
+
+function compactUserMessageForView(item) {
+  const text = cleanCompactUserText(item.text);
+  if (!isUsefulCompactUserText(text)) return null;
+  return compactMessageForView({ ...item, text });
+}
+
+function compactMessageForView(item) {
+  const limited = limitText(item.text || "", previewLimits.compactMessage);
+  return {
+    id: item.id,
+    type: item.type,
+    timestamp: item.timestamp || null,
+    phase: item.phase || null,
+    role: item.role || null,
+    text: limited.text,
+    textLength: limited.originalLength,
+    truncated: limited.truncated,
+  };
+}
+
+function cleanCompactUserText(text) {
+  const raw = String(text || "").trim();
+  const latestRequest = raw.match(/## My request for Codex:\s*([\s\S]*)$/i)?.[1];
+  let value = latestRequest || raw;
+  value = value
+    .replace(/^# In app browser:[\s\S]*?## My request for Codex:\s*/i, "")
+    .replace(/^# Files mentioned by the user:[\s\S]*?## My request for Codex:\s*/i, "")
+    .replace(/^#?\s*AGENTS\.md instructions[\s\S]*?(?:<\/environment_context>|$)\s*/i, "")
+    .replace(/^<environment_context>[\s\S]*?<\/environment_context>\s*/i, "")
+    .trim();
+  return value;
+}
+
+function isUsefulCompactUserText(text) {
+  const normalized = normalizeText(text);
+  if (!normalized) return false;
+  if (/^#?\s*AGENTS\.md instructions/i.test(normalized)) return false;
+  if (/^Continue working toward the active thread goal/i.test(normalized)) return false;
+  if (/^In app browser:/i.test(normalized)) return false;
+  if (/^Files mentioned by the user:/i.test(normalized)) return false;
+  if (/^<environment_context>/i.test(normalized)) return false;
+  return true;
+}
+
+function compactChildBase(child, context) {
+  const thread = child.thread || {};
+  return {
+    id: child.childThreadId,
+    edgeStatus: child.status || null,
+    depth: context.depth + 1,
+    spawnEvent: compactCompactEvent(context.spawnEvent),
+    notificationEvent: compactCompactEvent(context.notificationEvent),
+    session: compactCompactSession(thread),
+  };
+}
+
+function compactChildPlaceholder(child, context) {
+  return {
+    ...compactChildBase(child, { ...context, depth: context.depth ?? 0 }),
+    unavailable: true,
+    unavailableReason: context.reason || "not-loaded",
+    turns: [],
+    children: [],
+  };
+}
+
+function compactCompactSession(session) {
+  if (!session) return null;
+  return {
+    id: session.id,
+    title: session.title || "未命名会话",
+    cwd: session.cwd || null,
+    model: session.model || null,
+    reasoningEffort: session.reasoningEffort || null,
+    agentNickname: session.agentNickname || null,
+    agentRole: session.agentRole || null,
+    startedAt: session.startedAt || null,
+    updatedAt: session.updatedAt || null,
+    relativePath: session.relativePath || null,
+  };
+}
+
+function compactCompactEvent(event) {
+  if (!event) return null;
+  return {
+    index: event.index,
+    timestamp: event.timestamp,
+    kind: event.kind,
+    title: event.title,
+    preview: firstLine(event.preview || "", 220),
+  };
 }
 
 function addTruncatedField(target, field) {
