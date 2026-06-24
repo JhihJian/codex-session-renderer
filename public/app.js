@@ -7,13 +7,33 @@ const state = {
   selectedTraceNodeId: null,
   expandedTraceNodeIds: new Set(),
   rawEventCache: new Map(),
-  viewMode: "read",
+  viewMode: "compact",
   visibleEvents: 40,
   visibleThreadItems: 140,
 };
 
 const markdownCache = new Map();
 const markdownCacheLimit = 700;
+const markdownRenderer = window.markdownit?.({
+  html: false,
+  linkify: true,
+  breaks: false,
+});
+if (markdownRenderer) {
+  const defaultLinkOpen =
+    markdownRenderer.renderer.rules.link_open ||
+    ((tokens, index, options, env, self) => self.renderToken(tokens, index, options));
+  markdownRenderer.renderer.rules.link_open = (tokens, index, options, env, self) => {
+    const token = tokens[index];
+    const hrefIndex = token.attrIndex("href");
+    const href = hrefIndex >= 0 ? token.attrs[hrefIndex][1] : "";
+    if (/^https?:\/\//i.test(href)) {
+      token.attrSet("target", "_blank");
+      token.attrSet("rel", "noreferrer");
+    }
+    return defaultLinkOpen(tokens, index, options, env, self);
+  };
+}
 
 const els = {
   appShell: document.getElementById("appShell"),
@@ -311,7 +331,7 @@ function renderThread() {
 }
 
 function renderCompact() {
-  const compact = state.detail?.compact;
+  const compact = state.detail?.compact || buildCompactFallback(state.detail);
   if (!compact) {
     els.compactContent.innerHTML = emptyState("选择一个会话", "左侧列表展示本机 Codex 会话。");
     return;
@@ -339,6 +359,45 @@ function renderCompact() {
   els.compactContent.querySelectorAll("[data-compact-nav-target]").forEach((button) => {
     button.addEventListener("click", () => scrollToCompactTarget(button.dataset.compactNavTarget));
   });
+}
+
+function buildCompactFallback(detail) {
+  if (!detail?.turns) return null;
+  return {
+    session: detail.session || {},
+    turns: detail.turns.map((turn, index) => compactTurnFallback(turn, index)),
+    children: [],
+  };
+}
+
+function compactTurnFallback(turn, index) {
+  const items = turn.items || [];
+  const userMessages = items
+    .filter((item) => item.type === "user-message" && String(item.text || "").trim())
+    .map(compactMessageFallback);
+  const assistant = [...items]
+    .reverse()
+    .find((item) => item.type === "assistant-message" && String(item.text || "").trim());
+  return {
+    id: turn.id || `turn-${index}`,
+    turnNumber: turn.turnNumber ?? index + 1,
+    status: turn.status,
+    startedAt: turn.startedAt,
+    completedAt: turn.completedAt,
+    userMessages,
+    assistantMessage: assistant ? compactMessageFallback(assistant) : null,
+    children: [],
+  };
+}
+
+function compactMessageFallback(item) {
+  return {
+    text: item.text || "",
+    timestamp: item.timestamp,
+    phase: item.phase,
+    truncated: item.truncated,
+    textLength: item.textLength,
+  };
 }
 
 function filterCompactNode(node, query, typeFilter, isRoot = false) {
@@ -1220,131 +1279,11 @@ function markdownToHtml(value) {
   const text = String(value || "");
   const cached = markdownCache.get(text);
   if (cached != null) return cached;
-  const html = parseMarkdownBlocks(text);
+  const html = markdownRenderer ? markdownRenderer.render(text) : `<p>${escapeHtml(text).replace(/\n/g, "<br />")}</p>`;
   markdownCache.set(text, html);
   if (markdownCache.size > markdownCacheLimit) {
     const firstKey = markdownCache.keys().next().value;
     markdownCache.delete(firstKey);
-  }
-  return html;
-}
-
-function parseMarkdownBlocks(text) {
-  const normalized = String(text || "").replace(/\r\n?/g, "\n");
-  const lines = normalized.split("\n");
-  const blocks = [];
-  let paragraph = [];
-  let list = null;
-  let blockquote = [];
-  let code = null;
-
-  const flushParagraph = () => {
-    if (!paragraph.length) return;
-    blocks.push(`<p>${parseInlineMarkdown(paragraph.join("\n").trim())}</p>`);
-    paragraph = [];
-  };
-  const flushList = () => {
-    if (!list) return;
-    const tag = list.ordered ? "ol" : "ul";
-    blocks.push(`<${tag}>${list.items.map((item) => `<li>${parseInlineMarkdown(item.trim())}</li>`).join("")}</${tag}>`);
-    list = null;
-  };
-  const flushBlockquote = () => {
-    if (!blockquote.length) return;
-    blocks.push(`<blockquote>${parseMarkdownBlocks(blockquote.join("\n"))}</blockquote>`);
-    blockquote = [];
-  };
-  const flushOpenBlocks = () => {
-    flushParagraph();
-    flushList();
-    flushBlockquote();
-  };
-
-  for (const rawLine of lines) {
-    const line = rawLine.replace(/\s+$/g, "");
-    if (code) {
-      const fenceMatch = line.match(/^```+\s*$/);
-      if (fenceMatch) {
-        blocks.push(`<pre><code${code.lang ? ` class="language-${escapeAttr(code.lang)}"` : ""}>${escapeHtml(code.lines.join("\n"))}</code></pre>`);
-        code = null;
-      } else {
-        code.lines.push(rawLine);
-      }
-      continue;
-    }
-
-    const fenceStart = line.match(/^```\s*([\w.+-]*)\s*$/);
-    if (fenceStart) {
-      flushOpenBlocks();
-      code = { lang: fenceStart[1] || "", lines: [] };
-      continue;
-    }
-
-    if (!line.trim()) {
-      flushOpenBlocks();
-      continue;
-    }
-
-    const heading = line.match(/^(#{1,6})\s+(.+)$/);
-    if (heading) {
-      flushOpenBlocks();
-      const level = heading[1].length;
-      blocks.push(`<h${level}>${parseInlineMarkdown(heading[2].trim())}</h${level}>`);
-      continue;
-    }
-
-    if (/^\s*[-*_]{3,}\s*$/.test(line)) {
-      flushOpenBlocks();
-      blocks.push("<hr />");
-      continue;
-    }
-
-    const quote = line.match(/^>\s?(.*)$/);
-    if (quote) {
-      flushParagraph();
-      flushList();
-      blockquote.push(quote[1]);
-      continue;
-    }
-
-    const unordered = line.match(/^\s*[-*+]\s+(.+)$/);
-    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
-    if (unordered || ordered) {
-      flushParagraph();
-      flushBlockquote();
-      const isOrdered = Boolean(ordered);
-      if (!list || list.ordered !== isOrdered) flushList();
-      if (!list) list = { ordered: isOrdered, items: [] };
-      list.items.push((unordered || ordered)[1]);
-      continue;
-    }
-
-    flushBlockquote();
-    flushList();
-    paragraph.push(line);
-  }
-  if (code) blocks.push(`<pre><code${code.lang ? ` class="language-${escapeAttr(code.lang)}"` : ""}>${escapeHtml(code.lines.join("\n"))}</code></pre>`);
-  flushOpenBlocks();
-  return blocks.join("");
-}
-
-function parseInlineMarkdown(text) {
-  const placeholders = [];
-  let html = escapeHtml(String(text || ""));
-  html = html.replace(/`([^`]+)`/g, (_, code) => {
-    const token = `\u0000${placeholders.length}\u0000`;
-    placeholders.push(`<code>${code}</code>`);
-    return token;
-  });
-  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
-  html = html.replace(/\*\*([^*\n][\s\S]*?[^*\n])\*\*/g, "<strong>$1</strong>");
-  html = html.replace(/__([^_\n][\s\S]*?[^_\n])__/g, "<strong>$1</strong>");
-  html = html.replace(/(^|[^\w*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
-  html = html.replace(/(^|[^\w_])_([^_\n]+)_/g, "$1<em>$2</em>");
-  html = html.replace(/~~([^~\n]+)~~/g, "<del>$1</del>");
-  html = html.replace(/\n/g, "<br />");
-  for (const [index, replacement] of placeholders.entries()) {
-    html = html.replaceAll(`\u0000${index}\u0000`, replacement);
   }
   return html;
 }
