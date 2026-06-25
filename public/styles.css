@@ -251,6 +251,42 @@ button {
   box-shadow: 0 0 0 3px rgb(37 99 235 / 0.12);
 }
 
+.segmented-control {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-2);
+  padding: 2px;
+}
+
+.segment-button {
+  min-width: 0;
+  height: 30px;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.segment-button:hover {
+  background: rgb(255 255 255 / 0.72);
+}
+
+.segment-button.active {
+  background: #fff;
+  color: var(--accent);
+  box-shadow: var(--shadow);
+}
+
+.segment-button:focus-visible {
+  outline: 2px solid rgb(37 99 235 / 0.45);
+  outline-offset: 2px;
+}
+
 .compact {
   width: min(240px, 100%);
 }
@@ -266,6 +302,48 @@ button {
   font-size: 12px;
   padding: 10px 12px 14px;
   text-align: center;
+}
+
+.session-directory-group {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.session-directory-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  background: rgb(246 247 248 / 0.96);
+  color: var(--text-3);
+  font-size: 12px;
+  padding: 8px 8px 6px;
+}
+
+.session-directory-head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-directory-head span {
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+}
+
+.session-directory-list {
+  display: grid;
+  gap: 2px;
 }
 
 .session-row {
@@ -285,6 +363,11 @@ button {
   background: var(--surface-2);
 }
 
+.session-row:focus-visible {
+  outline: 2px solid rgb(37 99 235 / 0.5);
+  outline-offset: 2px;
+}
+
 .session-row.active {
   background: var(--accent-soft);
   outline: 1px solid rgb(37 99 235 / 0.24);
@@ -296,6 +379,28 @@ button {
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.markdown-inline-title {
+  min-width: 0;
+}
+
+.markdown-inline-title a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.markdown-inline-title a:hover {
+  text-decoration: underline;
+}
+
+.markdown-inline-title code {
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.92em;
+  padding: 0 4px;
 }
 
 .session-meta {
@@ -679,6 +784,11 @@ button:disabled {
 .subagent-mini:hover {
   border-color: var(--accent);
   background: var(--accent-soft);
+}
+
+.subagent-mini:focus-visible {
+  outline: 2px solid rgb(37 99 235 / 0.45);
+  outline-offset: 2px;
 }
 
 .subagent-mini strong,
@@ -1078,6 +1188,11 @@ button:disabled {
   background: var(--accent-soft);
 }
 
+.compact-outline-item:focus-visible {
+  outline: 2px solid rgb(37 99 235 / 0.45);
+  outline-offset: 1px;
+}
+
 .compact-outline-icon {
   display: inline-flex;
   width: 20px;
@@ -1121,6 +1236,10 @@ button:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.compact-outline-copy strong {
+  display: block;
 }
 
 .compact-outline-copy strong {
@@ -1179,6 +1298,7 @@ button:disabled {
 
 .compact-thread-title strong,
 .compact-thread-title em {
+  display: block;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

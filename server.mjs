@@ -1,10 +1,9 @@
 import { createServer } from "node:http";
-import { createReadStream, promises as fs } from "node:fs";
+import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { sendError, sendJson, sendText, serveStaticFile } from "./src/http-response.mjs";
 import { readJsonl, readJsonlLine } from "./src/jsonl-reader.mjs";
 import {
   buildTrace,
@@ -20,7 +19,6 @@ import {
   fileTimeMs,
   findSpawnAgentEvents,
   findSubagentNotifications,
-  firstLine,
   isImportantEvent,
   normalizeSlash,
   renderConversationMarkdown,
@@ -32,6 +30,8 @@ import {
   toIso,
   toMs,
 } from "./src/session-events.mjs";
+import { compactSessionForList, publicThreadMeta, rootSessionsOnly, sessionFromThread, withFileStat } from "./src/session-models.mjs";
+import { createSqliteThreadStore, stripLongPathPrefix } from "./src/sqlite-threads.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
@@ -41,47 +41,11 @@ const sessionIndexPath = path.join(codexHome, "session_index.jsonl");
 const stateDbPath = path.join(codexHome, "state_5.sqlite");
 const maxListSessions = Number(process.env.CODEX_SESSION_RENDERER_LIMIT || 800);
 const port = Number(process.env.PORT || 4789);
-const execFileAsync = promisify(execFile);
-const sqliteCandidates = [
-  process.env.SQLITE3_PATH,
-  "sqlite3",
-  path.join(os.homedir(), "AppData", "Local", "Android", "Sdk", "platform-tools", "sqlite3.exe"),
-].filter(Boolean);
-
-const jsonHeaders = {
-  "content-type": "application/json; charset=utf-8",
-  "cache-control": "no-store",
-};
-
-const textHeaders = {
-  "content-type": "text/plain; charset=utf-8",
-  "cache-control": "no-store",
-};
-
-const staticTypes = new Map([
-  [".html", "text/html; charset=utf-8"],
-  [".js", "text/javascript; charset=utf-8"],
-  [".css", "text/css; charset=utf-8"],
-  [".svg", "image/svg+xml"],
-  [".json", "application/json; charset=utf-8"],
-]);
+const threadStore = createSqliteThreadStore({ stateDbPath, maxListSessions });
 
 let sessionCache = null;
 let sessionCacheTime = 0;
 const sessionDetailCache = new Map();
-
-function send(res, status, headers, body) {
-  res.writeHead(status, headers);
-  res.end(body);
-}
-
-function sendJson(res, status, body) {
-  send(res, status, jsonHeaders, JSON.stringify(body));
-}
-
-function sendError(res, status, message, details = null) {
-  sendJson(res, status, { error: message, details });
-}
 
 async function* walkJsonl(dir) {
   let entries;
@@ -118,133 +82,19 @@ async function readIndex() {
   return byId;
 }
 
-async function readThreadsFromSqlite() {
-  const query = [
-    "select",
-    "id,title,rollout_path,created_at,updated_at,created_at_ms,updated_at_ms,",
-    "source,thread_source,model_provider,cwd,archived,archived_at,",
-    "model,reasoning_effort,agent_nickname,agent_role,first_user_message,preview",
-    "from threads order by updated_at_ms desc limit",
-    String(maxListSessions),
-  ].join(" ");
-
-  try {
-    const stdout = await runSqliteJson(query, 30 * 1024 * 1024);
-    const rows = JSON.parse(stdout || "[]");
-    return threadRowsToMap(rows);
-  } catch {
-    return new Map();
-  }
-}
-
-async function readThreadRowsByIds(ids) {
-  const uniqueIds = [...new Set(ids.filter(Boolean))];
-  if (uniqueIds.length === 0) return new Map();
-  const quotedIds = uniqueIds.map(sqlString).join(",");
-  const query = [
-    "select",
-    "id,title,rollout_path,created_at,updated_at,created_at_ms,updated_at_ms,",
-    "source,thread_source,model_provider,cwd,archived,archived_at,",
-    "model,reasoning_effort,agent_nickname,agent_role,first_user_message,preview",
-    "from threads where id in",
-    `(${quotedIds})`,
-  ].join(" ");
-
-  try {
-    const stdout = await runSqliteJson(query, 10 * 1024 * 1024);
-    return threadRowsToMap(JSON.parse(stdout || "[]"));
-  } catch {
-    return new Map();
-  }
-}
-
-async function readSpawnEdgesFromSqlite() {
-  const query = "select parent_thread_id,child_thread_id,status from thread_spawn_edges";
-  try {
-    const stdout = await runSqliteJson(query, 10 * 1024 * 1024);
-    return JSON.parse(stdout || "[]")
-      .filter((row) => row?.parent_thread_id && row?.child_thread_id)
-      .map((row) => ({
-        parentThreadId: row.parent_thread_id,
-        childThreadId: row.child_thread_id,
-        status: row.status || "unknown",
-      }));
-  } catch {
-    return [];
-  }
-}
-
-async function runSqliteJson(query, maxBuffer) {
-  const dbUrl = `file:${stateDbPath.replaceAll("\\", "/")}?mode=ro`;
-  let lastError = null;
-  for (const sqlite of sqliteCandidates) {
-    try {
-      const { stdout } = await execFileAsync(sqlite, ["-readonly", "-json", dbUrl, query], { maxBuffer });
-      return stdout;
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError || new Error("sqlite3 is not available");
-}
-
-function threadRowsToMap(rows) {
-  return new Map(
-    rows
-      .filter((row) => row?.id && row?.rollout_path)
-      .map((row) => [
-        row.id,
-        {
-          id: row.id,
-          title: row.title || row.first_user_message || row.preview || "未命名会话",
-          path: stripLongPathPrefix(row.rollout_path),
-          cwd: stripLongPathPrefix(row.cwd || ""),
-          createdAt: unixMaybeToIso(row.created_at_ms ?? row.created_at),
-          updatedAt: unixMaybeToIso(row.updated_at_ms ?? row.updated_at),
-          source: row.source || null,
-          threadSource: row.thread_source || null,
-          modelProvider: row.model_provider || null,
-          archived: row.archived === 1,
-          archivedAt: unixMaybeToIso(row.archived_at),
-          model: row.model || null,
-          reasoningEffort: row.reasoning_effort || null,
-          agentNickname: row.agent_nickname || null,
-          agentRole: row.agent_role || null,
-          preview: row.preview || row.first_user_message || null,
-        },
-      ]),
-  );
-}
-
-function sqlString(value) {
-  return `'${String(value).replaceAll("'", "''")}'`;
-}
-
-function stripLongPathPrefix(value) {
-  if (!value) return value;
-  return String(value).replace(/^\\\\\?\\/, "");
-}
-
-function unixMaybeToIso(value) {
-  if (value == null || value === "") return null;
-  if (typeof value === "string" && value.includes("T")) return toIso(value);
-  const number = Number(value);
-  if (!Number.isFinite(number)) return null;
-  const millis = number > 10_000_000_000 ? number : number * 1000;
-  return toIso(millis);
-}
-
 async function listSessions() {
   const now = Date.now();
   if (sessionCache && now - sessionCacheTime < 3000) return sessionCache;
 
-  const threads = await readThreadsFromSqlite();
+  const threads = await threadStore.readThreads();
   if (threads.size > 0) {
+    const spawnEdges = await threadStore.readSpawnEdges();
     const sessions = [...threads.values()]
-      .map((thread) => sessionFromThread(thread))
+      .map((thread) => sessionFromThread(thread, codexHome))
       .filter((session) => session.path);
-    sessions.sort((a, b) => new Date(b.updatedAt || b.fileModifiedAt || 0) - new Date(a.updatedAt || a.fileModifiedAt || 0));
-    sessionCache = sessions.slice(0, maxListSessions);
+    const rootSessions = rootSessionsOnly(sessions, spawnEdges);
+    rootSessions.sort((a, b) => new Date(b.updatedAt || b.fileModifiedAt || 0) - new Date(a.updatedAt || a.fileModifiedAt || 0));
+    sessionCache = rootSessions.slice(0, maxListSessions);
     sessionCacheTime = now;
     return sessionCache;
   }
@@ -310,8 +160,8 @@ async function getSessionById(id) {
   const cached = sessionCache?.find((session) => session.id === id);
   if (cached) return cached;
 
-  const thread = (await readThreadRowsByIds([id])).get(id);
-  if (thread) return sessionFromThread(thread);
+  const thread = (await threadStore.readThreadRowsByIds([id])).get(id);
+  if (thread) return sessionFromThread(thread, codexHome);
 
   const sessions = await listSessions();
   const listed = sessions.find((session) => session.id === id);
@@ -527,54 +377,6 @@ async function buildCompactChildNode(child, context) {
   }
 }
 
-function sessionFromThread(thread) {
-  const filePath = stripLongPathPrefix(thread.path || "");
-  return {
-    id: thread.id,
-    title: thread.title || "未命名会话",
-    cwd: thread.cwd || null,
-    originator: null,
-    model: thread.model || null,
-    reasoningEffort: thread.reasoningEffort || null,
-    source: thread.source || null,
-    threadSource: thread.threadSource || null,
-    modelProvider: thread.modelProvider || null,
-    archived: thread.archived ?? false,
-    archivedAt: thread.archivedAt || null,
-    agentNickname: thread.agentNickname || null,
-    agentRole: thread.agentRole || null,
-    preview: thread.preview || null,
-    path: filePath || null,
-    relativePath: filePath ? normalizeSlash(path.relative(codexHome, filePath)) : null,
-    startedAt: thread.createdAt || (filePath ? sessionStartedFromFile(filePath) : null),
-    updatedAt: thread.updatedAt || null,
-    sizeBytes: null,
-    fileModifiedAt: null,
-  };
-}
-
-function compactSessionForList(session) {
-  return {
-    id: session.id,
-    title: firstLine(session.title || "未命名会话", 140),
-    cwd: session.cwd || null,
-    model: session.model || null,
-    reasoningEffort: session.reasoningEffort || null,
-    source: session.source || null,
-    threadSource: session.threadSource || null,
-    modelProvider: session.modelProvider || null,
-    archived: session.archived ?? false,
-    agentNickname: session.agentNickname || null,
-    agentRole: session.agentRole || null,
-    preview: firstLine(session.preview || "", 120) || null,
-    relativePath: session.relativePath || null,
-    startedAt: session.startedAt || null,
-    updatedAt: session.updatedAt || null,
-    fileModifiedAt: session.fileModifiedAt || null,
-    sizeBytes: session.sizeBytes || null,
-  };
-}
-
 async function sessionFromFilePath(filePath) {
   let stat = null;
   try {
@@ -612,16 +414,6 @@ async function sessionFromFilePath(filePath) {
   );
 }
 
-function withFileStat(session, stat) {
-  if (!stat) return session;
-  return {
-    ...session,
-    sizeBytes: stat.size,
-    fileModifiedAt: toIso(stat.mtime),
-    updatedAt: session.updatedAt || toIso(stat.mtime),
-  };
-}
-
 async function getSessionMarkdown(id) {
   const session = await getSessionById(id);
   if (!session) return null;
@@ -630,7 +422,7 @@ async function getSessionMarkdown(id) {
 }
 
 async function getThreadHierarchy(threadId) {
-  const edges = await readSpawnEdgesFromSqlite();
+  const edges = await threadStore.readSpawnEdges();
   const directEdges = edges.filter((edge) => edge.parentThreadId === threadId);
   const parentEdges = edges.filter((edge) => edge.childThreadId === threadId);
   const primaryParentEdge = parentEdges[0] || null;
@@ -640,57 +432,28 @@ async function getThreadHierarchy(threadId) {
   const childIds = directEdges.map((edge) => edge.childThreadId);
   const parentIds = parentEdges.map((edge) => edge.parentThreadId);
   const siblingIds = siblingEdges.map((edge) => edge.childThreadId);
-  const threads = await readThreadRowsByIds([threadId, ...childIds, ...parentIds, ...siblingIds]);
+  const threads = await threadStore.readThreadRowsByIds([threadId, ...childIds, ...parentIds, ...siblingIds]);
   return {
     parent: primaryParentEdge
       ? {
           ...primaryParentEdge,
-          thread: publicThreadMeta(threads.get(primaryParentEdge.parentThreadId)),
+          thread: publicThreadMeta(threads.get(primaryParentEdge.parentThreadId), codexHome),
         }
       : null,
     children: directEdges.map((edge) => ({
       ...edge,
-      thread: publicThreadMeta(threads.get(edge.childThreadId)),
+      thread: publicThreadMeta(threads.get(edge.childThreadId), codexHome),
     })),
     siblings: siblingEdges.map((edge) => ({
       ...edge,
-      thread: publicThreadMeta(threads.get(edge.childThreadId)),
+      thread: publicThreadMeta(threads.get(edge.childThreadId), codexHome),
       active: edge.childThreadId === threadId,
     })),
   };
 }
 
-function publicThreadMeta(thread) {
-  if (!thread) return null;
-  return {
-    id: thread.id,
-    title: thread.title,
-    cwd: thread.cwd || null,
-    model: thread.model || null,
-    reasoningEffort: thread.reasoningEffort || null,
-    agentNickname: thread.agentNickname || null,
-    agentRole: thread.agentRole || null,
-    updatedAt: thread.updatedAt || null,
-    path: thread.path || null,
-    relativePath: thread.path ? normalizeSlash(path.relative(codexHome, thread.path)) : null,
-  };
-}
-
 async function serveStatic(req, res, pathname) {
-  const relative = pathname === "/" ? "index.html" : decodeURIComponent(pathname.slice(1));
-  const safeRelative = path.normalize(relative).replace(/^(\.\.[/\\])+/, "");
-  const filePath = path.join(publicDir, safeRelative);
-  if (!filePath.startsWith(publicDir)) return sendError(res, 403, "Forbidden");
-  let stat;
-  try {
-    stat = await fs.stat(filePath);
-  } catch {
-    return sendError(res, 404, "Not found");
-  }
-  if (!stat.isFile()) return sendError(res, 404, "Not found");
-  const type = staticTypes.get(path.extname(filePath).toLowerCase()) || "application/octet-stream";
-  res.writeHead(200, { "content-type": type, "cache-control": "no-store" });
-  createReadStream(filePath).pipe(res);
+  return serveStaticFile(res, publicDir, pathname);
 }
 
 async function route(req, res) {
@@ -714,7 +477,7 @@ async function route(req, res) {
     if (markdownMatch) {
       const markdown = await getSessionMarkdown(decodeURIComponent(markdownMatch[1]));
       if (markdown == null) return sendError(res, 404, "Session not found");
-      return send(res, 200, textHeaders, markdown);
+      return sendText(res, 200, markdown);
     }
     const eventMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/events\/(\d+)$/);
     if (eventMatch) {

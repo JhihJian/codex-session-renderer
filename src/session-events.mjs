@@ -1,4 +1,49 @@
-import path from "node:path";
+import {
+  classifyEvent,
+  extractTitleFromEvents,
+  isImportantEvent,
+  summarizeEventPreview,
+  summarizeEventTitle,
+  summarizeSessionEvents,
+} from "./event-summary.mjs";
+import {
+  eventTime,
+  extractContentText,
+  fileTimeMs,
+  firstLine,
+  normalizeSlash,
+  normalizeText,
+  sessionIdFromFile,
+  sessionStartedFromFile,
+  toIso,
+} from "./text-utils.mjs";
+import {
+  isStandaloneToolEvent,
+  isToolCallOutput,
+  isToolCallStart,
+  mergeToolOutput,
+  toolArgumentsFromPayload,
+  toolNameFromPayload,
+  toolOutputFromPayload,
+} from "./tool-events.mjs";
+export { renderConversationMarkdown } from "./markdown-export.mjs";
+export {
+  classifyEvent,
+  eventTime,
+  extractContentText,
+  extractTitleFromEvents,
+  fileTimeMs,
+  firstLine,
+  isImportantEvent,
+  normalizeSlash,
+  normalizeText,
+  sessionIdFromFile,
+  sessionStartedFromFile,
+  summarizeEventPreview,
+  summarizeEventTitle,
+  summarizeSessionEvents,
+  toIso,
+};
 
 const previewLimits = {
   message: 1800,
@@ -10,114 +55,6 @@ const previewLimits = {
   traceOutput: 160,
   compactMessage: 2400,
 };
-
-function normalizeSlash(value) {
-  return value.replaceAll("\\", "/");
-}
-
-function toIso(value) {
-  if (!value) return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
-}
-
-function fileTimeMs(file) {
-  return file?.mtimeMs ?? 0;
-}
-
-function eventTime(event) {
-  return toIso(event.timestamp) || toIso(event.payload?.timestamp) || null;
-}
-
-function sessionIdFromFile(filePath) {
-  const name = path.basename(filePath, ".jsonl");
-  const match = name.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i);
-  return match?.[1] ?? name;
-}
-
-function sessionStartedFromFile(filePath) {
-  const name = path.basename(filePath, ".jsonl");
-  const match = name.match(/^rollout-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})-/);
-  if (!match) return null;
-  return `${match[1].replace(/T(\d{2})-(\d{2})-(\d{2})/, "T$1:$2:$3")}.000Z`;
-}
-
-function extractTitleFromEvents(events, fallback) {
-  for (const event of events) {
-    if (event.type === "event_msg" && event.payload?.type === "user_message") {
-      const message = String(event.payload.message ?? "").trim();
-      if (message) return firstLine(message, 90);
-    }
-    if (event.type === "response_item" && event.payload?.role === "user") {
-      const text = extractContentText(event.payload.content).trim();
-      if (text) return firstLine(text, 90);
-    }
-  }
-  return fallback || "未命名会话";
-}
-
-function firstLine(text, max = 120) {
-  const normalized = String(text).replace(/\s+/g, " ").trim();
-  return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
-}
-
-function extractContentText(content) {
-  if (content == null) return "";
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return JSON.stringify(content);
-  return content
-    .map((part) => {
-      if (typeof part === "string") return part;
-      if (part?.text != null) return part.text;
-      if (part?.type === "input_text" || part?.type === "output_text") return part.text ?? "";
-      if (part?.image_url) return `[image] ${part.image_url}`;
-      return "";
-    })
-    .filter(Boolean)
-    .join("\n\n");
-}
-
-function classifyEvent(event) {
-  const payload = event.payload ?? {};
-  if (event.type === "session_meta") return "meta";
-  if (event.type === "turn_context") return "context";
-  if (event.type === "event_msg") return payload.type || "event";
-  if (event.type === "response_item") return payload.type || "response";
-  return event.type || "unknown";
-}
-
-function isImportantEvent(event) {
-  const kind = classifyEvent(event);
-  return [
-    "session_meta",
-    "user_message",
-    "agent_message",
-    "message",
-    "function_call",
-    "function_call_output",
-    "custom_tool_call",
-    "custom_tool_call_output",
-    "mcp_tool_call_end",
-    "patch_apply_end",
-    "tool_search_call",
-    "tool_search_output",
-    "task_started",
-    "task_complete",
-    "task_failed",
-  ].includes(kind);
-}
-
-function summarizeSessionEvents(events) {
-  const counts = {};
-  const roles = {};
-  for (const event of events) {
-    const kind = classifyEvent(event);
-    counts[kind] = (counts[kind] ?? 0) + 1;
-    const role = event.payload?.role;
-    if (role) roles[role] = (roles[role] ?? 0) + 1;
-  }
-  return { counts, roles };
-}
 
 function compactTurnsForClient(turns) {
   return turns.map((turn, turnIndex) => ({
@@ -766,7 +703,9 @@ function findSpawnAgentEvents(events, childById) {
 function findSubagentNotifications(events, childById) {
   const byChild = new Map();
   for (const event of events) {
-    const text = event.preview || JSON.stringify(event.payload || {});
+    const preview = String(event.preview || "");
+    const payloadText = JSON.stringify(event.payload || {});
+    const text = `${preview}\n${payloadText}`;
     if (!/subagent_notification|agent_path/i.test(text)) continue;
     for (const childId of childById.keys()) {
       if (text.includes(childId)) byChild.set(childId, event);
@@ -822,40 +761,6 @@ function shortPathServer(value) {
     .filter(Boolean);
   if (parts.length <= 3) return String(value || "");
   return `${parts[0]}/${parts[1]}/…/${parts.at(-1)}`;
-}
-
-function summarizeEventTitle(event) {
-  const payload = event.payload ?? {};
-  if (event.type === "session_meta") return "Session metadata";
-  if (event.type === "turn_context") return `Turn context ${payload.turn_id ?? ""}`.trim();
-  if (event.type === "event_msg") {
-    if (isToolCallStart(payload.type)) return `Call ${toolNameFromPayload(payload)}`;
-    if (isToolCallOutput(payload.type)) return `Output ${toolNameFromPayload(payload) || payload.call_id || ""}`.trim();
-    return payload.type ?? "Event";
-  }
-  if (event.type === "response_item") {
-    if (payload.type === "message") return `${payload.role || "message"} message`;
-    if (isToolCallStart(payload.type)) return `Call ${toolNameFromPayload(payload)}`;
-    if (isToolCallOutput(payload.type)) return `Output ${payload.call_id || ""}`.trim();
-    return payload.type || "Response item";
-  }
-  if (isToolCallStart(event.type)) return `Call ${toolNameFromPayload(payload)}`;
-  if (isToolCallOutput(event.type)) return `Output ${toolNameFromPayload(payload) || payload.call_id || ""}`.trim();
-  return event.type || "Event";
-}
-
-function summarizeEventPreview(event) {
-  const payload = event.payload ?? {};
-  if (payload.message) return firstLine(payload.message, 180);
-  if (payload.last_agent_message) return firstLine(payload.last_agent_message, 180);
-  if (payload.content) return firstLine(extractContentText(payload.content), 180);
-  if (payload.arguments) return firstLine(payload.arguments, 180);
-  if (payload.input) return firstLine(payload.input, 180);
-  if (payload.output) return firstLine(payload.output, 180);
-  if (payload.stdout) return firstLine(payload.stdout, 180);
-  if (payload.invocation) return firstLine(`${payload.invocation.server}.${payload.invocation.tool}`, 180);
-  if (payload.summary?.length) return firstLine(JSON.stringify(payload.summary), 180);
-  return "";
 }
 
 function buildTurns(events) {
@@ -1040,28 +945,6 @@ function isDuplicateUserMessage(turn, text) {
   return turn.items.some((item) => item.type === "user-message" && normalizeText(item.text) === normalized);
 }
 
-function normalizeText(value) {
-  return String(value ?? "").replace(/\s+/g, " ").trim();
-}
-
-function isToolCallStart(type) {
-  return type === "function_call" || type === "tool_search_call" || type === "custom_tool_call";
-}
-
-function isToolCallOutput(type) {
-  return (
-    type === "function_call_output" ||
-    type === "tool_search_output" ||
-    type === "custom_tool_call_output" ||
-    type === "mcp_tool_call_end" ||
-    type === "patch_apply_end"
-  );
-}
-
-function isStandaloneToolEvent(type) {
-  return isToolCallStart(type) || isToolCallOutput(type);
-}
-
 function registerToolCall(turn, activeCall, event) {
   const payload = event.payload ?? {};
   const callId = payload.call_id || `item-${turn.items.length}`;
@@ -1103,158 +986,17 @@ function registerToolOutput(turn, activeCall, event) {
   });
 }
 
-function toolNameFromPayload(payload) {
-  if (payload.name) return payload.name;
-  if (payload.execution) return payload.execution;
-  if (payload.invocation?.server || payload.invocation?.tool) {
-    return [payload.invocation.server, payload.invocation.tool].filter(Boolean).join(".");
-  }
-  if (payload.type === "patch_apply_end") return "apply_patch";
-  return payload.type || "tool";
-}
-
-function toolArgumentsFromPayload(payload) {
-  if (payload.arguments != null) return payload.arguments;
-  if (payload.arguments_json != null) return payload.arguments_json;
-  if (payload.input != null) return payload.input;
-  if (payload.invocation?.arguments != null) return JSON.stringify(payload.invocation.arguments, null, 2);
-  if (payload.changes != null) return JSON.stringify({ changes: payload.changes }, null, 2);
-  return null;
-}
-
-function toolOutputFromPayload(payload) {
-  if (payload.output != null) return payload.output;
-  if (payload.result != null) return renderMcpResult(payload.result);
-  if (payload.stdout || payload.stderr) return [payload.stdout, payload.stderr].filter(Boolean).join("\n");
-  if (payload.success != null) return payload.success ? "Success" : "Failed";
-  return null;
-}
-
-function renderMcpResult(result) {
-  if (result?.Ok?.content && Array.isArray(result.Ok.content)) {
-    return result.Ok.content
-      .map((part) => part?.text ?? JSON.stringify(part))
-      .filter(Boolean)
-      .join("\n\n");
-  }
-  if (result?.Err) return JSON.stringify(result.Err, null, 2);
-  return JSON.stringify(result ?? null, null, 2);
-}
-
-function mergeToolOutput(previous, next) {
-  if (next == null || next === "") return previous ?? null;
-  if (previous == null || previous === "") return next;
-  const left = String(previous).trim();
-  const right = String(next).trim();
-  if (!right || left === right || left.includes(right)) return previous;
-  if (right.includes(left)) return next;
-  return `${left}\n\n${right}`;
-}
-
-function renderConversationMarkdown(session, turns) {
-  const lines = [`# ${escapeMd(session.title || "Codex session")}`, ""];
-  lines.push(`- 会话 ID: \`${session.id}\``);
-  if (session.cwd) lines.push(`- 工作目录: \`${session.cwd}\``);
-  if (session.startedAt) lines.push(`- 开始时间: ${session.startedAt}`);
-  if (session.updatedAt) lines.push(`- 更新时间: ${session.updatedAt}`);
-  lines.push("");
-
-  for (const [index, turn] of turns.entries()) {
-    lines.push(`## Turn ${index + 1}`);
-    if (turn.startedAt || turn.completedAt || turn.status) {
-      const meta = [turn.status, turn.startedAt, turn.completedAt].filter(Boolean).join(" · ");
-      lines.push("");
-      lines.push(`_${meta}_`);
-    }
-    for (const item of turn.items) {
-      lines.push("");
-      lines.push(`### ${itemTitle(item)}`);
-      lines.push("");
-      lines.push(renderItemMarkdown(item));
-    }
-    lines.push("");
-  }
-  return lines.join("\n").replace(/\n{4,}/g, "\n\n\n").trimEnd() + "\n";
-}
-
-function itemTitle(item) {
-  switch (item.type) {
-    case "user-message":
-      return "用户";
-    case "assistant-message":
-      return item.phase === "final" ? "助手最终回复" : "助手";
-    case "reasoning":
-      return "推理摘要";
-    case "tool-call":
-      return `工具调用: ${item.name || item.callId || "tool"}`;
-    case "tool-output":
-      return "工具输出";
-    case "token-count":
-      return "Token 统计";
-    default:
-      return item.eventType || item.responseType || item.type;
-  }
-}
-
-function renderItemMarkdown(item) {
-  if (item.type === "user-message" || item.type === "assistant-message" || item.type === "reasoning") {
-    return String(item.text || (item.encrypted ? "_推理内容已加密存储_" : "")).trim() || "_无文本内容_";
-  }
-  if (item.type === "tool-call") {
-    const parts = [];
-    if (item.arguments != null) parts.push(fenced("json", prettyMaybeJson(item.arguments)));
-    if (item.output != null) parts.push(fenced("text", String(item.output)));
-    return parts.join("\n\n") || "_无参数_";
-  }
-  if (item.type === "tool-output") return fenced("text", String(item.output ?? ""));
-  return fenced("json", JSON.stringify(item.payload ?? item.info ?? item, null, 2));
-}
-
-function fenced(lang, body) {
-  const text = String(body ?? "").replace(/\s+$/g, "");
-  return `\`\`\`${lang}\n${text}\n\`\`\``;
-}
-
-function prettyMaybeJson(value) {
-  if (typeof value !== "string") return JSON.stringify(value, null, 2);
-  try {
-    return JSON.stringify(JSON.parse(value), null, 2);
-  } catch {
-    return value;
-  }
-}
-
-function escapeMd(value) {
-  return String(value).replaceAll("#", "\\#").trim();
-}
-
 export {
   buildTrace,
   buildTurns,
-  classifyEvent,
   compactChildBase,
   compactChildPlaceholder,
   compactCompactSession,
   compactTurnsForClient,
   compactTurnForView,
-  eventTime,
-  extractContentText,
-  extractTitleFromEvents,
-  fileTimeMs,
   findSpawnAgentEvents,
   findSubagentNotifications,
-  firstLine,
-  isImportantEvent,
   limitText,
-  normalizeSlash,
-  normalizeText,
   parseJsonObject,
-  renderConversationMarkdown,
-  sessionIdFromFile,
-  sessionStartedFromFile,
-  summarizeEventPreview,
-  summarizeEventTitle,
-  summarizeSessionEvents,
-  toIso,
   toMs,
 };

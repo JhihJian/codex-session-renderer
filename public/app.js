@@ -8,9 +8,28 @@ const state = {
   expandedTraceNodeIds: new Set(),
   rawEventCache: new Map(),
   viewMode: "compact",
+  sessionTimeFilter: "realtime",
   visibleEvents: 40,
   visibleThreadItems: 140,
 };
+
+const {
+  compactNumber,
+  cssEscape,
+  escapeAttr,
+  escapeHtml,
+  escapeRegExp,
+  firstLine,
+  formatBytes,
+  formatDate,
+  formatShortDate,
+  highlight,
+  highlightHtmlText,
+  prettyMaybeJson,
+  sanitizeFileName,
+  sessionTimeBucket,
+  shortPath,
+} = window.AppFormat;
 
 const markdownCache = new Map();
 const markdownCacheLimit = 700;
@@ -41,6 +60,7 @@ const els = {
   sessionCount: document.getElementById("sessionCount"),
   sessionList: document.getElementById("sessionList"),
   sessionSearch: document.getElementById("sessionSearch"),
+  sessionTimeFilter: document.getElementById("sessionTimeFilter"),
   sessionTypeFilter: document.getElementById("sessionTypeFilter"),
   itemSearch: document.getElementById("itemSearch"),
   itemTypeFilter: document.getElementById("itemTypeFilter"),
@@ -81,6 +101,16 @@ function init() {
 function bindEvents() {
   els.refreshButton.addEventListener("click", () => loadSessions({ keepSelection: true }));
   els.sessionSearch.addEventListener("input", renderSessionList);
+  els.sessionTimeFilter.querySelectorAll("[data-session-time]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.sessionTimeFilter = button.dataset.sessionTime || "realtime";
+      renderSessionList();
+      const nextId = state.filteredSessions[0]?.id;
+      if (nextId && !state.filteredSessions.some((session) => session.id === state.selectedSessionId)) {
+        selectSession(nextId);
+      }
+    });
+  });
   els.sessionTypeFilter.addEventListener("change", renderSessionList);
   els.itemSearch.addEventListener("input", () => {
     state.visibleThreadItems = 140;
@@ -132,9 +162,9 @@ async function loadSessions({ keepSelection = false } = {}) {
     state.sessions = data.sessions || [];
     renderSessionList();
     const nextId =
-      keepSelection && state.sessions.some((session) => session.id === state.selectedSessionId)
+      keepSelection && state.filteredSessions.some((session) => session.id === state.selectedSessionId)
         ? state.selectedSessionId
-        : state.sessions[0]?.id;
+        : state.filteredSessions[0]?.id || state.sessions[0]?.id;
     if (nextId) await selectSession(nextId);
   } catch (error) {
     showToast(`加载会话失败：${error.message}`);
@@ -201,11 +231,13 @@ function primeTraceExpansion(detail) {
 function renderSessionList() {
   const query = els.sessionSearch.value.trim().toLowerCase();
   const filter = els.sessionTypeFilter.value;
+  syncSessionTimeFilter();
   const sessions = state.sessions.filter((session) => {
     const haystack = [session.title, session.cwd, session.relativePath, session.model, session.agentNickname]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
+    if (sessionTimeBucket(session) !== state.sessionTimeFilter) return false;
     if (query && !haystack.includes(query)) return false;
     if (filter === "project" && !session.cwd) return false;
     if (filter === "projectless" && session.cwd) return false;
@@ -224,30 +256,92 @@ function renderSessionList() {
     sessions.length > renderedSessions.length
       ? `<div class="list-overflow-note">已显示前 ${renderedSessions.length} 条，继续输入关键词可缩小范围。</div>`
       : "";
-  els.sessionList.innerHTML =
-    renderedSessions
-    .map((session) => {
-      const active = session.id === state.selectedSessionId ? " active" : "";
-      const cwd = session.cwd ? shortPath(session.cwd) : "Projectless";
-      const agent = session.agentNickname ? `${session.agentNickname}/${session.agentRole || "agent"}` : "";
-      return `
-        <button class="session-row${active}" type="button" data-session-id="${escapeAttr(session.id)}">
-          <span class="session-title">${highlight(escapeHtml(session.title || "未命名会话"), query)}</span>
-          <span class="session-date">${formatShortDate(session.updatedAt || session.fileModifiedAt)}</span>
-          <span class="session-meta">${escapeHtml([agent, cwd, session.model || session.modelProvider || "unknown"].filter(Boolean).join(" · "))}</span>
-        </button>
-      `;
-    })
-      .join("") + overflowHtml;
-  els.sessionList.querySelectorAll("[data-session-id]").forEach((button) => {
-    button.addEventListener("click", () => selectSession(button.dataset.sessionId));
+  els.sessionList.innerHTML = renderSessionDirectoryGroups(renderedSessions, query) + overflowHtml;
+  els.sessionList.querySelectorAll("[data-session-id]").forEach((row) => {
+    row.addEventListener("click", (event) => {
+      if (event.target.closest("a")) return;
+      selectSession(row.dataset.sessionId);
+    });
+    row.addEventListener("keydown", (event) => {
+      if (event.target.closest("a")) return;
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      selectSession(row.dataset.sessionId);
+    });
   });
+}
+
+function syncSessionTimeFilter() {
+  els.sessionTimeFilter.querySelectorAll("[data-session-time]").forEach((button) => {
+    const active = button.dataset.sessionTime === state.sessionTimeFilter;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  });
+}
+
+function renderSessionDirectoryGroups(sessions, query) {
+  return groupSessionsByDirectory(sessions)
+    .map(
+      (group) => `
+        <section class="session-directory-group">
+          <div class="session-directory-head">
+            <strong>${escapeHtml(group.label)}</strong>
+            <span>${group.sessions.length}</span>
+          </div>
+          <div class="session-directory-list">
+            ${group.sessions.map((session) => renderSessionRow(session, query)).join("")}
+          </div>
+        </section>
+      `,
+    )
+    .join("");
+}
+
+function groupSessionsByDirectory(sessions) {
+  const groups = new Map();
+  for (const session of sessions) {
+    const key = session.cwd || "__projectless__";
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        label: session.cwd ? shortPath(session.cwd) : "Projectless",
+        latestTime: 0,
+        sessions: [],
+      });
+    }
+    const group = groups.get(key);
+    group.sessions.push(session);
+    group.latestTime = Math.max(group.latestTime, sessionListTimeMs(session));
+  }
+  return [...groups.values()].sort((a, b) => b.latestTime - a.latestTime || a.label.localeCompare(b.label, "zh-CN"));
+}
+
+function renderSessionRow(session, query) {
+  const active = session.id === state.selectedSessionId ? " active" : "";
+  const cwd = session.cwd ? shortPath(session.cwd) : "Projectless";
+  const agent = session.agentNickname ? `${session.agentNickname}/${session.agentRole || "agent"}` : "";
+  return `
+    <div class="session-row${active}" role="button" tabindex="0" data-session-id="${escapeAttr(session.id)}">
+      <span class="session-title markdown-inline-title">${renderMarkdownTitle(session.title || "未命名会话", query)}</span>
+      <span class="session-date">${formatShortDate(session.updatedAt || session.fileModifiedAt)}</span>
+      <span class="session-meta">${escapeHtml([agent, cwd, session.model || session.modelProvider || "unknown"].filter(Boolean).join(" · "))}</span>
+    </div>
+  `;
+}
+
+function sessionListTimeMs(session) {
+  for (const value of [session.updatedAt, session.fileModifiedAt, session.startedAt]) {
+    if (!value) continue;
+    const time = new Date(value).getTime();
+    if (Number.isFinite(time)) return time;
+  }
+  return 0;
 }
 
 function renderThreadHeader() {
   const session = state.detail?.session;
   if (!session) return;
-  els.sessionTitle.textContent = session.title || "未命名会话";
+  els.sessionTitle.innerHTML = renderMarkdownTitle(session.title || "未命名会话");
   const parts = [session.model, session.reasoningEffort, formatDate(session.updatedAt)].filter(Boolean);
   els.sessionMetaLabel.textContent = parts.join(" · ") || session.id;
 }
@@ -356,8 +450,17 @@ function renderCompact() {
   els.compactContent.querySelectorAll("[data-compact-session-id]").forEach((button) => {
     button.addEventListener("click", () => selectSession(button.dataset.compactSessionId));
   });
-  els.compactContent.querySelectorAll("[data-compact-nav-target]").forEach((button) => {
-    button.addEventListener("click", () => scrollToCompactTarget(button.dataset.compactNavTarget));
+  els.compactContent.querySelectorAll("[data-compact-nav-target]").forEach((row) => {
+    row.addEventListener("click", (event) => {
+      if (event.target.closest("a")) return;
+      scrollToCompactTarget(row.dataset.compactNavTarget);
+    });
+    row.addEventListener("keydown", (event) => {
+      if (event.target.closest("a")) return;
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      scrollToCompactTarget(row.dataset.compactNavTarget);
+    });
   });
 }
 
@@ -528,14 +631,14 @@ function renderCompactExecutionDirectory(node, context) {
       : "";
   return `
     <div class="compact-outline-group">
-      <button class="compact-outline-item thread" type="button" style="--depth:${depth}" data-compact-nav-target="${escapeAttr(targetId)}">
+      <div class="compact-outline-item thread" role="button" tabindex="0" style="--depth:${depth}" data-compact-nav-target="${escapeAttr(targetId)}">
         <span class="compact-outline-indent" aria-hidden="true"></span>
         <span class="compact-outline-icon">${context.root ? "R" : "A"}</span>
         <span class="compact-outline-copy">
-          <strong>${highlight(escapeHtml(firstLine(name, 80)), context.query)}</strong>
+          <strong class="markdown-inline-title">${renderMarkdownTitle(name, context.query)}</strong>
           <em>${escapeHtml([session.agentRole, `${(node.turns || []).length} turns`].filter(Boolean).join(" · "))}</em>
         </span>
-      </button>
+      </div>
       ${repeatedNotice}
       ${repeated ? "" : turns}
       ${unanchoredTitle}
@@ -572,14 +675,14 @@ function renderCompactOutlineTurn(turn, context) {
           .join("");
   return `
     <div class="compact-outline-group">
-      <button class="compact-outline-item turn" type="button" style="--depth:${depth}" data-compact-nav-target="${escapeAttr(targetId)}">
+      <div class="compact-outline-item turn" role="button" tabindex="0" style="--depth:${depth}" data-compact-nav-target="${escapeAttr(targetId)}">
         <span class="compact-outline-indent" aria-hidden="true"></span>
         <span class="compact-outline-icon">T</span>
         <span class="compact-outline-copy">
           <strong>Turn ${escapeHtml(String(turn.turnNumber || ""))}</strong>
           <em>${highlight(escapeHtml(compactTurnOutlineTitle(turn)), context.query)}</em>
         </span>
-      </button>
+      </div>
       ${children}
     </div>
   `;
@@ -665,7 +768,7 @@ function renderCompactThread(node, context) {
         <span class="compact-thread-line" aria-hidden="true"></span>
         <span class="compact-agent-mark">${context.root ? "R" : "A"}</span>
         <span class="compact-thread-title">
-          <strong>${highlight(escapeHtml(name), context.query)}</strong>
+          <strong class="markdown-inline-title">${renderMarkdownTitle(name, context.query)}</strong>
           <em>${highlight(escapeHtml(meta || session.id || ""), context.query)}</em>
         </span>
         ${openButton}
@@ -745,7 +848,7 @@ function renderTrace() {
       <div class="trace-head">
         <div>
           <p class="eyebrow">Audit Trace</p>
-          <h3>${escapeHtml(detail.session.title || "Root Thread")}</h3>
+          <h3 class="markdown-inline-title">${renderMarkdownTitle(detail.session.title || "Root Thread")}</h3>
         </div>
         <div class="trace-legend">
           <span><i class="legend-dot agent"></i>子代理</span>
@@ -959,18 +1062,27 @@ function renderDetails() {
     ? `<div class="subagent-mini-list">${childThreads
         .map((child) => {
           const thread = child.thread || {};
-          return `<button class="subagent-mini" type="button" data-subagent-session-id="${escapeAttr(child.childThreadId)}">
+          return `<div class="subagent-mini" role="button" tabindex="0" data-subagent-session-id="${escapeAttr(child.childThreadId)}">
             <strong>${escapeHtml(thread.agentNickname || child.childThreadId)}</strong>
-            <span>${escapeHtml([thread.agentRole, thread.title].filter(Boolean).join(" · "))}</span>
-          </button>`;
+            <span>${renderSubagentMiniTitle(thread)}</span>
+          </div>`;
         })
         .join("")}</div>`
     : "";
   els.sessionDetails.innerHTML = `<div class="details-grid">${rows
-    .map(([key, value]) => `<div class="detail-row"><strong>${escapeHtml(key)}</strong><span>${escapeHtml(value || "n/a")}</span></div>`)
+    .map(([key, value]) => `<div class="detail-row"><strong>${escapeHtml(key)}</strong><span>${renderDetailValue(key, value)}</span></div>`)
     .join("")}</div>${childHtml}`;
-  els.sessionDetails.querySelectorAll("[data-subagent-session-id]").forEach((button) => {
-    button.addEventListener("click", () => selectSession(button.dataset.subagentSessionId));
+  els.sessionDetails.querySelectorAll("[data-subagent-session-id]").forEach((row) => {
+    row.addEventListener("click", (event) => {
+      if (event.target.closest("a")) return;
+      selectSession(row.dataset.subagentSessionId);
+    });
+    row.addEventListener("keydown", (event) => {
+      if (event.target.closest("a")) return;
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      selectSession(row.dataset.subagentSessionId);
+    });
   });
 }
 
@@ -1265,120 +1377,54 @@ function emptyState(title, subtitle) {
   return `<div class="empty-state"><div><strong>${escapeHtml(title)}</strong><br /><span>${escapeHtml(subtitle)}</span></div></div>`;
 }
 
-function firstLine(text, max = 120) {
-  const normalized = String(text || "").replace(/\s+/g, " ").trim();
-  return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
-}
-
 function renderMarkdownMessage(text, query) {
   const html = markdownToHtml(text);
   return `<div class="message-text markdown-body">${highlightHtmlText(html, query)}</div>`;
 }
 
+function renderMarkdownTitle(text, query = "") {
+  const html = markdownInlineToHtml(text);
+  return highlightHtmlText(html, query);
+}
+
+function renderDetailValue(key, value) {
+  const text = value || "n/a";
+  if (key === "标题") return `<span class="markdown-inline-title">${renderMarkdownTitle(text)}</span>`;
+  return escapeHtml(text);
+}
+
+function renderSubagentMiniTitle(thread) {
+  const parts = [];
+  if (thread.agentRole) parts.push(escapeHtml(thread.agentRole));
+  if (thread.title) parts.push(`<span class="markdown-inline-title">${renderMarkdownTitle(thread.title)}</span>`);
+  return parts.join(" · ") || "";
+}
+
 function markdownToHtml(value) {
   const text = String(value || "");
-  const cached = markdownCache.get(text);
+  const key = `block:${text}`;
+  const cached = markdownCache.get(key);
   if (cached != null) return cached;
   const html = markdownRenderer ? markdownRenderer.render(text) : `<p>${escapeHtml(text).replace(/\n/g, "<br />")}</p>`;
-  markdownCache.set(text, html);
+  setMarkdownCache(key, html);
+  return html;
+}
+
+function markdownInlineToHtml(value) {
+  const text = String(value || "");
+  const key = `inline:${text}`;
+  const cached = markdownCache.get(key);
+  if (cached != null) return cached;
+  const html = markdownRenderer ? markdownRenderer.renderInline(text) : escapeHtml(text);
+  setMarkdownCache(key, html);
+  return html;
+}
+
+function setMarkdownCache(key, html) {
+  markdownCache.set(key, html);
   if (markdownCache.size > markdownCacheLimit) {
     const firstKey = markdownCache.keys().next().value;
     markdownCache.delete(firstKey);
   }
   return html;
-}
-
-function highlight(html, query) {
-  if (!query) return html;
-  const escaped = escapeRegExp(query);
-  return html.replace(new RegExp(`(${escaped})`, "gi"), "<mark>$1</mark>");
-}
-
-function highlightHtmlText(html, query) {
-  if (!query) return html;
-  const escaped = escapeRegExp(query);
-  const re = new RegExp(`(${escaped})`, "gi");
-  return String(html)
-    .split(/(<[^>]+>)/g)
-    .map((part) => (part.startsWith("<") ? part : part.replace(re, "<mark>$1</mark>")))
-    .join("");
-}
-
-function prettyMaybeJson(value) {
-  if (typeof value !== "string") return JSON.stringify(value, null, 2);
-  try {
-    return JSON.stringify(JSON.parse(value), null, 2);
-  } catch {
-    return value;
-  }
-}
-
-function formatDate(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
-function formatShortDate(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
-function formatBytes(bytes) {
-  const value = Number(bytes || 0);
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function compactNumber(value) {
-  const number = Number(value || 0);
-  if (number >= 1_000_000) return `${(number / 1_000_000).toFixed(1)}M`;
-  if (number >= 1_000) return `${(number / 1_000).toFixed(1)}K`;
-  return String(number);
-}
-
-function shortPath(value) {
-  const text = String(value || "");
-  const parts = text.replace(/^\\\\\?\\/, "").split(/[\\/]+/).filter(Boolean);
-  if (parts.length <= 3) return text;
-  return `${parts[0]}/${parts[1]}/…/${parts.at(-1)}`;
-}
-
-function sanitizeFileName(value) {
-  return String(value).replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").slice(0, 120);
-}
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-}
-
-function escapeAttr(value) {
-  return escapeHtml(value).replaceAll("'", "&#39;");
-}
-
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function cssEscape(value) {
-  if (window.CSS?.escape) return window.CSS.escape(value);
-  return String(value).replace(/["\\]/g, "\\$&");
 }

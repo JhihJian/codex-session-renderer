@@ -47,6 +47,13 @@
           <label class="field-label" for="sessionSearch">搜索会话</label>
           <input class="text-input" id="sessionSearch" type="search" autocomplete="off" placeholder="标题、路径、项目..." />
 
+          <label class="field-label" for="sessionTimeFilter">时间分类</label>
+          <div class="segmented-control" id="sessionTimeFilter" role="tablist" aria-label="时间分类">
+            <button class="segment-button active" type="button" data-session-time="realtime">实时</button>
+            <button class="segment-button" type="button" data-session-time="day">一天</button>
+            <button class="segment-button" type="button" data-session-time="earlier">更早</button>
+          </div>
+
           <label class="field-label" for="sessionTypeFilter">会话类型</label>
           <select class="select-input" id="sessionTypeFilter">
             <option value="all">全部会话</option>
@@ -131,6 +138,7 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
     <script src="./vendor/markdown-it.min.js" defer></script>
+    <script src="./app-format.js" defer></script>
     <script src="./app.js" defer></script>
   </body>
 </html>

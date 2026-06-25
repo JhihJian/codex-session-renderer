@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildTurns,
   extractTitleFromEvents,
+  findSubagentNotifications,
   renderConversationMarkdown,
   summarizeEventPreview,
 } from "../src/session-events.mjs";
@@ -85,4 +86,23 @@ test("event summaries and markdown export keep diagnostics readable", () => {
   assert.match(markdown, /^# 测试会话/m);
   assert.match(markdown, /### 用户/);
   assert.match(markdown, /### 助手/);
+});
+
+test("findSubagentNotifications inspects payload even when preview omits child id", () => {
+  const childId = "019efa76-515d-7ef3-a544-8b13547c0ddb";
+  const events = [
+    {
+      timestamp: "2026-06-24T10:00:00.000Z",
+      preview: "subagent_notification finished",
+      payload: {
+        type: "subagent_notification",
+        agent_path: childId,
+        status: { completed: "完成" },
+      },
+    },
+  ];
+
+  const notifications = findSubagentNotifications(events, new Map([[childId, { childThreadId: childId }]]));
+
+  assert.equal(notifications.get(childId), events[0]);
 });
