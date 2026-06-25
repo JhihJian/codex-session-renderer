@@ -113,7 +113,7 @@ npm test
 
 - 服务端只读访问本地文件，不写入 `.codex`。
 - 数据源是一等概念：旧接口默认读取本机 `local` 数据源，新接口可显式指定 `sourceId`；前端用 `sourceId + session id` 区分会话，避免不同数据源中相同 session id 混淆。
-- 远程数据源只在刷新阶段访问配置好的快照 URL 或快照目录；普通会话列表、详情、事件检查器和 Markdown 导出都从本地 `current` 快照读取。
+- 远程数据源只在刷新阶段访问配置好的快照 URL 或快照目录；普通会话列表、会话辅助面板和 Markdown 导出都从本地 `current` 快照读取。
 - 远程快照刷新使用 staging 目录构建，再原子切换到 `current`。刷新失败不会覆盖上一次成功快照。
 - 远程 SQLite 中的远端 `rollout_path` 会按配置的远端 Codex Home 映射到本地快照 Codex Home。
 - 本地 API 默认绑定 `127.0.0.1`，适合作为同机只读数据源；如果未来开放到局域网，需要先增加鉴权和访问控制。
@@ -134,9 +134,10 @@ npm test
 - 点击子代理小卡片或精简视图中的“打开会话”会按会话 ID 切换到对应子线程。
 - 会话详情接口默认返回轻量渲染模型：工具参数、工具输出、事件 payload 只返回预览和长度信息，避免 MB 级内容一次性进入浏览器 DOM。
 - 阅读视图和精简视图的用户/助手消息支持常用 Markdown 渲染，包括标题、列表、引用、行内代码、代码块、链接、粗体、斜体、删除线和 GFM 管道表格；会话标题在列表、顶部标题、详情、精简视图和 Trace 标题中支持行内 Markdown 链接、代码和强调；渲染层禁用原始 HTML，并缓存解析结果以减少大段消息重复渲染成本。
-- 完整原始事件通过 `GET /api/sessions/:id/events/:index` 按需读取；右侧 Inspector 点选事件时才请求完整 payload。
+- 右侧 Inspector 是会话辅助面板，默认展示会话概览、当前选中内容和按 Turn 分组的关键事件；原始 JSON 降级到折叠的调试区。
+- 完整原始事件通过 `GET /api/sessions/:id/events/:index` 按需读取；右侧 Inspector 点选关键事件并查看调试 JSON 时才请求完整 payload。
 - Markdown 导出通过 `GET /api/sessions/:id/markdown` 按需生成，不内嵌在详情响应中。
-- 页面支持会话搜索、详情查看、事件检查器、重要事件过滤和 Markdown 导出。
+- 页面支持会话搜索、会话概览、选中内容详情、关键事件过滤、调试 JSON 和 Markdown 导出。
 
 ## 本地 API
 
@@ -303,6 +304,6 @@ GET /api/query/sessions/:id/events?cursor=0&limit=100
 - 当前本机样本中的 `reasoning.summary` 为空，真实推理内容在 `encrypted_content` 中，因此页面不会伪造“推理摘要”。
 - Trace duration 并非所有节点都有明确开始/结束时间；缺失结束时间时会标注为估算。
 - Codex App 原始 `.map` 未随包发布，因此本项目不会尝试还原官方 TSX 源码。
-- 不同 Codex 版本的事件字段可能变化；解析器保留原始事件检查器用于诊断。
+- 不同 Codex 版本的事件字段可能变化；解析器保留折叠的调试 JSON 用于诊断。
 - HTTP 快照下载要求远端提供 Codex Home 快照包，本项目不会把远程设备暴露成通用文件浏览器。
 - 远程 token 只能从运行时环境变量读取；不要写入 README、`.env.example` 之外的仓库文件、Issue 评论、日志或 API 响应。

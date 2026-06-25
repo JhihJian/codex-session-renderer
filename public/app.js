@@ -6,6 +6,7 @@ const state = {
   selectedSessionId: null,
   selectedSessionKey: null,
   detail: null,
+  selectedItemRef: null,
   selectedEventIndex: null,
   selectedTraceNodeId: null,
   expandedTraceNodeIds: new Set(),
@@ -75,6 +76,7 @@ const els = {
   compactContent: document.getElementById("compactContent"),
   traceContent: document.getElementById("traceContent"),
   sessionDetails: document.getElementById("sessionDetails"),
+  selectionDetails: document.getElementById("selectionDetails"),
   rawEventList: document.getElementById("rawEventList"),
   rawPreview: document.getElementById("rawPreview"),
   inspectorActions: document.getElementById("inspectorActions"),
@@ -235,6 +237,7 @@ async function selectSession(id) {
   state.selectedSessionId = id;
   state.selectedSessionKey = sessionKey({ id, sourceId: state.selectedSourceId });
   state.detail = null;
+  state.selectedItemRef = null;
   state.selectedEventIndex = null;
   state.selectedTraceNodeId = null;
   state.expandedTraceNodeIds = new Set();
@@ -262,6 +265,7 @@ function clearSelectedSession() {
   state.selectedSessionId = null;
   state.selectedSessionKey = null;
   state.detail = null;
+  state.selectedItemRef = null;
   state.selectedEventIndex = null;
   state.selectedTraceNodeId = null;
   state.expandedTraceNodeIds = new Set();
@@ -311,6 +315,7 @@ function renderAll() {
   renderStats();
   renderMainContent();
   renderDetails();
+  renderSelectionDetails();
   renderInspector();
 }
 
@@ -487,6 +492,7 @@ function renderMainContent() {
   } else {
     renderThread();
   }
+  renderSelectionDetails();
   renderInspector();
 }
 
@@ -522,6 +528,18 @@ function renderThread() {
         </div>`
       : "";
   els.threadContent.innerHTML = turns.map((turn) => renderTurn(turn, turn.turnNumber ?? 1, query)).join("") + moreHtml;
+  els.threadContent.querySelectorAll("[data-item-ref]").forEach((itemEl) => {
+    itemEl.addEventListener("click", (event) => {
+      if (event.target.closest("a, button")) return;
+      selectItemRef(itemEl.dataset.itemRef);
+    });
+    itemEl.addEventListener("keydown", (event) => {
+      if (event.target.closest("a, button")) return;
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      selectItemRef(itemEl.dataset.itemRef);
+    });
+  });
   const moreButton = els.threadContent.querySelector("[data-show-more-thread]");
   if (moreButton) {
     moreButton.addEventListener("click", () => {
@@ -1091,8 +1109,10 @@ function renderItem(item, query) {
   const title = itemTitle(item);
   const icon = itemIcon(item);
   const meta = [formatDate(item.timestamp), item.phase, item.status].filter(Boolean).join(" · ");
+  const ref = itemRef(item);
+  const selected = state.selectedItemRef === ref ? " selected" : "";
   return `
-    <section class="item ${escapeAttr(item.type)}">
+    <section class="item ${escapeAttr(item.type)}${selected}" role="button" tabindex="0" data-item-ref="${escapeAttr(ref)}">
       <div class="item-header">
         <div class="item-title">
           <span class="item-icon">${icon}</span>
@@ -1143,32 +1163,42 @@ function renderItemContent(item, query) {
 function renderTruncationNotice(item) {
   if (!item.truncated) return "";
   const fields = item.truncatedFields?.join(", ") || "content";
-  return `<div class="truncation-notice">已截断 ${escapeHtml(fields)}，完整内容可在右侧原始事件中按需查看。</div>`;
+  return `<div class="truncation-notice">已截断 ${escapeHtml(fields)}，完整内容可在右侧调试 JSON 中按需查看。</div>`;
 }
 
 function renderDetails() {
   const detail = state.detail;
   if (!detail) {
-    els.sessionDetails.innerHTML = "";
+    els.sessionDetails.innerHTML = emptyInspectorSection("会话概览", "选择会话后显示关键统计。");
     return;
   }
   const session = detail.session;
+  const stats = detail.stats || {};
+  const tokenUsage = latestTokenUsage(detail.turns || []);
+  const toolCount = countItems("tool-call");
+  const errorCount = countErrors(detail);
+  const startedAt = session.startedAt || detail.turns?.[0]?.startedAt || stats.timing?.startedAt;
+  const endedAt = session.updatedAt || session.fileModifiedAt || detail.turns?.at(-1)?.completedAt || stats.timing?.completedAt;
+  const duration = durationBetween(startedAt, endedAt);
+  const metrics = [
+    ["Turns", stats.turnCount ?? detail.turns?.length ?? 0],
+    ["工具", toolCount],
+    ["错误", errorCount],
+    ["子代理", stats.childThreadCount || detail.trace?.hierarchy?.children?.length || 0],
+    ["Tokens", tokenUsage ? compactNumber(tokenUsage.total_tokens || tokenUsage.totalTokens || 0) : "n/a"],
+    ["大小", formatBytes(stats.sizeBytes || session.sizeBytes)],
+  ];
   const rows = [
     ["数据源", session.sourceLabel || selectedSource()?.label || "本机 Codex Home"],
-    ["数据源类型", session.dataSourceKind === "remote" ? "远程快照" : "本机"],
-    ["ID", session.id],
-    ["标题", session.title],
+    ["模型", [session.model, session.reasoningEffort].filter(Boolean).join(" / ") || "unknown"],
     ["工作目录", session.cwd || "Projectless"],
-    ["数据文件", session.relativePath],
-    ["模型", [session.model, session.reasoningEffort].filter(Boolean).join(" / ")],
-    ["子代理", `${detail.trace?.hierarchy?.children?.length || 0}`],
-    ["会话来源", [session.originator, session.source, session.threadSource].filter(Boolean).join(" / ")],
-    ["更新时间", formatDate(session.updatedAt || session.fileModifiedAt)],
-    ["大小", formatBytes(session.sizeBytes)],
+    ["时间范围", [formatDate(startedAt), formatDate(endedAt)].filter(Boolean).join(" - ") || "n/a"],
+    ["持续时间", duration == null ? "n/a" : formatDuration(duration)],
+    ["数据文件", session.relativePath || "n/a"],
   ];
   const childThreads = detail.trace?.hierarchy?.children || [];
   const childHtml = childThreads.length
-    ? `<div class="subagent-mini-list">${childThreads
+    ? `<div class="subagent-mini-list inspector-subagents">${childThreads
         .map((child) => {
           const thread = child.thread || {};
           return `<div class="subagent-mini" role="button" tabindex="0" data-subagent-session-id="${escapeAttr(child.childThreadId)}">
@@ -1178,9 +1208,39 @@ function renderDetails() {
         })
         .join("")}</div>`
     : "";
-  els.sessionDetails.innerHTML = `<div class="details-grid">${rows
-    .map(([key, value]) => `<div class="detail-row"><strong>${escapeHtml(key)}</strong><span>${renderDetailValue(key, value)}</span></div>`)
-    .join("")}</div>${childHtml}`;
+  els.sessionDetails.innerHTML = `
+    <div class="section-title-row">
+      <h3>会话概览</h3>
+      <span class="muted">${escapeHtml(session.dataSourceKind === "remote" ? "远程快照" : "本机")}</span>
+    </div>
+    <div class="inspector-title markdown-inline-title">${renderMarkdownTitle(session.title || "未命名会话")}</div>
+    <div class="inspector-metric-grid">
+      ${metrics
+        .map(
+          ([label, value]) => `
+            <div class="inspector-metric">
+              <strong>${escapeHtml(String(value))}</strong>
+              <span>${escapeHtml(label)}</span>
+            </div>
+          `,
+        )
+        .join("")}
+    </div>
+    <div class="details-grid compact-details">${rows
+      .map(([key, value]) => `<div class="detail-row"><strong>${escapeHtml(key)}</strong><span>${renderDetailValue(key, value)}</span></div>`)
+      .join("")}</div>
+    <div class="overview-actions">
+      <button class="ghost-button small" type="button" data-copy-session-id>复制 ID</button>
+      <button class="ghost-button small" type="button" data-copy-session-path>复制路径</button>
+      <button class="ghost-button small" type="button" data-copy-session-markdown>复制 Markdown</button>
+    </div>
+    ${childHtml}
+  `;
+  els.sessionDetails.querySelector("[data-copy-session-id]")?.addEventListener("click", () => copyInspectorText(session.id, "已复制会话 ID"));
+  els.sessionDetails
+    .querySelector("[data-copy-session-path]")
+    ?.addEventListener("click", () => copyInspectorText(detail.stats?.dataPath || session.relativePath || "", "已复制数据路径"));
+  els.sessionDetails.querySelector("[data-copy-session-markdown]")?.addEventListener("click", copyMarkdown);
   els.sessionDetails.querySelectorAll("[data-subagent-session-id]").forEach((row) => {
     row.addEventListener("click", (event) => {
       if (event.target.closest("a")) return;
@@ -1200,13 +1260,13 @@ function renderInspector() {
   if (!detail) {
     els.rawEventList.innerHTML = "";
     els.eventCount.textContent = "0";
-    els.rawPreview.textContent = "选择会话后查看 JSON";
+    els.rawPreview.textContent = "选择会话后查看调试 JSON";
     els.inspectorActions.innerHTML = "";
     return;
   }
   const query = els.itemSearch.value.trim().toLowerCase();
   const importantOnly = els.importantOnly.checked;
-  const events = detail.events.filter((event) => {
+  const events = buildKeyInspectorEvents(detail).filter((event) => {
     if (importantOnly && !event.important) return false;
     if (!query) return true;
     return JSON.stringify(event).toLowerCase().includes(query);
@@ -1214,26 +1274,43 @@ function renderInspector() {
   els.eventCount.textContent = String(events.length);
   const shown = events.slice(0, state.visibleEvents);
   els.showMoreEventsButton.hidden = shown.length >= events.length;
-  els.rawEventList.innerHTML = shown
-    .map((event) => {
-      const active = event.index === state.selectedEventIndex ? " active" : "";
-      return `
-        <button class="raw-event${active}" type="button" data-event-index="${event.index}">
-          <span class="raw-event-title">${escapeHtml(event.index + ". " + event.title)}</span>
-          <span class="session-date">${escapeHtml(event.kind)}</span>
-          <span class="raw-event-preview">${escapeHtml(event.preview || formatDate(event.timestamp) || "")}</span>
-        </button>
-      `;
-    })
-    .join("");
+  els.rawEventList.innerHTML = renderKeyEventGroups(shown);
   els.rawEventList.querySelectorAll("[data-event-index]").forEach((button) => {
     button.addEventListener("click", () => selectRawEvent(Number(button.dataset.eventIndex)));
   });
-  if (state.selectedEventIndex == null && events[0]) selectRawEvent(events[0].index, { rerender: false });
+}
+
+function renderKeyEventGroups(events) {
+  if (events.length === 0) return `<div class="inspector-empty">没有匹配的关键事件。</div>`;
+  const groups = groupEventsByTurn(events);
+  return groups
+    .map(
+      (group) => `
+        <div class="timeline-group">
+          <div class="timeline-group-title">${escapeHtml(group.label)}</div>
+          <div class="timeline-group-events">
+            ${group.events
+              .map((event) => {
+      const active = event.index === state.selectedEventIndex ? " active" : "";
+      return `
+                  <button class="raw-event${active}" type="button" data-event-index="${event.index}">
+          <span class="raw-event-title">${escapeHtml("#" + event.index + " " + humanEventTitle(event))}</span>
+          <span class="session-date">${escapeHtml(formatDate(event.timestamp) || event.kind)}</span>
+          <span class="raw-event-preview">${escapeHtml(event.preview || formatDate(event.timestamp) || "")}</span>
+        </button>
+      `;
+              })
+              .join("")}
+          </div>
+        </div>
+      `,
+    )
+    .join("");
 }
 
 async function selectRawEvent(index, { rerender = true } = {}) {
   state.selectedTraceNodeId = null;
+  state.selectedItemRef = null;
   els.inspectorActions.innerHTML = "";
   state.selectedEventIndex = index;
   const event = state.detail?.events.find((candidate) => candidate.index === index);
@@ -1241,6 +1318,7 @@ async function selectRawEvent(index, { rerender = true } = {}) {
   els.selectedEventLabel.textContent = `#${event.index} ${event.kind}`;
   els.copyRawButton.disabled = false;
   if (rerender) renderInspector();
+  renderSelectionDetails();
   els.rawPreview.textContent = JSON.stringify(event, null, 2) + "\n\n正在按需读取完整 payload...";
   try {
     const raw = await loadRawEvent(index);
@@ -1268,9 +1346,11 @@ function selectTraceNode(id) {
   const node = findTraceNode(state.detail?.trace?.root, id);
   if (!node) return;
   state.selectedEventIndex = null;
+  state.selectedItemRef = null;
   els.selectedEventLabel.textContent = traceNodeLabel(node);
   els.rawPreview.textContent = JSON.stringify(traceNodePreview(node), null, 2);
   renderTraceActions(node);
+  renderSelectionDetails();
   els.copyRawButton.disabled = false;
   els.traceContent.querySelectorAll(".trace-row.selected").forEach((row) => row.classList.remove("selected"));
   const active = els.traceContent.querySelector(`[data-trace-node-id="${cssEscape(id)}"]`);
@@ -1288,6 +1368,202 @@ function renderTraceActions(node) {
     return;
   }
   els.inspectorActions.innerHTML = "";
+}
+
+function selectItemRef(ref) {
+  if (!ref) return;
+  state.selectedItemRef = ref;
+  state.selectedTraceNodeId = null;
+  state.selectedEventIndex = null;
+  const item = findItemByRef(ref);
+  if (!item) return;
+  els.selectedEventLabel.textContent = itemTitle(item);
+  els.rawPreview.textContent = JSON.stringify(itemDebugPreview(item), null, 2);
+  els.inspectorActions.innerHTML = "";
+  els.copyRawButton.disabled = false;
+  renderSelectionDetails();
+  renderThread();
+}
+
+function renderSelectionDetails() {
+  if (!state.detail) {
+    els.selectionDetails.innerHTML = emptyInspectorSection("选中内容", "选择会话后可查看消息、工具、Trace 或关键事件详情。");
+    return;
+  }
+  if (state.selectedTraceNodeId) {
+    const node = findTraceNode(state.detail.trace?.root, state.selectedTraceNodeId);
+    els.selectionDetails.innerHTML = node ? renderTraceSelection(node) : emptyInspectorSection("选中内容", "Trace 节点不存在。");
+    bindSelectionActions();
+    return;
+  }
+  if (state.selectedItemRef) {
+    const item = findItemByRef(state.selectedItemRef);
+    els.selectionDetails.innerHTML = item ? renderItemSelection(item) : emptyInspectorSection("选中内容", "阅读项不存在。");
+    bindSelectionActions();
+    return;
+  }
+  if (state.selectedEventIndex != null) {
+    const event = state.detail.events.find((candidate) => candidate.index === state.selectedEventIndex);
+    els.selectionDetails.innerHTML = event ? renderEventSelection(event) : emptyInspectorSection("选中内容", "关键事件不存在。");
+    bindSelectionActions();
+    return;
+  }
+  els.selectionDetails.innerHTML = `
+    <div class="section-title-row">
+      <h3>选中内容</h3>
+      <span class="muted">未选择</span>
+    </div>
+    <div class="selection-empty">点击阅读视图中的消息/工具、Trace 节点或下方关键事件查看细节。</div>
+  `;
+}
+
+function renderTraceSelection(node) {
+  const detail = node.detail || {};
+  const item = detail.item || {};
+  const thread = detail.thread || detail.edge?.thread || {};
+  const rows = [
+    ["类型", traceTypeLabel(node.type)],
+    ["状态", node.status || "n/a"],
+    ["时间", [formatDate(node.timestamp), formatDate(node.completedAt)].filter(Boolean).join(" - ") || "n/a"],
+    ["耗时", node.durationMs == null ? "n/a" : `${formatDuration(node.durationMs)}${node.durationEstimated ? " 估算" : ""}`],
+  ];
+  if (item.name) rows.push(["工具", item.name]);
+  if (thread.id || node.threadId) rows.push(["线程", thread.agentNickname || thread.title || node.threadId || thread.id]);
+  const body = item.output || item.arguments || item.text || node.subtitle || detail.note || "";
+  const actions = traceSelectionActions(node, body);
+  return renderSelectionCard({
+    eyebrow: "Trace 节点",
+    title: node.title || node.label || node.id,
+    meta: [node.label, node.subtitle].filter(Boolean).join(" · "),
+    rows,
+    body: body ? firstLine(body, 700) : "",
+    actions,
+  });
+}
+
+function renderItemSelection(item) {
+  const rows = [
+    ["类型", itemTitle(item)],
+    ["Turn", item.turnIndex == null ? "n/a" : String(item.turnIndex + 1)],
+    ["时间", formatDate(item.timestamp) || "n/a"],
+    ["状态", [item.phase, item.status].filter(Boolean).join(" / ") || "n/a"],
+  ];
+  if (item.name) rows.push(["工具", item.name]);
+  if (item.callId) rows.push(["Call ID", item.callId]);
+  const body = item.text || item.output || item.arguments || item.payloadPreview || "";
+  const actions = itemSelectionActions(item);
+  return renderSelectionCard({
+    eyebrow: "阅读项",
+    title: itemTitle(item),
+    meta: item.name || item.responseType || item.eventType || "",
+    rows,
+    body: body ? firstLine(body, 900) : "",
+    actions,
+  });
+}
+
+function renderEventSelection(event) {
+  const rows = [
+    ["事件", `#${event.index}`],
+    ["分类", event.kind || "n/a"],
+    ["时间", formatDate(event.timestamp) || "n/a"],
+    ["Payload", event.payloadSize ? formatBytes(event.payloadSize) : "n/a"],
+  ];
+  return renderSelectionCard({
+    eyebrow: "关键事件",
+    title: humanEventTitle(event),
+    meta: [event.type, event.payloadType, event.role].filter(Boolean).join(" · "),
+    rows,
+    body: event.preview || "",
+    actions: [
+      { label: "复制摘要", copy: event.preview || humanEventTitle(event), toast: "已复制事件摘要" },
+      { label: "复制 JSON", action: "copy-debug" },
+    ],
+  });
+}
+
+function renderSelectionCard({ eyebrow, title, meta, rows, body, actions }) {
+  return `
+    <div class="section-title-row">
+      <h3>选中内容</h3>
+      <span class="muted">${escapeHtml(eyebrow)}</span>
+    </div>
+    <div class="selection-card">
+      <div class="selection-head">
+        <strong>${escapeHtml(title || "未命名")}</strong>
+        ${meta ? `<span>${escapeHtml(meta)}</span>` : ""}
+      </div>
+      <div class="details-grid selection-rows">
+        ${rows.map(([key, value]) => `<div class="detail-row"><strong>${escapeHtml(key)}</strong><span>${escapeHtml(value)}</span></div>`).join("")}
+      </div>
+      ${body ? `<pre class="selection-preview">${escapeHtml(body)}</pre>` : ""}
+      ${
+        actions?.length
+          ? `<div class="selection-actions">${actions
+              .map((action, index) => `<button class="ghost-button small" type="button" data-selection-action="${index}">${escapeHtml(action.label)}</button>`)
+              .join("")}</div>`
+          : ""
+      }
+    </div>
+  `;
+}
+
+function bindSelectionActions() {
+  const actions = currentSelectionActions();
+  els.selectionDetails.querySelectorAll("[data-selection-action]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const action = actions[Number(button.dataset.selectionAction)];
+      if (!action) return;
+      if (action.action === "copy-debug") {
+        await copySelectedRawEvent();
+        return;
+      }
+      if (action.action === "open-thread" && action.threadId) {
+        selectSession(action.threadId);
+        return;
+      }
+      if (action.copy != null) await copyInspectorText(action.copy, action.toast || "已复制");
+    });
+  });
+}
+
+function currentSelectionActions() {
+  if (state.selectedTraceNodeId) {
+    const node = findTraceNode(state.detail?.trace?.root, state.selectedTraceNodeId);
+    if (!node) return [];
+    const detail = node.detail || {};
+    const item = detail.item || {};
+    const body = item.output || item.arguments || item.text || node.subtitle || detail.note || "";
+    return traceSelectionActions(node, body);
+  }
+  if (state.selectedItemRef) {
+    const item = findItemByRef(state.selectedItemRef);
+    return item ? itemSelectionActions(item) : [];
+  }
+  if (state.selectedEventIndex != null) {
+    const event = state.detail?.events.find((candidate) => candidate.index === state.selectedEventIndex);
+    return event
+      ? [
+          { label: "复制摘要", copy: event.preview || humanEventTitle(event), toast: "已复制事件摘要" },
+          { label: "复制 JSON", action: "copy-debug" },
+        ]
+      : [];
+  }
+  return [];
+}
+
+function traceSelectionActions(node, body = "") {
+  const actions = [{ label: "复制 JSON", action: "copy-debug" }];
+  if (body) actions.unshift({ label: "复制摘要", copy: body, toast: "已复制节点摘要" });
+  if (node.type === "subagent" && node.threadId) actions.unshift({ label: "打开子会话", action: "open-thread", threadId: node.threadId });
+  return actions;
+}
+
+function itemSelectionActions(item) {
+  const actions = [{ label: "复制 JSON", action: "copy-debug" }];
+  const body = item.text || item.output || item.arguments || item.payloadPreview || "";
+  if (body) actions.unshift({ label: "复制内容", copy: body, toast: "已复制内容" });
+  return actions;
 }
 
 function toggleTraceNode(id) {
@@ -1308,10 +1584,17 @@ async function copySelectedRawEvent() {
     showToast("已复制 Trace 节点");
     return;
   }
+  if (state.selectedItemRef) {
+    const item = findItemByRef(state.selectedItemRef);
+    if (!item) return;
+    await copyText(JSON.stringify(itemDebugPreview(item), null, 2));
+    showToast("已复制阅读项 JSON");
+    return;
+  }
   if (state.selectedEventIndex == null) return;
   const event = await loadRawEvent(state.selectedEventIndex);
   await copyText(JSON.stringify(event, null, 2));
-  showToast("已复制原始事件");
+    showToast("已复制调试 JSON");
 }
 
 async function copyMarkdown() {
@@ -1434,6 +1717,31 @@ function itemTitle(item) {
   return item.eventType || item.responseType || item.type;
 }
 
+function itemRef(item) {
+  return `${item.turnIndex ?? "x"}:${item.itemIndex ?? item.id ?? "x"}:${item.type || "item"}`;
+}
+
+function findItemByRef(ref) {
+  for (const turn of state.detail?.turns || []) {
+    for (const item of turn.items || []) {
+      if (itemRef(item) === ref) return item;
+    }
+  }
+  return null;
+}
+
+function itemDebugPreview(item) {
+  return {
+    ref: itemRef(item),
+    title: itemTitle(item),
+    ...item,
+    text: truncateText(item.text, 4000),
+    arguments: truncateText(item.arguments, 4000),
+    output: truncateText(item.output, 8000),
+    payloadPreview: truncateText(item.payloadPreview, 4000),
+  };
+}
+
 function itemIcon(item) {
   if (item.type === "user-message") return "U";
   if (item.type === "assistant-message") return "A";
@@ -1442,6 +1750,167 @@ function itemIcon(item) {
   if (item.type === "reasoning") return "R";
   if (item.type === "token-count") return "#";
   return "i";
+}
+
+function buildKeyInspectorEvents(detail) {
+  const byIndex = new Map((detail.events || []).map((event) => [event.index, event]));
+  const selected = new Map();
+
+  for (const turn of detail.turns || []) {
+    const items = turn.items || [];
+    const user = items.find((item) => item.type === "user-message" && isUsefulInspectorText(item.text));
+    const finalAssistant = [...items].reverse().find((item) => item.type === "assistant-message" && isUsefulInspectorText(item.text));
+    const token = [...items].reverse().find((item) => item.type === "token-count");
+    for (const item of [user, finalAssistant, token, ...items.filter(isHighValueInspectorItem)]) {
+      const event = eventForItem(item, byIndex);
+      if (event) selected.set(event.index, event);
+    }
+  }
+
+  for (const event of detail.events || []) {
+    if (isHighValueRawEvent(event)) selected.set(event.index, event);
+  }
+
+  return [...selected.values()].sort((left, right) => left.index - right.index);
+}
+
+function eventForItem(item, byIndex) {
+  if (!item) return null;
+  const direct = byIndex.get(item.sourceIndex);
+  if (direct) return direct;
+  for (const event of byIndex.values()) {
+    if (item.timestamp && event.timestamp !== item.timestamp) continue;
+    if (item.type === "user-message" && ["user_message", "message"].includes(event.kind) && samePreview(event.preview, item.text)) return event;
+    if (item.type === "assistant-message" && ["agent_message", "message", "task_complete"].includes(event.kind) && samePreview(event.preview, item.text)) return event;
+    if (item.type === "token-count" && event.kind === "token_count") return event;
+    if (item.type === "tool-call" && event.kind.includes("call") && item.name && String(event.title || event.preview || "").includes(item.name)) return event;
+  }
+  return null;
+}
+
+function isHighValueInspectorItem(item) {
+  if (!item) return false;
+  if (item.status && /error|fail|failed|失败|错误/i.test(item.status)) return true;
+  if (item.type !== "tool-call") {
+    return /error|fail|failed|失败|错误/i.test([item.eventType, item.responseType, item.phase, item.status].filter(Boolean).join(" "));
+  }
+  if (/spawn_agent|wait_agent|handoff/i.test(item.name || "")) return true;
+  return false;
+}
+
+function isHighValueRawEvent(event) {
+  const label = `${event.kind || ""}\n${event.title || ""}\n${event.payloadType || ""}`;
+  if (/error|fail|failed|失败|错误/i.test(label)) return true;
+  if (/spawn_agent|wait_agent|subagent/i.test(label)) return true;
+  return false;
+}
+
+function samePreview(preview, text) {
+  const left = normalizeInspectorText(preview).slice(0, 80);
+  const right = normalizeInspectorText(text).slice(0, 80);
+  return Boolean(left && right && (left.includes(right) || right.includes(left)));
+}
+
+function isUsefulInspectorText(text) {
+  const normalized = normalizeInspectorText(text);
+  if (!normalized) return false;
+  if (/AGENTS\.md instructions/i.test(normalized)) return false;
+  if (/<INSTRUCTIONS>/i.test(normalized)) return false;
+  if (/^<permissions instructions>/i.test(normalized)) return false;
+  if (/^Continue working toward the active thread goal/i.test(normalized)) return false;
+  if (/^<environment_context>/i.test(normalized)) return false;
+  return true;
+}
+
+function normalizeInspectorText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function groupEventsByTurn(events) {
+  const turns = state.detail?.turns || [];
+  if (turns.length === 0) return [{ label: "关键事件", events }];
+  const groups = turns.map((turn, index) => ({
+    label: `Turn ${turn.turnNumber || index + 1}`,
+    start: dateMs(turn.startedAt),
+    end: dateMs(turn.completedAt),
+    events: [],
+  }));
+  const unplaced = [];
+  for (const event of events) {
+    const time = dateMs(event.timestamp);
+    const group = groups.find((candidate, index) => {
+      if (time == null) return false;
+      const start = candidate.start ?? -Infinity;
+      const nextStart = groups[index + 1]?.start ?? Infinity;
+      const end = candidate.end ?? nextStart;
+      return time >= start && time <= end;
+    });
+    (group || { events: unplaced }).events.push(event);
+  }
+  const visible = groups.filter((group) => group.events.length > 0);
+  if (unplaced.length) visible.unshift({ label: "未定位", events: unplaced });
+  return visible.length ? visible : [{ label: "关键事件", events }];
+}
+
+function humanEventTitle(event) {
+  const kind = event.kind || event.payloadType || event.type || "event";
+  if (kind === "user_message") return "用户消息";
+  if (kind === "agent_message") return "助手消息";
+  if (kind === "function_call" || kind === "custom_tool_call") return event.title || "工具调用";
+  if (kind === "tool_output") return "工具输出";
+  if (kind === "token_count" || event.payloadType === "token_count") return "Token 统计";
+  if (/spawn_agent/i.test(event.preview || event.title || "")) return "启动子代理";
+  if (/wait_agent/i.test(event.preview || event.title || "")) return "等待子代理";
+  return event.title || kind;
+}
+
+function countErrors(detail) {
+  const fromEvents = (detail?.events || []).filter((event) => /error|failed|失败|错误/i.test(JSON.stringify(event))).length;
+  const fromItems = (detail?.turns || []).flatMap((turn) => turn.items || []).filter((item) => /error|failed|失败|错误/i.test(JSON.stringify(item))).length;
+  return Math.max(fromEvents, fromItems);
+}
+
+function durationBetween(start, end) {
+  const startMs = dateMs(start);
+  const endMs = dateMs(end);
+  if (startMs == null || endMs == null || endMs < startMs) return null;
+  return endMs - startMs;
+}
+
+function dateMs(value) {
+  if (!value) return null;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : null;
+}
+
+function traceTypeLabel(type) {
+  if (type === "thread") return "线程";
+  if (type === "turn") return "Turn";
+  if (type === "tool") return "工具";
+  if (type === "handoff") return "委派";
+  if (type === "subagent") return "子代理";
+  if (type === "message") return "消息";
+  if (type === "reasoning") return "推理";
+  if (type === "metric") return "指标";
+  return type || "节点";
+}
+
+function emptyInspectorSection(title, subtitle) {
+  return `
+    <div class="section-title-row">
+      <h3>${escapeHtml(title)}</h3>
+    </div>
+    <div class="selection-empty">${escapeHtml(subtitle)}</div>
+  `;
+}
+
+async function copyInspectorText(text, message) {
+  if (!text) {
+    showToast("没有可复制内容");
+    return;
+  }
+  await copyText(String(text));
+  showToast(message);
 }
 
 function selectedSource() {

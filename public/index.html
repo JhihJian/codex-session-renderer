@@ -113,30 +113,32 @@
         <div class="panel-header">
           <div>
             <p class="eyebrow">Inspector</p>
-            <h2>详情 / 事件</h2>
+            <h2>会话辅助</h2>
           </div>
-          <button class="ghost-button small" id="copyRawButton" type="button" disabled>复制原始</button>
+          <button class="ghost-button small" id="copyRawButton" type="button" disabled>复制调试 JSON</button>
         </div>
 
         <section class="inspector-section" id="sessionDetails"></section>
 
+        <section class="inspector-section" id="selectionDetails"></section>
+
         <section class="inspector-section">
           <div class="section-title-row">
-            <h3>原始事件</h3>
+            <h3>关键事件</h3>
             <span class="count-pill" id="eventCount">0</span>
           </div>
           <div class="raw-event-list" id="rawEventList"></div>
           <button class="ghost-button full-width" id="showMoreEventsButton" type="button" hidden>显示更多事件</button>
         </section>
 
-        <section class="inspector-section raw-preview-section">
-          <div class="section-title-row">
-            <h3>事件详情</h3>
+        <details class="inspector-section raw-preview-section" id="debugDetails">
+          <summary>
+            <span>调试 JSON</span>
             <span class="muted" id="selectedEventLabel">未选择</span>
-          </div>
+          </summary>
           <div class="inspector-actions" id="inspectorActions"></div>
-          <pre class="raw-preview" id="rawPreview">选择左侧事件查看 JSON</pre>
-        </section>
+          <pre class="raw-preview" id="rawPreview">选择关键事件或 Trace 节点查看 JSON</pre>
+        </details>
       </aside>
     </div>
 

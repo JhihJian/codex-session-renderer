@@ -71,6 +71,7 @@ function compactItemForClient(item, turnIndex, itemIndex) {
     turnIndex,
     itemIndex,
   };
+  if (item.sourceIndex != null) base.sourceIndex = item.sourceIndex;
   if (item.timestamp) base.timestamp = item.timestamp;
   if (item.completedAt) base.completedAt = item.completedAt;
   if (item.phase) base.phase = item.phase;
@@ -785,7 +786,7 @@ function buildTurns(events) {
     return current;
   }
 
-  for (const event of events) {
+  for (const [eventIndex, event] of events.entries()) {
     const payload = event.payload ?? {};
     if (event.type === "session_meta") continue;
     if (payload.type === "task_started") {
@@ -821,6 +822,7 @@ function buildTurns(events) {
         current.items.push({
           id: `item-${current.items.length}`,
           type: "user-message",
+          sourceIndex: eventIndex,
           timestamp: eventTime(event),
           text: payload.message ?? "",
           attachments: payload.images ?? payload.local_images ?? [],
@@ -830,6 +832,7 @@ function buildTurns(events) {
         current.items.push({
           id: `item-${current.items.length}`,
           type: "assistant-message",
+          sourceIndex: eventIndex,
           timestamp: eventTime(event),
           phase: payload.phase ?? null,
           text: payload.message ?? "",
@@ -838,14 +841,15 @@ function buildTurns(events) {
         current.items.push({
           id: `item-${current.items.length}`,
           type: "token-count",
+          sourceIndex: eventIndex,
           timestamp: eventTime(event),
           info: payload.info ?? {},
         });
       } else if (isStandaloneToolEvent(payload.type)) {
         if (isToolCallStart(payload.type)) {
-          registerToolCall(current, activeCall, event);
+          registerToolCall(current, activeCall, event, eventIndex);
         } else {
-          registerToolOutput(current, activeCall, event);
+          registerToolOutput(current, activeCall, event, eventIndex);
         }
       } else if (payload.type === "task_complete" || payload.type === "task_failed") {
         current.completedAt = eventTime(event);
@@ -854,6 +858,7 @@ function buildTurns(events) {
           current.items.push({
             id: `item-${current.items.length}`,
             type: "assistant-message",
+            sourceIndex: eventIndex,
             timestamp: eventTime(event),
             phase: "final",
             text: payload.last_agent_message,
@@ -863,6 +868,7 @@ function buildTurns(events) {
         current.items.push({
           id: `item-${current.items.length}`,
           type: "event",
+          sourceIndex: eventIndex,
           timestamp: eventTime(event),
           eventType: payload.type ?? "event",
           payload,
@@ -880,6 +886,7 @@ function buildTurns(events) {
         current.items.push({
           id: `item-${current.items.length}`,
           type: payload.role === "user" ? "user-message" : "assistant-message",
+          sourceIndex: eventIndex,
           timestamp: eventTime(event),
           role: payload.role,
           text,
@@ -891,18 +898,20 @@ function buildTurns(events) {
         current.items.push({
           id: `item-${current.items.length}`,
           type: "reasoning",
+          sourceIndex: eventIndex,
           timestamp: eventTime(event),
           text,
           encrypted: Boolean(payload.encrypted_content),
         });
       } else if (isToolCallStart(payload.type)) {
-        registerToolCall(current, activeCall, event);
+        registerToolCall(current, activeCall, event, eventIndex);
       } else if (isToolCallOutput(payload.type)) {
-        registerToolOutput(current, activeCall, event);
+        registerToolOutput(current, activeCall, event, eventIndex);
       } else {
         current.items.push({
           id: `item-${current.items.length}`,
           type: "response-item",
+          sourceIndex: eventIndex,
           timestamp: eventTime(event),
           responseType: payload.type ?? "response",
           payload,
@@ -913,9 +922,9 @@ function buildTurns(events) {
 
     if (isStandaloneToolEvent(event.type)) {
       if (isToolCallStart(event.type)) {
-        registerToolCall(current, activeCall, event);
+        registerToolCall(current, activeCall, event, eventIndex);
       } else {
-        registerToolOutput(current, activeCall, event);
+        registerToolOutput(current, activeCall, event, eventIndex);
       }
     }
   }
@@ -945,12 +954,13 @@ function isDuplicateUserMessage(turn, text) {
   return turn.items.some((item) => item.type === "user-message" && normalizeText(item.text) === normalized);
 }
 
-function registerToolCall(turn, activeCall, event) {
+function registerToolCall(turn, activeCall, event, sourceIndex) {
   const payload = event.payload ?? {};
   const callId = payload.call_id || `item-${turn.items.length}`;
   const item = {
     id: callId,
     type: "tool-call",
+    sourceIndex,
     timestamp: eventTime(event),
     name: toolNameFromPayload(payload),
     callId,
@@ -962,7 +972,7 @@ function registerToolCall(turn, activeCall, event) {
   turn.items.push(item);
 }
 
-function registerToolOutput(turn, activeCall, event) {
+function registerToolOutput(turn, activeCall, event, sourceIndex) {
   const payload = event.payload ?? {};
   const callId = payload.call_id || `item-${turn.items.length}`;
   const target = activeCall.get(callId);
@@ -971,12 +981,14 @@ function registerToolOutput(turn, activeCall, event) {
     target.output = mergeToolOutput(target.output, output);
     target.status = payload.status || (payload.success === false ? "failed" : "completed");
     target.completedAt = eventTime(event);
+    target.outputSourceIndex = sourceIndex;
     return;
   }
 
   turn.items.push({
     id: callId,
     type: "tool-call",
+    sourceIndex,
     timestamp: eventTime(event),
     name: toolNameFromPayload(payload),
     callId,
