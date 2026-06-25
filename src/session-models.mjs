@@ -7,10 +7,47 @@ import {
 } from "./session-events.mjs";
 import { stripLongPathPrefix } from "./sqlite-threads.mjs";
 
-function sessionFromThread(thread, codexHome) {
-  const filePath = stripLongPathPrefix(thread.path || "");
+function mapCodexHomePath(filePath, codexHome, originalCodexHome = codexHome) {
+  const normalized = stripLongPathPrefix(filePath || "");
+  if (!normalized) return "";
+  const normalizedOriginal = stripLongPathPrefix(originalCodexHome || codexHome || "");
+  if (normalizedOriginal) {
+    const pathApi = pathApiFor(normalizedOriginal, normalized);
+    const relative = pathApi.relative(normalizedOriginal, normalized);
+    if (isRelativeInside(relative, pathApi)) {
+      return joinRelativePath(codexHome, relative);
+    }
+  }
+  return normalized;
+}
+
+function relativeCodexPath(codexHome, filePath) {
+  const normalizedHome = stripLongPathPrefix(codexHome || "");
+  const normalizedFile = stripLongPathPrefix(filePath || "");
+  const pathApi = pathApiFor(normalizedHome, normalizedFile);
+  return normalizeSlash(pathApi.relative(normalizedHome, normalizedFile));
+}
+
+function pathApiFor(...values) {
+  return values.some((value) => /^[a-z]:[\\/]/i.test(String(value || "")) || String(value || "").includes("\\")) ? path.win32 : path;
+}
+
+function joinRelativePath(root, relative) {
+  const pathApi = pathApiFor(root);
+  return pathApi.join(root, ...String(relative || "").split(/[\\/]+/).filter(Boolean));
+}
+
+function isRelativeInside(relative, pathApi = path) {
+  return Boolean(relative) && relative !== ".." && !relative.startsWith(`..${pathApi.sep}`) && !pathApi.isAbsolute(relative);
+}
+
+function sessionFromThread(thread, codexHome, options = {}) {
+  const filePath = mapCodexHomePath(thread.path || "", codexHome, options.originalCodexHome);
   return {
     id: thread.id,
+    sourceId: options.sourceId || "local",
+    sourceLabel: options.sourceLabel || "本机 Codex Home",
+    dataSourceKind: options.dataSourceKind || "local",
     title: thread.title || "未命名会话",
     cwd: thread.cwd || null,
     originator: null,
@@ -25,7 +62,7 @@ function sessionFromThread(thread, codexHome) {
     agentRole: thread.agentRole || null,
     preview: thread.preview || null,
     path: filePath || null,
-    relativePath: filePath ? normalizeSlash(path.relative(codexHome, filePath)) : null,
+    relativePath: filePath ? relativeCodexPath(codexHome, filePath) : null,
     startedAt: thread.createdAt || (filePath ? sessionStartedFromFile(filePath) : null),
     updatedAt: thread.updatedAt || null,
     sizeBytes: null,
@@ -36,6 +73,9 @@ function sessionFromThread(thread, codexHome) {
 function compactSessionForList(session) {
   return {
     id: session.id,
+    sourceId: session.sourceId || "local",
+    sourceLabel: session.sourceLabel || null,
+    dataSourceKind: session.dataSourceKind || "local",
     title: session.title || "未命名会话",
     cwd: session.cwd || null,
     model: session.model || null,
@@ -71,8 +111,9 @@ function withFileStat(session, stat) {
   };
 }
 
-function publicThreadMeta(thread, codexHome) {
+function publicThreadMeta(thread, codexHome, options = {}) {
   if (!thread) return null;
+  const filePath = mapCodexHomePath(thread.path || "", codexHome, options.originalCodexHome);
   return {
     id: thread.id,
     title: thread.title,
@@ -82,9 +123,20 @@ function publicThreadMeta(thread, codexHome) {
     agentNickname: thread.agentNickname || null,
     agentRole: thread.agentRole || null,
     updatedAt: thread.updatedAt || null,
-    path: thread.path || null,
-    relativePath: thread.path ? normalizeSlash(path.relative(codexHome, thread.path)) : null,
+    sourceId: options.sourceId || "local",
+    sourceLabel: options.sourceLabel || null,
+    dataSourceKind: options.dataSourceKind || "local",
+    path: filePath || null,
+    relativePath: filePath ? relativeCodexPath(codexHome, filePath) : null,
   };
 }
 
-export { compactSessionForList, publicThreadMeta, rootSessionsOnly, sessionFromThread, withFileStat };
+export {
+  compactSessionForList,
+  mapCodexHomePath,
+  publicThreadMeta,
+  relativeCodexPath,
+  rootSessionsOnly,
+  sessionFromThread,
+  withFileStat,
+};

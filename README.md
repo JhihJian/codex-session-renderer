@@ -1,12 +1,13 @@
 # Codex 本机会话渲染器
 
-这个小工具只读扫描当前用户的 Codex 会话文件，并在浏览器里渲染成本地会话查看器。
+这个小工具只读扫描 Codex 会话文件，并在浏览器里渲染成本地会话查看器。默认数据源仍是当前用户的本机 Codex Home；也可以把远程设备的 Codex Home 先刷新成本地快照，再作为独立数据源查看。
 
 ## 数据来源
 
 - 会话元数据：`%USERPROFILE%\.codex\state_5.sqlite`，用于读取标题、工作目录、模型、推理强度和归档状态。
 - 正文事件流：`%USERPROFILE%\.codex\sessions\**\*.jsonl`
 - 轻量索引回退：`%USERPROFILE%\.codex\session_index.jsonl`
+- 远程设备：通过环境变量配置成数据源后，刷新到本机快照目录；渲染层只读取发布后的本地快照，不直接绑定实时远程请求。
 - 参考实现：Codex App 的打包前端位于 `resources\app.asar`，本项目只参考模块边界和事件分组思路，不复制原始专有源码。
 
 ## 启动
@@ -30,9 +31,52 @@ $env:CODEX_HOME='C:\Users\user\.codex'
 npm start
 ```
 
+## 远程会话数据源
+
+远程数据源通过“刷新到本地快照，再从快照读取”的方式工作。刷新失败不会删除上一份可用快照；如果已有旧快照，页面仍可继续浏览，并在数据源状态里标注失败或旧快照。
+
+首版支持两种获取方式：
+
+- `CODEX_REMOTE_<ID>_SNAPSHOT_PATH`：从一个本机可读目录复制 Codex Home，适合先用 rsync、scp、挂载盘或其他脚本把远程 `/root/.codex` 同步到本机。
+- `CODEX_REMOTE_<ID>_SNAPSHOT_URL`：从远端 HTTP(S) 下载 `.tar`、`.tar.gz` 或 `.tgz` 快照包。服务端会用 `Authorization: Bearer ...` 请求，token 只从环境变量读取。
+
+示例：配置一个名为 `office` 的远程设备，快照来源是本机已同步目录。
+
+```powershell
+$env:CODEX_REMOTE_SOURCES='office'
+$env:CODEX_REMOTE_OFFICE_LABEL='Office 远程设备'
+$env:CODEX_REMOTE_OFFICE_CODEX_HOME='/root/.codex'
+$env:CODEX_REMOTE_OFFICE_SNAPSHOT_PATH='D:\codex-remote\office\.codex'
+$env:CODEX_REMOTE_SNAPSHOT_ROOT='D:\codex-session-renderer-snapshots'
+npm start
+```
+
+示例：配置 HTTP 快照下载。不要把 token 写入仓库文件；这里只展示变量名和占位符。
+
+```powershell
+$env:CODEX_REMOTE_SOURCES='office'
+$env:CODEX_REMOTE_OFFICE_LABEL='Office 远程设备'
+$env:CODEX_REMOTE_OFFICE_CODEX_HOME='/root/.codex'
+$env:CODEX_REMOTE_OFFICE_SNAPSHOT_URL='https://example.invalid/codex-snapshot.tar.gz'
+$env:CODEX_REMOTE_OFFICE_TOKEN_ENV='CODEX_REMOTE_OFFICE_TOKEN'
+$env:CODEX_REMOTE_OFFICE_TOKEN='<runtime token>'
+npm start
+```
+
+启动后页面左侧会出现“数据源”选择框。选择远程数据源后点击“刷新远程”，服务端会把远端内容复制或下载到本地快照目录，然后原子发布到：
+
+```text
+%USERPROFILE%\.codex-session-renderer\remote-snapshots\<source-id>\current
+```
+
+可通过 `CODEX_REMOTE_SNAPSHOT_ROOT` 修改快照根目录。快照目录包含会话正文、命令输出、项目路径和错误栈等敏感信息，应按本机私密数据处理，不要提交到 git 或上传到公开位置。当前 `.gitignore` 已默认忽略 `*.sqlite`、`*.jsonl`、`*.log`、`.env*`、`tmp/` 等常见运行时文件；如果把快照根目录放进仓库工作区，需要额外把该目录加入忽略规则。
+
+远程状态只暴露脱敏信息：是否刷新中、最近成功刷新时间、是否正在浏览旧快照、失败类别和简短原因。API 响应、状态文件和普通错误信息不会包含 token、认证头或会话正文。
+
 ## 项目结构
 
-- `server.mjs`：HTTP 路由、会话文件定位、缓存和接口编排；底层响应、SQLite、DTO 和解析逻辑已拆到 `src/`。
+- `server.mjs`：HTTP 路由、数据源分发、会话文件定位、缓存和接口编排；底层响应、SQLite、DTO 和解析逻辑已拆到 `src/`。
+- `src/data-sources.mjs`：本机/远程数据源配置、远程快照刷新、原子发布和脱敏状态。
 - `src/jsonl-reader.mjs`：UTF-8 JSONL 流式读取工具；支持按逻辑行数上限读取和按事件索引读取单条事件。
 - `src/http-response.mjs`：JSON/Text 响应、错误响应、静态文件类型和路径安全解析。
 - `src/sqlite-threads.mjs`：只读 SQLite 查询、线程行映射、spawn edge 读取和 SQL 字符串转义。
@@ -67,6 +111,10 @@ npm test
 ## 设计说明
 
 - 服务端只读访问本地文件，不写入 `.codex`。
+- 数据源是一等概念：旧接口默认读取本机 `local` 数据源，新接口可显式指定 `sourceId`；前端用 `sourceId + session id` 区分会话，避免不同数据源中相同 session id 混淆。
+- 远程数据源只在刷新阶段访问配置好的快照 URL 或快照目录；普通会话列表、详情、事件检查器和 Markdown 导出都从本地 `current` 快照读取。
+- 远程快照刷新使用 staging 目录构建，再原子切换到 `current`。刷新失败不会覆盖上一次成功快照。
+- 远程 SQLite 中的远端 `rollout_path` 会按配置的远端 Codex Home 映射到本地快照 Codex Home。
 - 前端使用原生 HTML/CSS/JavaScript，无构建步骤；Markdown 渲染通过本地 `markdown-it` 浏览器包完成。
 - 会话列表优先读取 SQLite `threads` 表，并在 SQLite 查询层排除 `thread_spawn_edges.child_thread_id` 对应的子代理线程，避免子代理在左侧会话列表独立展示；只有 SQLite 不可用时才回退扫描文件。
 - JSONL 读取使用流式逐行解析；列表回退读取前若干条事件时不会把整个大文件一次性读入内存。
@@ -91,10 +139,19 @@ npm test
 ## 本地 API
 
 - `GET /api/health`：查看只读数据源和服务状态。
+- `GET /api/sources`：列出本机和远程数据源、刷新状态和脱敏失败原因。
+- `POST /api/sources/:sourceId/refresh`：刷新远程数据源快照；本机数据源不可刷新。
 - `GET /api/sessions`：读取轻量会话列表，优先来自 SQLite。
 - `GET /api/sessions/:id`：读取单个会话的轻量渲染模型、Trace 和事件摘要。
 - `GET /api/sessions/:id/events/:index`：读取单个完整 JSONL 事件。
 - `GET /api/sessions/:id/markdown`：按需导出完整 Markdown。
+
+旧的 `/api/sessions...` 接口保持兼容，默认读取 `local` 数据源，也可临时用 `?sourceId=<id>` 指定数据源。新代码优先使用显式数据源接口：
+
+- `GET /api/sources/:sourceId/sessions`
+- `GET /api/sources/:sourceId/sessions/:id`
+- `GET /api/sources/:sourceId/sessions/:id/events/:index`
+- `GET /api/sources/:sourceId/sessions/:id/markdown`
 
 ## 已知边界
 
@@ -103,3 +160,5 @@ npm test
 - Trace duration 并非所有节点都有明确开始/结束时间；缺失结束时间时会标注为估算。
 - Codex App 原始 `.map` 未随包发布，因此本项目不会尝试还原官方 TSX 源码。
 - 不同 Codex 版本的事件字段可能变化；解析器保留原始事件检查器用于诊断。
+- HTTP 快照下载要求远端提供 Codex Home 快照包，本项目不会把远程设备暴露成通用文件浏览器。
+- 远程 token 只能从运行时环境变量读取；不要写入 README、`.env.example` 之外的仓库文件、Issue 评论、日志或 API 响应。

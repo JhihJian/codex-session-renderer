@@ -233,6 +233,18 @@ button {
   font-weight: 600;
 }
 
+.source-status {
+  min-height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #fbfcfd;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  padding: 7px 9px;
+}
+
 .text-input,
 .select-input {
   width: 100%;
