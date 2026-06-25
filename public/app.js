@@ -1,7 +1,10 @@
 const state = {
+  sources: [],
+  selectedSourceId: "local",
   sessions: [],
   filteredSessions: [],
   selectedSessionId: null,
+  selectedSessionKey: null,
   detail: null,
   selectedEventIndex: null,
   selectedTraceNodeId: null,
@@ -81,6 +84,9 @@ const els = {
   toast: document.getElementById("toast"),
   copyRawButton: document.getElementById("copyRawButton"),
   refreshButton: document.getElementById("refreshButton"),
+  refreshRemoteButton: document.getElementById("refreshRemoteButton"),
+  sourceSelect: document.getElementById("sourceSelect"),
+  sourceStatus: document.getElementById("sourceStatus"),
   copyMarkdownButton: document.getElementById("copyMarkdownButton"),
   downloadMarkdownButton: document.getElementById("downloadMarkdownButton"),
   readViewButton: document.getElementById("readViewButton"),
@@ -94,20 +100,21 @@ init();
 
 function init() {
   bindEvents();
-  loadHealth();
-  loadSessions();
+  loadHealthAndSources();
 }
 
 function bindEvents() {
   els.refreshButton.addEventListener("click", () => loadSessions({ keepSelection: true }));
+  els.refreshRemoteButton.addEventListener("click", refreshSelectedSource);
+  els.sourceSelect.addEventListener("change", () => selectSource(els.sourceSelect.value));
   els.sessionSearch.addEventListener("input", renderSessionList);
   els.sessionTimeFilter.querySelectorAll("[data-session-time]").forEach((button) => {
     button.addEventListener("click", () => {
       state.sessionTimeFilter = button.dataset.sessionTime || "realtime";
       renderSessionList();
-      const nextId = state.filteredSessions[0]?.id;
-      if (nextId && !state.filteredSessions.some((session) => session.id === state.selectedSessionId)) {
-        selectSession(nextId);
+      const nextSession = state.filteredSessions[0];
+      if (nextSession && !state.filteredSessions.some((session) => sessionKey(session) === state.selectedSessionKey)) {
+        selectSession(nextSession.id);
       }
     });
   });
@@ -146,29 +153,74 @@ function bindEvents() {
   });
 }
 
-async function loadHealth() {
+async function loadHealthAndSources() {
   try {
     const health = await fetchJson("/api/health");
-    els.healthStatus.textContent = `只读数据源 ${health.codexHome}`;
+    state.sources = health.sources || [];
+    state.selectedSourceId = health.defaultSourceId || "local";
+    renderSourceControls();
+    els.healthStatus.textContent = health.sources?.length > 1 ? `数据源 ${health.sources.length} 个` : `只读数据源 ${health.codexHome}`;
+    await loadSessions();
   } catch (error) {
     els.healthStatus.textContent = `接口不可用：${error.message}`;
   }
 }
 
+function renderSourceControls() {
+  if (!state.sources.length) {
+    els.sourceSelect.innerHTML = `<option value="local">本机 Codex Home</option>`;
+    state.sources = [{ id: "local", label: "本机 Codex Home", kind: "local", status: { refreshable: false } }];
+  } else {
+    els.sourceSelect.innerHTML = state.sources
+      .map((source) => `<option value="${escapeAttr(source.id)}">${escapeHtml(sourceLabel(source))}</option>`)
+      .join("");
+  }
+  els.sourceSelect.value = state.selectedSourceId;
+  renderSourceStatus();
+}
+
+function renderSourceStatus() {
+  const source = selectedSource();
+  if (!source) {
+    els.sourceStatus.textContent = "数据源不存在";
+    els.refreshRemoteButton.hidden = true;
+    return;
+  }
+  const status = source.status || {};
+  els.refreshRemoteButton.hidden = !status.refreshable;
+  els.refreshRemoteButton.disabled = Boolean(status.refreshing);
+  els.refreshRemoteButton.textContent = status.refreshing ? "远程刷新中" : "刷新远程";
+  const parts = [source.kind === "remote" ? "远程快照" : "本机"];
+  if (status.refreshing) parts.push("刷新中");
+  if (status.lastSuccessfulRefreshAt) parts.push(`最近成功 ${formatDate(status.lastSuccessfulRefreshAt)}`);
+  if (status.stale) parts.push("正在浏览旧快照");
+  if (status.error?.message) parts.push(status.error.message);
+  if (source.kind === "remote" && !status.snapshotAvailable) parts.push("尚无可用快照");
+  els.sourceStatus.textContent = parts.join(" · ");
+}
+
 async function loadSessions({ keepSelection = false } = {}) {
   setBusy(true);
   try {
-    const data = await fetchJson("/api/sessions");
+    const data = await fetchJson(sourceSessionsUrl());
+    if (data.source) upsertSource(data.source);
     state.sessions = data.sessions || [];
     renderSessionList();
-    const nextId =
-      keepSelection && state.filteredSessions.some((session) => session.id === state.selectedSessionId)
-        ? state.selectedSessionId
-        : state.filteredSessions[0]?.id || state.sessions[0]?.id;
-    if (nextId) await selectSession(nextId);
+    const nextSession =
+      keepSelection && state.filteredSessions.some((session) => sessionKey(session) === state.selectedSessionKey)
+        ? state.filteredSessions.find((session) => sessionKey(session) === state.selectedSessionKey)
+        : state.filteredSessions[0] || state.sessions[0];
+    if (nextSession) {
+      await selectSession(nextSession.id);
+    } else {
+      clearSelectedSession();
+      renderAll();
+    }
   } catch (error) {
     showToast(`加载会话失败：${error.message}`);
-    els.threadContent.innerHTML = emptyState("无法加载会话数据", "请确认本地服务仍在运行。");
+    clearSelectedSession();
+    renderAll();
+    els.threadContent.innerHTML = emptyState("无法加载会话数据", "请确认服务仍在运行，或远程快照已成功刷新。");
   } finally {
     setBusy(false);
   }
@@ -181,6 +233,7 @@ function setBusy(isBusy) {
 
 async function selectSession(id) {
   state.selectedSessionId = id;
+  state.selectedSessionKey = sessionKey({ id, sourceId: state.selectedSourceId });
   state.detail = null;
   state.selectedEventIndex = null;
   state.selectedTraceNodeId = null;
@@ -189,10 +242,12 @@ async function selectSession(id) {
   state.visibleEvents = 40;
   state.visibleThreadItems = 140;
   renderSessionList();
-  els.threadContent.innerHTML = emptyState("正在读取会话", "解析本地 JSONL 事件流。");
+  els.threadContent.innerHTML = emptyState("正在读取会话", "解析当前数据源中的 JSONL 事件流。");
   try {
-    const detail = await fetchJson(`/api/sessions/${encodeURIComponent(id)}`);
+    const detail = await fetchJson(sourceSessionUrl(id));
     state.detail = detail;
+    state.selectedSourceId = detail.session?.sourceId || state.selectedSourceId;
+    state.selectedSessionKey = sessionKey(detail.session || { id, sourceId: state.selectedSourceId });
     primeTraceExpansion(detail);
     els.copyMarkdownButton.disabled = false;
     els.downloadMarkdownButton.disabled = false;
@@ -201,6 +256,53 @@ async function selectSession(id) {
   } catch (error) {
     showToast(`读取会话失败：${error.message}`);
   }
+}
+
+function clearSelectedSession() {
+  state.selectedSessionId = null;
+  state.selectedSessionKey = null;
+  state.detail = null;
+  state.selectedEventIndex = null;
+  state.selectedTraceNodeId = null;
+  state.expandedTraceNodeIds = new Set();
+  state.rawEventCache = new Map();
+  els.copyMarkdownButton.disabled = true;
+  els.downloadMarkdownButton.disabled = true;
+}
+
+async function selectSource(sourceId) {
+  if (!sourceId || sourceId === state.selectedSourceId) return;
+  state.selectedSourceId = sourceId;
+  clearSelectedSession();
+  renderSourceControls();
+  await loadSessions();
+}
+
+async function refreshSelectedSource() {
+  const source = selectedSource();
+  if (!source?.status?.refreshable) return;
+  els.refreshRemoteButton.disabled = true;
+  els.refreshRemoteButton.textContent = "远程刷新中";
+  try {
+    const result = await fetchJson(`/api/sources/${encodeURIComponent(source.id)}/refresh`, { method: "POST" });
+    if (result.source) upsertSource(result.source);
+    renderSourceControls();
+    await loadSessions({ keepSelection: true });
+    showToast("远程快照已刷新");
+  } catch (error) {
+    await reloadSources();
+    showToast(`远程刷新失败：${error.message}`);
+    await loadSessions({ keepSelection: true });
+  } finally {
+    renderSourceControls();
+  }
+}
+
+async function reloadSources() {
+  const data = await fetchJson("/api/sources").catch(() => null);
+  if (!data?.sources) return;
+  state.sources = data.sources;
+  renderSourceControls();
 }
 
 function renderAll() {
@@ -317,14 +419,15 @@ function groupSessionsByDirectory(sessions) {
 }
 
 function renderSessionRow(session, query) {
-  const active = session.id === state.selectedSessionId ? " active" : "";
+  const active = sessionKey(session) === state.selectedSessionKey ? " active" : "";
   const cwd = session.cwd ? shortPath(session.cwd) : "Projectless";
   const agent = session.agentNickname ? `${session.agentNickname}/${session.agentRole || "agent"}` : "";
+  const source = session.sourceLabel || selectedSource()?.label || "";
   return `
     <div class="session-row${active}" role="button" tabindex="0" data-session-id="${escapeAttr(session.id)}">
       <span class="session-title markdown-inline-title">${renderMarkdownTitle(session.title || "未命名会话", query)}</span>
       <span class="session-date">${formatShortDate(session.updatedAt || session.fileModifiedAt)}</span>
-      <span class="session-meta">${escapeHtml([agent, cwd, session.model || session.modelProvider || "unknown"].filter(Boolean).join(" · "))}</span>
+      <span class="session-meta">${escapeHtml([source, agent, cwd, session.model || session.modelProvider || "unknown"].filter(Boolean).join(" · "))}</span>
     </div>
   `;
 }
@@ -340,9 +443,13 @@ function sessionListTimeMs(session) {
 
 function renderThreadHeader() {
   const session = state.detail?.session;
-  if (!session) return;
+  if (!session) {
+    els.sessionTitle.textContent = "选择一个会话";
+    els.sessionMetaLabel.textContent = selectedSource()?.label || "未选择";
+    return;
+  }
   els.sessionTitle.innerHTML = renderMarkdownTitle(session.title || "未命名会话");
-  const parts = [session.model, session.reasoningEffort, formatDate(session.updatedAt)].filter(Boolean);
+  const parts = [session.sourceLabel || selectedSource()?.label, session.model, session.reasoningEffort, formatDate(session.updatedAt)].filter(Boolean);
   els.sessionMetaLabel.textContent = parts.join(" · ") || session.id;
 }
 
@@ -1047,13 +1154,15 @@ function renderDetails() {
   }
   const session = detail.session;
   const rows = [
+    ["数据源", session.sourceLabel || selectedSource()?.label || "本机 Codex Home"],
+    ["数据源类型", session.dataSourceKind === "remote" ? "远程快照" : "本机"],
     ["ID", session.id],
     ["标题", session.title],
     ["工作目录", session.cwd || "Projectless"],
     ["数据文件", session.relativePath],
     ["模型", [session.model, session.reasoningEffort].filter(Boolean).join(" / ")],
     ["子代理", `${detail.trace?.hierarchy?.children?.length || 0}`],
-    ["来源", [session.originator, session.source, session.threadSource].filter(Boolean).join(" / ")],
+    ["会话来源", [session.originator, session.source, session.threadSource].filter(Boolean).join(" / ")],
     ["更新时间", formatDate(session.updatedAt || session.fileModifiedAt)],
     ["大小", formatBytes(session.sizeBytes)],
   ];
@@ -1149,7 +1258,7 @@ async function loadRawEvent(index) {
   if (state.rawEventCache.has(index)) return state.rawEventCache.get(index);
   const id = state.detail?.session?.id;
   if (!id) throw new Error("未选择会话");
-  const raw = await fetchJson(`/api/sessions/${encodeURIComponent(id)}/events/${index}`);
+  const raw = await fetchJson(sourceEventUrl(id, index));
   state.rawEventCache.set(index, raw);
   return raw;
 }
@@ -1207,14 +1316,14 @@ async function copySelectedRawEvent() {
 
 async function copyMarkdown() {
   if (!state.detail?.session?.id) return;
-  const markdown = await fetchText(`/api/sessions/${encodeURIComponent(state.detail.session.id)}/markdown`);
+  const markdown = await fetchText(sourceMarkdownUrl(state.detail.session.id));
   await copyText(markdown);
   showToast("已复制 Markdown");
 }
 
 async function downloadMarkdown() {
   if (!state.detail?.session?.id) return;
-  const markdown = await fetchText(`/api/sessions/${encodeURIComponent(state.detail.session.id)}/markdown`);
+  const markdown = await fetchText(sourceMarkdownUrl(state.detail.session.id));
   const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -1335,11 +1444,50 @@ function itemIcon(item) {
   return "i";
 }
 
-async function fetchJson(url) {
-  const response = await fetch(url, { cache: "no-store" });
+function selectedSource() {
+  return state.sources.find((source) => source.id === state.selectedSourceId) || null;
+}
+
+function sourceLabel(source) {
+  const status = source.status || {};
+  const suffix = source.kind === "remote" && status.stale ? "旧快照" : source.kind === "remote" ? "远程" : "本机";
+  return `${source.label || source.id} (${suffix})`;
+}
+
+function upsertSource(source) {
+  const index = state.sources.findIndex((candidate) => candidate.id === source.id);
+  if (index >= 0) {
+    state.sources.splice(index, 1, source);
+  } else {
+    state.sources.push(source);
+  }
+}
+
+function sourceSessionsUrl() {
+  return `/api/sources/${encodeURIComponent(state.selectedSourceId)}/sessions`;
+}
+
+function sourceSessionUrl(id) {
+  return `/api/sources/${encodeURIComponent(state.selectedSourceId)}/sessions/${encodeURIComponent(id)}`;
+}
+
+function sourceEventUrl(id, index) {
+  return `/api/sources/${encodeURIComponent(state.selectedSourceId)}/sessions/${encodeURIComponent(id)}/events/${index}`;
+}
+
+function sourceMarkdownUrl(id) {
+  return `/api/sources/${encodeURIComponent(state.selectedSourceId)}/sessions/${encodeURIComponent(id)}/markdown`;
+}
+
+function sessionKey(session) {
+  return `${session.sourceId || state.selectedSourceId || "local"}:${session.id}`;
+}
+
+async function fetchJson(url, options = {}) {
+  const response = await fetch(url, { cache: "no-store", ...options });
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || response.statusText);
+    throw new Error(errorText(text, response.statusText));
   }
   return response.json();
 }
@@ -1348,9 +1496,18 @@ async function fetchText(url) {
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || response.statusText);
+    throw new Error(errorText(text, response.statusText));
   }
   return response.text();
+}
+
+function errorText(text, fallback) {
+  try {
+    const parsed = JSON.parse(text);
+    return parsed.error?.message || parsed.error || parsed.details?.message || fallback;
+  } catch {
+    return text || fallback;
+  }
 }
 
 async function copyText(text) {

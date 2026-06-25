@@ -1,6 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { compactSessionForList, publicThreadMeta, rootSessionsOnly, sessionFromThread, withFileStat } from "../src/session-models.mjs";
+import path from "node:path";
+import {
+  compactSessionForList,
+  mapCodexHomePath,
+  publicThreadMeta,
+  rootSessionsOnly,
+  sessionFromThread,
+  withFileStat,
+} from "../src/session-models.mjs";
 
 test("sessionFromThread creates the API session model without touching the file", () => {
   const session = sessionFromThread(
@@ -12,6 +20,7 @@ test("sessionFromThread creates the API session model without touching the file"
       model: "gpt-test",
       reasoningEffort: "medium",
       archived: true,
+      createdAt: "2026-06-24T10:20:30.000Z",
       updatedAt: "2026-06-24T11:00:00.000Z",
       agentNickname: "worker",
       agentRole: "review",
@@ -23,6 +32,9 @@ test("sessionFromThread creates the API session model without touching the file"
   assert.equal(session.id, "thread-1");
   assert.equal(session.path, "D:\\codex\\sessions\\rollout-2026-06-24T10-20-30-thread-1.jsonl");
   assert.equal(session.relativePath, "sessions/rollout-2026-06-24T10-20-30-thread-1.jsonl");
+  assert.equal(session.sourceId, "local");
+  assert.equal(session.sourceLabel, "本机 Codex Home");
+  assert.equal(session.dataSourceKind, "local");
   assert.equal(session.startedAt, "2026-06-24T10:20:30.000Z");
   assert.equal(session.updatedAt, "2026-06-24T11:00:00.000Z");
   assert.equal(session.archived, true);
@@ -44,6 +56,7 @@ test("compactSessionForList preserves list fields while trimming preview text", 
   assert.equal(compact.title, "x".repeat(200));
   assert.equal(compact.preview.length, 120);
   assert.equal(compact.sizeBytes, null);
+  assert.equal(compact.sourceId, "local");
 });
 
 test("rootSessionsOnly removes subagent child threads from the standalone list", () => {
@@ -66,6 +79,36 @@ test("rootSessionsOnly removes subagent child threads from the standalone list",
   assert.equal(rootSessionsOnly(sessions, []), sessions);
 });
 
+test("sessionFromThread maps remote rollout paths into the local snapshot source", () => {
+  const session = sessionFromThread(
+    {
+      id: "same-id",
+      title: "远程会话",
+      path: "/root/.codex/sessions/2026/06/25/rollout-2026-06-25T01-02-03-same-id.jsonl",
+    },
+    "/tmp/snapshots/remote/current",
+    {
+      sourceId: "remote",
+      sourceLabel: "远程设备",
+      dataSourceKind: "remote",
+      originalCodexHome: "/root/.codex",
+    },
+  );
+
+  assert.equal(
+    session.path,
+    path.join("/tmp/snapshots/remote/current", "sessions", "2026", "06", "25", "rollout-2026-06-25T01-02-03-same-id.jsonl"),
+  );
+  assert.equal(session.relativePath, "sessions/2026/06/25/rollout-2026-06-25T01-02-03-same-id.jsonl");
+  assert.equal(session.sourceId, "remote");
+  assert.equal(session.sourceLabel, "远程设备");
+  assert.equal(session.dataSourceKind, "remote");
+});
+
+test("mapCodexHomePath leaves unrelated paths untouched", () => {
+  assert.equal(mapCodexHomePath("/var/log/session.jsonl", "/tmp/current", "/root/.codex"), "/var/log/session.jsonl");
+});
+
 test("withFileStat and publicThreadMeta normalize derived file metadata", () => {
   const mtime = new Date("2026-06-24T10:00:00.000Z");
   assert.deepEqual(withFileStat({ id: "thread-1", updatedAt: null }, { size: 42, mtime }), {
@@ -75,30 +118,31 @@ test("withFileStat and publicThreadMeta normalize derived file metadata", () => 
     fileModifiedAt: "2026-06-24T10:00:00.000Z",
   });
 
-  assert.deepEqual(
-    publicThreadMeta(
-      {
-        id: "child",
-        title: "子线程",
-        cwd: "",
-        model: "gpt-test",
-        reasoningEffort: "low",
-        updatedAt: "2026-06-24T10:00:00.000Z",
-        path: "D:\\codex\\sessions\\child.jsonl",
-      },
-      "D:\\codex",
-    ),
+  const threadMeta = publicThreadMeta(
     {
       id: "child",
       title: "子线程",
-      cwd: null,
+      cwd: "",
       model: "gpt-test",
       reasoningEffort: "low",
-      agentNickname: null,
-      agentRole: null,
       updatedAt: "2026-06-24T10:00:00.000Z",
       path: "D:\\codex\\sessions\\child.jsonl",
-      relativePath: "sessions/child.jsonl",
     },
+    "D:\\codex",
   );
+  assert.deepEqual(threadMeta, {
+    id: "child",
+    title: "子线程",
+    cwd: null,
+    model: "gpt-test",
+    reasoningEffort: "low",
+    agentNickname: null,
+    agentRole: null,
+    updatedAt: "2026-06-24T10:00:00.000Z",
+    sourceId: "local",
+    sourceLabel: null,
+    dataSourceKind: "local",
+    path: "D:\\codex\\sessions\\child.jsonl",
+    relativePath: "sessions/child.jsonl",
+  });
 });

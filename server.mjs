@@ -1,8 +1,8 @@
 import { createServer } from "node:http";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import { fileURLToPath } from "node:url";
+import { createDataSourceRegistry } from "./src/data-sources.mjs";
 import { sendError, sendJson, sendText, serveStaticFile } from "./src/http-response.mjs";
 import { readJsonl, readJsonlLine } from "./src/jsonl-reader.mjs";
 import {
@@ -20,7 +20,6 @@ import {
   findSpawnAgentEvents,
   findSubagentNotifications,
   isImportantEvent,
-  normalizeSlash,
   renderConversationMarkdown,
   sessionIdFromFile,
   sessionStartedFromFile,
@@ -30,22 +29,60 @@ import {
   toIso,
   toMs,
 } from "./src/session-events.mjs";
-import { compactSessionForList, publicThreadMeta, rootSessionsOnly, sessionFromThread, withFileStat } from "./src/session-models.mjs";
+import {
+  compactSessionForList,
+  publicThreadMeta,
+  relativeCodexPath,
+  rootSessionsOnly,
+  sessionFromThread,
+  withFileStat,
+} from "./src/session-models.mjs";
 import { createSqliteThreadStore, stripLongPathPrefix } from "./src/sqlite-threads.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
-const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
-const sessionsRoot = path.join(codexHome, "sessions");
-const sessionIndexPath = path.join(codexHome, "session_index.jsonl");
-const stateDbPath = path.join(codexHome, "state_5.sqlite");
 const maxListSessions = Number(process.env.CODEX_SESSION_RENDERER_LIMIT || 800);
 const port = Number(process.env.PORT || 4789);
-const threadStore = createSqliteThreadStore({ stateDbPath, maxListSessions });
+const dataSources = createDataSourceRegistry();
+const sourceContexts = new Map();
 
-let sessionCache = null;
-let sessionCacheTime = 0;
-const sessionDetailCache = new Map();
+function getSourceContext(sourceId = "local") {
+  const source = dataSources.getSource(sourceId || "local");
+  if (!source) return null;
+  const cached = sourceContexts.get(source.id);
+  if (cached) return cached;
+  const context = {
+    source,
+    codexHome: source.codexHome,
+    originalCodexHome: source.originalCodexHome || source.codexHome,
+    sessionsRoot: source.sessionsRoot,
+    sessionIndexPath: source.sessionIndexPath,
+    stateDbPath: source.stateDbPath,
+    threadStore: createSqliteThreadStore({ stateDbPath: source.stateDbPath, maxListSessions }),
+    sessionCache: null,
+    sessionCacheTime: 0,
+    sessionDetailCache: new Map(),
+  };
+  sourceContexts.set(source.id, context);
+  return context;
+}
+
+function sourceModelOptions(context) {
+  return {
+    sourceId: context.source.id,
+    sourceLabel: context.source.label,
+    dataSourceKind: context.source.kind,
+    originalCodexHome: context.originalCodexHome,
+  };
+}
+
+function invalidateSourceContext(sourceId) {
+  const context = sourceContexts.get(sourceId || "local");
+  if (!context) return;
+  context.sessionCache = null;
+  context.sessionCacheTime = 0;
+  context.sessionDetailCache.clear();
+}
 
 async function* walkJsonl(dir) {
   let entries;
@@ -64,10 +101,10 @@ async function* walkJsonl(dir) {
   }
 }
 
-async function readIndex() {
+async function readIndex(context) {
   const byId = new Map();
   try {
-    const rows = await readJsonl(sessionIndexPath);
+    const rows = await readJsonl(context.sessionIndexPath);
     for (const row of rows) {
       if (!row?.id) continue;
       byId.set(row.id, {
@@ -82,26 +119,26 @@ async function readIndex() {
   return byId;
 }
 
-async function listSessions() {
+async function listSessions(context) {
   const now = Date.now();
-  if (sessionCache && now - sessionCacheTime < 3000) return sessionCache;
+  if (context.sessionCache && now - context.sessionCacheTime < 3000) return context.sessionCache;
 
-  const threads = await threadStore.readThreads();
+  const threads = await context.threadStore.readThreads();
   if (threads.size > 0) {
-    const spawnEdges = await threadStore.readSpawnEdges();
+    const spawnEdges = await context.threadStore.readSpawnEdges();
     const sessions = [...threads.values()]
-      .map((thread) => sessionFromThread(thread, codexHome))
+      .map((thread) => sessionFromThread(thread, context.codexHome, sourceModelOptions(context)))
       .filter((session) => session.path);
     const rootSessions = rootSessionsOnly(sessions, spawnEdges);
     rootSessions.sort((a, b) => new Date(b.updatedAt || b.fileModifiedAt || 0) - new Date(a.updatedAt || a.fileModifiedAt || 0));
-    sessionCache = rootSessions.slice(0, maxListSessions);
-    sessionCacheTime = now;
-    return sessionCache;
+    context.sessionCache = rootSessions.slice(0, maxListSessions);
+    context.sessionCacheTime = now;
+    return context.sessionCache;
   }
 
-  const index = await readIndex();
+  const index = await readIndex(context);
   const files = [];
-  for await (const filePath of walkJsonl(sessionsRoot)) {
+  for await (const filePath of walkJsonl(context.sessionsRoot)) {
     files.push(filePath);
   }
 
@@ -128,6 +165,9 @@ async function listSessions() {
     const title = thread?.title || indexed?.title || extractTitleFromEvents(events, path.basename(filePath, ".jsonl"));
     sessions.push({
       id,
+      sourceId: context.source.id,
+      sourceLabel: context.source.label,
+      dataSourceKind: context.source.kind,
       title,
       cwd: thread?.cwd || stripLongPathPrefix(meta.cwd || "") || null,
       originator: meta.originator || null,
@@ -142,7 +182,7 @@ async function listSessions() {
       agentRole: thread?.agentRole || null,
       preview: thread?.preview || null,
       path: filePath,
-      relativePath: normalizeSlash(path.relative(codexHome, filePath)),
+      relativePath: relativeCodexPath(context.codexHome, filePath),
       startedAt,
       updatedAt,
       sizeBytes: stat.size,
@@ -151,35 +191,35 @@ async function listSessions() {
   }
 
   sessions.sort((a, b) => new Date(b.updatedAt || b.fileModifiedAt) - new Date(a.updatedAt || a.fileModifiedAt));
-  sessionCache = sessions.slice(0, maxListSessions);
-  sessionCacheTime = now;
-  return sessionCache;
+  context.sessionCache = sessions.slice(0, maxListSessions);
+  context.sessionCacheTime = now;
+  return context.sessionCache;
 }
 
-async function getSessionById(id) {
-  const cached = sessionCache?.find((session) => session.id === id);
+async function getSessionById(context, id) {
+  const cached = context.sessionCache?.find((session) => session.id === id);
   if (cached) return cached;
 
-  const thread = (await threadStore.readThreadRowsByIds([id])).get(id);
-  if (thread) return sessionFromThread(thread, codexHome);
+  const thread = (await context.threadStore.readThreadRowsByIds([id])).get(id);
+  if (thread) return sessionFromThread(thread, context.codexHome, sourceModelOptions(context));
 
-  const sessions = await listSessions();
+  const sessions = await listSessions(context);
   const listed = sessions.find((session) => session.id === id);
   if (listed) return listed;
 
-  for await (const filePath of walkJsonl(sessionsRoot)) {
-    if (sessionIdFromFile(filePath) === id) return sessionFromFilePath(filePath);
+  for await (const filePath of walkJsonl(context.sessionsRoot)) {
+    if (sessionIdFromFile(filePath) === id) return sessionFromFilePath(context, filePath);
   }
   return null;
 }
 
-async function getSessionDetail(id) {
-  const session = await getSessionById(id);
+async function getSessionDetail(context, id) {
+  const session = await getSessionById(context, id);
   if (!session) return null;
   const stat = await fs.stat(session.path);
   const sessionWithStat = withFileStat(session, stat);
-  const hierarchy = await getThreadHierarchy(id);
-  const cached = sessionDetailCache.get(id);
+  const hierarchy = await getThreadHierarchy(context, id);
+  const cached = context.sessionDetailCache.get(id);
   if (cached && cached.mtimeMs === fileTimeMs(stat) && cached.size === stat.size && hierarchy.children.length === 0) return cached.detail;
 
   const rawEvents = await readJsonl(session.path);
@@ -209,7 +249,7 @@ async function getSessionDetail(id) {
   const turns = buildTurns(rawEvents);
   const publicTurns = compactTurnsForClient(turns);
   const trace = buildTrace(sessionWithStat, rawEvents, analysisEvents, turns, hierarchy);
-  const compact = await buildCompactView(sessionWithStat, analysisEvents, turns, hierarchy);
+  const compact = await buildCompactView(context, sessionWithStat, analysisEvents, turns, hierarchy);
   const stats = {
     ...summarizeSessionEvents(rawEvents),
     eventCount: rawEvents.length,
@@ -217,16 +257,23 @@ async function getSessionDetail(id) {
     importantEventCount: analysisEvents.filter((event) => event.important).length,
     childThreadCount: hierarchy.children.length,
     sizeBytes: stat.size,
-    codexHome,
+    source: {
+      id: context.source.id,
+      label: context.source.label,
+      kind: context.source.kind,
+      stale: context.source.status?.stale ?? false,
+      lastSuccessfulRefreshAt: context.source.status?.lastSuccessfulRefreshAt ?? null,
+    },
+    codexHome: context.source.kind === "local" ? context.codexHome : null,
     dataPath: sessionWithStat.path,
   };
   const detail = { session: sessionWithStat, turns: publicTurns, events: publicEvents, stats, trace, compact };
-  sessionDetailCache.set(id, { mtimeMs: fileTimeMs(stat), size: stat.size, detail });
+  context.sessionDetailCache.set(id, { mtimeMs: fileTimeMs(stat), size: stat.size, detail });
   return detail;
 }
 
-async function getSessionEvent(id, index) {
-  const session = await getSessionById(id);
+async function getSessionEvent(context, id, index) {
+  const session = await getSessionById(context, id);
   if (!session?.path) return null;
   const event = await readJsonlLine(session.path, index);
   if (!event) return null;
@@ -245,7 +292,7 @@ async function getSessionEvent(id, index) {
   };
 }
 
-async function buildCompactView(session, normalizedEvents, turns, hierarchy, options = {}) {
+async function buildCompactView(context, session, normalizedEvents, turns, hierarchy, options = {}) {
   const depth = options.depth ?? 0;
   const maxDepth = options.maxDepth ?? 3;
   const childById = new Map(hierarchy.children.map((child) => [child.childThreadId, child]));
@@ -255,7 +302,7 @@ async function buildCompactView(session, normalizedEvents, turns, hierarchy, opt
 
   if (depth < maxDepth) {
     for (const child of hierarchy.children) {
-      const childSummary = await buildCompactChildNode(child, {
+      const childSummary = await buildCompactChildNode(context, child, {
         depth,
         maxDepth,
         spawnEvent: spawnByChildId.get(child.childThreadId),
@@ -313,7 +360,7 @@ async function buildCompactView(session, normalizedEvents, turns, hierarchy, opt
   };
 }
 
-async function buildCompactChildNode(child, context) {
+async function buildCompactChildNode(sourceContext, child, context) {
   const thread = child.thread || {};
   const base = compactChildBase(child, context);
   if (!thread.id || !thread.path) {
@@ -327,7 +374,7 @@ async function buildCompactChildNode(child, context) {
   }
 
   try {
-    const childSession = await getSessionById(thread.id);
+    const childSession = await getSessionById(sourceContext, thread.id);
     if (!childSession?.path) {
       return {
         ...base,
@@ -354,8 +401,8 @@ async function buildCompactChildNode(child, context) {
       payload: event.payload,
     }));
     const childTurns = buildTurns(rawEvents);
-    const childHierarchy = await getThreadHierarchy(thread.id);
-    const compact = await buildCompactView(childSessionWithStat, normalizedEvents, childTurns, childHierarchy, {
+    const childHierarchy = await getThreadHierarchy(sourceContext, thread.id);
+    const compact = await buildCompactView(sourceContext, childSessionWithStat, normalizedEvents, childTurns, childHierarchy, {
       depth: context.depth + 1,
       maxDepth: context.maxDepth,
     });
@@ -377,7 +424,7 @@ async function buildCompactChildNode(child, context) {
   }
 }
 
-async function sessionFromFilePath(filePath) {
+async function sessionFromFilePath(context, filePath) {
   let stat = null;
   try {
     stat = await fs.stat(filePath);
@@ -390,6 +437,9 @@ async function sessionFromFilePath(filePath) {
   return withFileStat(
     {
       id,
+      sourceId: context.source.id,
+      sourceLabel: context.source.label,
+      dataSourceKind: context.source.kind,
       title: extractTitleFromEvents(events, path.basename(filePath, ".jsonl")),
       cwd: stripLongPathPrefix(meta.cwd || "") || null,
       originator: meta.originator || null,
@@ -404,7 +454,7 @@ async function sessionFromFilePath(filePath) {
       agentRole: null,
       preview: null,
       path: filePath,
-      relativePath: normalizeSlash(path.relative(codexHome, filePath)),
+      relativePath: relativeCodexPath(context.codexHome, filePath),
       startedAt: toIso(meta.timestamp) || sessionStartedFromFile(filePath),
       updatedAt: null,
       sizeBytes: null,
@@ -414,15 +464,15 @@ async function sessionFromFilePath(filePath) {
   );
 }
 
-async function getSessionMarkdown(id) {
-  const session = await getSessionById(id);
+async function getSessionMarkdown(context, id) {
+  const session = await getSessionById(context, id);
   if (!session) return null;
   const rawEvents = await readJsonl(session.path);
   return renderConversationMarkdown(session, buildTurns(rawEvents));
 }
 
-async function getThreadHierarchy(threadId) {
-  const edges = await threadStore.readSpawnEdges();
+async function getThreadHierarchy(context, threadId) {
+  const edges = await context.threadStore.readSpawnEdges();
   const directEdges = edges.filter((edge) => edge.parentThreadId === threadId);
   const parentEdges = edges.filter((edge) => edge.childThreadId === threadId);
   const primaryParentEdge = parentEdges[0] || null;
@@ -432,21 +482,22 @@ async function getThreadHierarchy(threadId) {
   const childIds = directEdges.map((edge) => edge.childThreadId);
   const parentIds = parentEdges.map((edge) => edge.parentThreadId);
   const siblingIds = siblingEdges.map((edge) => edge.childThreadId);
-  const threads = await threadStore.readThreadRowsByIds([threadId, ...childIds, ...parentIds, ...siblingIds]);
+  const threads = await context.threadStore.readThreadRowsByIds([threadId, ...childIds, ...parentIds, ...siblingIds]);
+  const modelOptions = sourceModelOptions(context);
   return {
     parent: primaryParentEdge
       ? {
           ...primaryParentEdge,
-          thread: publicThreadMeta(threads.get(primaryParentEdge.parentThreadId), codexHome),
+          thread: publicThreadMeta(threads.get(primaryParentEdge.parentThreadId), context.codexHome, modelOptions),
         }
       : null,
     children: directEdges.map((edge) => ({
       ...edge,
-      thread: publicThreadMeta(threads.get(edge.childThreadId), codexHome),
+      thread: publicThreadMeta(threads.get(edge.childThreadId), context.codexHome, modelOptions),
     })),
     siblings: siblingEdges.map((edge) => ({
       ...edge,
-      thread: publicThreadMeta(threads.get(edge.childThreadId), codexHome),
+      thread: publicThreadMeta(threads.get(edge.childThreadId), context.codexHome, modelOptions),
       active: edge.childThreadId === threadId,
     })),
   };
@@ -461,33 +512,94 @@ async function route(req, res) {
   const pathname = url.pathname;
   try {
     if (pathname === "/api/health") {
+      const localContext = getSourceContext("local");
       return sendJson(res, 200, {
         ok: true,
-        codexHome,
-        sessionsRoot,
-        sessionIndexPath,
+        codexHome: localContext?.codexHome,
+        sessionsRoot: localContext?.sessionsRoot,
+        sessionIndexPath: localContext?.sessionIndexPath,
+        defaultSourceId: "local",
+        sources: dataSources.listSources(),
         time: new Date().toISOString(),
       });
     }
+    if (pathname === "/api/sources") {
+      return sendJson(res, 200, { sources: dataSources.listSources() });
+    }
+    const sourceRefreshMatch = pathname.match(/^\/api\/sources\/([^/]+)\/refresh$/);
+    if (sourceRefreshMatch) {
+      if (req.method !== "POST") return sendError(res, 405, "Method not allowed");
+      const sourceId = decodeURIComponent(sourceRefreshMatch[1]);
+      const result = await dataSources.refreshSource(sourceId);
+      invalidateSourceContext(sourceId);
+      if (!result.ok) {
+        const status = result.status || 502;
+        return sendJson(res, status, {
+          ok: false,
+          source: result.source,
+          error: result.error || result.source?.status?.error || { code: "refresh_failed", message: "刷新失败。" },
+        });
+      }
+      return sendJson(res, 200, { ok: true, source: result.source });
+    }
     if (pathname === "/api/sessions") {
-      const sessions = (await listSessions()).map(compactSessionForList);
+      const context = resolveRequestSource(url);
+      if (!context) return sendError(res, 404, "Data source not found");
+      const sessions = (await listSessions(context)).map(compactSessionForList);
       return sendJson(res, 200, { sessions });
+    }
+    const sourceSessionsMatch = pathname.match(/^\/api\/sources\/([^/]+)\/sessions$/);
+    if (sourceSessionsMatch) {
+      const context = getSourceContext(decodeURIComponent(sourceSessionsMatch[1]));
+      if (!context) return sendError(res, 404, "Data source not found");
+      const sessions = (await listSessions(context)).map(compactSessionForList);
+      return sendJson(res, 200, { source: dataSources.listSources().find((source) => source.id === context.source.id), sessions });
+    }
+    const sourceMarkdownMatch = pathname.match(/^\/api\/sources\/([^/]+)\/sessions\/([^/]+)\/markdown$/);
+    if (sourceMarkdownMatch) {
+      const context = getSourceContext(decodeURIComponent(sourceMarkdownMatch[1]));
+      if (!context) return sendError(res, 404, "Data source not found");
+      const markdown = await getSessionMarkdown(context, decodeURIComponent(sourceMarkdownMatch[2]));
+      if (markdown == null) return sendError(res, 404, "Session not found");
+      return sendText(res, 200, markdown);
+    }
+    const sourceEventMatch = pathname.match(/^\/api\/sources\/([^/]+)\/sessions\/([^/]+)\/events\/(\d+)$/);
+    if (sourceEventMatch) {
+      const context = getSourceContext(decodeURIComponent(sourceEventMatch[1]));
+      if (!context) return sendError(res, 404, "Data source not found");
+      const event = await getSessionEvent(context, decodeURIComponent(sourceEventMatch[2]), Number(sourceEventMatch[3]));
+      if (!event) return sendError(res, 404, "Event not found");
+      return sendJson(res, 200, event);
+    }
+    const sourceSessionMatch = pathname.match(/^\/api\/sources\/([^/]+)\/sessions\/([^/]+)$/);
+    if (sourceSessionMatch) {
+      const context = getSourceContext(decodeURIComponent(sourceSessionMatch[1]));
+      if (!context) return sendError(res, 404, "Data source not found");
+      const detail = await getSessionDetail(context, decodeURIComponent(sourceSessionMatch[2]));
+      if (!detail) return sendError(res, 404, "Session not found");
+      return sendJson(res, 200, detail);
     }
     const markdownMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/markdown$/);
     if (markdownMatch) {
-      const markdown = await getSessionMarkdown(decodeURIComponent(markdownMatch[1]));
+      const context = resolveRequestSource(url);
+      if (!context) return sendError(res, 404, "Data source not found");
+      const markdown = await getSessionMarkdown(context, decodeURIComponent(markdownMatch[1]));
       if (markdown == null) return sendError(res, 404, "Session not found");
       return sendText(res, 200, markdown);
     }
     const eventMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/events\/(\d+)$/);
     if (eventMatch) {
-      const event = await getSessionEvent(decodeURIComponent(eventMatch[1]), Number(eventMatch[2]));
+      const context = resolveRequestSource(url);
+      if (!context) return sendError(res, 404, "Data source not found");
+      const event = await getSessionEvent(context, decodeURIComponent(eventMatch[1]), Number(eventMatch[2]));
       if (!event) return sendError(res, 404, "Event not found");
       return sendJson(res, 200, event);
     }
     const sessionMatch = pathname.match(/^\/api\/sessions\/([^/]+)$/);
     if (sessionMatch) {
-      const detail = await getSessionDetail(decodeURIComponent(sessionMatch[1]));
+      const context = resolveRequestSource(url);
+      if (!context) return sendError(res, 404, "Data source not found");
+      const detail = await getSessionDetail(context, decodeURIComponent(sessionMatch[1]));
       if (!detail) return sendError(res, 404, "Session not found");
       return sendJson(res, 200, detail);
     }
@@ -501,7 +613,13 @@ async function route(req, res) {
   }
 }
 
+function resolveRequestSource(url) {
+  return getSourceContext(url.searchParams.get("sourceId") || "local");
+}
+
 createServer(route).listen(port, "127.0.0.1", () => {
   console.log(`Codex session renderer: http://127.0.0.1:${port}/`);
-  console.log(`Read-only data source: ${codexHome}`);
+  for (const source of dataSources.listSources()) {
+    console.log(`Read-only data source [${source.id}]: ${source.kind === "local" ? source.codexHome : source.snapshotPath}`);
+  }
 });

@@ -15,7 +15,7 @@
             <span class="brand-mark" aria-hidden="true">C</span>
             <div class="brand-copy">
               <strong>Codex 本机会话</strong>
-              <span id="healthStatus">接口检查中</span>
+            <span id="healthStatus">接口检查中</span>
             </div>
           </div>
         </div>
@@ -28,6 +28,7 @@
 
         <div class="topbar-actions">
           <button class="ghost-button" id="refreshButton" type="button">刷新</button>
+          <button class="ghost-button" id="refreshRemoteButton" type="button" hidden>刷新远程</button>
           <button class="ghost-button" id="copyMarkdownButton" type="button" disabled>复制 Markdown</button>
           <button class="primary-button" id="downloadMarkdownButton" type="button" disabled>下载 Markdown</button>
           <button class="icon-button" id="toggleRight" type="button" title="切换检查器" aria-label="切换检查器">◫</button>
@@ -44,6 +45,10 @@
         </div>
 
         <div class="control-stack">
+          <label class="field-label" for="sourceSelect">数据源</label>
+          <select class="select-input" id="sourceSelect"></select>
+          <div class="source-status" id="sourceStatus">读取数据源状态中</div>
+
           <label class="field-label" for="sessionSearch">搜索会话</label>
           <input class="text-input" id="sessionSearch" type="search" autocomplete="off" placeholder="标题、路径、项目..." />
 
