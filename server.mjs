@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createDataSourceRegistry } from "./src/data-sources.mjs";
 import { sendError, sendJson, sendText, serveStaticFile } from "./src/http-response.mjs";
-import { readJsonl, readJsonlLine } from "./src/jsonl-reader.mjs";
+import { readJsonl, readJsonlLine, readJsonlRange } from "./src/jsonl-reader.mjs";
 import {
   buildTrace,
   buildTurns,
@@ -37,6 +37,18 @@ import {
   sessionFromThread,
   withFileStat,
 } from "./src/session-models.mjs";
+import {
+  eventMatchesQuery,
+  filterSessions,
+  paginateSessions,
+  parseSessionEventQuery,
+  parseSessionListQuery,
+  parseSessionViewQuery,
+  projectEventForApi,
+  projectSessionForApi,
+  sessionWatermark,
+  sortSessions,
+} from "./src/session-query.mjs";
 import { createSqliteThreadStore, stripLongPathPrefix } from "./src/sqlite-threads.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -61,6 +73,8 @@ function getSourceContext(sourceId = "local") {
     threadStore: createSqliteThreadStore({ stateDbPath: source.stateDbPath, maxListSessions }),
     sessionCache: null,
     sessionCacheTime: 0,
+    allSessionCache: null,
+    allSessionCacheTime: 0,
     sessionDetailCache: new Map(),
   };
   sourceContexts.set(source.id, context);
@@ -81,6 +95,8 @@ function invalidateSourceContext(sourceId) {
   if (!context) return;
   context.sessionCache = null;
   context.sessionCacheTime = 0;
+  context.allSessionCache = null;
+  context.allSessionCacheTime = 0;
   context.sessionDetailCache.clear();
 }
 
@@ -213,13 +229,62 @@ async function getSessionById(context, id) {
   return null;
 }
 
-async function getSessionDetail(context, id) {
+async function listAllSessionsForQuery(context) {
+  const now = Date.now();
+  if (context.allSessionCache && now - context.allSessionCacheTime < 3000) return context.allSessionCache;
+
+  const threads = await context.threadStore.readAllThreads();
+  if (threads.size > 0) {
+    const sessions = [...threads.values()]
+      .map((thread) => sessionFromThread(thread, context.codexHome, sourceModelOptions(context)))
+      .filter((session) => session.path);
+    sessions.sort((a, b) => new Date(b.updatedAt || b.fileModifiedAt || 0) - new Date(a.updatedAt || a.fileModifiedAt || 0));
+    context.allSessionCache = sessions.slice(0, maxListSessions);
+    context.allSessionCacheTime = now;
+    return context.allSessionCache;
+  }
+
+  const previousCache = context.sessionCache;
+  const previousCacheTime = context.sessionCacheTime;
+  context.sessionCache = null;
+  context.sessionCacheTime = 0;
+  const sessions = await listSessions(context);
+  context.sessionCache = previousCache;
+  context.sessionCacheTime = previousCacheTime;
+  context.allSessionCache = sessions;
+  context.allSessionCacheTime = now;
+  return context.allSessionCache;
+}
+
+async function querySessions(context, params) {
+  const query = parseSessionListQuery(params);
+  const [sessions, spawnEdges] = await Promise.all([listAllSessionsForQuery(context), context.threadStore.readSpawnEdges()]);
+  const filtered = filterSessions(sessions, query, spawnEdges);
+  const sorted = sortSessions(filtered, query);
+  const page = paginateSessions(sorted, query);
+  return {
+    sessions: page.items.map((session) => projectSessionForApi(session, query)),
+    page: {
+      offset: page.offset,
+      limit: page.limit,
+      returned: page.items.length,
+      total: page.total,
+      nextCursor: page.nextCursor,
+    },
+    watermark: sessionWatermark(filtered),
+    serverTime: new Date().toISOString(),
+  };
+}
+
+async function getSessionDetail(context, id, options = {}) {
   const session = await getSessionById(context, id);
   if (!session) return null;
+  const maxDepth = options.maxDepth ?? 3;
   const stat = await fs.stat(session.path);
   const sessionWithStat = withFileStat(session, stat);
   const hierarchy = await getThreadHierarchy(context, id);
-  const cached = context.sessionDetailCache.get(id);
+  const cacheKey = `${id}:maxDepth=${maxDepth}`;
+  const cached = context.sessionDetailCache.get(cacheKey);
   if (cached && cached.mtimeMs === fileTimeMs(stat) && cached.size === stat.size && hierarchy.children.length === 0) return cached.detail;
 
   const rawEvents = await readJsonl(session.path);
@@ -249,7 +314,7 @@ async function getSessionDetail(context, id) {
   const turns = buildTurns(rawEvents);
   const publicTurns = compactTurnsForClient(turns);
   const trace = buildTrace(sessionWithStat, rawEvents, analysisEvents, turns, hierarchy);
-  const compact = await buildCompactView(context, sessionWithStat, analysisEvents, turns, hierarchy);
+  const compact = await buildCompactView(context, sessionWithStat, analysisEvents, turns, hierarchy, { maxDepth });
   const stats = {
     ...summarizeSessionEvents(rawEvents),
     eventCount: rawEvents.length,
@@ -268,8 +333,55 @@ async function getSessionDetail(context, id) {
     dataPath: sessionWithStat.path,
   };
   const detail = { session: sessionWithStat, turns: publicTurns, events: publicEvents, stats, trace, compact };
-  context.sessionDetailCache.set(id, { mtimeMs: fileTimeMs(stat), size: stat.size, detail });
+  context.sessionDetailCache.set(cacheKey, { mtimeMs: fileTimeMs(stat), size: stat.size, detail });
   return detail;
+}
+
+async function querySessionEvents(context, id, params) {
+  const session = await getSessionById(context, id);
+  if (!session?.path) return null;
+  const query = parseSessionEventQuery(params);
+  const range = await readJsonlRange(session.path, {
+    start: query.cursor,
+    limit: query.limit,
+    maxScan: query.maxScan,
+    predicate: (event, index) => {
+      const projected = projectEventForApi(event, index, { fields: [] });
+      return eventMatchesQuery(projected, event, query);
+    },
+  });
+  const stat = await fs.stat(session.path).catch(() => null);
+  const sessionWithStat = withFileStat(session, stat);
+  return {
+    session: projectSessionForApi(sessionWithStat, {}),
+    events: range.items.map(({ event, index }) => projectEventForApi(event, index, query)),
+    page: {
+      cursor: query.cursor,
+      limit: query.limit,
+      maxScan: query.maxScan,
+      scanned: range.scanned,
+      returned: range.items.length,
+      nextCursor: range.nextCursor,
+      hasMore: !range.exhausted,
+    },
+    serverTime: new Date().toISOString(),
+  };
+}
+
+async function querySessionView(context, id, params) {
+  const query = parseSessionViewQuery(params);
+  const detail = await getSessionDetail(context, id, { maxDepth: query.maxDepth });
+  if (!detail) return null;
+  const base = {
+    session: projectSessionForApi(detail.session, {}),
+    view: query.view,
+    stats: detail.stats,
+    serverTime: new Date().toISOString(),
+  };
+  if (query.view === "compact") return { ...base, compact: detail.compact };
+  if (query.view === "turns") return { ...base, turns: detail.turns };
+  if (query.view === "trace") return { ...base, trace: detail.trace };
+  return { ...base, detail };
 }
 
 async function getSessionEvent(context, id, index) {
@@ -578,6 +690,49 @@ async function route(req, res) {
       const detail = await getSessionDetail(context, decodeURIComponent(sourceSessionMatch[2]));
       if (!detail) return sendError(res, 404, "Session not found");
       return sendJson(res, 200, detail);
+    }
+    if (pathname === "/api/query/sessions") {
+      const context = resolveRequestSource(url);
+      if (!context) return sendError(res, 404, "Data source not found");
+      return sendJson(res, 200, await querySessions(context, url.searchParams));
+    }
+    const queryViewMatch = pathname.match(/^\/api\/query\/sessions\/([^/]+)\/view$/);
+    if (queryViewMatch) {
+      const context = resolveRequestSource(url);
+      if (!context) return sendError(res, 404, "Data source not found");
+      const view = await querySessionView(context, decodeURIComponent(queryViewMatch[1]), url.searchParams);
+      if (!view) return sendError(res, 404, "Session not found");
+      return sendJson(res, 200, view);
+    }
+    const queryEventsMatch = pathname.match(/^\/api\/query\/sessions\/([^/]+)\/events$/);
+    if (queryEventsMatch) {
+      const context = resolveRequestSource(url);
+      if (!context) return sendError(res, 404, "Data source not found");
+      const events = await querySessionEvents(context, decodeURIComponent(queryEventsMatch[1]), url.searchParams);
+      if (!events) return sendError(res, 404, "Session not found");
+      return sendJson(res, 200, events);
+    }
+    const sourceQuerySessionsMatch = pathname.match(/^\/api\/sources\/([^/]+)\/query\/sessions$/);
+    if (sourceQuerySessionsMatch) {
+      const context = getSourceContext(decodeURIComponent(sourceQuerySessionsMatch[1]));
+      if (!context) return sendError(res, 404, "Data source not found");
+      return sendJson(res, 200, await querySessions(context, url.searchParams));
+    }
+    const sourceQueryViewMatch = pathname.match(/^\/api\/sources\/([^/]+)\/query\/sessions\/([^/]+)\/view$/);
+    if (sourceQueryViewMatch) {
+      const context = getSourceContext(decodeURIComponent(sourceQueryViewMatch[1]));
+      if (!context) return sendError(res, 404, "Data source not found");
+      const view = await querySessionView(context, decodeURIComponent(sourceQueryViewMatch[2]), url.searchParams);
+      if (!view) return sendError(res, 404, "Session not found");
+      return sendJson(res, 200, view);
+    }
+    const sourceQueryEventsMatch = pathname.match(/^\/api\/sources\/([^/]+)\/query\/sessions\/([^/]+)\/events$/);
+    if (sourceQueryEventsMatch) {
+      const context = getSourceContext(decodeURIComponent(sourceQueryEventsMatch[1]));
+      if (!context) return sendError(res, 404, "Data source not found");
+      const events = await querySessionEvents(context, decodeURIComponent(sourceQueryEventsMatch[2]), url.searchParams);
+      if (!events) return sendError(res, 404, "Session not found");
+      return sendJson(res, 200, events);
     }
     const markdownMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/markdown$/);
     if (markdownMatch) {

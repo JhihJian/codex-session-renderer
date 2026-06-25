@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "check": "node --check server.mjs && node --check src/data-sources.mjs && node --check src/session-events.mjs && node --check src/jsonl-reader.mjs && node --check src/http-response.mjs && node --check src/sqlite-threads.mjs && node --check src/session-models.mjs && node --check src/markdown-export.mjs && node --check src/text-utils.mjs && node --check src/tool-events.mjs && node --check src/event-summary.mjs && node --check public/app-format.js && node --check public/app.js",
+    "check": "node --check server.mjs && node --check src/data-sources.mjs && node --check src/session-events.mjs && node --check src/session-query.mjs && node --check src/jsonl-reader.mjs && node --check src/http-response.mjs && node --check src/sqlite-threads.mjs && node --check src/session-models.mjs && node --check src/markdown-export.mjs && node --check src/text-utils.mjs && node --check src/tool-events.mjs && node --check src/event-summary.mjs && node --check public/app-format.js && node --check public/app.js",
     "test": "npm run check && node --test"
   },
   "dependencies": {

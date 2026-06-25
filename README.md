@@ -84,6 +84,7 @@ npm start
 - `src/text-utils.mjs`：时间、路径、首行摘要、消息正文提取和文本规范化等基础纯函数。
 - `src/tool-events.mjs`：工具调用开始/结束识别、工具名/参数/输出提取、MCP 结果渲染和输出合并。
 - `src/event-summary.mjs`：事件分类、重要事件判断、标题/预览摘要和会话事件计数。
+- `src/session-query.mjs`：面向外部项目的会话查询、筛选、分页游标、字段投影和事件增量查询参数处理。
 - `src/markdown-export.mjs`：会话 Markdown 导出。
 - `src/session-events.mjs`：会话事件核心解析逻辑，包括 turn 聚合、Trace 模型、精简视图模型和子代理锚定；同时重新导出旧的常用解析 API 以保持调用兼容。
 - `public/`：无构建前端，包含页面、样式、交互脚本和本地 `markdown-it` 浏览器包。
@@ -115,6 +116,7 @@ npm test
 - 远程数据源只在刷新阶段访问配置好的快照 URL 或快照目录；普通会话列表、详情、事件检查器和 Markdown 导出都从本地 `current` 快照读取。
 - 远程快照刷新使用 staging 目录构建，再原子切换到 `current`。刷新失败不会覆盖上一次成功快照。
 - 远程 SQLite 中的远端 `rollout_path` 会按配置的远端 Codex Home 映射到本地快照 Codex Home。
+- 本地 API 默认绑定 `127.0.0.1`，适合作为同机只读数据源；如果未来开放到局域网，需要先增加鉴权和访问控制。
 - 前端使用原生 HTML/CSS/JavaScript，无构建步骤；Markdown 渲染通过本地 `markdown-it` 浏览器包完成。
 - 会话列表优先读取 SQLite `threads` 表，并在 SQLite 查询层排除 `thread_spawn_edges.child_thread_id` 对应的子代理线程，避免子代理在左侧会话列表独立展示；只有 SQLite 不可用时才回退扫描文件。
 - JSONL 读取使用流式逐行解析；列表回退读取前若干条事件时不会把整个大文件一次性读入内存。
@@ -152,6 +154,148 @@ npm test
 - `GET /api/sources/:sourceId/sessions/:id`
 - `GET /api/sources/:sourceId/sessions/:id/events/:index`
 - `GET /api/sources/:sourceId/sessions/:id/markdown`
+
+### 外部查询 API
+
+外部项目优先使用 `/api/query/*`。这些接口返回稳定的 JSON 结构，支持字段投影、分页和增量读取；旧的 `/api/sessions/*` 继续服务本项目浏览器页面。查询 API 默认读取 `local` 数据源，也可用 `?sourceId=<id>` 指定数据源，或使用显式数据源路径 `/api/sources/:sourceId/query/*`。
+
+#### 查询会话列表
+
+```http
+GET /api/query/sessions?changedAfter=2026-06-25T00:00:00.000Z&limit=50
+```
+
+响应：
+
+```json
+{
+  "sessions": [
+    {
+      "id": "thread-id",
+      "title": "会话标题",
+      "preview": "首条预览",
+      "cwd": "D:\\github\\project",
+      "model": "gpt-5",
+      "archived": false,
+      "startedAt": "2026-06-25T07:00:00.000Z",
+      "updatedAt": "2026-06-25T08:00:00.000Z",
+      "changedAt": "2026-06-25T08:00:00.000Z",
+      "links": {
+        "detail": "/api/sessions/thread-id",
+        "compactView": "/api/query/sessions/thread-id/view?view=compact",
+        "events": "/api/query/sessions/thread-id/events",
+        "markdown": "/api/sessions/thread-id/markdown"
+      }
+    }
+  ],
+  "page": {
+    "offset": 0,
+    "limit": 50,
+    "returned": 1,
+    "total": 1,
+    "nextCursor": null
+  },
+  "watermark": "2026-06-25T08:00:00.000Z",
+  "serverTime": "2026-06-25T08:10:00.000Z"
+}
+```
+
+常用参数：
+
+- `q`：在标题、预览、工作目录、模型、来源、代理昵称/角色等字段中做包含匹配。
+- `changedAfter` / `changedBefore`：按 `updatedAt || fileModifiedAt || startedAt` 筛选，适合外部项目轮询增量会话。
+- `startedAfter` / `startedBefore`：按会话开始时间筛选。
+- `id` / `ids`：筛选指定会话 ID，支持逗号分隔或重复参数。
+- `cwd`、`title`、`model`、`source`、`threadSource`、`modelProvider`、`agentNickname`、`agentRole`：字段包含匹配。
+- `archived=true|false|any`：按归档状态筛选。
+- `includeChildren=true`：包含子代理线程；默认只返回根会话，和浏览器左栏保持一致。
+- `isChild=true|false`、`hasChildren=true|false`：按父子线程关系筛选。
+- `sort=changedAt|updatedAt|startedAt|title|id|sizeBytes`，`order=asc|desc`：排序。
+- `limit`：每页数量，默认 `100`，最大 `500`。
+- `cursor`：上一页响应的 `page.nextCursor`。
+- `fields=id,title,changedAt,links`：只返回指定字段；`id` 会始终保留。
+- `includePath=true`：额外返回本机绝对 JSONL 路径。默认不返回绝对路径，避免外部消费者不必要地耦合本机目录。
+
+推荐增量同步方式：
+
+1. 首次请求 `GET /api/query/sessions?limit=100`，保存响应里的 `watermark`。
+2. 继续用 `cursor` 拉取剩余分页，直到 `nextCursor` 为 `null`。
+3. 下一轮轮询使用 `changedAfter=<上次保存的 watermark>`。
+
+#### 读取会话视图
+
+```http
+GET /api/query/sessions/:id/view?view=compact&maxDepth=3
+```
+
+`view` 可选：
+
+- `compact`：精简视图，只包含每轮有效用户输入、最后助手回复和内嵌子代理摘要，适合大多数外部阅读场景。
+- `turns`：阅读视图使用的 turn/item 模型，包含工具调用预览。
+- `trace`：执行树模型，适合审计工具调用、handoff 和子代理关系。
+- `detail`：完整轻量详情，等价于组合返回 `session`、`turns`、`events`、`stats`、`trace`、`compact`。
+
+`maxDepth` 控制精简视图递归内嵌子代理层数，默认 `3`，最大 `8`。
+
+#### 增量读取会话事件
+
+```http
+GET /api/query/sessions/:id/events?cursor=0&limit=100
+```
+
+响应：
+
+```json
+{
+  "session": {
+    "id": "thread-id",
+    "title": "会话标题",
+    "changedAt": "2026-06-25T08:00:00.000Z"
+  },
+  "events": [
+    {
+      "index": 0,
+      "timestamp": "2026-06-25T07:00:00.000Z",
+      "kind": "user_message",
+      "important": true,
+      "type": "event_msg",
+      "payloadType": "user_message",
+      "role": null,
+      "title": "user_message",
+      "preview": "用户输入",
+      "payloadSize": 128
+    }
+  ],
+  "page": {
+    "cursor": 0,
+    "limit": 100,
+    "maxScan": 5000,
+    "scanned": 100,
+    "returned": 100,
+    "nextCursor": 100,
+    "hasMore": true
+  },
+  "serverTime": "2026-06-25T08:10:00.000Z"
+}
+```
+
+事件参数：
+
+- `cursor`：从指定事件逻辑索引开始读取。也可用 `after=123` 表示从 `124` 开始。
+- `limit`：最多返回事件数，默认 `100`，最大 `1000`。
+- `maxScan`：筛选条件很窄时最多向后扫描的事件数，默认 `5000`，最大 `50000`。
+- `kind` / `kinds`：按事件分类筛选，如 `user_message`、`agent_message`、`function_call`。
+- `type` / `types`：按 JSONL 顶层 `type` 筛选，如 `event_msg`、`response_item`。
+- `payloadType` / `payloadTypes`：按 `payload.type` 筛选。
+- `role` / `roles`：按 `payload.role` 筛选。
+- `important=true|false|any`：按重要事件筛选；`onlyImportant=true` 是兼容别名。
+- `from` / `to`：按事件时间范围筛选。
+- `q`：在标题、预览、分类和 payload 文本中做包含匹配。
+- `includePayload=true`：返回完整 `payload`。
+- `includeRaw=true`：返回完整原始事件。
+- `fields=index,timestamp,kind,preview`：只返回指定字段；`index` 会始终保留。
+
+注意：事件接口按 JSONL 逻辑行索引增量读取。使用筛选条件时，`page.nextCursor` 代表下一次应继续扫描的位置，不等于最后一个返回事件的 `index + 1`。
 
 ## 已知边界
 

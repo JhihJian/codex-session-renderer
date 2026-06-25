@@ -98,6 +98,24 @@ test("sqlite list query excludes subagent child threads before applying limit", 
   assert.match(calls[0].args.at(-1), /order by updated_at_ms desc limit 25/);
 });
 
+test("sqlite all-thread query keeps child threads for external query APIs", async () => {
+  const calls = [];
+  const store = createSqliteThreadStore({
+    stateDbPath: "D:\\codex\\state_5.sqlite",
+    maxListSessions: 25,
+    sqliteCandidates: ["sqlite3-test"],
+    runCommand: async (command, args, options) => {
+      calls.push({ command, args, options });
+      return { stdout: "[]" };
+    },
+  });
+
+  await store.readAllThreads();
+
+  assert.doesNotMatch(calls[0].args.at(-1), /thread_spawn_edges/);
+  assert.match(calls[0].args.at(-1), /from threads order by updated_at_ms desc limit 25/);
+});
+
 test("sqlite scalar helpers keep quoting and timestamp conversion explicit", () => {
   assert.equal(sqlString("O'Reilly"), "'O''Reilly'");
   assert.equal(unixMaybeToIso(1_700_000_000), "2023-11-14T22:13:20.000Z");

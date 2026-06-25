@@ -56,6 +56,25 @@ function createSqliteThreadStore(options) {
     }
   }
 
+  async function readAllThreads() {
+    const query = [
+      "select",
+      "id,title,rollout_path,created_at,updated_at,created_at_ms,updated_at_ms,",
+      "source,thread_source,model_provider,cwd,archived,archived_at,",
+      "model,reasoning_effort,agent_nickname,agent_role,first_user_message,preview",
+      "from threads",
+      "order by updated_at_ms desc limit",
+      String(maxListSessions),
+    ].join(" ");
+
+    try {
+      const stdout = await runSqliteJson(query, 30 * 1024 * 1024);
+      return threadRowsToMap(JSON.parse(stdout || "[]"));
+    } catch {
+      return new Map();
+    }
+  }
+
   async function readThreadRowsByIds(ids) {
     const uniqueIds = [...new Set(ids.filter(Boolean))];
     if (uniqueIds.length === 0) return new Map();
@@ -94,6 +113,7 @@ function createSqliteThreadStore(options) {
   }
 
   return {
+    readAllThreads,
     readSpawnEdges,
     readThreadRowsByIds,
     readThreads,

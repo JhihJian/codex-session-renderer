@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { readJsonl, readJsonlLine } from "../src/jsonl-reader.mjs";
+import { readJsonl, readJsonlLine, readJsonlRange } from "../src/jsonl-reader.mjs";
 
 test("readJsonl skips invalid rows and respects maxLines", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "csr-jsonl-"));
@@ -26,6 +26,31 @@ test("readJsonlLine returns a parsed non-empty JSONL row by logical index", asyn
     assert.deepEqual(await readJsonlLine(file, 1), { id: "second" });
     assert.equal(await readJsonlLine(file, 8), null);
     assert.equal(await readJsonlLine(file, -1), null);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("readJsonlRange reads incremental events by logical cursor", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "csr-jsonl-range-"));
+  try {
+    const file = path.join(dir, "sample.jsonl");
+    await writeFile(file, '{"kind":"skip"}\n{"kind":"keep","id":1}\nnot-json\n{"kind":"keep","id":2}\n{"kind":"keep","id":3}\n', "utf8");
+
+    const range = await readJsonlRange(file, {
+      start: 1,
+      limit: 2,
+      maxScan: 3,
+      predicate: (event) => event.kind === "keep",
+    });
+
+    assert.deepEqual(range.items, [
+      { index: 1, event: { kind: "keep", id: 1 } },
+      { index: 3, event: { kind: "keep", id: 2 } },
+    ]);
+    assert.equal(range.scanned, 3);
+    assert.equal(range.nextCursor, 4);
+    assert.equal(range.exhausted, false);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
