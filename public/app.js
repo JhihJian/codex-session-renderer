@@ -9,12 +9,14 @@ const state = {
   selectedItemRef: null,
   selectedEventIndex: null,
   selectedTraceNodeId: null,
+  selectedTerminalBlockId: null,
   expandedTraceNodeIds: new Set(),
   rawEventCache: new Map(),
   viewMode: "compact",
   sessionTimeFilter: "realtime",
   visibleEvents: 40,
   visibleThreadItems: 140,
+  visibleRawEvents: 240,
 };
 
 const {
@@ -74,7 +76,9 @@ const els = {
   statsStrip: document.getElementById("statsStrip"),
   threadContent: document.getElementById("threadContent"),
   compactContent: document.getElementById("compactContent"),
+  terminalContent: document.getElementById("terminalContent"),
   traceContent: document.getElementById("traceContent"),
+  rawContent: document.getElementById("rawContent"),
   sessionDetails: document.getElementById("sessionDetails"),
   selectionDetails: document.getElementById("selectionDetails"),
   rawEventList: document.getElementById("rawEventList"),
@@ -97,7 +101,9 @@ const els = {
   downloadMarkdownButton: document.getElementById("downloadMarkdownButton"),
   readViewButton: document.getElementById("readViewButton"),
   compactViewButton: document.getElementById("compactViewButton"),
+  terminalViewButton: document.getElementById("terminalViewButton"),
   traceViewButton: document.getElementById("traceViewButton"),
+  rawViewButton: document.getElementById("rawViewButton"),
   toggleLeft: document.getElementById("toggleLeft"),
   toggleRight: document.getElementById("toggleRight"),
 };
@@ -127,6 +133,7 @@ function bindEvents() {
   els.sessionTypeFilter.addEventListener("change", renderSessionList);
   els.itemSearch.addEventListener("input", () => {
     state.visibleThreadItems = 140;
+    state.visibleRawEvents = 240;
     renderMainContent();
   });
   els.itemTypeFilter.addEventListener("change", () => {
@@ -136,7 +143,9 @@ function bindEvents() {
   els.importantOnly.addEventListener("change", renderInspector);
   els.readViewButton.addEventListener("click", () => setViewMode("read"));
   els.compactViewButton.addEventListener("click", () => setViewMode("compact"));
+  els.terminalViewButton.addEventListener("click", () => setViewMode("terminal"));
   els.traceViewButton.addEventListener("click", () => setViewMode("trace"));
+  els.rawViewButton.addEventListener("click", () => setViewMode("raw"));
   els.showMoreEventsButton.addEventListener("click", () => {
     state.visibleEvents += 80;
     renderInspector();
@@ -246,10 +255,12 @@ async function selectSession(id) {
   state.selectedItemRef = null;
   state.selectedEventIndex = null;
   state.selectedTraceNodeId = null;
+  state.selectedTerminalBlockId = null;
   state.expandedTraceNodeIds = new Set();
   state.rawEventCache = new Map();
   state.visibleEvents = 40;
   state.visibleThreadItems = 140;
+  state.visibleRawEvents = 240;
   renderSessionList();
   els.threadContent.innerHTML = emptyState("正在读取会话", "解析当前数据源中的 JSONL 事件流。");
   try {
@@ -274,6 +285,7 @@ function clearSelectedSession() {
   state.selectedItemRef = null;
   state.selectedEventIndex = null;
   state.selectedTraceNodeId = null;
+  state.selectedTerminalBlockId = null;
   state.expandedTraceNodeIds = new Set();
   state.rawEventCache = new Map();
   els.copyMarkdownButton.disabled = true;
@@ -330,10 +342,14 @@ function setViewMode(mode) {
   state.viewMode = mode;
   els.readViewButton.classList.toggle("active", mode === "read");
   els.compactViewButton.classList.toggle("active", mode === "compact");
+  els.terminalViewButton.classList.toggle("active", mode === "terminal");
   els.traceViewButton.classList.toggle("active", mode === "trace");
+  els.rawViewButton.classList.toggle("active", mode === "raw");
   els.threadContent.hidden = mode !== "read";
   els.compactContent.hidden = mode !== "compact";
+  els.terminalContent.hidden = mode !== "terminal";
   els.traceContent.hidden = mode !== "trace";
+  els.rawContent.hidden = mode !== "raw";
   renderMainContent();
 }
 
@@ -523,12 +539,20 @@ function renderStatusbar() {
 function renderMainContent() {
   els.threadContent.hidden = state.viewMode !== "read";
   els.compactContent.hidden = state.viewMode !== "compact";
+  els.terminalContent.hidden = state.viewMode !== "terminal";
   els.traceContent.hidden = state.viewMode !== "trace";
+  els.rawContent.hidden = state.viewMode !== "raw";
   els.readViewButton.classList.toggle("active", state.viewMode === "read");
   els.compactViewButton.classList.toggle("active", state.viewMode === "compact");
+  els.terminalViewButton.classList.toggle("active", state.viewMode === "terminal");
   els.traceViewButton.classList.toggle("active", state.viewMode === "trace");
+  els.rawViewButton.classList.toggle("active", state.viewMode === "raw");
   if (state.viewMode === "trace") {
     renderTrace();
+  } else if (state.viewMode === "raw") {
+    renderRawView();
+  } else if (state.viewMode === "terminal") {
+    renderTerminal();
   } else if (state.viewMode === "compact") {
     renderCompact();
   } else {
@@ -996,6 +1020,348 @@ function renderCompactMessage(kind, label, message, query) {
   `;
 }
 
+function renderTerminal() {
+  const detail = state.detail;
+  if (!detail) {
+    els.terminalContent.innerHTML = emptyState("选择一个会话", "Terminal 视图按执行语义展示用户、助手、工具和错误。");
+    return;
+  }
+  const query = els.itemSearch.value.trim().toLowerCase();
+  const typeFilter = els.itemTypeFilter.value;
+  const blocks = buildTerminalBlocks(detail);
+  const filtered = blocks.filter((block) => terminalBlockMatches(block, query, typeFilter));
+  if (filtered.length === 0) {
+    els.terminalContent.innerHTML = emptyState("没有匹配的 Terminal 块", "调整内容搜索或类型过滤。");
+    return;
+  }
+  const stats = terminalRoleStats(blocks);
+  const activeStats = terminalRoleStats(filtered);
+  els.terminalContent.innerHTML = `
+    <div class="terminal-shell">
+      <div class="terminal-head">
+        <div>
+          <p class="eyebrow">Terminal Session</p>
+          <h3 class="markdown-inline-title">${renderMarkdownTitle(detail.session?.title || "当前会话")}</h3>
+        </div>
+        <div class="terminal-role-nav" aria-label="Terminal 角色跳转">
+          ${renderTerminalRoleNavButton("user", "User", activeStats.user, stats.user)}
+          ${renderTerminalRoleNavButton("assistant", "Agent", activeStats.assistant, stats.assistant)}
+          ${renderTerminalRoleNavButton("tool", "Tools", activeStats.tool, stats.tool)}
+          ${renderTerminalRoleNavButton("error", "Errors", activeStats.error, stats.error)}
+        </div>
+      </div>
+      <div class="terminal-blocks">
+        ${filtered.map((block) => renderTerminalBlock(block, query)).join("")}
+      </div>
+    </div>
+  `;
+  els.terminalContent.querySelectorAll("[data-terminal-block-id]").forEach((blockEl) => {
+    blockEl.addEventListener("click", (event) => {
+      if (event.target.closest("a, button")) return;
+      selectTerminalBlock(blockEl.dataset.terminalBlockId);
+    });
+    blockEl.addEventListener("keydown", (event) => {
+      if (event.target.closest("a, button")) return;
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      selectTerminalBlock(blockEl.dataset.terminalBlockId);
+    });
+  });
+  els.terminalContent.querySelectorAll("[data-terminal-role]").forEach((button) => {
+    button.addEventListener("click", () => jumpTerminalRole(button.dataset.terminalRole));
+  });
+}
+
+function buildTerminalBlocks(detail) {
+  const blocks = [];
+  for (const turn of detail?.turns || []) {
+    const turnNumber = turn.turnNumber ?? (blocks.length + 1);
+    if (turn.startedAt || turn.status || turn.cwd) {
+      blocks.push({
+        id: `turn-${turnNumber}-meta`,
+        role: "meta",
+        title: `Turn ${turnNumber}`,
+        text: [turn.status, formatDate(turn.startedAt), turn.cwd ? shortPath(turn.cwd) : ""].filter(Boolean).join(" · "),
+        turnIndex: turnNumber - 1,
+        timestamp: turn.startedAt,
+      });
+    }
+    for (const item of turn.items || []) {
+      blocks.push(...terminalBlocksFromItem(item, turnNumber));
+    }
+  }
+  return blocks;
+}
+
+function terminalBlocksFromItem(item, turnNumber) {
+  const ref = itemRef(item);
+  const base = {
+    id: ref,
+    itemRef: ref,
+    turnIndex: turnNumber - 1,
+    timestamp: item.timestamp,
+    eventIndex: item.sourceIndex ?? item.outputSourceIndex ?? null,
+    title: itemTitle(item),
+    role: terminalRoleForItem(item),
+    text: terminalTextForItem(item),
+    item,
+  };
+  if (!base.text && item.type !== "token-count") return [];
+  if (item.type !== "tool-call" || item.output == null) return [base];
+  const callText = [`$ ${item.name || "tool"}`, item.arguments == null ? "" : prettyMaybeJson(item.arguments)].filter(Boolean).join("\n");
+  return [
+    {
+      ...base,
+      id: `${ref}:call`,
+      role: "tool",
+      title: item.name ? `工具调用 · ${item.name}` : "工具调用",
+      text: callText,
+    },
+    {
+      ...base,
+      id: `${ref}:output`,
+      role: terminalItemHasError(item) ? "error" : "output",
+      title: item.name ? `工具输出 · ${item.name}` : "工具输出",
+      text: String(item.output || ""),
+      timestamp: item.completedAt || item.timestamp,
+      eventIndex: item.outputSourceIndex ?? item.sourceIndex ?? null,
+    },
+  ];
+}
+
+function terminalRoleForItem(item) {
+  if (item.type === "user-message") return "user";
+  if (item.type === "assistant-message") return "assistant";
+  if (item.type === "tool-call" || item.type === "response-item") {
+    return terminalItemHasError(item) ? "error" : "tool";
+  }
+  if (item.type === "tool-output") return terminalItemHasError(item) ? "error" : "output";
+  if (item.type === "reasoning" || item.type === "token-count" || item.type === "event") return "meta";
+  return "meta";
+}
+
+function terminalTextForItem(item) {
+  if (item.type === "user-message" || item.type === "assistant-message") return item.text || "";
+  if (item.type === "reasoning") return item.text || (item.encrypted ? "推理内容已加密存储，当前没有可展示的明文摘要。" : "");
+  if (item.type === "token-count") return JSON.stringify(item.info || {}, null, 2);
+  if (item.type === "tool-call") {
+    const args = item.arguments == null ? "" : prettyMaybeJson(item.arguments);
+    const output = item.output == null ? "" : String(item.output);
+    return [`$ ${item.name || "tool"}`, args, output ? `\n# output\n${output}` : ""].filter(Boolean).join("\n");
+  }
+  if (item.type === "tool-output") return String(item.output || "");
+  return item.payloadPreview || JSON.stringify(item.info || item.payload || item, null, 2);
+}
+
+function terminalItemHasError(item) {
+  const text = [item.status, item.phase, item.responseType, item.eventType, item.output, item.payloadPreview].filter(Boolean).join("\n");
+  return /error|failed|failure|stderr|失败|错误/i.test(text);
+}
+
+function terminalBlockMatches(block, query, typeFilter) {
+  if (query && !terminalBlockSearchText(block).includes(query)) return false;
+  if (typeFilter === "message") return block.role === "user" || block.role === "assistant";
+  if (typeFilter === "tool") return block.role === "tool" || block.role === "output";
+  if (typeFilter === "output") return block.role === "output" || (block.role === "tool" && block.item?.output);
+  if (typeFilter === "reasoning") return block.item?.type === "reasoning";
+  if (typeFilter === "system") return block.role === "meta";
+  if (typeFilter === "error") return block.role === "error";
+  return true;
+}
+
+function terminalBlockSearchText(block) {
+  return [
+    block.id,
+    block.role,
+    block.title,
+    block.text,
+    block.item?.name,
+    block.item?.callId,
+    block.item?.status,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function terminalRoleStats(blocks) {
+  return blocks.reduce(
+    (stats, block) => {
+      if (block.role === "user") stats.user += 1;
+      if (block.role === "assistant") stats.assistant += 1;
+      if (block.role === "tool" || block.role === "output") stats.tool += 1;
+      if (block.role === "error") stats.error += 1;
+      return stats;
+    },
+    { user: 0, assistant: 0, tool: 0, error: 0 },
+  );
+}
+
+function renderTerminalRoleNavButton(role, label, activeCount, totalCount) {
+  const disabled = activeCount === 0 ? " disabled" : "";
+  return `
+    <button class="terminal-role-button ${role}" type="button" data-terminal-role="${escapeAttr(role)}"${disabled} title="跳转到下一处 ${escapeAttr(label)}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(String(activeCount))}/${escapeHtml(String(totalCount))}</strong>
+    </button>
+  `;
+}
+
+function renderTerminalBlock(block, query) {
+  const selected = state.selectedTerminalBlockId === block.id ? " selected" : "";
+  const meta = [`Turn ${block.turnIndex + 1}`, formatDate(block.timestamp), block.item?.name, block.item?.status]
+    .filter(Boolean)
+    .join(" · ");
+  const body =
+    block.role === "user" || block.role === "assistant"
+      ? renderMarkdownMessage(block.text, query)
+      : `<pre>${highlight(escapeHtml(block.text || ""), query)}</pre>`;
+  return `
+    <section class="terminal-block role-${escapeAttr(block.role)}${selected}" role="button" tabindex="0" data-terminal-block-id="${escapeAttr(block.id)}">
+      <div class="terminal-block-strip" aria-hidden="true"></div>
+      <div class="terminal-block-main">
+        <div class="terminal-block-head">
+          <strong>${escapeHtml(block.title || block.role)}</strong>
+          <span>${escapeHtml(meta)}</span>
+        </div>
+        <div class="terminal-block-body">${body}</div>
+        ${block.item?.truncated ? renderTruncationNotice(block.item) : ""}
+      </div>
+    </section>
+  `;
+}
+
+function selectTerminalBlock(id) {
+  const block = buildTerminalBlocks(state.detail).find((candidate) => candidate.id === id);
+  if (!block) return;
+  state.selectedTerminalBlockId = id;
+  state.selectedTraceNodeId = null;
+  state.selectedEventIndex = null;
+  state.selectedItemRef = block.itemRef || null;
+  const item = block.item || findItemByRef(block.itemRef);
+  els.selectedEventLabel.textContent = block.title || "Terminal 块";
+  els.rawPreview.textContent = JSON.stringify(item ? itemDebugPreview(item) : block, null, 2);
+  els.inspectorActions.innerHTML = "";
+  els.copyRawButton.disabled = false;
+  renderSelectionDetails();
+  els.terminalContent.querySelectorAll(".terminal-block.selected").forEach((row) => row.classList.remove("selected"));
+  const active = els.terminalContent.querySelector(`[data-terminal-block-id="${cssEscape(id)}"]`);
+  active?.classList.add("selected");
+}
+
+function jumpTerminalRole(role) {
+  const candidates = [...els.terminalContent.querySelectorAll(`[data-terminal-block-id].role-${cssEscape(role)}`)];
+  if (role === "tool") {
+    candidates.push(...els.terminalContent.querySelectorAll("[data-terminal-block-id].role-output"));
+  }
+  if (candidates.length === 0) return;
+  const currentIndex = candidates.findIndex((el) => el.dataset.terminalBlockId === state.selectedTerminalBlockId);
+  const next = candidates[(currentIndex + 1) % candidates.length];
+  next.scrollIntoView({ behavior: "smooth", block: "center" });
+  selectTerminalBlock(next.dataset.terminalBlockId);
+}
+
+function renderRawView() {
+  const detail = state.detail;
+  if (!detail) {
+    els.rawContent.innerHTML = emptyState("选择一个会话", "Raw 视图展示会话级事件摘要和调试 JSON。");
+    return;
+  }
+  const query = els.itemSearch.value.trim().toLowerCase();
+  const typeFilter = els.itemTypeFilter.value;
+  const events = (detail.events || []).filter((event) => rawEventMatches(event, query, typeFilter));
+  if (events.length === 0) {
+    els.rawContent.innerHTML = emptyState("没有匹配的 Raw 事件", "调整内容搜索或类型过滤。");
+    return;
+  }
+  const shown = events.slice(0, state.visibleRawEvents);
+  const selected = selectedRawViewEvent(shown, events);
+  els.rawContent.innerHTML = `
+    <div class="raw-view-shell">
+      <div class="raw-view-head">
+        <div>
+          <p class="eyebrow">Raw JSON</p>
+          <h3>${escapeHtml(events.length)} / ${escapeHtml(detail.events.length)} events</h3>
+        </div>
+        <div class="raw-view-actions">
+          <button class="ghost-button small" type="button" data-copy-raw-session>复制事件摘要</button>
+        </div>
+      </div>
+      <div class="raw-view-layout">
+        <div class="raw-view-list">
+          ${shown.map((event) => renderRawViewEventRow(event)).join("")}
+          ${
+            events.length > shown.length
+              ? `<button class="ghost-button full-width" type="button" data-show-more-raw>显示更多事件 (${shown.length}/${events.length})</button>`
+              : ""
+          }
+        </div>
+        <div class="raw-view-preview">
+          <div class="raw-preview-title">
+            <strong>${escapeHtml(selected ? `#${selected.index} ${humanEventTitle(selected)}` : "事件摘要")}</strong>
+            <span>${escapeHtml(selected ? selected.kind || "" : "Pretty JSON")}</span>
+          </div>
+          <pre class="raw-preview">${escapeHtml(JSON.stringify(selected || detailSummaryForRaw(detail), null, 2))}</pre>
+        </div>
+      </div>
+    </div>
+  `;
+  els.rawContent.querySelectorAll("[data-raw-event-index]").forEach((button) => {
+    button.addEventListener("click", () => selectRawViewEvent(Number(button.dataset.rawEventIndex)));
+  });
+  els.rawContent.querySelector("[data-show-more-raw]")?.addEventListener("click", () => {
+    state.visibleRawEvents += 240;
+    renderRawView();
+  });
+  els.rawContent.querySelector("[data-copy-raw-session]")?.addEventListener("click", async () => {
+    await copyText(JSON.stringify(detailSummaryForRaw(detail), null, 2));
+    showToast("已复制会话事件摘要");
+  });
+}
+
+function rawEventMatches(event, query, typeFilter) {
+  if (query && !JSON.stringify(event).toLowerCase().includes(query)) return false;
+  if (typeFilter === "message") return event.kind === "user_message" || event.kind === "agent_message" || event.role === "user" || event.role === "assistant";
+  if (typeFilter === "tool") return /tool|call|function|mcp|patch/i.test([event.kind, event.type, event.payloadType].filter(Boolean).join(" "));
+  if (typeFilter === "output") return /output|result/i.test([event.kind, event.type, event.payloadType, event.title].filter(Boolean).join(" "));
+  if (typeFilter === "reasoning") return /reasoning/i.test([event.kind, event.type, event.payloadType].filter(Boolean).join(" "));
+  if (typeFilter === "system") return event.kind === "system" || event.kind === "token_count" || event.kind === "session_meta";
+  if (typeFilter === "error") return /error|failed|失败|错误/i.test(JSON.stringify(event));
+  return true;
+}
+
+function selectedRawViewEvent(shown, events) {
+  if (state.selectedEventIndex != null) {
+    return events.find((event) => event.index === state.selectedEventIndex) || shown[0] || null;
+  }
+  return shown[0] || null;
+}
+
+function renderRawViewEventRow(event) {
+  const active = event.index === state.selectedEventIndex ? " active" : "";
+  return `
+    <button class="raw-view-row${active}" type="button" data-raw-event-index="${event.index}">
+      <span class="raw-view-kind">${escapeHtml(event.kind || event.type || "event")}</span>
+      <strong>${escapeHtml(`#${event.index} ${humanEventTitle(event)}`)}</strong>
+      <em>${escapeHtml(formatDate(event.timestamp) || event.payloadType || "")}</em>
+      <span>${escapeHtml(firstLine(event.preview || "", 140))}</span>
+    </button>
+  `;
+}
+
+async function selectRawViewEvent(index) {
+  await selectRawEvent(index, { rerender: false });
+  renderRawView();
+}
+
+function detailSummaryForRaw(detail) {
+  return {
+    session: detail.session,
+    stats: detail.stats,
+    events: detail.events || [],
+  };
+}
+
 function renderTrace() {
   const detail = state.detail;
   if (!detail?.trace?.root) {
@@ -1353,6 +1719,7 @@ function renderKeyEventGroups(events) {
 async function selectRawEvent(index, { rerender = true } = {}) {
   state.selectedTraceNodeId = null;
   state.selectedItemRef = null;
+  state.selectedTerminalBlockId = null;
   els.inspectorActions.innerHTML = "";
   state.selectedEventIndex = index;
   const event = state.detail?.events.find((candidate) => candidate.index === index);
@@ -1389,6 +1756,7 @@ function selectTraceNode(id) {
   if (!node) return;
   state.selectedEventIndex = null;
   state.selectedItemRef = null;
+  state.selectedTerminalBlockId = null;
   els.selectedEventLabel.textContent = traceNodeLabel(node);
   els.rawPreview.textContent = JSON.stringify(traceNodePreview(node), null, 2);
   renderTraceActions(node);
@@ -1417,6 +1785,7 @@ function selectItemRef(ref) {
   state.selectedItemRef = ref;
   state.selectedTraceNodeId = null;
   state.selectedEventIndex = null;
+  state.selectedTerminalBlockId = null;
   const item = findItemByRef(ref);
   if (!item) return;
   els.selectedEventLabel.textContent = itemTitle(item);
@@ -1424,7 +1793,11 @@ function selectItemRef(ref) {
   els.inspectorActions.innerHTML = "";
   els.copyRawButton.disabled = false;
   renderSelectionDetails();
-  renderThread();
+  if (state.viewMode === "read") {
+    renderThread();
+  } else if (state.viewMode === "terminal") {
+    renderTerminal();
+  }
 }
 
 function renderSelectionDetails() {

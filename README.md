@@ -95,11 +95,11 @@ npm start
 
 ## 页面设计
 
-浏览器页面按本地优先的 agent 会话工作台设计，第一屏就是可操作的三栏 split view：左侧会话列表，中间阅读/精简/Trace 内容区，右侧 Inspector 辅助面板。界面使用系统字体、中性色背景、0.5 到 1px 轻边框、8px 工具圆角和紧凑行高，避免把工具界面做成营销卡片页。
+浏览器页面按本地优先的 agent 会话工作台设计，第一屏就是可操作的三栏 split view：左侧会话列表，中间精简/阅读/Terminal/Trace/Raw 内容区，右侧 Inspector 辅助面板。界面使用系统字体、中性色背景、0.5 到 1px 轻边框、8px 工具圆角和紧凑行高，避免把工具界面做成营销卡片页。
 
-左侧会话列表按时间分类和工作目录聚合，每行展示 agent 色点、标题、更新时间、模型和项目路径；顶部保留数据源、搜索、时间段和会话类型过滤。中间内容区保留三种视图切换和内容搜索，统计条展示 Turns、Events、Important、Tools、Agents、Tokens。右侧 Inspector 默认展示会话概览、选中内容和关键事件，原始 JSON 放在折叠调试区，避免调试信息占据主要阅读区域。
+左侧会话列表按时间分类和工作目录聚合，每行展示 agent 色点、标题、更新时间、模型和项目路径；顶部保留数据源、搜索、时间段和会话类型过滤。中间内容区保留五种视图切换和内容搜索，统计条展示 Turns、Events、Important、Tools、Agents、Tokens。右侧 Inspector 默认展示会话概览、选中内容和关键事件；Raw 视图提供会话级事件摘要，折叠调试区继续按需查看选中项完整 JSON。
 
-页面底部有状态条，显示当前数据源、选中会话、过滤后的 session 数和事件/turn 统计。样式支持系统浅色/深色模式，状态色保持语义稳定：蓝色用于选中和主操作，绿色用于助手/活跃信息，橙色用于工具和等待压力，红色用于错误风险。
+页面底部有状态条，显示当前数据源、选中会话、过滤后的 session 数和事件/turn 统计。样式支持系统浅色/深色模式，并建立统一角色色 token：蓝色用于用户输入和选中，深蓝用于助手叙述，紫色用于工具调用，绿色用于工具输出，红色用于错误风险，灰色用于元信息。
 
 ## 检查与测试
 
@@ -131,10 +131,12 @@ npm test
 - 解析器把 JSONL 中的 `session_meta`、`turn_context`、`event_msg`、`response_item` 聚合为 turn 和 item。
 - 工具调用会合并 `function_call`、`function_call_output`、`custom_tool_call`、`custom_tool_call_output`、`mcp_tool_call_end`、`patch_apply_end` 等 Codex 事件。
 - 同一条用户/助手消息如果同时出现在 response item 和事件消息里，会在渲染层去重。
-- 页面默认进入精简视图，并提供三种视图：
+- 页面默认进入精简视图，并提供五种视图：
   - 阅读视图：按 turn 展示用户、助手、工具调用、输出和 token 统计，适合阅读对话。
   - 精简视图：只展示每轮 turn 的用户输入和该 turn 结束时的最后一条助手消息；如果父会话中有 `spawn_agent` 子代理，会按父子层级内嵌展示子代理自己的用户输入和每轮最后助手消息，并在目录中按“会话 -> Turn -> 子代理 -> 子代理 Turn”展示执行层级用于快速跳转；执行层级区域会尽量使用可用视口高度展示更多目录内容。
+  - Terminal 视图：把 turn/item 转成线性执行现场块，按用户、助手、工具调用、工具输出、错误和元信息分色展示，并提供 User、Agent、Tools、Errors 计数与跳转。
   - Trace 视图：按 Root Thread、Turn、Tool、Handoff、Subagent 形成可审计执行树，Turn 会显示从用户消息、子代理委派或工具调用中提取的摘要名称；默认只展开 Root，Turn 细节按需展开。
+  - Raw 视图：把会话事件摘要提升为主视图，左侧按事件索引和分类浏览，右侧显示选中事件的 Pretty JSON；完整 payload 仍通过单事件接口按需读取。
 - 左栏始终保持为会话列表，默认展示“实时”分类；会话列表可按实时（3 小时内）、一天（3 小时到 1 天）和更早（1 天以上或未知时间）切换，每个时间分类下再按工作目录聚合。精简视图目录会体现每个子代理是在哪个 Turn 下启动的，子代理下继续递归展示自己的 Turn。若未来出现子代理再 spawn 子代理，也会继续展开；若数据形成循环，会在目录中截断已出现过的线程以避免无限展开。
 - Trace 视图使用 `thread_spawn_edges` 作为父子线程强关系，使用 `threads.agent_nickname`、`threads.agent_role`、`threads.rollout_path` 展示子代理元数据。
 - JSONL 中的 `spawn_agent`、`wait_agent`、`subagent_notification` 用于把子代理节点锚定到父会话时间线中。

@@ -81,9 +81,11 @@
 
           <div class="thread-controls">
             <div class="view-switch" role="tablist" aria-label="视图切换">
-              <button class="view-tab" id="readViewButton" type="button" data-view-mode="read">阅读</button>
               <button class="view-tab active" id="compactViewButton" type="button" data-view-mode="compact">精简</button>
+              <button class="view-tab" id="readViewButton" type="button" data-view-mode="read">阅读</button>
+              <button class="view-tab" id="terminalViewButton" type="button" data-view-mode="terminal">Terminal</button>
               <button class="view-tab" id="traceViewButton" type="button" data-view-mode="trace">Trace</button>
+              <button class="view-tab" id="rawViewButton" type="button" data-view-mode="raw">Raw</button>
             </div>
             <input class="text-input compact" id="itemSearch" type="search" autocomplete="off" placeholder="搜索内容、命令、输出..." />
             <select class="select-input compact" id="itemTypeFilter">
@@ -106,7 +108,9 @@
 
         <section class="thread-content" id="threadContent" tabindex="-1" hidden></section>
         <section class="compact-content" id="compactContent" tabindex="-1"></section>
+        <section class="terminal-content" id="terminalContent" tabindex="-1" hidden></section>
         <section class="trace-content" id="traceContent" tabindex="-1" hidden></section>
+        <section class="raw-content" id="rawContent" tabindex="-1" hidden></section>
       </main>
 
       <aside class="inspector panel" id="inspectorPanel" aria-label="详情和事件检查器">
