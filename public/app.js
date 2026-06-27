@@ -89,6 +89,10 @@ const els = {
   refreshRemoteButton: document.getElementById("refreshRemoteButton"),
   sourceSelect: document.getElementById("sourceSelect"),
   sourceStatus: document.getElementById("sourceStatus"),
+  statusSource: document.getElementById("statusSource"),
+  statusSession: document.getElementById("statusSession"),
+  statusEvents: document.getElementById("statusEvents"),
+  statusUpdated: document.getElementById("statusUpdated"),
   copyMarkdownButton: document.getElementById("copyMarkdownButton"),
   downloadMarkdownButton: document.getElementById("downloadMarkdownButton"),
   readViewButton: document.getElementById("readViewButton"),
@@ -186,6 +190,7 @@ function renderSourceStatus() {
   if (!source) {
     els.sourceStatus.textContent = "数据源不存在";
     els.refreshRemoteButton.hidden = true;
+    renderStatusbar();
     return;
   }
   const status = source.status || {};
@@ -199,6 +204,7 @@ function renderSourceStatus() {
   if (status.error?.message) parts.push(status.error.message);
   if (source.kind === "remote" && !status.snapshotAvailable) parts.push("尚无可用快照");
   els.sourceStatus.textContent = parts.join(" · ");
+  renderStatusbar();
 }
 
 async function loadSessions({ keepSelection = false } = {}) {
@@ -317,6 +323,7 @@ function renderAll() {
   renderDetails();
   renderSelectionDetails();
   renderInspector();
+  renderStatusbar();
 }
 
 function setViewMode(mode) {
@@ -356,6 +363,7 @@ function renderSessionList() {
   els.sessionCount.textContent = String(sessions.length);
   if (sessions.length === 0) {
     els.sessionList.innerHTML = emptyState("没有匹配的会话", "调整搜索或过滤条件。");
+    renderStatusbar();
     return;
   }
   const renderedSessions = sessions.slice(0, 220);
@@ -376,6 +384,7 @@ function renderSessionList() {
       selectSession(row.dataset.sessionId);
     });
   });
+  renderStatusbar();
 }
 
 function syncSessionTimeFilter() {
@@ -426,13 +435,21 @@ function groupSessionsByDirectory(sessions) {
 function renderSessionRow(session, query) {
   const active = sessionKey(session) === state.selectedSessionKey ? " active" : "";
   const cwd = session.cwd ? shortPath(session.cwd) : "Projectless";
-  const agent = session.agentNickname ? `${session.agentNickname}/${session.agentRole || "agent"}` : "";
+  const agentName = session.agentNickname || "Codex";
+  const agent = session.agentNickname ? `${session.agentNickname}/${session.agentRole || "agent"}` : "Codex";
   const source = session.sourceLabel || selectedSource()?.label || "";
+  const model = session.model || session.modelProvider || "unknown";
   return `
     <div class="session-row${active}" role="button" tabindex="0" data-session-id="${escapeAttr(session.id)}">
+      <span class="agent-dot" data-agent="${escapeAttr(agentName.toLowerCase())}" aria-hidden="true"></span>
       <span class="session-title markdown-inline-title">${renderMarkdownTitle(session.title || "未命名会话", query)}</span>
       <span class="session-date">${formatShortDate(session.updatedAt || session.fileModifiedAt)}</span>
-      <span class="session-meta">${escapeHtml([source, agent, cwd, session.model || session.modelProvider || "unknown"].filter(Boolean).join(" · "))}</span>
+      <span class="session-meta">
+        <span>${escapeHtml(agent)}</span>
+        <span>${escapeHtml(model)}</span>
+        <span>${escapeHtml(cwd)}</span>
+      </span>
+      <span class="session-source">${escapeHtml(source)}</span>
     </div>
   `;
 }
@@ -466,16 +483,41 @@ function renderStats() {
   }
   const tokenUsage = latestTokenUsage(state.detail.turns);
   const rows = [
-    ["Turns", stats.turnCount],
-    ["Events", stats.eventCount],
-    ["Important", stats.importantEventCount],
-    ["Tools", countItems("tool-call")],
-    ["Agents", stats.childThreadCount || 0],
-    ["Tokens", tokenUsage ? compactNumber(tokenUsage.total_tokens || tokenUsage.totalTokens || 0) : "n/a"],
+    ["Turns", stats.turnCount, "对话轮次"],
+    ["Events", stats.eventCount, "事件流"],
+    ["Important", stats.importantEventCount, "关键事件"],
+    ["Tools", countItems("tool-call"), "工具调用"],
+    ["Agents", stats.childThreadCount || 0, "子代理"],
+    ["Tokens", tokenUsage ? compactNumber(tokenUsage.total_tokens || tokenUsage.totalTokens || 0) : "n/a", "最近统计"],
   ];
   els.statsStrip.innerHTML = rows
-    .map(([label, value]) => `<div class="stat"><strong>${escapeHtml(String(value))}</strong><span>${label}</span></div>`)
+    .map(
+      ([label, value, hint]) => `
+        <div class="stat">
+          <span>${escapeHtml(label)}</span>
+          <strong>${escapeHtml(String(value))}</strong>
+          <em>${escapeHtml(hint)}</em>
+        </div>
+      `,
+    )
     .join("");
+}
+
+function renderStatusbar() {
+  const source = selectedSource();
+  const session = state.detail?.session;
+  const stats = state.detail?.stats;
+  const sourceKind = source?.kind === "remote" ? "远程快照" : "本机只读";
+  const sourceLabelText = source?.label || source?.id || "未选择";
+  els.statusSource.textContent = `数据源：${sourceLabelText} · ${sourceKind}`;
+  els.statusSession.textContent = session
+    ? `当前：${firstLine(session.title || session.id || "未命名会话", 54)}`
+    : "未选择会话";
+  els.statusEvents.textContent = `${state.filteredSessions.length || 0}/${state.sessions.length || 0} sessions`;
+  const updated = session?.updatedAt || session?.fileModifiedAt || session?.startedAt;
+  els.statusUpdated.textContent = stats
+    ? `${stats.eventCount || 0} events · ${stats.turnCount || 0} turns · ${formatDate(updated) || "未知时间"}`
+    : "只读浏览";
 }
 
 function renderMainContent() {
