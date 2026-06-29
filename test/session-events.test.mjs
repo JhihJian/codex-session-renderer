@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildTurns,
+  compactTurnsForClient,
   extractTitleFromEvents,
   findSubagentNotifications,
   renderConversationMarkdown,
@@ -105,4 +106,33 @@ test("findSubagentNotifications inspects payload even when preview omits child i
   const notifications = findSubagentNotifications(events, new Map([[childId, { childThreadId: childId }]]));
 
   assert.equal(notifications.get(childId), events[0]);
+});
+
+test("compactTurnsForClient keeps tool output complete for reading view", () => {
+  const longOutput = "output-line\n" + "x".repeat(1200);
+  const events = [
+    {
+      type: "event_msg",
+      timestamp: "2026-06-24T10:00:00.000Z",
+      payload: { type: "task_started", turn_id: "turn-1" },
+    },
+    {
+      type: "response_item",
+      timestamp: "2026-06-24T10:00:01.000Z",
+      payload: { type: "function_call", name: "run_check", call_id: "call-1", arguments: "{\"cmd\":\"check\"}" },
+    },
+    {
+      type: "response_item",
+      timestamp: "2026-06-24T10:00:02.000Z",
+      payload: { type: "function_call_output", call_id: "call-1", output: longOutput },
+    },
+  ];
+
+  const compactTurns = compactTurnsForClient(buildTurns(events));
+  const item = compactTurns[0].items[0];
+
+  assert.equal(item.output, longOutput);
+  assert.equal(item.outputLength, longOutput.length);
+  assert.equal(item.truncated, undefined);
+  assert.equal(item.truncatedFields, undefined);
 });

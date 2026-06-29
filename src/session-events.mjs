@@ -72,6 +72,7 @@ function compactItemForClient(item, turnIndex, itemIndex) {
     itemIndex,
   };
   if (item.sourceIndex != null) base.sourceIndex = item.sourceIndex;
+  if (item.outputSourceIndex != null) base.outputSourceIndex = item.outputSourceIndex;
   if (item.timestamp) base.timestamp = item.timestamp;
   if (item.completedAt) base.completedAt = item.completedAt;
   if (item.phase) base.phase = item.phase;
@@ -98,10 +99,9 @@ function compactItemForClient(item, turnIndex, itemIndex) {
     if (limited.truncated) addTruncatedField(base, "arguments");
   }
   if (item.output != null) {
-    const limited = limitText(item.output, previewLimits.toolOutput);
-    base.output = limited.text;
-    base.outputLength = limited.originalLength;
-    if (limited.truncated) addTruncatedField(base, "output");
+    const output = String(item.output);
+    base.output = output;
+    base.outputLength = output.length;
   }
   if (item.payload != null || item.info != null) {
     const source = item.payload ?? item.info;

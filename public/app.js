@@ -9,6 +9,7 @@ const state = {
   selectedItemRef: null,
   selectedEventIndex: null,
   selectedTraceNodeId: null,
+  selectedAuditNodeId: null,
   selectedTerminalBlockId: null,
   expandedTraceNodeIds: new Set(),
   rawEventCache: new Map(),
@@ -71,12 +72,15 @@ const els = {
   itemSearch: document.getElementById("itemSearch"),
   itemTypeFilter: document.getElementById("itemTypeFilter"),
   importantOnly: document.getElementById("importantOnly"),
+  importantOnlyControl: document.getElementById("importantOnlyControl"),
+  importantOnlyLabel: document.getElementById("importantOnlyLabel"),
   sessionMetaLabel: document.getElementById("sessionMetaLabel"),
   sessionTitle: document.getElementById("sessionTitle"),
   statsStrip: document.getElementById("statsStrip"),
   threadContent: document.getElementById("threadContent"),
   compactContent: document.getElementById("compactContent"),
   terminalContent: document.getElementById("terminalContent"),
+  auditContent: document.getElementById("auditContent"),
   traceContent: document.getElementById("traceContent"),
   rawContent: document.getElementById("rawContent"),
   sessionDetails: document.getElementById("sessionDetails"),
@@ -85,6 +89,7 @@ const els = {
   rawPreview: document.getElementById("rawPreview"),
   inspectorActions: document.getElementById("inspectorActions"),
   eventCount: document.getElementById("eventCount"),
+  keyEventsTitle: document.getElementById("keyEventsTitle"),
   selectedEventLabel: document.getElementById("selectedEventLabel"),
   showMoreEventsButton: document.getElementById("showMoreEventsButton"),
   toast: document.getElementById("toast"),
@@ -102,10 +107,55 @@ const els = {
   readViewButton: document.getElementById("readViewButton"),
   compactViewButton: document.getElementById("compactViewButton"),
   terminalViewButton: document.getElementById("terminalViewButton"),
+  auditViewButton: document.getElementById("auditViewButton"),
   traceViewButton: document.getElementById("traceViewButton"),
   rawViewButton: document.getElementById("rawViewButton"),
   toggleLeft: document.getElementById("toggleLeft"),
   toggleRight: document.getElementById("toggleRight"),
+};
+
+const standardItemTypeOptions = [
+  ["all", "全部类型"],
+  ["message", "用户/助手消息"],
+  ["tool", "工具与命令"],
+  ["output", "工具输出"],
+  ["reasoning", "推理摘要"],
+  ["system", "系统事件"],
+  ["error", "错误事件"],
+];
+
+const auditItemTypeOptions = [
+  ["all", "全部"],
+  ["intent", "意图"],
+  ["reasoning", "推理"],
+  ["action", "行动"],
+  ["evidence", "证据"],
+  ["verification", "验证"],
+  ["incomplete", "需 Raw 复核"],
+  ["risk", "风险"],
+  ["final", "最终回复"],
+];
+
+const standardToAuditType = {
+  all: "all",
+  message: "intent",
+  tool: "action",
+  output: "evidence",
+  reasoning: "reasoning",
+  system: "verification",
+  error: "risk",
+};
+
+const auditToStandardType = {
+  all: "all",
+  intent: "message",
+  reasoning: "reasoning",
+  action: "tool",
+  evidence: "output",
+  verification: "system",
+  incomplete: "error",
+  risk: "error",
+  final: "message",
 };
 
 init();
@@ -144,6 +194,7 @@ function bindEvents() {
   els.readViewButton.addEventListener("click", () => setViewMode("read"));
   els.compactViewButton.addEventListener("click", () => setViewMode("compact"));
   els.terminalViewButton.addEventListener("click", () => setViewMode("terminal"));
+  els.auditViewButton.addEventListener("click", () => setViewMode("audit"));
   els.traceViewButton.addEventListener("click", () => setViewMode("trace"));
   els.rawViewButton.addEventListener("click", () => setViewMode("raw"));
   els.showMoreEventsButton.addEventListener("click", () => {
@@ -255,6 +306,7 @@ async function selectSession(id) {
   state.selectedItemRef = null;
   state.selectedEventIndex = null;
   state.selectedTraceNodeId = null;
+  state.selectedAuditNodeId = null;
   state.selectedTerminalBlockId = null;
   state.expandedTraceNodeIds = new Set();
   state.rawEventCache = new Map();
@@ -285,6 +337,7 @@ function clearSelectedSession() {
   state.selectedItemRef = null;
   state.selectedEventIndex = null;
   state.selectedTraceNodeId = null;
+  state.selectedAuditNodeId = null;
   state.selectedTerminalBlockId = null;
   state.expandedTraceNodeIds = new Set();
   state.rawEventCache = new Map();
@@ -340,17 +393,47 @@ function renderAll() {
 
 function setViewMode(mode) {
   state.viewMode = mode;
-  els.readViewButton.classList.toggle("active", mode === "read");
-  els.compactViewButton.classList.toggle("active", mode === "compact");
-  els.terminalViewButton.classList.toggle("active", mode === "terminal");
-  els.traceViewButton.classList.toggle("active", mode === "trace");
-  els.rawViewButton.classList.toggle("active", mode === "raw");
-  els.threadContent.hidden = mode !== "read";
-  els.compactContent.hidden = mode !== "compact";
-  els.terminalContent.hidden = mode !== "terminal";
-  els.traceContent.hidden = mode !== "trace";
-  els.rawContent.hidden = mode !== "raw";
+  syncViewControls();
   renderMainContent();
+}
+
+function syncViewControls() {
+  syncItemTypeFilterOptions();
+  els.readViewButton.classList.toggle("active", state.viewMode === "read");
+  els.compactViewButton.classList.toggle("active", state.viewMode === "compact");
+  els.terminalViewButton.classList.toggle("active", state.viewMode === "terminal");
+  els.auditViewButton.classList.toggle("active", state.viewMode === "audit");
+  els.traceViewButton.classList.toggle("active", state.viewMode === "trace");
+  els.rawViewButton.classList.toggle("active", state.viewMode === "raw");
+  els.threadContent.hidden = state.viewMode !== "read";
+  els.compactContent.hidden = state.viewMode !== "compact";
+  els.terminalContent.hidden = state.viewMode !== "terminal";
+  els.auditContent.hidden = state.viewMode !== "audit";
+  els.traceContent.hidden = state.viewMode !== "trace";
+  els.rawContent.hidden = state.viewMode !== "raw";
+  if (els.importantOnlyLabel) {
+    els.importantOnlyLabel.textContent = state.viewMode === "audit" ? "右侧关键事件" : "重要事件";
+  }
+  if (els.keyEventsTitle) {
+    els.keyEventsTitle.textContent = state.viewMode === "audit" ? "右侧关键事件" : "关键事件";
+  }
+  if (els.importantOnlyControl) {
+    els.importantOnlyControl.title =
+      state.viewMode === "audit" ? "只过滤右侧关键事件列表，不影响 Audit 主链" : "只过滤右侧关键事件列表";
+  }
+}
+
+function syncItemTypeFilterOptions() {
+  const mode = state.viewMode === "audit" ? "audit" : "standard";
+  if (els.itemTypeFilter.dataset.optionMode === mode) return;
+  const previous = els.itemTypeFilter.value || "all";
+  const options = mode === "audit" ? auditItemTypeOptions : standardItemTypeOptions;
+  const mapped = mode === "audit" ? standardToAuditType[previous] || "all" : auditToStandardType[previous] || "all";
+  els.itemTypeFilter.innerHTML = options
+    .map(([value, label]) => `<option value="${escapeAttr(value)}">${escapeHtml(label)}</option>`)
+    .join("");
+  els.itemTypeFilter.value = options.some(([value]) => value === mapped) ? mapped : "all";
+  els.itemTypeFilter.dataset.optionMode = mode;
 }
 
 function primeTraceExpansion(detail) {
@@ -537,20 +620,13 @@ function renderStatusbar() {
 }
 
 function renderMainContent() {
-  els.threadContent.hidden = state.viewMode !== "read";
-  els.compactContent.hidden = state.viewMode !== "compact";
-  els.terminalContent.hidden = state.viewMode !== "terminal";
-  els.traceContent.hidden = state.viewMode !== "trace";
-  els.rawContent.hidden = state.viewMode !== "raw";
-  els.readViewButton.classList.toggle("active", state.viewMode === "read");
-  els.compactViewButton.classList.toggle("active", state.viewMode === "compact");
-  els.terminalViewButton.classList.toggle("active", state.viewMode === "terminal");
-  els.traceViewButton.classList.toggle("active", state.viewMode === "trace");
-  els.rawViewButton.classList.toggle("active", state.viewMode === "raw");
+  syncViewControls();
   if (state.viewMode === "trace") {
     renderTrace();
   } else if (state.viewMode === "raw") {
     renderRawView();
+  } else if (state.viewMode === "audit") {
+    renderAudit();
   } else if (state.viewMode === "terminal") {
     renderTerminal();
   } else if (state.viewMode === "compact") {
@@ -1236,6 +1312,7 @@ function selectTerminalBlock(id) {
   if (!block) return;
   state.selectedTerminalBlockId = id;
   state.selectedTraceNodeId = null;
+  state.selectedAuditNodeId = null;
   state.selectedEventIndex = null;
   state.selectedItemRef = block.itemRef || null;
   const item = block.item || findItemByRef(block.itemRef);
@@ -1259,6 +1336,395 @@ function jumpTerminalRole(role) {
   const next = candidates[(currentIndex + 1) % candidates.length];
   next.scrollIntoView({ behavior: "smooth", block: "center" });
   selectTerminalBlock(next.dataset.terminalBlockId);
+}
+
+function renderAudit() {
+  const detail = state.detail;
+  if (!detail) {
+    els.auditContent.innerHTML = emptyState("选择一个会话", "Audit 视图串联意图、行动、证据、验证、风险和最终回复。");
+    return;
+  }
+  const audit = detail.audit || buildAuditFallback(detail);
+  const nodes = audit.nodes || [];
+  if (nodes.length === 0) {
+    els.auditContent.innerHTML = emptyState("当前没有可展示审计链节点", "审计链依赖用户消息、工具调用、工具输出、验证动作和最终回复。");
+    return;
+  }
+  const query = els.itemSearch.value.trim().toLowerCase();
+  const typeFilter = els.itemTypeFilter.value;
+  const filtered = nodes.filter((node) => auditNodeMatches(node, query, typeFilter));
+  const counts = audit.counts || auditNodeCounts(nodes);
+  const filteredCounts = auditNodeCounts(filtered);
+  if (filtered.length === 0) {
+    els.auditContent.innerHTML = `
+      <div class="audit-shell">
+        ${renderAuditHead(detail, counts, filteredCounts, { query, typeFilter })}
+        ${emptyState("没有匹配的审计链节点", "调整内容搜索或类型过滤。")}
+      </div>
+    `;
+    return;
+  }
+  els.auditContent.innerHTML = `
+    <div class="audit-shell">
+      ${renderAuditHead(detail, counts, filteredCounts, { query, typeFilter })}
+      <div class="audit-timeline" role="list">
+        ${filtered.map((node) => renderAuditNode(node, query)).join("")}
+      </div>
+    </div>
+  `;
+  els.auditContent.querySelectorAll("[data-audit-node-id]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      if (event.target.closest("a, button:not([data-audit-node-id])")) return;
+      selectAuditNode(button.dataset.auditNodeId);
+    });
+    button.addEventListener("keydown", (event) => {
+      if (event.target.closest("a, button:not([data-audit-node-id])")) return;
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      selectAuditNode(button.dataset.auditNodeId);
+    });
+  });
+}
+
+function renderAuditHead(detail, counts, filteredCounts, filters = {}) {
+  const filtered = Boolean(filters.query || (filters.typeFilter && filters.typeFilter !== "all"));
+  const metrics = [
+    ["intent", "意图", counts.intent || 0, filteredCounts.intent || 0],
+    ["reasoning", "推理", counts.reasoning || 0, filteredCounts.reasoning || 0],
+    ["action", "行动", counts.action || 0, filteredCounts.action || 0],
+    ["evidence", "证据", counts.evidence || 0, filteredCounts.evidence || 0],
+    ["verification", "验证", counts.verification || 0, filteredCounts.verification || 0],
+    ["incomplete", "需 Raw 复核", counts.incomplete || 0, filteredCounts.incomplete || 0],
+    ["risk", "风险信号", counts.risk || 0, filteredCounts.risk || 0],
+    ["final", "最终回复", counts.final || 0, filteredCounts.final || 0],
+  ];
+  return `
+    <div class="audit-head">
+      <div>
+        <p class="eyebrow">Audit Chain</p>
+        <h3 class="markdown-inline-title">${renderMarkdownTitle(detail.session?.title || "当前会话")}</h3>
+      </div>
+      <div class="audit-summary" aria-label="审计链概览">
+        ${metrics
+          .map(
+            ([type, label, total, active]) => `
+              <div class="audit-summary-item type-${escapeAttr(type)}" title="${escapeAttr(filtered ? `显示 ${active} / 全部 ${total}` : `全部 ${total}`)}">
+                <span>${escapeHtml(label)}</span>
+                <strong>${escapeHtml(filtered ? `显示 ${active} / 全部 ${total}` : String(total))}</strong>
+              </div>
+            `,
+          )
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderAuditNode(node, query) {
+  const selected = state.selectedAuditNodeId === node.id ? " selected" : "";
+  const meta = [
+    auditTypeLabel(node.type),
+    node.status || "n/a",
+    auditRiskMetaLabel(node.riskLevel),
+    node.turnNumber ? `Turn ${node.turnNumber}` : "",
+    auditEventIndexLabel(node),
+    auditRelatedLabel(node),
+    formatDate(node.timestamp),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const tags = (node.tags || []).slice(0, 4);
+  return `
+    <button class="audit-node type-${escapeAttr(node.type)} risk-${escapeAttr(node.riskLevel || "none")}${selected}" type="button" role="listitem" data-audit-node-id="${escapeAttr(node.id)}">
+      <span class="audit-node-strip" aria-hidden="true"></span>
+      <span class="audit-node-kind">
+        <strong>${escapeHtml(auditNodeGlyph(node.type))}</strong>
+        <em>${escapeHtml(auditTypeLabel(node.type))}</em>
+      </span>
+      <span class="audit-node-main">
+        <span class="audit-node-title">
+          <strong>${highlight(escapeHtml(node.title || auditTypeLabel(node.type)), query)}</strong>
+          ${node.riskLevel && node.riskLevel !== "none" ? `<span class="audit-risk-label">${escapeHtml(auditRiskLabel(node.riskLevel))}</span>` : ""}
+        </span>
+        <span class="audit-node-summary">${highlight(escapeHtml(node.summary || ""), query)}</span>
+        <span class="audit-node-tags">
+          ${tags.map((tag) => `<span>${highlight(escapeHtml(tag), query)}</span>`).join("")}
+        </span>
+      </span>
+      <span class="audit-node-meta">${escapeHtml(meta)}</span>
+    </button>
+  `;
+}
+
+function selectAuditNode(id) {
+  const node = findAuditNode(id);
+  if (!node) return;
+  state.selectedAuditNodeId = id;
+  state.selectedTraceNodeId = null;
+  state.selectedTerminalBlockId = null;
+  state.selectedItemRef = null;
+  state.selectedEventIndex = node.eventIndex ?? node.sourceIndex ?? null;
+  els.selectedEventLabel.textContent = auditNodeLabel(node);
+  els.rawPreview.textContent = JSON.stringify(auditNodeDebugPreview(node), null, 2);
+  renderAuditActions(node);
+  renderInspector();
+  renderSelectionDetails();
+  els.copyRawButton.disabled = false;
+  els.auditContent.querySelectorAll(".audit-node.selected").forEach((row) => row.classList.remove("selected"));
+  const active = els.auditContent.querySelector(`[data-audit-node-id="${cssEscape(id)}"]`);
+  active?.classList.add("selected");
+}
+
+function renderAuditActions(node) {
+  const actions = [];
+  if (node.eventIndex != null || node.sourceIndex != null) actions.push(`<button class="ghost-button small" type="button" data-open-audit-raw>打开 Raw event</button>`);
+  if (node.itemRef) actions.push(`<button class="ghost-button small" type="button" data-open-audit-item>查看阅读项</button>`);
+  if (node.traceNodeId) actions.push(`<button class="ghost-button small" type="button" data-open-audit-trace>定位 Trace</button>`);
+  if (node.relatedNodeId) actions.push(`<button class="ghost-button small" type="button" data-open-audit-related>定位关联节点</button>`);
+  els.inspectorActions.innerHTML = actions.join("");
+  els.inspectorActions.querySelector("[data-open-audit-raw]")?.addEventListener("click", () => {
+    const index = node.eventIndex ?? node.sourceIndex;
+    if (index == null) return;
+    openRawEventFromAudit(index);
+  });
+  els.inspectorActions.querySelector("[data-open-audit-item]")?.addEventListener("click", () => {
+    if (!node.itemRef) return;
+    locateItemRef(node.itemRef);
+  });
+  els.inspectorActions.querySelector("[data-open-audit-trace]")?.addEventListener("click", () => {
+    locateTraceNode(node.traceNodeId);
+  });
+  els.inspectorActions.querySelector("[data-open-audit-related]")?.addEventListener("click", () => {
+    locateRelatedAuditNode(node);
+  });
+}
+
+function auditNodeMatches(node, query, typeFilter) {
+  if (query && !auditNodeSearchText(node).includes(query)) return false;
+  if (typeFilter === "all") return true;
+  return node.type === typeFilter;
+}
+
+function auditNodeSearchText(node) {
+  return [
+    node.id,
+    node.type,
+    node.title,
+    node.summary,
+    node.status,
+    node.riskLevel,
+    node.turnNumber,
+    node.eventIndex,
+    node.sourceIndex,
+    node.itemRef,
+    node.traceNodeId,
+    node.toolName,
+    node.callId,
+    node.relatedType,
+    node.relatedNodeId,
+    ...(node.tags || []),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function auditNodeCounts(nodes) {
+  return nodes.reduce(
+    (counts, node) => {
+      if (node.type in counts) counts[node.type] += 1;
+      counts.total += 1;
+      return counts;
+    },
+    { intent: 0, reasoning: 0, action: 0, evidence: 0, verification: 0, incomplete: 0, risk: 0, final: 0, total: 0 },
+  );
+}
+
+function findAuditNode(id) {
+  return (state.detail?.audit?.nodes || buildAuditFallback(state.detail)?.nodes || []).find((node) => node.id === id) || null;
+}
+
+function auditNodeDebugPreview(node) {
+  const item = node.itemRef ? findItemByRef(node.itemRef) : null;
+  return {
+    ...node,
+    summary: truncateText(node.summary, 4000),
+    argumentsPreview: truncateText(node.argumentsPreview, 4000),
+    outputPreview: truncateText(node.outputPreview, 8000),
+    item: item ? itemDebugPreview(item) : null,
+  };
+}
+
+function auditEventIndexLabel(node) {
+  if (node.eventIndex == null && node.sourceIndex == null) return "";
+  const parts = [];
+  if (node.eventIndex != null) parts.push(`event #${node.eventIndex}`);
+  if (node.sourceIndex != null && node.sourceIndex !== node.eventIndex) parts.push(`source #${node.sourceIndex}`);
+  return parts.join(" / ");
+}
+
+function auditRelatedLabel(node) {
+  if (!node.relatedNodeId) return "";
+  const type = node.relatedType ? auditTypeLabel(node.relatedType) : "节点";
+  const tool = node.toolName ? ` · ${node.toolName}` : "";
+  return `关联 ${type} ${node.relatedNodeId}${tool}`;
+}
+
+function locateRelatedAuditNode(node) {
+  if (!node?.relatedNodeId) return;
+  const target = findAuditNode(node.relatedNodeId);
+  if (!target) {
+    showToast("未找到关联 Audit 节点");
+    return;
+  }
+  if (state.viewMode !== "audit") {
+    state.viewMode = "audit";
+    syncItemTypeFilterOptions();
+  }
+  if (!auditNodeMatches(target, els.itemSearch.value.trim().toLowerCase(), els.itemTypeFilter.value)) {
+    els.itemSearch.value = "";
+    els.itemTypeFilter.value = target.type;
+  }
+  renderMainContent();
+  selectAuditNode(target.id);
+  window.setTimeout(() => {
+    els.auditContent.querySelector(`[data-audit-node-id="${cssEscape(target.id)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, 0);
+}
+
+function locateItemRef(ref) {
+  if (!ref) return;
+  const item = findItemByRef(ref);
+  if (!item) {
+    showToast("未找到阅读项");
+    return;
+  }
+  if (state.viewMode !== "read") {
+    state.viewMode = "read";
+    syncItemTypeFilterOptions();
+  }
+  if (!itemMatches(item, els.itemSearch.value.trim().toLowerCase(), els.itemTypeFilter.value)) {
+    els.itemSearch.value = "";
+    els.itemTypeFilter.value = "all";
+  }
+  renderMainContent();
+  selectItemRef(ref);
+  window.setTimeout(() => {
+    els.threadContent.querySelector(`[data-item-ref="${cssEscape(ref)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, 0);
+}
+
+function locateTraceNode(id) {
+  if (!id) return;
+  const target = findTraceNode(state.detail?.trace?.root, id);
+  if (!target) {
+    showToast("未找到 Trace 节点");
+    return;
+  }
+  expandTraceAncestors(id);
+  if (state.viewMode !== "trace") {
+    state.viewMode = "trace";
+    renderMainContent();
+  } else {
+    renderTrace();
+  }
+  selectTraceNode(id);
+  window.setTimeout(() => {
+    els.traceContent.querySelector(`[data-trace-node-id="${cssEscape(id)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, 0);
+}
+
+function expandTraceAncestors(id, node = state.detail?.trace?.root, parents = []) {
+  if (!node) return false;
+  if (node.id === id) {
+    for (const parentId of parents) state.expandedTraceNodeIds.add(parentId);
+    return true;
+  }
+  for (const child of node.children || []) {
+    if (expandTraceAncestors(id, child, [...parents, node.id])) return true;
+  }
+  return false;
+}
+
+function buildAuditFallback(detail) {
+  const nodes = [];
+  for (const turn of detail?.turns || []) {
+    for (const item of turn.items || []) {
+      const ref = itemRef(item);
+      if (item.type === "user-message") {
+        nodes.push(fallbackAuditNode("intent", item, ref, "用户意图", item.text));
+      } else if (item.type === "reasoning") {
+        nodes.push(fallbackAuditNode("reasoning", item, ref, "推理摘要", item.text || (item.encrypted ? "推理内容已加密存储。" : "")));
+      } else if (item.type === "tool-call") {
+        nodes.push(fallbackAuditNode("action", item, ref, item.name ? `工具调用 · ${item.name}` : "工具调用", item.arguments || item.name));
+        if (item.output) nodes.push(fallbackAuditNode("evidence", item, ref, item.name ? `工具输出 · ${item.name}` : "工具输出", item.output, item.outputSourceIndex ?? item.sourceIndex));
+      } else if (item.type === "assistant-message") {
+        nodes.push(fallbackAuditNode(item.phase === "final" ? "final" : "reasoning", item, ref, item.phase === "final" ? "助手最终回复" : "助手消息", item.text));
+      }
+    }
+  }
+  return { nodes, counts: auditNodeCounts(nodes) };
+}
+
+function fallbackAuditNode(type, item, ref, title, summary, eventIndex = item.sourceIndex) {
+  return {
+    id: `audit:fallback:${type}:${ref}:${eventIndex ?? "x"}`,
+    type,
+    title,
+    summary: firstLine(summary || "", 360),
+    status: item.status || item.phase || "observed",
+    timestamp: item.timestamp,
+    turnIndex: item.turnIndex,
+    turnNumber: (item.turnIndex ?? 0) + 1,
+    eventIndex: eventIndex ?? null,
+    sourceIndex: item.sourceIndex ?? null,
+    itemRef: ref,
+    traceNodeId: item.type === "tool-call" ? `item:${item.turnIndex}:${item.itemIndex}:${item.id || item.type}` : null,
+    riskLevel: "none",
+    tags: [type, item.name].filter(Boolean),
+    toolName: item.name || null,
+    callId: item.callId || null,
+    truncated: Boolean(item.truncated),
+  };
+}
+
+function auditTypeLabel(type) {
+  if (type === "intent") return "意图";
+  if (type === "reasoning") return "推理";
+  if (type === "action") return "行动";
+  if (type === "evidence") return "证据";
+  if (type === "verification") return "验证";
+  if (type === "incomplete") return "需 Raw 复核";
+  if (type === "risk") return "风险";
+  if (type === "final") return "最终";
+  return type || "节点";
+}
+
+function auditNodeGlyph(type) {
+  if (type === "intent") return "I";
+  if (type === "reasoning") return "R";
+  if (type === "action") return ">";
+  if (type === "evidence") return "$";
+  if (type === "verification") return "V";
+  if (type === "incomplete") return "Raw";
+  if (type === "risk") return "!";
+  if (type === "final") return "F";
+  return "•";
+}
+
+function auditRiskLabel(level) {
+  if (level === "high") return "高风险";
+  if (level === "medium") return "中风险";
+  if (level === "low") return "低风险";
+  return "未标记风险";
+}
+
+function auditRiskMetaLabel(level) {
+  return level && level !== "none" ? auditRiskLabel(level) : "";
+}
+
+function auditNodeLabel(node) {
+  return `${auditTypeLabel(node.type)} · ${node.title || node.id}`;
 }
 
 function renderRawView() {
@@ -1342,11 +1808,21 @@ function renderRawViewEventRow(event) {
   return `
     <button class="raw-view-row${active}" type="button" data-raw-event-index="${event.index}">
       <span class="raw-view-kind">${escapeHtml(event.kind || event.type || "event")}</span>
-      <strong>${escapeHtml(`#${event.index} ${humanEventTitle(event)}`)}</strong>
+      <strong>${escapeHtml(`event #${event.index} ${humanEventTitle(event)}`)}</strong>
       <em>${escapeHtml(formatDate(event.timestamp) || event.payloadType || "")}</em>
       <span>${escapeHtml(firstLine(event.preview || "", 140))}</span>
     </button>
   `;
+}
+
+async function openRawEventFromAudit(index) {
+  state.viewMode = "raw";
+  els.itemTypeFilter.value = "all";
+  state.selectedEventIndex = index;
+  renderMainContent();
+  await selectRawViewEvent(index);
+  const active = els.rawContent.querySelector(`[data-raw-event-index="${index}"]`);
+  active?.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 async function selectRawViewEvent(index) {
@@ -1702,7 +2178,7 @@ function renderKeyEventGroups(events) {
       const active = event.index === state.selectedEventIndex ? " active" : "";
       return `
                   <button class="raw-event${active}" type="button" data-event-index="${event.index}">
-          <span class="raw-event-title">${escapeHtml("#" + event.index + " " + humanEventTitle(event))}</span>
+          <span class="raw-event-title">${escapeHtml("event #" + event.index + " " + humanEventTitle(event))}</span>
           <span class="session-date">${escapeHtml(formatDate(event.timestamp) || event.kind)}</span>
           <span class="raw-event-preview">${escapeHtml(event.preview || formatDate(event.timestamp) || "")}</span>
         </button>
@@ -1720,11 +2196,12 @@ async function selectRawEvent(index, { rerender = true } = {}) {
   state.selectedTraceNodeId = null;
   state.selectedItemRef = null;
   state.selectedTerminalBlockId = null;
+  state.selectedAuditNodeId = null;
   els.inspectorActions.innerHTML = "";
   state.selectedEventIndex = index;
   const event = state.detail?.events.find((candidate) => candidate.index === index);
   if (!event) return;
-  els.selectedEventLabel.textContent = `#${event.index} ${event.kind}`;
+  els.selectedEventLabel.textContent = `event #${event.index} ${event.kind}`;
   els.copyRawButton.disabled = false;
   if (rerender) renderInspector();
   renderSelectionDetails();
@@ -1757,6 +2234,7 @@ function selectTraceNode(id) {
   state.selectedEventIndex = null;
   state.selectedItemRef = null;
   state.selectedTerminalBlockId = null;
+  state.selectedAuditNodeId = null;
   els.selectedEventLabel.textContent = traceNodeLabel(node);
   els.rawPreview.textContent = JSON.stringify(traceNodePreview(node), null, 2);
   renderTraceActions(node);
@@ -1784,6 +2262,7 @@ function selectItemRef(ref) {
   if (!ref) return;
   state.selectedItemRef = ref;
   state.selectedTraceNodeId = null;
+  state.selectedAuditNodeId = null;
   state.selectedEventIndex = null;
   state.selectedTerminalBlockId = null;
   const item = findItemByRef(ref);
@@ -1797,6 +2276,8 @@ function selectItemRef(ref) {
     renderThread();
   } else if (state.viewMode === "terminal") {
     renderTerminal();
+  } else if (state.viewMode === "audit") {
+    renderAudit();
   }
 }
 
@@ -1808,6 +2289,12 @@ function renderSelectionDetails() {
   if (state.selectedTraceNodeId) {
     const node = findTraceNode(state.detail.trace?.root, state.selectedTraceNodeId);
     els.selectionDetails.innerHTML = node ? renderTraceSelection(node) : emptyInspectorSection("选中内容", "Trace 节点不存在。");
+    bindSelectionActions();
+    return;
+  }
+  if (state.selectedAuditNodeId) {
+    const node = findAuditNode(state.selectedAuditNodeId);
+    els.selectionDetails.innerHTML = node ? renderAuditSelection(node) : emptyInspectorSection("选中内容", "Audit 节点不存在。");
     bindSelectionActions();
     return;
   }
@@ -1828,8 +2315,42 @@ function renderSelectionDetails() {
       <h3>选中内容</h3>
       <span class="muted">未选择</span>
     </div>
-    <div class="selection-empty">点击阅读视图中的消息/工具、Trace 节点或下方关键事件查看细节。</div>
+    <div class="selection-empty">点击阅读视图中的消息/工具、Audit 节点、Trace 节点或下方关键事件查看细节。</div>
   `;
+}
+
+function renderAuditSelection(node) {
+  const relatedMeta = [
+    node.relatedType ? auditTypeLabel(node.relatedType) : "",
+    node.relatedNodeId || "",
+    node.toolName ? `工具 ${node.toolName}` : "",
+    auditEventIndexLabel(node),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const rows = [
+    ["节点类型", auditTypeLabel(node.type)],
+    ["状态", node.status || "n/a"],
+    ["风险信号", auditRiskLabel(node.riskLevel || "none")],
+    ["Turn", node.turnNumber ? String(node.turnNumber) : "n/a"],
+    ["时间", formatDate(node.timestamp) || "n/a"],
+    ["itemRef", node.itemRef || "n/a"],
+    ["事件索引", auditEventIndexLabel(node) || "n/a"],
+  ];
+  if (node.traceNodeId) rows.push(["Trace", node.traceNodeId]);
+  if (node.relatedNodeId) rows.push(["关联来源", relatedMeta || node.relatedNodeId]);
+  if (node.toolName) rows.push(["工具", node.toolName]);
+  if (node.callId) rows.push(["Call ID", node.callId]);
+  if (node.tags?.length) rows.push(["标签", node.tags.join(", ")]);
+  const body = [node.summary, node.outputPreview, node.argumentsPreview].filter(Boolean).join("\n\n");
+  return renderSelectionCard({
+    eyebrow: "Audit 节点",
+    title: node.title || auditTypeLabel(node.type),
+    meta: [auditTypeLabel(node.type), auditRiskLabel(node.riskLevel || "none")].filter(Boolean).join(" · "),
+    rows,
+    body: body ? firstLine(body, 1100) : "",
+    actions: auditSelectionActions(node),
+  });
 }
 
 function renderTraceSelection(node) {
@@ -1879,7 +2400,7 @@ function renderItemSelection(item) {
 
 function renderEventSelection(event) {
   const rows = [
-    ["事件", `#${event.index}`],
+    ["事件", `event #${event.index}`],
     ["分类", event.kind || "n/a"],
     ["时间", formatDate(event.timestamp) || "n/a"],
     ["Payload", event.payloadSize ? formatBytes(event.payloadSize) : "n/a"],
@@ -1937,6 +2458,22 @@ function bindSelectionActions() {
         selectSession(action.threadId);
         return;
       }
+      if (action.action === "open-raw-event") {
+        openRawEventFromAudit(action.index);
+        return;
+      }
+      if (action.action === "open-item-ref") {
+        locateItemRef(action.ref);
+        return;
+      }
+      if (action.action === "open-trace-node") {
+        locateTraceNode(action.id);
+        return;
+      }
+      if (action.action === "open-audit-node") {
+        locateRelatedAuditNode(action.node);
+        return;
+      }
       if (action.copy != null) await copyInspectorText(action.copy, action.toast || "已复制");
     });
   });
@@ -1950,6 +2487,10 @@ function currentSelectionActions() {
     const item = detail.item || {};
     const body = item.output || item.arguments || item.text || node.subtitle || detail.note || "";
     return traceSelectionActions(node, body);
+  }
+  if (state.selectedAuditNodeId) {
+    const node = findAuditNode(state.selectedAuditNodeId);
+    return node ? auditSelectionActions(node) : [];
   }
   if (state.selectedItemRef) {
     const item = findItemByRef(state.selectedItemRef);
@@ -1965,6 +2506,21 @@ function currentSelectionActions() {
       : [];
   }
   return [];
+}
+
+function auditSelectionActions(node) {
+  const actions = [
+    { label: "复制摘要", copy: node.summary || node.title || node.id, toast: "已复制审计摘要" },
+    { label: "复制 JSON", action: "copy-debug" },
+  ];
+  if (node.eventIndex != null || node.sourceIndex != null) {
+    actions.unshift({ label: "打开 Raw event", action: "open-raw-event", index: node.eventIndex ?? node.sourceIndex });
+    actions.push({ label: "复制事件索引", copy: String(node.eventIndex ?? node.sourceIndex), toast: "已复制事件索引" });
+  }
+  if (node.itemRef) actions.unshift({ label: "查看阅读项", action: "open-item-ref", ref: node.itemRef });
+  if (node.traceNodeId) actions.push({ label: "定位 Trace", action: "open-trace-node", id: node.traceNodeId });
+  if (node.relatedNodeId) actions.unshift({ label: "定位关联节点", action: "open-audit-node", node });
+  return actions;
 }
 
 function traceSelectionActions(node, body = "") {
@@ -1997,6 +2553,13 @@ async function copySelectedRawEvent() {
     if (!node) return;
     await copyText(JSON.stringify(traceNodePreview(node), null, 2));
     showToast("已复制 Trace 节点");
+    return;
+  }
+  if (state.selectedAuditNodeId) {
+    const node = findAuditNode(state.selectedAuditNodeId);
+    if (!node) return;
+    await copyText(JSON.stringify(auditNodeDebugPreview(node), null, 2));
+    showToast("已复制 Audit 节点");
     return;
   }
   if (state.selectedItemRef) {

@@ -84,6 +84,7 @@
               <button class="view-tab active" id="compactViewButton" type="button" data-view-mode="compact">精简</button>
               <button class="view-tab" id="readViewButton" type="button" data-view-mode="read">阅读</button>
               <button class="view-tab" id="terminalViewButton" type="button" data-view-mode="terminal">Terminal</button>
+              <button class="view-tab" id="auditViewButton" type="button" data-view-mode="audit">Audit</button>
               <button class="view-tab" id="traceViewButton" type="button" data-view-mode="trace">Trace</button>
               <button class="view-tab" id="rawViewButton" type="button" data-view-mode="raw">Raw</button>
             </div>
@@ -97,9 +98,9 @@
               <option value="system">系统事件</option>
               <option value="error">错误事件</option>
             </select>
-            <label class="toggle-control">
+            <label class="toggle-control" id="importantOnlyControl">
               <input id="importantOnly" type="checkbox" />
-              <span>重要事件</span>
+              <span id="importantOnlyLabel">重要事件</span>
             </label>
           </div>
         </section>
@@ -109,6 +110,7 @@
         <section class="thread-content" id="threadContent" tabindex="-1" hidden></section>
         <section class="compact-content" id="compactContent" tabindex="-1"></section>
         <section class="terminal-content" id="terminalContent" tabindex="-1" hidden></section>
+        <section class="audit-content" id="auditContent" tabindex="-1" hidden></section>
         <section class="trace-content" id="traceContent" tabindex="-1" hidden></section>
         <section class="raw-content" id="rawContent" tabindex="-1" hidden></section>
       </main>
@@ -128,7 +130,7 @@
 
         <section class="inspector-section">
           <div class="section-title-row">
-            <h3>关键事件</h3>
+            <h3 id="keyEventsTitle">关键事件</h3>
             <span class="count-pill" id="eventCount">0</span>
           </div>
           <div class="raw-event-list" id="rawEventList"></div>

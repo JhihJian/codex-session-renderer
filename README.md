@@ -84,6 +84,7 @@ npm start
 - `src/text-utils.mjs`：时间、路径、首行摘要、消息正文提取和文本规范化等基础纯函数。
 - `src/tool-events.mjs`：工具调用开始/结束识别、工具名/参数/输出提取、MCP 结果渲染和输出合并。
 - `src/event-summary.mjs`：事件分类、重要事件判断、标题/预览摘要和会话事件计数。
+- `src/audit-chain.mjs`：基于轻量 turn/item 模型生成 Audit Chain，集中维护审计节点、验证识别和风险启发式规则。
 - `src/session-query.mjs`：面向外部项目的会话查询、筛选、分页游标、字段投影和事件增量查询参数处理。
 - `src/markdown-export.mjs`：会话 Markdown 导出。
 - `src/session-events.mjs`：会话事件核心解析逻辑，包括 turn 聚合、Trace 模型、精简视图模型和子代理锚定；同时重新导出旧的常用解析 API 以保持调用兼容。
@@ -95,9 +96,9 @@ npm start
 
 ## 页面设计
 
-浏览器页面按本地优先的 agent 会话工作台设计，第一屏就是可操作的三栏 split view：左侧会话列表，中间精简/阅读/Terminal/Trace/Raw 内容区，右侧 Inspector 辅助面板。界面使用系统字体、中性色背景、0.5 到 1px 轻边框、8px 工具圆角和紧凑行高，避免把工具界面做成营销卡片页。
+浏览器页面按本地优先的 agent 会话工作台设计，第一屏就是可操作的三栏 split view：左侧会话列表，中间精简/阅读/Terminal/Audit/Trace/Raw 内容区，右侧 Inspector 辅助面板。界面使用系统字体、中性色背景、0.5 到 1px 轻边框、8px 工具圆角和紧凑行高，避免把工具界面做成营销卡片页。
 
-左侧会话列表按时间分类和工作目录聚合，每行展示 agent 色点、标题、更新时间、模型和项目路径；顶部保留数据源、搜索、时间段和会话类型过滤。中间内容区保留五种视图切换和内容搜索，统计条展示 Turns、Events、Important、Tools、Agents、Tokens。右侧 Inspector 默认展示会话概览、选中内容和关键事件；Raw 视图提供会话级事件摘要，折叠调试区继续按需查看选中项完整 JSON。
+左侧会话列表按时间分类和工作目录聚合，每行展示 agent 色点、标题、更新时间、模型和项目路径；顶部保留数据源、搜索、时间段和会话类型过滤。中间内容区保留六种视图切换和内容搜索，统计条展示 Turns、Events、Important、Tools、Agents、Tokens。右侧 Inspector 默认展示会话概览、选中内容和关键事件；Raw 视图提供会话级事件摘要，折叠调试区继续按需查看选中项完整 JSON。
 
 页面底部有状态条，显示当前数据源、选中会话、过滤后的 session 数和事件/turn 统计。样式支持系统浅色/深色模式，并建立统一角色色 token：蓝色用于用户输入和选中，深蓝用于助手叙述，紫色用于工具调用，绿色用于工具输出，红色用于错误风险，灰色用于元信息。
 
@@ -131,10 +132,11 @@ npm test
 - 解析器把 JSONL 中的 `session_meta`、`turn_context`、`event_msg`、`response_item` 聚合为 turn 和 item。
 - 工具调用会合并 `function_call`、`function_call_output`、`custom_tool_call`、`custom_tool_call_output`、`mcp_tool_call_end`、`patch_apply_end` 等 Codex 事件。
 - 同一条用户/助手消息如果同时出现在 response item 和事件消息里，会在渲染层去重。
-- 页面默认进入精简视图，并提供五种视图：
-  - 阅读视图：按 turn 展示用户、助手、工具调用、输出和 token 统计，适合阅读对话。
+- 页面默认进入精简视图，并提供六种视图：
+  - 阅读视图：按 turn 展示用户、助手、工具调用、完整工具输出和 token 统计，适合阅读对话。
   - 精简视图：只展示每轮 turn 的用户输入和该 turn 结束时的最后一条助手消息；如果父会话中有 `spawn_agent` 子代理，会按父子层级内嵌展示子代理自己的用户输入和每轮最后助手消息，并在目录中按“会话 -> Turn -> 子代理 -> 子代理 Turn”展示执行层级用于快速跳转；执行层级区域会尽量使用可用视口高度展示更多目录内容。
   - Terminal 视图：把 turn/item 转成线性执行现场块，按用户、助手、工具调用、工具输出、错误和元信息分色展示，并提供 User、Agent、Tools、Errors 计数与跳转。
+  - Audit 视图：把用户意图、推理/计划摘要、工具行动、工具输出证据、验证动作、需 Raw 复核项、风险信号和最终回复串成一条可点击的审计链；顶部显示节点计数，节点带 turn、event/source index、工具名、风险信号和标签，点击后进入右侧 Inspector，并提供 Raw event、阅读项、Trace 和关联节点追证入口。
   - Trace 视图：按 Root Thread、Turn、Tool、Handoff、Subagent 形成可审计执行树，Turn 会显示从用户消息、子代理委派或工具调用中提取的摘要名称；默认只展开 Root，Turn 细节按需展开。
   - Raw 视图：把会话事件摘要提升为主视图，左侧按事件索引和分类浏览，右侧显示选中事件的 Pretty JSON；完整 payload 仍通过单事件接口按需读取。
 - 左栏始终保持为会话列表，默认展示“实时”分类；会话列表可按实时（3 小时内）、一天（3 小时到 1 天）和更早（1 天以上或未知时间）切换，每个时间分类下再按工作目录聚合。精简视图目录会体现每个子代理是在哪个 Turn 下启动的，子代理下继续递归展示自己的 Turn。若未来出现子代理再 spawn 子代理，也会继续展开；若数据形成循环，会在目录中截断已出现过的线程以避免无限展开。
@@ -142,12 +144,38 @@ npm test
 - JSONL 中的 `spawn_agent`、`wait_agent`、`subagent_notification` 用于把子代理节点锚定到父会话时间线中。
 - 精简视图会内嵌直接子代理及其下级子代理的轻量消息摘要，默认最多递归 3 层；Trace 和阅读视图仍不内嵌完整子代理正文。
 - 点击子代理小卡片或精简视图中的“打开会话”会按会话 ID 切换到对应子线程。
-- 会话详情接口默认返回轻量渲染模型：工具参数、工具输出、事件 payload 只返回预览和长度信息，避免 MB 级内容一次性进入浏览器 DOM。
+- 会话详情接口默认返回轻量渲染模型：工具参数、事件 payload 只返回预览和长度信息，避免 MB 级内容一次性进入浏览器 DOM；阅读视图里的工具输出保留完整文本，不做 output 截断。
 - 阅读视图和精简视图的用户/助手消息支持常用 Markdown 渲染，包括标题、列表、引用、行内代码、代码块、链接、粗体、斜体、删除线和 GFM 管道表格；会话标题在列表、顶部标题、详情、精简视图和 Trace 标题中支持行内 Markdown 链接、代码和强调；渲染层禁用原始 HTML，并缓存解析结果以减少大段消息重复渲染成本。
 - 右侧 Inspector 是会话辅助面板，默认展示会话概览、当前选中内容和按 Turn 分组的关键事件；原始 JSON 降级到折叠的调试区。
 - 完整原始事件通过 `GET /api/sessions/:id/events/:index` 按需读取；右侧 Inspector 点选关键事件并查看调试 JSON 时才请求完整 payload。
 - Markdown 导出通过 `GET /api/sessions/:id/markdown` 按需生成，不内嵌在详情响应中。
 - 页面支持会话搜索、会话概览、选中内容详情、关键事件过滤、调试 JSON 和 Markdown 导出。
+
+### Audit Chain
+
+Audit Chain 是只读派生模型，不修改原始会话数据。服务端在会话详情里基于轻量 `turns/items` 生成 `audit.nodes` 和 `audit.counts`，前端按内容搜索和 Audit 专用节点类型过滤展示（全部、意图、推理、行动、证据、验证、需 Raw 复核、风险、最终回复），不复用阅读/Terminal/Trace/Raw 的事件类型语义。节点类型包括：
+
+- `intent`：有效用户消息，代表用户意图。
+- `reasoning`：reasoning 摘要或助手中间说明；加密 reasoning 只标注状态，不伪造内容。
+- `action`：工具调用，包含工具名、参数预览、turn、时间和 source/event index。
+- `evidence`：工具输出证据，包含输出预览、状态、截断标记和输出事件索引。
+- `verification`：测试、检查、构建、lint、Playwright、`node --test`、健康检查类命令或输出。
+- `incomplete`：轻量模型中的参数、输出或 payload 被截断时生成的“需 Raw 复核”节点，提示证据不完整但不计入风险信号。
+- `risk`：由启发式规则生成的风险信号节点，关联原始行动/证据/最终回复。
+- `final`：每轮最后一条助手回复，作为最终声明入口。
+
+第一版风险规则集中在 `src/audit-chain.mjs`，保持可解释和可扩展：
+
+- 文本包含 `error`、`failed`、`fail`、`exception`、`stderr`、`失败`、`错误` 等风险词会生成风险。
+- 可执行 shell/terminal/command 类工具的真实命令段疑似执行 `rm`、`del`、`Remove-Item`、`git reset`、`git clean`、`drop`、`delete`、`format`、`Format-Volume` 等危险动作时标记为中高风险；`rg/grep/findstr` 搜索文本和 `Format-Table/Format-List` 展示格式化不算危险命令；补丁或文本编辑类工具里出现这些词只标记为低风险复核信号，不代表实际执行了危险命令。
+- 最终回复包含“已测试、测试通过、验证通过、完成、已修复”等声明，但本会话没有检测到 `verification` 节点时，标记“声明缺少验证证据”。
+- 有工具调用但没有对应输出时，标记低到中风险。
+
+工具参数、输出或 payload 被轻量模型截断时会生成 `incomplete` 节点，说明当前轻量视图证据不完整，需要跳转 Raw event 复核；它不直接计入风险计数。
+
+风险节点只是复核信号，用来提示需要回看原始事件、工具输出或声明依据，不代表安全证明，也不等同于失败判定。
+
+证据映射采用尽力而为策略：Audit 节点保留 `itemRef`、`eventIndex/sourceIndex`、`traceNodeId` 和工具名；右侧 Inspector 可复制摘要/JSON，并在存在事件索引时跳到 Raw event。完整 Raw JSON 仍通过单事件接口按需读取，不会把整条 JSONL 原文嵌入会话详情。
 
 ## 本地 API
 
@@ -243,8 +271,9 @@ GET /api/query/sessions/:id/view?view=compact&maxDepth=3
 
 - `compact`：精简视图，只包含每轮有效用户输入、最后助手回复和内嵌子代理摘要，适合大多数外部阅读场景。
 - `turns`：阅读视图使用的 turn/item 模型，包含工具调用预览。
+- `audit`：审计链模型，包含意图、推理、行动、证据、验证、需 Raw 复核、风险和最终回复节点，适合外部工具做证据链复核。
 - `trace`：执行树模型，适合审计工具调用、handoff 和子代理关系。
-- `detail`：完整轻量详情，等价于组合返回 `session`、`turns`、`events`、`stats`、`trace`、`compact`。
+- `detail`：完整轻量详情，等价于组合返回 `session`、`turns`、`events`、`stats`、`trace`、`compact`、`audit`。
 
 `maxDepth` 控制精简视图递归内嵌子代理层数，默认 `3`，最大 `8`。
 
