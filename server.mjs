@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildAuditChain } from "./src/audit-chain.mjs";
 import { createDataSourceRegistry } from "./src/data-sources.mjs";
 import { sendError, sendJson, sendText, serveStaticFile } from "./src/http-response.mjs";
 import { readJsonl, readJsonlLine, readJsonlRange } from "./src/jsonl-reader.mjs";
@@ -315,6 +316,7 @@ async function getSessionDetail(context, id, options = {}) {
   const publicTurns = compactTurnsForClient(turns);
   const trace = buildTrace(sessionWithStat, rawEvents, analysisEvents, turns, hierarchy);
   const compact = await buildCompactView(context, sessionWithStat, analysisEvents, turns, hierarchy, { maxDepth });
+  const audit = buildAuditChain({ turns: publicTurns, events: publicEvents, trace });
   const stats = {
     ...summarizeSessionEvents(rawEvents),
     eventCount: rawEvents.length,
@@ -332,7 +334,7 @@ async function getSessionDetail(context, id, options = {}) {
     codexHome: context.source.kind === "local" ? context.codexHome : null,
     dataPath: sessionWithStat.path,
   };
-  const detail = { session: sessionWithStat, turns: publicTurns, events: publicEvents, stats, trace, compact };
+  const detail = { session: sessionWithStat, turns: publicTurns, events: publicEvents, stats, trace, compact, audit };
   context.sessionDetailCache.set(cacheKey, { mtimeMs: fileTimeMs(stat), size: stat.size, detail });
   return detail;
 }
@@ -381,6 +383,7 @@ async function querySessionView(context, id, params) {
   if (query.view === "compact") return { ...base, compact: detail.compact };
   if (query.view === "turns") return { ...base, turns: detail.turns };
   if (query.view === "trace") return { ...base, trace: detail.trace };
+  if (query.view === "audit") return { ...base, audit: detail.audit };
   return { ...base, detail };
 }
 

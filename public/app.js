@@ -9,12 +9,15 @@ const state = {
   selectedItemRef: null,
   selectedEventIndex: null,
   selectedTraceNodeId: null,
+  selectedAuditNodeId: null,
+  selectedTerminalBlockId: null,
   expandedTraceNodeIds: new Set(),
   rawEventCache: new Map(),
   viewMode: "compact",
   sessionTimeFilter: "realtime",
   visibleEvents: 40,
   visibleThreadItems: 140,
+  visibleRawEvents: 240,
 };
 
 const {
@@ -69,18 +72,24 @@ const els = {
   itemSearch: document.getElementById("itemSearch"),
   itemTypeFilter: document.getElementById("itemTypeFilter"),
   importantOnly: document.getElementById("importantOnly"),
+  importantOnlyControl: document.getElementById("importantOnlyControl"),
+  importantOnlyLabel: document.getElementById("importantOnlyLabel"),
   sessionMetaLabel: document.getElementById("sessionMetaLabel"),
   sessionTitle: document.getElementById("sessionTitle"),
   statsStrip: document.getElementById("statsStrip"),
   threadContent: document.getElementById("threadContent"),
   compactContent: document.getElementById("compactContent"),
+  terminalContent: document.getElementById("terminalContent"),
+  auditContent: document.getElementById("auditContent"),
   traceContent: document.getElementById("traceContent"),
+  rawContent: document.getElementById("rawContent"),
   sessionDetails: document.getElementById("sessionDetails"),
   selectionDetails: document.getElementById("selectionDetails"),
   rawEventList: document.getElementById("rawEventList"),
   rawPreview: document.getElementById("rawPreview"),
   inspectorActions: document.getElementById("inspectorActions"),
   eventCount: document.getElementById("eventCount"),
+  keyEventsTitle: document.getElementById("keyEventsTitle"),
   selectedEventLabel: document.getElementById("selectedEventLabel"),
   showMoreEventsButton: document.getElementById("showMoreEventsButton"),
   toast: document.getElementById("toast"),
@@ -89,13 +98,64 @@ const els = {
   refreshRemoteButton: document.getElementById("refreshRemoteButton"),
   sourceSelect: document.getElementById("sourceSelect"),
   sourceStatus: document.getElementById("sourceStatus"),
+  statusSource: document.getElementById("statusSource"),
+  statusSession: document.getElementById("statusSession"),
+  statusEvents: document.getElementById("statusEvents"),
+  statusUpdated: document.getElementById("statusUpdated"),
   copyMarkdownButton: document.getElementById("copyMarkdownButton"),
   downloadMarkdownButton: document.getElementById("downloadMarkdownButton"),
   readViewButton: document.getElementById("readViewButton"),
   compactViewButton: document.getElementById("compactViewButton"),
+  terminalViewButton: document.getElementById("terminalViewButton"),
+  auditViewButton: document.getElementById("auditViewButton"),
   traceViewButton: document.getElementById("traceViewButton"),
+  rawViewButton: document.getElementById("rawViewButton"),
   toggleLeft: document.getElementById("toggleLeft"),
   toggleRight: document.getElementById("toggleRight"),
+};
+
+const standardItemTypeOptions = [
+  ["all", "全部类型"],
+  ["message", "用户/助手消息"],
+  ["tool", "工具与命令"],
+  ["output", "工具输出"],
+  ["reasoning", "推理摘要"],
+  ["system", "系统事件"],
+  ["error", "错误事件"],
+];
+
+const auditItemTypeOptions = [
+  ["all", "全部"],
+  ["intent", "意图"],
+  ["reasoning", "推理"],
+  ["action", "行动"],
+  ["evidence", "证据"],
+  ["verification", "验证"],
+  ["incomplete", "需 Raw 复核"],
+  ["risk", "风险"],
+  ["final", "最终回复"],
+];
+
+const standardToAuditType = {
+  all: "all",
+  message: "intent",
+  tool: "action",
+  output: "evidence",
+  reasoning: "reasoning",
+  system: "verification",
+  error: "risk",
+};
+
+const auditToStandardType = {
+  all: "all",
+  intent: "message",
+  reasoning: "reasoning",
+  action: "tool",
+  evidence: "output",
+  verification: "system",
+  incomplete: "error",
+  risk: "error",
+  final: "message",
 };
 
 init();
@@ -123,6 +183,7 @@ function bindEvents() {
   els.sessionTypeFilter.addEventListener("change", renderSessionList);
   els.itemSearch.addEventListener("input", () => {
     state.visibleThreadItems = 140;
+    state.visibleRawEvents = 240;
     renderMainContent();
   });
   els.itemTypeFilter.addEventListener("change", () => {
@@ -132,7 +193,10 @@ function bindEvents() {
   els.importantOnly.addEventListener("change", renderInspector);
   els.readViewButton.addEventListener("click", () => setViewMode("read"));
   els.compactViewButton.addEventListener("click", () => setViewMode("compact"));
+  els.terminalViewButton.addEventListener("click", () => setViewMode("terminal"));
+  els.auditViewButton.addEventListener("click", () => setViewMode("audit"));
   els.traceViewButton.addEventListener("click", () => setViewMode("trace"));
+  els.rawViewButton.addEventListener("click", () => setViewMode("raw"));
   els.showMoreEventsButton.addEventListener("click", () => {
     state.visibleEvents += 80;
     renderInspector();
@@ -186,6 +250,7 @@ function renderSourceStatus() {
   if (!source) {
     els.sourceStatus.textContent = "数据源不存在";
     els.refreshRemoteButton.hidden = true;
+    renderStatusbar();
     return;
   }
   const status = source.status || {};
@@ -199,6 +264,7 @@ function renderSourceStatus() {
   if (status.error?.message) parts.push(status.error.message);
   if (source.kind === "remote" && !status.snapshotAvailable) parts.push("尚无可用快照");
   els.sourceStatus.textContent = parts.join(" · ");
+  renderStatusbar();
 }
 
 async function loadSessions({ keepSelection = false } = {}) {
@@ -240,10 +306,13 @@ async function selectSession(id) {
   state.selectedItemRef = null;
   state.selectedEventIndex = null;
   state.selectedTraceNodeId = null;
+  state.selectedAuditNodeId = null;
+  state.selectedTerminalBlockId = null;
   state.expandedTraceNodeIds = new Set();
   state.rawEventCache = new Map();
   state.visibleEvents = 40;
   state.visibleThreadItems = 140;
+  state.visibleRawEvents = 240;
   renderSessionList();
   els.threadContent.innerHTML = emptyState("正在读取会话", "解析当前数据源中的 JSONL 事件流。");
   try {
@@ -268,6 +337,8 @@ function clearSelectedSession() {
   state.selectedItemRef = null;
   state.selectedEventIndex = null;
   state.selectedTraceNodeId = null;
+  state.selectedAuditNodeId = null;
+  state.selectedTerminalBlockId = null;
   state.expandedTraceNodeIds = new Set();
   state.rawEventCache = new Map();
   els.copyMarkdownButton.disabled = true;
@@ -317,17 +388,52 @@ function renderAll() {
   renderDetails();
   renderSelectionDetails();
   renderInspector();
+  renderStatusbar();
 }
 
 function setViewMode(mode) {
   state.viewMode = mode;
-  els.readViewButton.classList.toggle("active", mode === "read");
-  els.compactViewButton.classList.toggle("active", mode === "compact");
-  els.traceViewButton.classList.toggle("active", mode === "trace");
-  els.threadContent.hidden = mode !== "read";
-  els.compactContent.hidden = mode !== "compact";
-  els.traceContent.hidden = mode !== "trace";
+  syncViewControls();
   renderMainContent();
+}
+
+function syncViewControls() {
+  syncItemTypeFilterOptions();
+  els.readViewButton.classList.toggle("active", state.viewMode === "read");
+  els.compactViewButton.classList.toggle("active", state.viewMode === "compact");
+  els.terminalViewButton.classList.toggle("active", state.viewMode === "terminal");
+  els.auditViewButton.classList.toggle("active", state.viewMode === "audit");
+  els.traceViewButton.classList.toggle("active", state.viewMode === "trace");
+  els.rawViewButton.classList.toggle("active", state.viewMode === "raw");
+  els.threadContent.hidden = state.viewMode !== "read";
+  els.compactContent.hidden = state.viewMode !== "compact";
+  els.terminalContent.hidden = state.viewMode !== "terminal";
+  els.auditContent.hidden = state.viewMode !== "audit";
+  els.traceContent.hidden = state.viewMode !== "trace";
+  els.rawContent.hidden = state.viewMode !== "raw";
+  if (els.importantOnlyLabel) {
+    els.importantOnlyLabel.textContent = state.viewMode === "audit" ? "右侧关键事件" : "重要事件";
+  }
+  if (els.keyEventsTitle) {
+    els.keyEventsTitle.textContent = state.viewMode === "audit" ? "右侧关键事件" : "关键事件";
+  }
+  if (els.importantOnlyControl) {
+    els.importantOnlyControl.title =
+      state.viewMode === "audit" ? "只过滤右侧关键事件列表，不影响 Audit 主链" : "只过滤右侧关键事件列表";
+  }
+}
+
+function syncItemTypeFilterOptions() {
+  const mode = state.viewMode === "audit" ? "audit" : "standard";
+  if (els.itemTypeFilter.dataset.optionMode === mode) return;
+  const previous = els.itemTypeFilter.value || "all";
+  const options = mode === "audit" ? auditItemTypeOptions : standardItemTypeOptions;
+  const mapped = mode === "audit" ? standardToAuditType[previous] || "all" : auditToStandardType[previous] || "all";
+  els.itemTypeFilter.innerHTML = options
+    .map(([value, label]) => `<option value="${escapeAttr(value)}">${escapeHtml(label)}</option>`)
+    .join("");
+  els.itemTypeFilter.value = options.some(([value]) => value === mapped) ? mapped : "all";
+  els.itemTypeFilter.dataset.optionMode = mode;
 }
 
 function primeTraceExpansion(detail) {
@@ -356,6 +462,7 @@ function renderSessionList() {
   els.sessionCount.textContent = String(sessions.length);
   if (sessions.length === 0) {
     els.sessionList.innerHTML = emptyState("没有匹配的会话", "调整搜索或过滤条件。");
+    renderStatusbar();
     return;
   }
   const renderedSessions = sessions.slice(0, 220);
@@ -376,6 +483,7 @@ function renderSessionList() {
       selectSession(row.dataset.sessionId);
     });
   });
+  renderStatusbar();
 }
 
 function syncSessionTimeFilter() {
@@ -426,13 +534,21 @@ function groupSessionsByDirectory(sessions) {
 function renderSessionRow(session, query) {
   const active = sessionKey(session) === state.selectedSessionKey ? " active" : "";
   const cwd = session.cwd ? shortPath(session.cwd) : "Projectless";
-  const agent = session.agentNickname ? `${session.agentNickname}/${session.agentRole || "agent"}` : "";
+  const agentName = session.agentNickname || "Codex";
+  const agent = session.agentNickname ? `${session.agentNickname}/${session.agentRole || "agent"}` : "Codex";
   const source = session.sourceLabel || selectedSource()?.label || "";
+  const model = session.model || session.modelProvider || "unknown";
   return `
     <div class="session-row${active}" role="button" tabindex="0" data-session-id="${escapeAttr(session.id)}">
+      <span class="agent-dot" data-agent="${escapeAttr(agentName.toLowerCase())}" aria-hidden="true"></span>
       <span class="session-title markdown-inline-title">${renderMarkdownTitle(session.title || "未命名会话", query)}</span>
       <span class="session-date">${formatShortDate(session.updatedAt || session.fileModifiedAt)}</span>
-      <span class="session-meta">${escapeHtml([source, agent, cwd, session.model || session.modelProvider || "unknown"].filter(Boolean).join(" · "))}</span>
+      <span class="session-meta">
+        <span>${escapeHtml(agent)}</span>
+        <span>${escapeHtml(model)}</span>
+        <span>${escapeHtml(cwd)}</span>
+      </span>
+      <span class="session-source">${escapeHtml(source)}</span>
     </div>
   `;
 }
@@ -466,27 +582,53 @@ function renderStats() {
   }
   const tokenUsage = latestTokenUsage(state.detail.turns);
   const rows = [
-    ["Turns", stats.turnCount],
-    ["Events", stats.eventCount],
-    ["Important", stats.importantEventCount],
-    ["Tools", countItems("tool-call")],
-    ["Agents", stats.childThreadCount || 0],
-    ["Tokens", tokenUsage ? compactNumber(tokenUsage.total_tokens || tokenUsage.totalTokens || 0) : "n/a"],
+    ["Turns", stats.turnCount, "对话轮次"],
+    ["Events", stats.eventCount, "事件流"],
+    ["Important", stats.importantEventCount, "关键事件"],
+    ["Tools", countItems("tool-call"), "工具调用"],
+    ["Agents", stats.childThreadCount || 0, "子代理"],
+    ["Tokens", tokenUsage ? compactNumber(tokenUsage.total_tokens || tokenUsage.totalTokens || 0) : "n/a", "最近统计"],
   ];
   els.statsStrip.innerHTML = rows
-    .map(([label, value]) => `<div class="stat"><strong>${escapeHtml(String(value))}</strong><span>${label}</span></div>`)
+    .map(
+      ([label, value, hint]) => `
+        <div class="stat">
+          <span>${escapeHtml(label)}</span>
+          <strong>${escapeHtml(String(value))}</strong>
+          <em>${escapeHtml(hint)}</em>
+        </div>
+      `,
+    )
     .join("");
 }
 
+function renderStatusbar() {
+  const source = selectedSource();
+  const session = state.detail?.session;
+  const stats = state.detail?.stats;
+  const sourceKind = source?.kind === "remote" ? "远程快照" : "本机只读";
+  const sourceLabelText = source?.label || source?.id || "未选择";
+  els.statusSource.textContent = `数据源：${sourceLabelText} · ${sourceKind}`;
+  els.statusSession.textContent = session
+    ? `当前：${firstLine(session.title || session.id || "未命名会话", 54)}`
+    : "未选择会话";
+  els.statusEvents.textContent = `${state.filteredSessions.length || 0}/${state.sessions.length || 0} sessions`;
+  const updated = session?.updatedAt || session?.fileModifiedAt || session?.startedAt;
+  els.statusUpdated.textContent = stats
+    ? `${stats.eventCount || 0} events · ${stats.turnCount || 0} turns · ${formatDate(updated) || "未知时间"}`
+    : "只读浏览";
+}
+
 function renderMainContent() {
-  els.threadContent.hidden = state.viewMode !== "read";
-  els.compactContent.hidden = state.viewMode !== "compact";
-  els.traceContent.hidden = state.viewMode !== "trace";
-  els.readViewButton.classList.toggle("active", state.viewMode === "read");
-  els.compactViewButton.classList.toggle("active", state.viewMode === "compact");
-  els.traceViewButton.classList.toggle("active", state.viewMode === "trace");
+  syncViewControls();
   if (state.viewMode === "trace") {
     renderTrace();
+  } else if (state.viewMode === "raw") {
+    renderRawView();
+  } else if (state.viewMode === "audit") {
+    renderAudit();
+  } else if (state.viewMode === "terminal") {
+    renderTerminal();
   } else if (state.viewMode === "compact") {
     renderCompact();
   } else {
@@ -954,6 +1096,748 @@ function renderCompactMessage(kind, label, message, query) {
   `;
 }
 
+function renderTerminal() {
+  const detail = state.detail;
+  if (!detail) {
+    els.terminalContent.innerHTML = emptyState("选择一个会话", "Terminal 视图按执行语义展示用户、助手、工具和错误。");
+    return;
+  }
+  const query = els.itemSearch.value.trim().toLowerCase();
+  const typeFilter = els.itemTypeFilter.value;
+  const blocks = buildTerminalBlocks(detail);
+  const filtered = blocks.filter((block) => terminalBlockMatches(block, query, typeFilter));
+  if (filtered.length === 0) {
+    els.terminalContent.innerHTML = emptyState("没有匹配的 Terminal 块", "调整内容搜索或类型过滤。");
+    return;
+  }
+  const stats = terminalRoleStats(blocks);
+  const activeStats = terminalRoleStats(filtered);
+  els.terminalContent.innerHTML = `
+    <div class="terminal-shell">
+      <div class="terminal-head">
+        <div>
+          <p class="eyebrow">Terminal Session</p>
+          <h3 class="markdown-inline-title">${renderMarkdownTitle(detail.session?.title || "当前会话")}</h3>
+        </div>
+        <div class="terminal-role-nav" aria-label="Terminal 角色跳转">
+          ${renderTerminalRoleNavButton("user", "User", activeStats.user, stats.user)}
+          ${renderTerminalRoleNavButton("assistant", "Agent", activeStats.assistant, stats.assistant)}
+          ${renderTerminalRoleNavButton("tool", "Tools", activeStats.tool, stats.tool)}
+          ${renderTerminalRoleNavButton("error", "Errors", activeStats.error, stats.error)}
+        </div>
+      </div>
+      <div class="terminal-blocks">
+        ${filtered.map((block) => renderTerminalBlock(block, query)).join("")}
+      </div>
+    </div>
+  `;
+  els.terminalContent.querySelectorAll("[data-terminal-block-id]").forEach((blockEl) => {
+    blockEl.addEventListener("click", (event) => {
+      if (event.target.closest("a, button")) return;
+      selectTerminalBlock(blockEl.dataset.terminalBlockId);
+    });
+    blockEl.addEventListener("keydown", (event) => {
+      if (event.target.closest("a, button")) return;
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      selectTerminalBlock(blockEl.dataset.terminalBlockId);
+    });
+  });
+  els.terminalContent.querySelectorAll("[data-terminal-role]").forEach((button) => {
+    button.addEventListener("click", () => jumpTerminalRole(button.dataset.terminalRole));
+  });
+}
+
+function buildTerminalBlocks(detail) {
+  const blocks = [];
+  for (const turn of detail?.turns || []) {
+    const turnNumber = turn.turnNumber ?? (blocks.length + 1);
+    if (turn.startedAt || turn.status || turn.cwd) {
+      blocks.push({
+        id: `turn-${turnNumber}-meta`,
+        role: "meta",
+        title: `Turn ${turnNumber}`,
+        text: [turn.status, formatDate(turn.startedAt), turn.cwd ? shortPath(turn.cwd) : ""].filter(Boolean).join(" · "),
+        turnIndex: turnNumber - 1,
+        timestamp: turn.startedAt,
+      });
+    }
+    for (const item of turn.items || []) {
+      blocks.push(...terminalBlocksFromItem(item, turnNumber));
+    }
+  }
+  return blocks;
+}
+
+function terminalBlocksFromItem(item, turnNumber) {
+  const ref = itemRef(item);
+  const base = {
+    id: ref,
+    itemRef: ref,
+    turnIndex: turnNumber - 1,
+    timestamp: item.timestamp,
+    eventIndex: item.sourceIndex ?? item.outputSourceIndex ?? null,
+    title: itemTitle(item),
+    role: terminalRoleForItem(item),
+    text: terminalTextForItem(item),
+    item,
+  };
+  if (!base.text && item.type !== "token-count") return [];
+  if (item.type !== "tool-call" || item.output == null) return [base];
+  const callText = [`$ ${item.name || "tool"}`, item.arguments == null ? "" : prettyMaybeJson(item.arguments)].filter(Boolean).join("\n");
+  return [
+    {
+      ...base,
+      id: `${ref}:call`,
+      role: "tool",
+      title: item.name ? `工具调用 · ${item.name}` : "工具调用",
+      text: callText,
+    },
+    {
+      ...base,
+      id: `${ref}:output`,
+      role: terminalItemHasError(item) ? "error" : "output",
+      title: item.name ? `工具输出 · ${item.name}` : "工具输出",
+      text: String(item.output || ""),
+      timestamp: item.completedAt || item.timestamp,
+      eventIndex: item.outputSourceIndex ?? item.sourceIndex ?? null,
+    },
+  ];
+}
+
+function terminalRoleForItem(item) {
+  if (item.type === "user-message") return "user";
+  if (item.type === "assistant-message") return "assistant";
+  if (item.type === "tool-call" || item.type === "response-item") {
+    return terminalItemHasError(item) ? "error" : "tool";
+  }
+  if (item.type === "tool-output") return terminalItemHasError(item) ? "error" : "output";
+  if (item.type === "reasoning" || item.type === "token-count" || item.type === "event") return "meta";
+  return "meta";
+}
+
+function terminalTextForItem(item) {
+  if (item.type === "user-message" || item.type === "assistant-message") return item.text || "";
+  if (item.type === "reasoning") return item.text || (item.encrypted ? "推理内容已加密存储，当前没有可展示的明文摘要。" : "");
+  if (item.type === "token-count") return JSON.stringify(item.info || {}, null, 2);
+  if (item.type === "tool-call") {
+    const args = item.arguments == null ? "" : prettyMaybeJson(item.arguments);
+    const output = item.output == null ? "" : String(item.output);
+    return [`$ ${item.name || "tool"}`, args, output ? `\n# output\n${output}` : ""].filter(Boolean).join("\n");
+  }
+  if (item.type === "tool-output") return String(item.output || "");
+  return item.payloadPreview || JSON.stringify(item.info || item.payload || item, null, 2);
+}
+
+function terminalItemHasError(item) {
+  const text = [item.status, item.phase, item.responseType, item.eventType, item.output, item.payloadPreview].filter(Boolean).join("\n");
+  return /error|failed|failure|stderr|失败|错误/i.test(text);
+}
+
+function terminalBlockMatches(block, query, typeFilter) {
+  if (query && !terminalBlockSearchText(block).includes(query)) return false;
+  if (typeFilter === "message") return block.role === "user" || block.role === "assistant";
+  if (typeFilter === "tool") return block.role === "tool" || block.role === "output";
+  if (typeFilter === "output") return block.role === "output" || (block.role === "tool" && block.item?.output);
+  if (typeFilter === "reasoning") return block.item?.type === "reasoning";
+  if (typeFilter === "system") return block.role === "meta";
+  if (typeFilter === "error") return block.role === "error";
+  return true;
+}
+
+function terminalBlockSearchText(block) {
+  return [
+    block.id,
+    block.role,
+    block.title,
+    block.text,
+    block.item?.name,
+    block.item?.callId,
+    block.item?.status,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function terminalRoleStats(blocks) {
+  return blocks.reduce(
+    (stats, block) => {
+      if (block.role === "user") stats.user += 1;
+      if (block.role === "assistant") stats.assistant += 1;
+      if (block.role === "tool" || block.role === "output") stats.tool += 1;
+      if (block.role === "error") stats.error += 1;
+      return stats;
+    },
+    { user: 0, assistant: 0, tool: 0, error: 0 },
+  );
+}
+
+function renderTerminalRoleNavButton(role, label, activeCount, totalCount) {
+  const disabled = activeCount === 0 ? " disabled" : "";
+  return `
+    <button class="terminal-role-button ${role}" type="button" data-terminal-role="${escapeAttr(role)}"${disabled} title="跳转到下一处 ${escapeAttr(label)}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(String(activeCount))}/${escapeHtml(String(totalCount))}</strong>
+    </button>
+  `;
+}
+
+function renderTerminalBlock(block, query) {
+  const selected = state.selectedTerminalBlockId === block.id ? " selected" : "";
+  const meta = [`Turn ${block.turnIndex + 1}`, formatDate(block.timestamp), block.item?.name, block.item?.status]
+    .filter(Boolean)
+    .join(" · ");
+  const body =
+    block.role === "user" || block.role === "assistant"
+      ? renderMarkdownMessage(block.text, query)
+      : `<pre>${highlight(escapeHtml(block.text || ""), query)}</pre>`;
+  return `
+    <section class="terminal-block role-${escapeAttr(block.role)}${selected}" role="button" tabindex="0" data-terminal-block-id="${escapeAttr(block.id)}">
+      <div class="terminal-block-strip" aria-hidden="true"></div>
+      <div class="terminal-block-main">
+        <div class="terminal-block-head">
+          <strong>${escapeHtml(block.title || block.role)}</strong>
+          <span>${escapeHtml(meta)}</span>
+        </div>
+        <div class="terminal-block-body">${body}</div>
+        ${block.item?.truncated ? renderTruncationNotice(block.item) : ""}
+      </div>
+    </section>
+  `;
+}
+
+function selectTerminalBlock(id) {
+  const block = buildTerminalBlocks(state.detail).find((candidate) => candidate.id === id);
+  if (!block) return;
+  state.selectedTerminalBlockId = id;
+  state.selectedTraceNodeId = null;
+  state.selectedAuditNodeId = null;
+  state.selectedEventIndex = null;
+  state.selectedItemRef = block.itemRef || null;
+  const item = block.item || findItemByRef(block.itemRef);
+  els.selectedEventLabel.textContent = block.title || "Terminal 块";
+  els.rawPreview.textContent = JSON.stringify(item ? itemDebugPreview(item) : block, null, 2);
+  els.inspectorActions.innerHTML = "";
+  els.copyRawButton.disabled = false;
+  renderSelectionDetails();
+  els.terminalContent.querySelectorAll(".terminal-block.selected").forEach((row) => row.classList.remove("selected"));
+  const active = els.terminalContent.querySelector(`[data-terminal-block-id="${cssEscape(id)}"]`);
+  active?.classList.add("selected");
+}
+
+function jumpTerminalRole(role) {
+  const candidates = [...els.terminalContent.querySelectorAll(`[data-terminal-block-id].role-${cssEscape(role)}`)];
+  if (role === "tool") {
+    candidates.push(...els.terminalContent.querySelectorAll("[data-terminal-block-id].role-output"));
+  }
+  if (candidates.length === 0) return;
+  const currentIndex = candidates.findIndex((el) => el.dataset.terminalBlockId === state.selectedTerminalBlockId);
+  const next = candidates[(currentIndex + 1) % candidates.length];
+  next.scrollIntoView({ behavior: "smooth", block: "center" });
+  selectTerminalBlock(next.dataset.terminalBlockId);
+}
+
+function renderAudit() {
+  const detail = state.detail;
+  if (!detail) {
+    els.auditContent.innerHTML = emptyState("选择一个会话", "Audit 视图串联意图、行动、证据、验证、风险和最终回复。");
+    return;
+  }
+  const audit = detail.audit || buildAuditFallback(detail);
+  const nodes = audit.nodes || [];
+  if (nodes.length === 0) {
+    els.auditContent.innerHTML = emptyState("当前没有可展示审计链节点", "审计链依赖用户消息、工具调用、工具输出、验证动作和最终回复。");
+    return;
+  }
+  const query = els.itemSearch.value.trim().toLowerCase();
+  const typeFilter = els.itemTypeFilter.value;
+  const filtered = nodes.filter((node) => auditNodeMatches(node, query, typeFilter));
+  const counts = audit.counts || auditNodeCounts(nodes);
+  const filteredCounts = auditNodeCounts(filtered);
+  if (filtered.length === 0) {
+    els.auditContent.innerHTML = `
+      <div class="audit-shell">
+        ${renderAuditHead(detail, counts, filteredCounts, { query, typeFilter })}
+        ${emptyState("没有匹配的审计链节点", "调整内容搜索或类型过滤。")}
+      </div>
+    `;
+    return;
+  }
+  els.auditContent.innerHTML = `
+    <div class="audit-shell">
+      ${renderAuditHead(detail, counts, filteredCounts, { query, typeFilter })}
+      <div class="audit-timeline" role="list">
+        ${filtered.map((node) => renderAuditNode(node, query)).join("")}
+      </div>
+    </div>
+  `;
+  els.auditContent.querySelectorAll("[data-audit-node-id]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      if (event.target.closest("a, button:not([data-audit-node-id])")) return;
+      selectAuditNode(button.dataset.auditNodeId);
+    });
+    button.addEventListener("keydown", (event) => {
+      if (event.target.closest("a, button:not([data-audit-node-id])")) return;
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      selectAuditNode(button.dataset.auditNodeId);
+    });
+  });
+}
+
+function renderAuditHead(detail, counts, filteredCounts, filters = {}) {
+  const filtered = Boolean(filters.query || (filters.typeFilter && filters.typeFilter !== "all"));
+  const metrics = [
+    ["intent", "意图", counts.intent || 0, filteredCounts.intent || 0],
+    ["reasoning", "推理", counts.reasoning || 0, filteredCounts.reasoning || 0],
+    ["action", "行动", counts.action || 0, filteredCounts.action || 0],
+    ["evidence", "证据", counts.evidence || 0, filteredCounts.evidence || 0],
+    ["verification", "验证", counts.verification || 0, filteredCounts.verification || 0],
+    ["incomplete", "需 Raw 复核", counts.incomplete || 0, filteredCounts.incomplete || 0],
+    ["risk", "风险信号", counts.risk || 0, filteredCounts.risk || 0],
+    ["final", "最终回复", counts.final || 0, filteredCounts.final || 0],
+  ];
+  return `
+    <div class="audit-head">
+      <div>
+        <p class="eyebrow">Audit Chain</p>
+        <h3 class="markdown-inline-title">${renderMarkdownTitle(detail.session?.title || "当前会话")}</h3>
+      </div>
+      <div class="audit-summary" aria-label="审计链概览">
+        ${metrics
+          .map(
+            ([type, label, total, active]) => `
+              <div class="audit-summary-item type-${escapeAttr(type)}" title="${escapeAttr(filtered ? `显示 ${active} / 全部 ${total}` : `全部 ${total}`)}">
+                <span>${escapeHtml(label)}</span>
+                <strong>${escapeHtml(filtered ? `显示 ${active} / 全部 ${total}` : String(total))}</strong>
+              </div>
+            `,
+          )
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderAuditNode(node, query) {
+  const selected = state.selectedAuditNodeId === node.id ? " selected" : "";
+  const meta = [
+    auditTypeLabel(node.type),
+    node.status || "n/a",
+    auditRiskMetaLabel(node.riskLevel),
+    node.turnNumber ? `Turn ${node.turnNumber}` : "",
+    auditEventIndexLabel(node),
+    auditRelatedLabel(node),
+    formatDate(node.timestamp),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const tags = (node.tags || []).slice(0, 4);
+  return `
+    <button class="audit-node type-${escapeAttr(node.type)} risk-${escapeAttr(node.riskLevel || "none")}${selected}" type="button" role="listitem" data-audit-node-id="${escapeAttr(node.id)}">
+      <span class="audit-node-strip" aria-hidden="true"></span>
+      <span class="audit-node-kind">
+        <strong>${escapeHtml(auditNodeGlyph(node.type))}</strong>
+        <em>${escapeHtml(auditTypeLabel(node.type))}</em>
+      </span>
+      <span class="audit-node-main">
+        <span class="audit-node-title">
+          <strong>${highlight(escapeHtml(node.title || auditTypeLabel(node.type)), query)}</strong>
+          ${node.riskLevel && node.riskLevel !== "none" ? `<span class="audit-risk-label">${escapeHtml(auditRiskLabel(node.riskLevel))}</span>` : ""}
+        </span>
+        <span class="audit-node-summary">${highlight(escapeHtml(node.summary || ""), query)}</span>
+        <span class="audit-node-tags">
+          ${tags.map((tag) => `<span>${highlight(escapeHtml(tag), query)}</span>`).join("")}
+        </span>
+      </span>
+      <span class="audit-node-meta">${escapeHtml(meta)}</span>
+    </button>
+  `;
+}
+
+function selectAuditNode(id) {
+  const node = findAuditNode(id);
+  if (!node) return;
+  state.selectedAuditNodeId = id;
+  state.selectedTraceNodeId = null;
+  state.selectedTerminalBlockId = null;
+  state.selectedItemRef = null;
+  state.selectedEventIndex = node.eventIndex ?? node.sourceIndex ?? null;
+  els.selectedEventLabel.textContent = auditNodeLabel(node);
+  els.rawPreview.textContent = JSON.stringify(auditNodeDebugPreview(node), null, 2);
+  renderAuditActions(node);
+  renderInspector();
+  renderSelectionDetails();
+  els.copyRawButton.disabled = false;
+  els.auditContent.querySelectorAll(".audit-node.selected").forEach((row) => row.classList.remove("selected"));
+  const active = els.auditContent.querySelector(`[data-audit-node-id="${cssEscape(id)}"]`);
+  active?.classList.add("selected");
+}
+
+function renderAuditActions(node) {
+  const actions = [];
+  if (node.eventIndex != null || node.sourceIndex != null) actions.push(`<button class="ghost-button small" type="button" data-open-audit-raw>打开 Raw event</button>`);
+  if (node.itemRef) actions.push(`<button class="ghost-button small" type="button" data-open-audit-item>查看阅读项</button>`);
+  if (node.traceNodeId) actions.push(`<button class="ghost-button small" type="button" data-open-audit-trace>定位 Trace</button>`);
+  if (node.relatedNodeId) actions.push(`<button class="ghost-button small" type="button" data-open-audit-related>定位关联节点</button>`);
+  els.inspectorActions.innerHTML = actions.join("");
+  els.inspectorActions.querySelector("[data-open-audit-raw]")?.addEventListener("click", () => {
+    const index = node.eventIndex ?? node.sourceIndex;
+    if (index == null) return;
+    openRawEventFromAudit(index);
+  });
+  els.inspectorActions.querySelector("[data-open-audit-item]")?.addEventListener("click", () => {
+    if (!node.itemRef) return;
+    locateItemRef(node.itemRef);
+  });
+  els.inspectorActions.querySelector("[data-open-audit-trace]")?.addEventListener("click", () => {
+    locateTraceNode(node.traceNodeId);
+  });
+  els.inspectorActions.querySelector("[data-open-audit-related]")?.addEventListener("click", () => {
+    locateRelatedAuditNode(node);
+  });
+}
+
+function auditNodeMatches(node, query, typeFilter) {
+  if (query && !auditNodeSearchText(node).includes(query)) return false;
+  if (typeFilter === "all") return true;
+  return node.type === typeFilter;
+}
+
+function auditNodeSearchText(node) {
+  return [
+    node.id,
+    node.type,
+    node.title,
+    node.summary,
+    node.status,
+    node.riskLevel,
+    node.turnNumber,
+    node.eventIndex,
+    node.sourceIndex,
+    node.itemRef,
+    node.traceNodeId,
+    node.toolName,
+    node.callId,
+    node.relatedType,
+    node.relatedNodeId,
+    ...(node.tags || []),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function auditNodeCounts(nodes) {
+  return nodes.reduce(
+    (counts, node) => {
+      if (node.type in counts) counts[node.type] += 1;
+      counts.total += 1;
+      return counts;
+    },
+    { intent: 0, reasoning: 0, action: 0, evidence: 0, verification: 0, incomplete: 0, risk: 0, final: 0, total: 0 },
+  );
+}
+
+function findAuditNode(id) {
+  return (state.detail?.audit?.nodes || buildAuditFallback(state.detail)?.nodes || []).find((node) => node.id === id) || null;
+}
+
+function auditNodeDebugPreview(node) {
+  const item = node.itemRef ? findItemByRef(node.itemRef) : null;
+  return {
+    ...node,
+    summary: truncateText(node.summary, 4000),
+    argumentsPreview: truncateText(node.argumentsPreview, 4000),
+    outputPreview: truncateText(node.outputPreview, 8000),
+    item: item ? itemDebugPreview(item) : null,
+  };
+}
+
+function auditEventIndexLabel(node) {
+  if (node.eventIndex == null && node.sourceIndex == null) return "";
+  const parts = [];
+  if (node.eventIndex != null) parts.push(`event #${node.eventIndex}`);
+  if (node.sourceIndex != null && node.sourceIndex !== node.eventIndex) parts.push(`source #${node.sourceIndex}`);
+  return parts.join(" / ");
+}
+
+function auditRelatedLabel(node) {
+  if (!node.relatedNodeId) return "";
+  const type = node.relatedType ? auditTypeLabel(node.relatedType) : "节点";
+  const tool = node.toolName ? ` · ${node.toolName}` : "";
+  return `关联 ${type} ${node.relatedNodeId}${tool}`;
+}
+
+function locateRelatedAuditNode(node) {
+  if (!node?.relatedNodeId) return;
+  const target = findAuditNode(node.relatedNodeId);
+  if (!target) {
+    showToast("未找到关联 Audit 节点");
+    return;
+  }
+  if (state.viewMode !== "audit") {
+    state.viewMode = "audit";
+    syncItemTypeFilterOptions();
+  }
+  if (!auditNodeMatches(target, els.itemSearch.value.trim().toLowerCase(), els.itemTypeFilter.value)) {
+    els.itemSearch.value = "";
+    els.itemTypeFilter.value = target.type;
+  }
+  renderMainContent();
+  selectAuditNode(target.id);
+  window.setTimeout(() => {
+    els.auditContent.querySelector(`[data-audit-node-id="${cssEscape(target.id)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, 0);
+}
+
+function locateItemRef(ref) {
+  if (!ref) return;
+  const item = findItemByRef(ref);
+  if (!item) {
+    showToast("未找到阅读项");
+    return;
+  }
+  if (state.viewMode !== "read") {
+    state.viewMode = "read";
+    syncItemTypeFilterOptions();
+  }
+  if (!itemMatches(item, els.itemSearch.value.trim().toLowerCase(), els.itemTypeFilter.value)) {
+    els.itemSearch.value = "";
+    els.itemTypeFilter.value = "all";
+  }
+  renderMainContent();
+  selectItemRef(ref);
+  window.setTimeout(() => {
+    els.threadContent.querySelector(`[data-item-ref="${cssEscape(ref)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, 0);
+}
+
+function locateTraceNode(id) {
+  if (!id) return;
+  const target = findTraceNode(state.detail?.trace?.root, id);
+  if (!target) {
+    showToast("未找到 Trace 节点");
+    return;
+  }
+  expandTraceAncestors(id);
+  if (state.viewMode !== "trace") {
+    state.viewMode = "trace";
+    renderMainContent();
+  } else {
+    renderTrace();
+  }
+  selectTraceNode(id);
+  window.setTimeout(() => {
+    els.traceContent.querySelector(`[data-trace-node-id="${cssEscape(id)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, 0);
+}
+
+function expandTraceAncestors(id, node = state.detail?.trace?.root, parents = []) {
+  if (!node) return false;
+  if (node.id === id) {
+    for (const parentId of parents) state.expandedTraceNodeIds.add(parentId);
+    return true;
+  }
+  for (const child of node.children || []) {
+    if (expandTraceAncestors(id, child, [...parents, node.id])) return true;
+  }
+  return false;
+}
+
+function buildAuditFallback(detail) {
+  const nodes = [];
+  for (const turn of detail?.turns || []) {
+    for (const item of turn.items || []) {
+      const ref = itemRef(item);
+      if (item.type === "user-message") {
+        nodes.push(fallbackAuditNode("intent", item, ref, "用户意图", item.text));
+      } else if (item.type === "reasoning") {
+        nodes.push(fallbackAuditNode("reasoning", item, ref, "推理摘要", item.text || (item.encrypted ? "推理内容已加密存储。" : "")));
+      } else if (item.type === "tool-call") {
+        nodes.push(fallbackAuditNode("action", item, ref, item.name ? `工具调用 · ${item.name}` : "工具调用", item.arguments || item.name));
+        if (item.output) nodes.push(fallbackAuditNode("evidence", item, ref, item.name ? `工具输出 · ${item.name}` : "工具输出", item.output, item.outputSourceIndex ?? item.sourceIndex));
+      } else if (item.type === "assistant-message") {
+        nodes.push(fallbackAuditNode(item.phase === "final" ? "final" : "reasoning", item, ref, item.phase === "final" ? "助手最终回复" : "助手消息", item.text));
+      }
+    }
+  }
+  return { nodes, counts: auditNodeCounts(nodes) };
+}
+
+function fallbackAuditNode(type, item, ref, title, summary, eventIndex = item.sourceIndex) {
+  return {
+    id: `audit:fallback:${type}:${ref}:${eventIndex ?? "x"}`,
+    type,
+    title,
+    summary: firstLine(summary || "", 360),
+    status: item.status || item.phase || "observed",
+    timestamp: item.timestamp,
+    turnIndex: item.turnIndex,
+    turnNumber: (item.turnIndex ?? 0) + 1,
+    eventIndex: eventIndex ?? null,
+    sourceIndex: item.sourceIndex ?? null,
+    itemRef: ref,
+    traceNodeId: item.type === "tool-call" ? `item:${item.turnIndex}:${item.itemIndex}:${item.id || item.type}` : null,
+    riskLevel: "none",
+    tags: [type, item.name].filter(Boolean),
+    toolName: item.name || null,
+    callId: item.callId || null,
+    truncated: Boolean(item.truncated),
+  };
+}
+
+function auditTypeLabel(type) {
+  if (type === "intent") return "意图";
+  if (type === "reasoning") return "推理";
+  if (type === "action") return "行动";
+  if (type === "evidence") return "证据";
+  if (type === "verification") return "验证";
+  if (type === "incomplete") return "需 Raw 复核";
+  if (type === "risk") return "风险";
+  if (type === "final") return "最终";
+  return type || "节点";
+}
+
+function auditNodeGlyph(type) {
+  if (type === "intent") return "I";
+  if (type === "reasoning") return "R";
+  if (type === "action") return ">";
+  if (type === "evidence") return "$";
+  if (type === "verification") return "V";
+  if (type === "incomplete") return "Raw";
+  if (type === "risk") return "!";
+  if (type === "final") return "F";
+  return "•";
+}
+
+function auditRiskLabel(level) {
+  if (level === "high") return "高风险";
+  if (level === "medium") return "中风险";
+  if (level === "low") return "低风险";
+  return "未标记风险";
+}
+
+function auditRiskMetaLabel(level) {
+  return level && level !== "none" ? auditRiskLabel(level) : "";
+}
+
+function auditNodeLabel(node) {
+  return `${auditTypeLabel(node.type)} · ${node.title || node.id}`;
+}
+
+function renderRawView() {
+  const detail = state.detail;
+  if (!detail) {
+    els.rawContent.innerHTML = emptyState("选择一个会话", "Raw 视图展示会话级事件摘要和调试 JSON。");
+    return;
+  }
+  const query = els.itemSearch.value.trim().toLowerCase();
+  const typeFilter = els.itemTypeFilter.value;
+  const events = (detail.events || []).filter((event) => rawEventMatches(event, query, typeFilter));
+  if (events.length === 0) {
+    els.rawContent.innerHTML = emptyState("没有匹配的 Raw 事件", "调整内容搜索或类型过滤。");
+    return;
+  }
+  const shown = events.slice(0, state.visibleRawEvents);
+  const selected = selectedRawViewEvent(shown, events);
+  els.rawContent.innerHTML = `
+    <div class="raw-view-shell">
+      <div class="raw-view-head">
+        <div>
+          <p class="eyebrow">Raw JSON</p>
+          <h3>${escapeHtml(events.length)} / ${escapeHtml(detail.events.length)} events</h3>
+        </div>
+        <div class="raw-view-actions">
+          <button class="ghost-button small" type="button" data-copy-raw-session>复制事件摘要</button>
+        </div>
+      </div>
+      <div class="raw-view-layout">
+        <div class="raw-view-list">
+          ${shown.map((event) => renderRawViewEventRow(event)).join("")}
+          ${
+            events.length > shown.length
+              ? `<button class="ghost-button full-width" type="button" data-show-more-raw>显示更多事件 (${shown.length}/${events.length})</button>`
+              : ""
+          }
+        </div>
+        <div class="raw-view-preview">
+          <div class="raw-preview-title">
+            <strong>${escapeHtml(selected ? `#${selected.index} ${humanEventTitle(selected)}` : "事件摘要")}</strong>
+            <span>${escapeHtml(selected ? selected.kind || "" : "Pretty JSON")}</span>
+          </div>
+          <pre class="raw-preview">${escapeHtml(JSON.stringify(selected || detailSummaryForRaw(detail), null, 2))}</pre>
+        </div>
+      </div>
+    </div>
+  `;
+  els.rawContent.querySelectorAll("[data-raw-event-index]").forEach((button) => {
+    button.addEventListener("click", () => selectRawViewEvent(Number(button.dataset.rawEventIndex)));
+  });
+  els.rawContent.querySelector("[data-show-more-raw]")?.addEventListener("click", () => {
+    state.visibleRawEvents += 240;
+    renderRawView();
+  });
+  els.rawContent.querySelector("[data-copy-raw-session]")?.addEventListener("click", async () => {
+    await copyText(JSON.stringify(detailSummaryForRaw(detail), null, 2));
+    showToast("已复制会话事件摘要");
+  });
+}
+
+function rawEventMatches(event, query, typeFilter) {
+  if (query && !JSON.stringify(event).toLowerCase().includes(query)) return false;
+  if (typeFilter === "message") return event.kind === "user_message" || event.kind === "agent_message" || event.role === "user" || event.role === "assistant";
+  if (typeFilter === "tool") return /tool|call|function|mcp|patch/i.test([event.kind, event.type, event.payloadType].filter(Boolean).join(" "));
+  if (typeFilter === "output") return /output|result/i.test([event.kind, event.type, event.payloadType, event.title].filter(Boolean).join(" "));
+  if (typeFilter === "reasoning") return /reasoning/i.test([event.kind, event.type, event.payloadType].filter(Boolean).join(" "));
+  if (typeFilter === "system") return event.kind === "system" || event.kind === "token_count" || event.kind === "session_meta";
+  if (typeFilter === "error") return /error|failed|失败|错误/i.test(JSON.stringify(event));
+  return true;
+}
+
+function selectedRawViewEvent(shown, events) {
+  if (state.selectedEventIndex != null) {
+    return events.find((event) => event.index === state.selectedEventIndex) || shown[0] || null;
+  }
+  return shown[0] || null;
+}
+
+function renderRawViewEventRow(event) {
+  const active = event.index === state.selectedEventIndex ? " active" : "";
+  return `
+    <button class="raw-view-row${active}" type="button" data-raw-event-index="${event.index}">
+      <span class="raw-view-kind">${escapeHtml(event.kind || event.type || "event")}</span>
+      <strong>${escapeHtml(`event #${event.index} ${humanEventTitle(event)}`)}</strong>
+      <em>${escapeHtml(formatDate(event.timestamp) || event.payloadType || "")}</em>
+      <span>${escapeHtml(firstLine(event.preview || "", 140))}</span>
+    </button>
+  `;
+}
+
+async function openRawEventFromAudit(index) {
+  state.viewMode = "raw";
+  els.itemTypeFilter.value = "all";
+  state.selectedEventIndex = index;
+  renderMainContent();
+  await selectRawViewEvent(index);
+  const active = els.rawContent.querySelector(`[data-raw-event-index="${index}"]`);
+  active?.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+async function selectRawViewEvent(index) {
+  await selectRawEvent(index, { rerender: false });
+  renderRawView();
+}
+
+function detailSummaryForRaw(detail) {
+  return {
+    session: detail.session,
+    stats: detail.stats,
+    events: detail.events || [],
+  };
+}
+
 function renderTrace() {
   const detail = state.detail;
   if (!detail?.trace?.root) {
@@ -1294,7 +2178,7 @@ function renderKeyEventGroups(events) {
       const active = event.index === state.selectedEventIndex ? " active" : "";
       return `
                   <button class="raw-event${active}" type="button" data-event-index="${event.index}">
-          <span class="raw-event-title">${escapeHtml("#" + event.index + " " + humanEventTitle(event))}</span>
+          <span class="raw-event-title">${escapeHtml("event #" + event.index + " " + humanEventTitle(event))}</span>
           <span class="session-date">${escapeHtml(formatDate(event.timestamp) || event.kind)}</span>
           <span class="raw-event-preview">${escapeHtml(event.preview || formatDate(event.timestamp) || "")}</span>
         </button>
@@ -1311,11 +2195,13 @@ function renderKeyEventGroups(events) {
 async function selectRawEvent(index, { rerender = true } = {}) {
   state.selectedTraceNodeId = null;
   state.selectedItemRef = null;
+  state.selectedTerminalBlockId = null;
+  state.selectedAuditNodeId = null;
   els.inspectorActions.innerHTML = "";
   state.selectedEventIndex = index;
   const event = state.detail?.events.find((candidate) => candidate.index === index);
   if (!event) return;
-  els.selectedEventLabel.textContent = `#${event.index} ${event.kind}`;
+  els.selectedEventLabel.textContent = `event #${event.index} ${event.kind}`;
   els.copyRawButton.disabled = false;
   if (rerender) renderInspector();
   renderSelectionDetails();
@@ -1347,6 +2233,8 @@ function selectTraceNode(id) {
   if (!node) return;
   state.selectedEventIndex = null;
   state.selectedItemRef = null;
+  state.selectedTerminalBlockId = null;
+  state.selectedAuditNodeId = null;
   els.selectedEventLabel.textContent = traceNodeLabel(node);
   els.rawPreview.textContent = JSON.stringify(traceNodePreview(node), null, 2);
   renderTraceActions(node);
@@ -1374,7 +2262,9 @@ function selectItemRef(ref) {
   if (!ref) return;
   state.selectedItemRef = ref;
   state.selectedTraceNodeId = null;
+  state.selectedAuditNodeId = null;
   state.selectedEventIndex = null;
+  state.selectedTerminalBlockId = null;
   const item = findItemByRef(ref);
   if (!item) return;
   els.selectedEventLabel.textContent = itemTitle(item);
@@ -1382,7 +2272,13 @@ function selectItemRef(ref) {
   els.inspectorActions.innerHTML = "";
   els.copyRawButton.disabled = false;
   renderSelectionDetails();
-  renderThread();
+  if (state.viewMode === "read") {
+    renderThread();
+  } else if (state.viewMode === "terminal") {
+    renderTerminal();
+  } else if (state.viewMode === "audit") {
+    renderAudit();
+  }
 }
 
 function renderSelectionDetails() {
@@ -1393,6 +2289,12 @@ function renderSelectionDetails() {
   if (state.selectedTraceNodeId) {
     const node = findTraceNode(state.detail.trace?.root, state.selectedTraceNodeId);
     els.selectionDetails.innerHTML = node ? renderTraceSelection(node) : emptyInspectorSection("选中内容", "Trace 节点不存在。");
+    bindSelectionActions();
+    return;
+  }
+  if (state.selectedAuditNodeId) {
+    const node = findAuditNode(state.selectedAuditNodeId);
+    els.selectionDetails.innerHTML = node ? renderAuditSelection(node) : emptyInspectorSection("选中内容", "Audit 节点不存在。");
     bindSelectionActions();
     return;
   }
@@ -1413,8 +2315,42 @@ function renderSelectionDetails() {
       <h3>选中内容</h3>
       <span class="muted">未选择</span>
     </div>
-    <div class="selection-empty">点击阅读视图中的消息/工具、Trace 节点或下方关键事件查看细节。</div>
+    <div class="selection-empty">点击阅读视图中的消息/工具、Audit 节点、Trace 节点或下方关键事件查看细节。</div>
   `;
+}
+
+function renderAuditSelection(node) {
+  const relatedMeta = [
+    node.relatedType ? auditTypeLabel(node.relatedType) : "",
+    node.relatedNodeId || "",
+    node.toolName ? `工具 ${node.toolName}` : "",
+    auditEventIndexLabel(node),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const rows = [
+    ["节点类型", auditTypeLabel(node.type)],
+    ["状态", node.status || "n/a"],
+    ["风险信号", auditRiskLabel(node.riskLevel || "none")],
+    ["Turn", node.turnNumber ? String(node.turnNumber) : "n/a"],
+    ["时间", formatDate(node.timestamp) || "n/a"],
+    ["itemRef", node.itemRef || "n/a"],
+    ["事件索引", auditEventIndexLabel(node) || "n/a"],
+  ];
+  if (node.traceNodeId) rows.push(["Trace", node.traceNodeId]);
+  if (node.relatedNodeId) rows.push(["关联来源", relatedMeta || node.relatedNodeId]);
+  if (node.toolName) rows.push(["工具", node.toolName]);
+  if (node.callId) rows.push(["Call ID", node.callId]);
+  if (node.tags?.length) rows.push(["标签", node.tags.join(", ")]);
+  const body = [node.summary, node.outputPreview, node.argumentsPreview].filter(Boolean).join("\n\n");
+  return renderSelectionCard({
+    eyebrow: "Audit 节点",
+    title: node.title || auditTypeLabel(node.type),
+    meta: [auditTypeLabel(node.type), auditRiskLabel(node.riskLevel || "none")].filter(Boolean).join(" · "),
+    rows,
+    body: body ? firstLine(body, 1100) : "",
+    actions: auditSelectionActions(node),
+  });
 }
 
 function renderTraceSelection(node) {
@@ -1464,7 +2400,7 @@ function renderItemSelection(item) {
 
 function renderEventSelection(event) {
   const rows = [
-    ["事件", `#${event.index}`],
+    ["事件", `event #${event.index}`],
     ["分类", event.kind || "n/a"],
     ["时间", formatDate(event.timestamp) || "n/a"],
     ["Payload", event.payloadSize ? formatBytes(event.payloadSize) : "n/a"],
@@ -1522,6 +2458,22 @@ function bindSelectionActions() {
         selectSession(action.threadId);
         return;
       }
+      if (action.action === "open-raw-event") {
+        openRawEventFromAudit(action.index);
+        return;
+      }
+      if (action.action === "open-item-ref") {
+        locateItemRef(action.ref);
+        return;
+      }
+      if (action.action === "open-trace-node") {
+        locateTraceNode(action.id);
+        return;
+      }
+      if (action.action === "open-audit-node") {
+        locateRelatedAuditNode(action.node);
+        return;
+      }
       if (action.copy != null) await copyInspectorText(action.copy, action.toast || "已复制");
     });
   });
@@ -1535,6 +2487,10 @@ function currentSelectionActions() {
     const item = detail.item || {};
     const body = item.output || item.arguments || item.text || node.subtitle || detail.note || "";
     return traceSelectionActions(node, body);
+  }
+  if (state.selectedAuditNodeId) {
+    const node = findAuditNode(state.selectedAuditNodeId);
+    return node ? auditSelectionActions(node) : [];
   }
   if (state.selectedItemRef) {
     const item = findItemByRef(state.selectedItemRef);
@@ -1550,6 +2506,21 @@ function currentSelectionActions() {
       : [];
   }
   return [];
+}
+
+function auditSelectionActions(node) {
+  const actions = [
+    { label: "复制摘要", copy: node.summary || node.title || node.id, toast: "已复制审计摘要" },
+    { label: "复制 JSON", action: "copy-debug" },
+  ];
+  if (node.eventIndex != null || node.sourceIndex != null) {
+    actions.unshift({ label: "打开 Raw event", action: "open-raw-event", index: node.eventIndex ?? node.sourceIndex });
+    actions.push({ label: "复制事件索引", copy: String(node.eventIndex ?? node.sourceIndex), toast: "已复制事件索引" });
+  }
+  if (node.itemRef) actions.unshift({ label: "查看阅读项", action: "open-item-ref", ref: node.itemRef });
+  if (node.traceNodeId) actions.push({ label: "定位 Trace", action: "open-trace-node", id: node.traceNodeId });
+  if (node.relatedNodeId) actions.unshift({ label: "定位关联节点", action: "open-audit-node", node });
+  return actions;
 }
 
 function traceSelectionActions(node, body = "") {
@@ -1582,6 +2553,13 @@ async function copySelectedRawEvent() {
     if (!node) return;
     await copyText(JSON.stringify(traceNodePreview(node), null, 2));
     showToast("已复制 Trace 节点");
+    return;
+  }
+  if (state.selectedAuditNodeId) {
+    const node = findAuditNode(state.selectedAuditNodeId);
+    if (!node) return;
+    await copyText(JSON.stringify(auditNodeDebugPreview(node), null, 2));
+    showToast("已复制 Audit 节点");
     return;
   }
   if (state.selectedItemRef) {

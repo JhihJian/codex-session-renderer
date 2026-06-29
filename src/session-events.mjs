@@ -72,6 +72,7 @@ function compactItemForClient(item, turnIndex, itemIndex) {
     itemIndex,
   };
   if (item.sourceIndex != null) base.sourceIndex = item.sourceIndex;
+  if (item.outputSourceIndex != null) base.outputSourceIndex = item.outputSourceIndex;
   if (item.timestamp) base.timestamp = item.timestamp;
   if (item.completedAt) base.completedAt = item.completedAt;
   if (item.phase) base.phase = item.phase;
