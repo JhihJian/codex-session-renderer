@@ -99,6 +99,28 @@ test("event query filters projected events without returning payload by default"
   assert.equal(projected.payloadSize > 0, true);
 });
 
+test("event query search uses normalized redacted text", () => {
+  const event = {
+    type: "response_item",
+    payload: {
+      type: "reasoning",
+      encrypted_content: "SECRET_ENCRYPTED_BLOB",
+      summary: [{ text: "公开摘要" }],
+    },
+  };
+  const querySecret = parseSessionEventQuery(new URLSearchParams("q=SECRET_ENCRYPTED_BLOB"));
+  const projected = projectEventForApi(event, 1, querySecret);
+
+  assert.equal(eventMatchesQuery(projected, event, querySecret), false);
+  assert.equal(projected.reasoning.encrypted, true);
+
+  const queryFieldName = parseSessionEventQuery(new URLSearchParams("q=encrypted_content"));
+  assert.equal(eventMatchesQuery(projectEventForApi(event, 1, queryFieldName), event, queryFieldName), false);
+
+  const querySummary = parseSessionEventQuery(new URLSearchParams("q=公开摘要"));
+  assert.equal(eventMatchesQuery(projectEventForApi(event, 1, querySummary), event, querySummary), true);
+});
+
 test("event query supports payload inclusion and cursor aliases", () => {
   const event = {
     type: "event_msg",

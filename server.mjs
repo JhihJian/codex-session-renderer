@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { buildAuditChain } from "./src/audit-chain.mjs";
 import { createDataSourceRegistry } from "./src/data-sources.mjs";
 import { sendError, sendJson, sendText, serveStaticFile } from "./src/http-response.mjs";
-import { readJsonl, readJsonlLine, readJsonlRange } from "./src/jsonl-reader.mjs";
+import { readJsonl, readJsonlLineWithDiagnostics, readJsonlRange, readJsonlWithDiagnostics } from "./src/jsonl-reader.mjs";
 import {
   buildTrace,
   buildTurns,
@@ -30,6 +30,7 @@ import {
   toIso,
   toMs,
 } from "./src/session-events.mjs";
+import { normalizeSessionEvent } from "./src/session-normalizer.mjs";
 import {
   compactSessionForList,
   publicThreadMeta,
@@ -89,6 +90,32 @@ function sourceModelOptions(context) {
     dataSourceKind: context.source.kind,
     originalCodexHome: context.originalCodexHome,
   };
+}
+
+function analysisEventFromRaw(event, index) {
+  const normalized = normalizeSessionEvent(event, event?.index ?? index);
+  const rawPayloadSize = normalized.payloadSize;
+  const analysis = {
+    index: normalized.index ?? index,
+    timestamp: normalized.timestamp,
+    kind: normalized.kind,
+    semanticKind: normalized.semanticKind,
+    important: isImportantEvent(normalized),
+    type: normalized.rawType,
+    payloadType: normalized.payloadType,
+    role: normalized.role,
+    messageId: normalized.messageId,
+    parentId: normalized.parentId,
+    title: summarizeEventTitle(normalized),
+    preview: summarizeEventPreview(normalized),
+    payloadSize: rawPayloadSize,
+    rawSize: normalized.rawSize,
+    attachments: normalized.attachments,
+    reasoning: normalized.reasoning,
+    diagnostic: normalized.diagnostic || null,
+    payload: normalized.payload,
+  };
+  return analysis;
 }
 
 function invalidateSourceContext(sourceId) {
@@ -288,29 +315,24 @@ async function getSessionDetail(context, id, options = {}) {
   const cached = context.sessionDetailCache.get(cacheKey);
   if (cached && cached.mtimeMs === fileTimeMs(stat) && cached.size === stat.size && hierarchy.children.length === 0) return cached.detail;
 
-  const rawEvents = await readJsonl(session.path);
-  const analysisEvents = rawEvents.map((event, index) => ({
-    index,
-    timestamp: eventTime(event),
-    kind: classifyEvent(event),
-    important: isImportantEvent(event),
-    type: event.type,
-    payloadType: event.payload?.type ?? null,
-    role: event.payload?.role ?? null,
-    title: summarizeEventTitle(event),
-    preview: summarizeEventPreview(event),
-    payloadSize: event.payload == null ? 0 : JSON.stringify(event.payload).length,
-    payload: event.payload,
-  }));
+  const rawEvents = await readJsonlWithDiagnostics(session.path);
+  const analysisEvents = rawEvents.map(analysisEventFromRaw);
   const publicEvents = analysisEvents.map(({ payload, ...event }) => ({
     index: event.index,
     timestamp: event.timestamp,
     kind: event.kind,
+    semanticKind: event.semanticKind,
     important: event.important,
     role: event.role,
+    messageId: event.messageId,
+    parentId: event.parentId,
     title: event.title,
     preview: event.preview,
     payloadSize: event.payloadSize,
+    rawSize: event.rawSize,
+    attachments: event.attachments,
+    reasoning: event.reasoning,
+    diagnostic: event.diagnostic,
   }));
   const turns = buildTurns(rawEvents);
   const publicTurns = compactTurnsForClient(turns);
@@ -320,6 +342,7 @@ async function getSessionDetail(context, id, options = {}) {
   const stats = {
     ...summarizeSessionEvents(rawEvents),
     eventCount: rawEvents.length,
+    diagnosticEventCount: analysisEvents.filter((event) => event.kind === "jsonl_parse_error").length,
     turnCount: turns.length,
     importantEventCount: analysisEvents.filter((event) => event.important).length,
     childThreadCount: hierarchy.children.length,
@@ -347,6 +370,7 @@ async function querySessionEvents(context, id, params) {
     start: query.cursor,
     limit: query.limit,
     maxScan: query.maxScan,
+    includeInvalid: true,
     predicate: (event, index) => {
       const projected = projectEventForApi(event, index, { fields: [] });
       return eventMatchesQuery(projected, event, query);
@@ -390,21 +414,10 @@ async function querySessionView(context, id, params) {
 async function getSessionEvent(context, id, index) {
   const session = await getSessionById(context, id);
   if (!session?.path) return null;
-  const event = await readJsonlLine(session.path, index);
+  const event = await readJsonlLineWithDiagnostics(session.path, index);
   if (!event) return null;
-  return {
-    index,
-    timestamp: eventTime(event),
-    kind: classifyEvent(event),
-    important: isImportantEvent(event),
-    type: event.type,
-    payloadType: event.payload?.type ?? null,
-    role: event.payload?.role ?? null,
-    title: summarizeEventTitle(event),
-    preview: summarizeEventPreview(event),
-    payload: event.payload ?? null,
-    raw: event,
-  };
+  const projected = projectEventForApi(event, index, { includePayload: true, includeRaw: true });
+  return projected;
 }
 
 async function buildCompactView(context, session, normalizedEvents, turns, hierarchy, options = {}) {
@@ -501,20 +514,8 @@ async function buildCompactChildNode(sourceContext, child, context) {
     }
     const stat = await fs.stat(childSession.path);
     const childSessionWithStat = withFileStat(childSession, stat);
-    const rawEvents = await readJsonl(childSession.path);
-    const normalizedEvents = rawEvents.map((event, index) => ({
-      index,
-      timestamp: eventTime(event),
-      kind: classifyEvent(event),
-      important: isImportantEvent(event),
-      type: event.type,
-      payloadType: event.payload?.type ?? null,
-      role: event.payload?.role ?? null,
-      title: summarizeEventTitle(event),
-      preview: summarizeEventPreview(event),
-      payloadSize: event.payload == null ? 0 : JSON.stringify(event.payload).length,
-      payload: event.payload,
-    }));
+    const rawEvents = await readJsonlWithDiagnostics(childSession.path);
+    const normalizedEvents = rawEvents.map(analysisEventFromRaw);
     const childTurns = buildTurns(rawEvents);
     const childHierarchy = await getThreadHierarchy(sourceContext, thread.id);
     const compact = await buildCompactView(sourceContext, childSessionWithStat, normalizedEvents, childTurns, childHierarchy, {
@@ -582,7 +583,7 @@ async function sessionFromFilePath(context, filePath) {
 async function getSessionMarkdown(context, id) {
   const session = await getSessionById(context, id);
   if (!session) return null;
-  const rawEvents = await readJsonl(session.path);
+  const rawEvents = await readJsonlWithDiagnostics(session.path);
   return renderConversationMarkdown(session, buildTurns(rawEvents));
 }
 

@@ -40,6 +40,7 @@ const {
 
 const markdownCache = new Map();
 const markdownCacheLimit = 700;
+const visibleViewModes = new Set(["compact", "audit", "raw"]);
 const markdownRenderer = window.markdownit?.({
   html: false,
   linkify: true,
@@ -104,11 +105,8 @@ const els = {
   statusUpdated: document.getElementById("statusUpdated"),
   copyMarkdownButton: document.getElementById("copyMarkdownButton"),
   downloadMarkdownButton: document.getElementById("downloadMarkdownButton"),
-  readViewButton: document.getElementById("readViewButton"),
   compactViewButton: document.getElementById("compactViewButton"),
-  terminalViewButton: document.getElementById("terminalViewButton"),
   auditViewButton: document.getElementById("auditViewButton"),
-  traceViewButton: document.getElementById("traceViewButton"),
   rawViewButton: document.getElementById("rawViewButton"),
   toggleLeft: document.getElementById("toggleLeft"),
   toggleRight: document.getElementById("toggleRight"),
@@ -191,11 +189,8 @@ function bindEvents() {
     renderMainContent();
   });
   els.importantOnly.addEventListener("change", renderInspector);
-  els.readViewButton.addEventListener("click", () => setViewMode("read"));
   els.compactViewButton.addEventListener("click", () => setViewMode("compact"));
-  els.terminalViewButton.addEventListener("click", () => setViewMode("terminal"));
   els.auditViewButton.addEventListener("click", () => setViewMode("audit"));
-  els.traceViewButton.addEventListener("click", () => setViewMode("trace"));
   els.rawViewButton.addEventListener("click", () => setViewMode("raw"));
   els.showMoreEventsButton.addEventListener("click", () => {
     state.visibleEvents += 80;
@@ -392,24 +387,28 @@ function renderAll() {
 }
 
 function setViewMode(mode) {
-  state.viewMode = mode;
+  state.viewMode = normalizeViewMode(mode);
   syncViewControls();
   renderMainContent();
 }
 
+function normalizeViewMode(mode) {
+  if (visibleViewModes.has(mode)) return mode;
+  if (mode === "trace" || mode === "terminal") return "audit";
+  return "compact";
+}
+
 function syncViewControls() {
+  state.viewMode = normalizeViewMode(state.viewMode);
   syncItemTypeFilterOptions();
-  els.readViewButton.classList.toggle("active", state.viewMode === "read");
   els.compactViewButton.classList.toggle("active", state.viewMode === "compact");
-  els.terminalViewButton.classList.toggle("active", state.viewMode === "terminal");
   els.auditViewButton.classList.toggle("active", state.viewMode === "audit");
-  els.traceViewButton.classList.toggle("active", state.viewMode === "trace");
   els.rawViewButton.classList.toggle("active", state.viewMode === "raw");
-  els.threadContent.hidden = state.viewMode !== "read";
+  els.threadContent.hidden = true;
   els.compactContent.hidden = state.viewMode !== "compact";
-  els.terminalContent.hidden = state.viewMode !== "terminal";
+  els.terminalContent.hidden = true;
   els.auditContent.hidden = state.viewMode !== "audit";
-  els.traceContent.hidden = state.viewMode !== "trace";
+  els.traceContent.hidden = true;
   els.rawContent.hidden = state.viewMode !== "raw";
   if (els.importantOnlyLabel) {
     els.importantOnlyLabel.textContent = state.viewMode === "audit" ? "右侧关键事件" : "重要事件";
@@ -621,18 +620,12 @@ function renderStatusbar() {
 
 function renderMainContent() {
   syncViewControls();
-  if (state.viewMode === "trace") {
-    renderTrace();
-  } else if (state.viewMode === "raw") {
+  if (state.viewMode === "raw") {
     renderRawView();
   } else if (state.viewMode === "audit") {
     renderAudit();
-  } else if (state.viewMode === "terminal") {
-    renderTerminal();
-  } else if (state.viewMode === "compact") {
-    renderCompact();
   } else {
-    renderThread();
+    renderCompact();
   }
   renderSelectionDetails();
   renderInspector();
@@ -1478,8 +1471,8 @@ function selectAuditNode(id) {
 function renderAuditActions(node) {
   const actions = [];
   if (node.eventIndex != null || node.sourceIndex != null) actions.push(`<button class="ghost-button small" type="button" data-open-audit-raw>打开 Raw event</button>`);
-  if (node.itemRef) actions.push(`<button class="ghost-button small" type="button" data-open-audit-item>查看阅读项</button>`);
-  if (node.traceNodeId) actions.push(`<button class="ghost-button small" type="button" data-open-audit-trace>定位 Trace</button>`);
+  if (node.itemRef) actions.push(`<button class="ghost-button small" type="button" data-open-audit-item>查看关联项</button>`);
+  if (node.traceNodeId) actions.push(`<button class="ghost-button small" type="button" data-open-audit-trace>查看执行节点</button>`);
   if (node.relatedNodeId) actions.push(`<button class="ghost-button small" type="button" data-open-audit-related>定位关联节点</button>`);
   els.inspectorActions.innerHTML = actions.join("");
   els.inspectorActions.querySelector("[data-open-audit-raw]")?.addEventListener("click", () => {
@@ -1596,42 +1589,23 @@ function locateItemRef(ref) {
   if (!ref) return;
   const item = findItemByRef(ref);
   if (!item) {
-    showToast("未找到阅读项");
+    showToast("未找到关联项");
     return;
   }
-  if (state.viewMode !== "read") {
-    state.viewMode = "read";
-    syncItemTypeFilterOptions();
-  }
-  if (!itemMatches(item, els.itemSearch.value.trim().toLowerCase(), els.itemTypeFilter.value)) {
-    els.itemSearch.value = "";
-    els.itemTypeFilter.value = "all";
-  }
-  renderMainContent();
   selectItemRef(ref);
-  window.setTimeout(() => {
-    els.threadContent.querySelector(`[data-item-ref="${cssEscape(ref)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, 0);
+  showToast("已在右侧显示关联项");
 }
 
 function locateTraceNode(id) {
   if (!id) return;
   const target = findTraceNode(state.detail?.trace?.root, id);
   if (!target) {
-    showToast("未找到 Trace 节点");
+    showToast("未找到执行节点");
     return;
   }
   expandTraceAncestors(id);
-  if (state.viewMode !== "trace") {
-    state.viewMode = "trace";
-    renderMainContent();
-  } else {
-    renderTrace();
-  }
   selectTraceNode(id);
-  window.setTimeout(() => {
-    els.traceContent.querySelector(`[data-trace-node-id="${cssEscape(id)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, 0);
+  showToast("已在右侧显示执行节点");
 }
 
 function expandTraceAncestors(id, node = state.detail?.trace?.root, parents = []) {
@@ -2272,23 +2246,19 @@ function selectItemRef(ref) {
   els.inspectorActions.innerHTML = "";
   els.copyRawButton.disabled = false;
   renderSelectionDetails();
-  if (state.viewMode === "read") {
-    renderThread();
-  } else if (state.viewMode === "terminal") {
-    renderTerminal();
-  } else if (state.viewMode === "audit") {
+  if (state.viewMode === "audit") {
     renderAudit();
   }
 }
 
 function renderSelectionDetails() {
   if (!state.detail) {
-    els.selectionDetails.innerHTML = emptyInspectorSection("选中内容", "选择会话后可查看消息、工具、Trace 或关键事件详情。");
+    els.selectionDetails.innerHTML = emptyInspectorSection("选中内容", "选择会话后可查看 Audit 节点、关联项或关键事件详情。");
     return;
   }
   if (state.selectedTraceNodeId) {
     const node = findTraceNode(state.detail.trace?.root, state.selectedTraceNodeId);
-    els.selectionDetails.innerHTML = node ? renderTraceSelection(node) : emptyInspectorSection("选中内容", "Trace 节点不存在。");
+    els.selectionDetails.innerHTML = node ? renderTraceSelection(node) : emptyInspectorSection("选中内容", "执行节点不存在。");
     bindSelectionActions();
     return;
   }
@@ -2300,7 +2270,7 @@ function renderSelectionDetails() {
   }
   if (state.selectedItemRef) {
     const item = findItemByRef(state.selectedItemRef);
-    els.selectionDetails.innerHTML = item ? renderItemSelection(item) : emptyInspectorSection("选中内容", "阅读项不存在。");
+    els.selectionDetails.innerHTML = item ? renderItemSelection(item) : emptyInspectorSection("选中内容", "关联项不存在。");
     bindSelectionActions();
     return;
   }
@@ -2315,7 +2285,7 @@ function renderSelectionDetails() {
       <h3>选中内容</h3>
       <span class="muted">未选择</span>
     </div>
-    <div class="selection-empty">点击阅读视图中的消息/工具、Audit 节点、Trace 节点或下方关键事件查看细节。</div>
+    <div class="selection-empty">点击 Audit 节点或下方关键事件查看细节。</div>
   `;
 }
 
@@ -2337,7 +2307,7 @@ function renderAuditSelection(node) {
     ["itemRef", node.itemRef || "n/a"],
     ["事件索引", auditEventIndexLabel(node) || "n/a"],
   ];
-  if (node.traceNodeId) rows.push(["Trace", node.traceNodeId]);
+  if (node.traceNodeId) rows.push(["执行节点", node.traceNodeId]);
   if (node.relatedNodeId) rows.push(["关联来源", relatedMeta || node.relatedNodeId]);
   if (node.toolName) rows.push(["工具", node.toolName]);
   if (node.callId) rows.push(["Call ID", node.callId]);
@@ -2368,7 +2338,7 @@ function renderTraceSelection(node) {
   const body = item.output || item.arguments || item.text || node.subtitle || detail.note || "";
   const actions = traceSelectionActions(node, body);
   return renderSelectionCard({
-    eyebrow: "Trace 节点",
+    eyebrow: "执行节点",
     title: node.title || node.label || node.id,
     meta: [node.label, node.subtitle].filter(Boolean).join(" · "),
     rows,
@@ -2389,7 +2359,7 @@ function renderItemSelection(item) {
   const body = item.text || item.output || item.arguments || item.payloadPreview || "";
   const actions = itemSelectionActions(item);
   return renderSelectionCard({
-    eyebrow: "阅读项",
+    eyebrow: "关联项",
     title: itemTitle(item),
     meta: item.name || item.responseType || item.eventType || "",
     rows,
@@ -2517,8 +2487,8 @@ function auditSelectionActions(node) {
     actions.unshift({ label: "打开 Raw event", action: "open-raw-event", index: node.eventIndex ?? node.sourceIndex });
     actions.push({ label: "复制事件索引", copy: String(node.eventIndex ?? node.sourceIndex), toast: "已复制事件索引" });
   }
-  if (node.itemRef) actions.unshift({ label: "查看阅读项", action: "open-item-ref", ref: node.itemRef });
-  if (node.traceNodeId) actions.push({ label: "定位 Trace", action: "open-trace-node", id: node.traceNodeId });
+  if (node.itemRef) actions.unshift({ label: "查看关联项", action: "open-item-ref", ref: node.itemRef });
+  if (node.traceNodeId) actions.push({ label: "查看执行节点", action: "open-trace-node", id: node.traceNodeId });
   if (node.relatedNodeId) actions.unshift({ label: "定位关联节点", action: "open-audit-node", node });
   return actions;
 }
@@ -2552,7 +2522,7 @@ async function copySelectedRawEvent() {
     const node = findTraceNode(state.detail.trace?.root, state.selectedTraceNodeId);
     if (!node) return;
     await copyText(JSON.stringify(traceNodePreview(node), null, 2));
-    showToast("已复制 Trace 节点");
+    showToast("已复制执行节点");
     return;
   }
   if (state.selectedAuditNodeId) {
@@ -2566,7 +2536,7 @@ async function copySelectedRawEvent() {
     const item = findItemByRef(state.selectedItemRef);
     if (!item) return;
     await copyText(JSON.stringify(itemDebugPreview(item), null, 2));
-    showToast("已复制阅读项 JSON");
+    showToast("已复制关联项 JSON");
     return;
   }
   if (state.selectedEventIndex == null) return;

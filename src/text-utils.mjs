@@ -1,4 +1,5 @@
 import path from "node:path";
+import { normalizeEventTimestamp } from "./session-normalizer.mjs";
 
 function normalizeSlash(value) {
   return value.replaceAll("\\", "/");
@@ -15,7 +16,7 @@ function fileTimeMs(file) {
 }
 
 function eventTime(event) {
-  return toIso(event.timestamp) || toIso(event.payload?.timestamp) || null;
+  return normalizeEventTimestamp(event);
 }
 
 function sessionIdFromFile(filePath) {

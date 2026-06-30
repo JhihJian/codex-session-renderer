@@ -17,6 +17,7 @@ import {
   sessionStartedFromFile,
   toIso,
 } from "./text-utils.mjs";
+import { coalesceNormalizedEvents, normalizeSessionEvent, safeStringifyRedacted } from "./session-normalizer.mjs";
 import {
   isStandaloneToolEvent,
   isToolCallOutput,
@@ -43,6 +44,7 @@ export {
   summarizeEventTitle,
   summarizeSessionEvents,
   toIso,
+  normalizeSessionEvent,
 };
 
 const previewLimits = {
@@ -83,6 +85,11 @@ function compactItemForClient(item, turnIndex, itemIndex) {
   if (item.eventType) base.eventType = item.eventType;
   if (item.responseType) base.responseType = item.responseType;
   if (item.encrypted) base.encrypted = true;
+  if (item.reasoning) {
+    base.reasoning = item.reasoning;
+    if (item.reasoning.encrypted) base.encrypted = true;
+  }
+  if (item.attachments?.length) base.attachments = item.attachments;
   const info = compactTraceInfo(item.info);
   if (info) base.info = info;
 
@@ -105,7 +112,7 @@ function compactItemForClient(item, turnIndex, itemIndex) {
   }
   if (item.payload != null || item.info != null) {
     const source = item.payload ?? item.info;
-    const limited = limitText(JSON.stringify(source, null, 2), previewLimits.payload);
+    const limited = limitText(safeStringifyRedacted(source, 2), previewLimits.payload);
     base.payloadPreview = limited.text;
     base.payloadLength = limited.originalLength;
     if (limited.truncated) addTruncatedField(base, "payload");
@@ -765,6 +772,7 @@ function shortPathServer(value) {
 }
 
 function buildTurns(events) {
+  const normalizedEvents = coalesceNormalizedEvents(events);
   const turns = [];
   let current = null;
   let activeCall = new Map();
@@ -786,9 +794,10 @@ function buildTurns(events) {
     return current;
   }
 
-  for (const [eventIndex, event] of events.entries()) {
+  for (const [eventIndex, event] of normalizedEvents.entries()) {
+    const sourceIndex = event.index ?? eventIndex;
     const payload = event.payload ?? {};
-    if (event.type === "session_meta") continue;
+    if (event.kind === "meta" || event.semanticKind === "meta") continue;
     if (payload.type === "task_started") {
       current = {
         id: payload.turn_id || `turn-${turns.length + 1}`,
@@ -802,7 +811,7 @@ function buildTurns(events) {
       activeCall = new Map();
       continue;
     }
-    if (event.type === "turn_context") {
+    if (event.kind === "context") {
       const turn = ensureTurn(event);
       turn.cwd = payload.cwd ?? turn.cwd;
       turn.context = {
@@ -816,117 +825,105 @@ function buildTurns(events) {
     if (!current && shouldStartImplicitTurn(event)) ensureTurn(event);
     if (!current) continue;
 
-    if (event.type === "event_msg") {
-      if (payload.type === "user_message") {
-        if (isDuplicateUserMessage(current, payload.message)) continue;
-        current.items.push({
-          id: `item-${current.items.length}`,
-          type: "user-message",
-          sourceIndex: eventIndex,
-          timestamp: eventTime(event),
-          text: payload.message ?? "",
-          attachments: payload.images ?? payload.local_images ?? [],
-        });
-      } else if (payload.type === "agent_message") {
-        if (isDuplicateAssistantMessage(current, payload.message)) continue;
+    if (event.semanticKind === "diagnostic") {
+      current.items.push({
+        id: `item-${current.items.length}`,
+        type: "event",
+        sourceIndex,
+        timestamp: event.timestamp,
+        eventType: event.kind,
+        payload,
+      });
+      continue;
+    }
+
+    if (event.kind === "user_message" || (event.semanticKind === "message" && event.role === "user")) {
+      if (!event.attachments?.length && isDuplicateUserMessage(current, event.text)) continue;
+      current.items.push({
+        id: `item-${current.items.length}`,
+        type: "user-message",
+        sourceIndex,
+        timestamp: event.timestamp,
+        text: event.text ?? "",
+        attachments: event.attachments,
+      });
+      continue;
+    }
+
+    if (event.kind === "agent_message" || (event.semanticKind === "message" && event.role === "assistant")) {
+      if (!event.attachments?.length && isDuplicateAssistantMessage(current, event.text)) continue;
+      current.items.push({
+        id: `item-${current.items.length}`,
+        type: "assistant-message",
+        sourceIndex,
+        timestamp: event.timestamp,
+        phase: payload.phase ?? null,
+        text: event.text ?? "",
+        attachments: event.attachments,
+      });
+      continue;
+    }
+
+    if (payload.type === "token_count") {
+      current.items.push({
+        id: `item-${current.items.length}`,
+        type: "token-count",
+        sourceIndex,
+        timestamp: event.timestamp,
+        info: payload.info ?? {},
+      });
+      continue;
+    }
+
+    if (event.semanticKind === "tool_call") {
+      registerToolCall(current, activeCall, event, sourceIndex);
+      continue;
+    }
+
+    if (event.semanticKind === "tool_result") {
+      registerToolOutput(current, activeCall, event, sourceIndex);
+      continue;
+    }
+
+    if (payload.type === "task_complete" || payload.type === "task_failed") {
+      current.completedAt = event.timestamp;
+      current.status = payload.type === "task_failed" ? "failed" : "completed";
+      if (payload.last_agent_message && !hasAssistantMessage(current, payload.last_agent_message)) {
         current.items.push({
           id: `item-${current.items.length}`,
           type: "assistant-message",
-          sourceIndex: eventIndex,
-          timestamp: eventTime(event),
-          phase: payload.phase ?? null,
-          text: payload.message ?? "",
-        });
-      } else if (payload.type === "token_count") {
-        current.items.push({
-          id: `item-${current.items.length}`,
-          type: "token-count",
-          sourceIndex: eventIndex,
-          timestamp: eventTime(event),
-          info: payload.info ?? {},
-        });
-      } else if (isStandaloneToolEvent(payload.type)) {
-        if (isToolCallStart(payload.type)) {
-          registerToolCall(current, activeCall, event, eventIndex);
-        } else {
-          registerToolOutput(current, activeCall, event, eventIndex);
-        }
-      } else if (payload.type === "task_complete" || payload.type === "task_failed") {
-        current.completedAt = eventTime(event);
-        current.status = payload.type === "task_failed" ? "failed" : "completed";
-        if (payload.last_agent_message && !hasAssistantMessage(current, payload.last_agent_message)) {
-          current.items.push({
-            id: `item-${current.items.length}`,
-            type: "assistant-message",
-            sourceIndex: eventIndex,
-            timestamp: eventTime(event),
-            phase: "final",
-            text: payload.last_agent_message,
-          });
-        }
-      } else {
-        current.items.push({
-          id: `item-${current.items.length}`,
-          type: "event",
-          sourceIndex: eventIndex,
-          timestamp: eventTime(event),
-          eventType: payload.type ?? "event",
-          payload,
+          sourceIndex,
+          timestamp: event.timestamp,
+          phase: "final",
+          text: payload.last_agent_message,
         });
       }
       continue;
     }
 
-    if (event.type === "response_item") {
-      if (payload.type === "message") {
-        if (payload.role === "developer" || payload.role === "system") continue;
-        const text = extractContentText(payload.content);
-        if (payload.role === "user" && isDuplicateUserMessage(current, text)) continue;
-        if (payload.role === "assistant" && isDuplicateAssistantMessage(current, text)) continue;
-        current.items.push({
-          id: `item-${current.items.length}`,
-          type: payload.role === "user" ? "user-message" : "assistant-message",
-          sourceIndex: eventIndex,
-          timestamp: eventTime(event),
-          role: payload.role,
-          text,
-        });
-      } else if (payload.type === "reasoning") {
-        const text = Array.isArray(payload.summary)
-          ? payload.summary.map((part) => part?.text ?? JSON.stringify(part)).join("\n")
-          : "";
-        current.items.push({
-          id: `item-${current.items.length}`,
-          type: "reasoning",
-          sourceIndex: eventIndex,
-          timestamp: eventTime(event),
-          text,
-          encrypted: Boolean(payload.encrypted_content),
-        });
-      } else if (isToolCallStart(payload.type)) {
-        registerToolCall(current, activeCall, event, eventIndex);
-      } else if (isToolCallOutput(payload.type)) {
-        registerToolOutput(current, activeCall, event, eventIndex);
-      } else {
-        current.items.push({
-          id: `item-${current.items.length}`,
-          type: "response-item",
-          sourceIndex: eventIndex,
-          timestamp: eventTime(event),
-          responseType: payload.type ?? "response",
-          payload,
-        });
-      }
+    if (event.semanticKind === "reasoning") {
+      current.items.push({
+        id: `item-${current.items.length}`,
+        type: "reasoning",
+        sourceIndex,
+        timestamp: event.timestamp,
+        text: event.reasoning?.summary || event.text || "",
+        encrypted: Boolean(event.reasoning?.encrypted),
+        reasoning: event.reasoning,
+      });
       continue;
     }
 
-    if (isStandaloneToolEvent(event.type)) {
-      if (isToolCallStart(event.type)) {
-        registerToolCall(current, activeCall, event, eventIndex);
-      } else {
-        registerToolOutput(current, activeCall, event, eventIndex);
-      }
-    }
+    current.items.push({
+      id: `item-${current.items.length}`,
+      type: event.rawType === "response_item" ? "response-item" : "event",
+      sourceIndex,
+      timestamp: event.timestamp,
+      eventType: payload.type ?? event.kind ?? "event",
+      responseType: payload.type ?? event.kind ?? "response",
+      payload,
+      attachments: event.attachments,
+    });
   }
 
   return turns.filter((turn) => turn.items.length > 0 || turn.context);
@@ -934,7 +931,7 @@ function buildTurns(events) {
 
 function shouldStartImplicitTurn(event) {
   const payloadType = event.payload?.type;
-  return event.type === "event_msg" || event.type === "response_item" || payloadType === "user_message";
+  return event.rawType === "event_msg" || event.rawType === "response_item" || payloadType === "user_message" || event.semanticKind === "message" || event.semanticKind === "tool_call" || event.semanticKind === "tool_result" || event.semanticKind === "diagnostic";
 }
 
 function hasAssistantMessage(turn, text) {
@@ -956,16 +953,16 @@ function isDuplicateUserMessage(turn, text) {
 
 function registerToolCall(turn, activeCall, event, sourceIndex) {
   const payload = event.payload ?? {};
-  const callId = payload.call_id || `item-${turn.items.length}`;
+  const callId = event.callId || payload.call_id || `item-${turn.items.length}`;
   const item = {
     id: callId,
     type: "tool-call",
     sourceIndex,
-    timestamp: eventTime(event),
-    name: toolNameFromPayload(payload),
+    timestamp: event.timestamp,
+    name: event.toolName || toolNameFromPayload(payload),
     callId,
     status: payload.status || "started",
-    arguments: toolArgumentsFromPayload(payload),
+    arguments: event.toolInput ?? toolArgumentsFromPayload(payload),
     output: null,
   };
   activeCall.set(callId, item);
@@ -974,13 +971,13 @@ function registerToolCall(turn, activeCall, event, sourceIndex) {
 
 function registerToolOutput(turn, activeCall, event, sourceIndex) {
   const payload = event.payload ?? {};
-  const callId = payload.call_id || `item-${turn.items.length}`;
+  const callId = event.callId || payload.call_id || `item-${turn.items.length}`;
   const target = activeCall.get(callId);
-  const output = toolOutputFromPayload(payload);
+  const output = event.toolOutput ?? toolOutputFromPayload(payload);
   if (target) {
     target.output = mergeToolOutput(target.output, output);
     target.status = payload.status || (payload.success === false ? "failed" : "completed");
-    target.completedAt = eventTime(event);
+    target.completedAt = event.timestamp;
     target.outputSourceIndex = sourceIndex;
     return;
   }
@@ -989,11 +986,11 @@ function registerToolOutput(turn, activeCall, event, sourceIndex) {
     id: callId,
     type: "tool-call",
     sourceIndex,
-    timestamp: eventTime(event),
-    name: toolNameFromPayload(payload),
+    timestamp: event.timestamp,
+    name: event.toolName || toolNameFromPayload(payload),
     callId,
     status: payload.status || (payload.success === false ? "failed" : "completed"),
-    arguments: toolArgumentsFromPayload(payload),
+    arguments: event.toolInput ?? toolArgumentsFromPayload(payload),
     output,
   });
 }

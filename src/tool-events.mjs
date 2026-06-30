@@ -17,7 +17,9 @@ function isStandaloneToolEvent(type) {
 }
 
 function toolNameFromPayload(payload) {
+  if (payload.tool) return payload.tool;
   if (payload.name) return payload.name;
+  if (payload.function?.name) return payload.function.name;
   if (payload.execution) return payload.execution;
   if (payload.invocation?.server || payload.invocation?.tool) {
     return [payload.invocation.server, payload.invocation.tool].filter(Boolean).join(".");
@@ -28,6 +30,7 @@ function toolNameFromPayload(payload) {
 
 function toolArgumentsFromPayload(payload) {
   if (payload.arguments != null) return payload.arguments;
+  if (payload.function?.arguments != null) return payload.function.arguments;
   if (payload.arguments_json != null) return payload.arguments_json;
   if (payload.input != null) return payload.input;
   if (payload.invocation?.arguments != null) return JSON.stringify(payload.invocation.arguments, null, 2);
@@ -36,9 +39,9 @@ function toolArgumentsFromPayload(payload) {
 }
 
 function toolOutputFromPayload(payload) {
-  if (payload.output != null) return payload.output;
-  if (payload.result != null) return renderMcpResult(payload.result);
   if (payload.stdout || payload.stderr) return [payload.stdout, payload.stderr].filter(Boolean).join("\n");
+  if (payload.result != null) return renderMcpResult(payload.result);
+  if (payload.output != null) return payload.output;
   if (payload.success != null) return payload.success ? "Success" : "Failed";
   return null;
 }

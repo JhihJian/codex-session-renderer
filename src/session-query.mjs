@@ -8,6 +8,7 @@ import {
   summarizeEventTitle,
   toIso,
 } from "./session-events.mjs";
+import { normalizeSessionEvent } from "./session-normalizer.mjs";
 
 const defaultSessionLimit = 100;
 const maxSessionLimit = 500;
@@ -143,20 +144,28 @@ function projectSessionForApi(session, query = {}) {
 }
 
 function projectEventForApi(event, index, query = {}) {
-  const payload = event.payload ?? null;
-  const payloadSize = payload == null ? 0 : JSON.stringify(payload).length;
+  const normalized = normalizeSessionEvent(event, event?.index ?? index);
+  const payload = normalized.payload ?? null;
+  const payloadSize = normalized.payloadSize;
   const projected = {
     index,
-    timestamp: eventTime(event),
-    kind: classifyEvent(event),
-    important: isImportantEvent(event),
-    type: event.type || null,
-    payloadType: payload?.type ?? null,
-    role: payload?.role ?? null,
-    title: summarizeEventTitle(event),
-    preview: summarizeEventPreview(event),
+    timestamp: normalized.timestamp,
+    kind: normalized.kind,
+    semanticKind: normalized.semanticKind,
+    important: isImportantEvent(normalized),
+    type: normalized.rawType || null,
+    payloadType: normalized.payloadType ?? null,
+    role: normalized.role ?? null,
+    messageId: normalized.messageId ?? null,
+    parentId: normalized.parentId ?? null,
+    title: summarizeEventTitle(normalized),
+    preview: summarizeEventPreview(normalized),
     payloadSize,
+    rawSize: normalized.rawSize,
   };
+  if (normalized.attachments?.length) projected.attachments = normalized.attachments;
+  if (normalized.reasoning) projected.reasoning = normalized.reasoning;
+  if (normalized.diagnostic) projected.diagnostic = normalized.diagnostic;
   if (query.includePayload) projected.payload = payload;
   if (query.includeRaw) projected.raw = event;
   return pickFields(projected, query.fields);
@@ -237,7 +246,8 @@ function sessionSearchText(session) {
 }
 
 function eventSearchText(projected, rawEvent) {
-  return [projected.title, projected.preview, projected.kind, projected.type, projected.payloadType, JSON.stringify(rawEvent.payload ?? {})]
+  const normalized = normalizeSessionEvent(rawEvent, rawEvent?.index ?? projected.index);
+  return [projected.title, projected.preview, projected.kind, projected.type, projected.payloadType, normalized.searchText]
     .filter(Boolean)
     .join("\n");
 }

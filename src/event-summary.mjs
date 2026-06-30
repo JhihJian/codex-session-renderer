@@ -1,13 +1,15 @@
 import { extractContentText, firstLine } from "./text-utils.mjs";
 import { isToolCallOutput, isToolCallStart, toolNameFromPayload } from "./tool-events.mjs";
+import { normalizeSessionEvent, redactSensitiveText } from "./session-normalizer.mjs";
 
 function extractTitleFromEvents(events, fallback) {
-  for (const event of events) {
-    if (event.type === "event_msg" && event.payload?.type === "user_message") {
-      const message = String(event.payload.message ?? "").trim();
+  for (const [index, event] of events.entries()) {
+    const normalized = normalizeSessionEvent(event, event?.index ?? index);
+    if (normalized.kind === "user_message") {
+      const message = String(normalized.text ?? event.payload?.message ?? "").trim();
       if (message) return firstLine(message, 90);
     }
-    if (event.type === "response_item" && event.payload?.role === "user") {
+    if (normalized.rawType === "response_item" && normalized.role === "user") {
       const text = extractContentText(event.payload.content).trim();
       if (text) return firstLine(text, 90);
     }
@@ -16,12 +18,7 @@ function extractTitleFromEvents(events, fallback) {
 }
 
 function classifyEvent(event) {
-  const payload = event.payload ?? {};
-  if (event.type === "session_meta") return "meta";
-  if (event.type === "turn_context") return "context";
-  if (event.type === "event_msg") return payload.type || "event";
-  if (event.type === "response_item") return payload.type || "response";
-  return event.type || "unknown";
+  return normalizeSessionEvent(event).kind;
 }
 
 function isImportantEvent(event) {
@@ -42,22 +39,32 @@ function isImportantEvent(event) {
     "task_started",
     "task_complete",
     "task_failed",
+    "jsonl_parse_error",
   ].includes(kind);
 }
 
 function summarizeSessionEvents(events) {
   const counts = {};
   const roles = {};
-  for (const event of events) {
-    const kind = classifyEvent(event);
+  for (const [index, event] of events.entries()) {
+    const normalized = normalizeSessionEvent(event, event?.index ?? index);
+    const kind = normalized.kind;
     counts[kind] = (counts[kind] ?? 0) + 1;
-    const role = event.payload?.role;
+    const role = normalized.role;
     if (role) roles[role] = (roles[role] ?? 0) + 1;
   }
   return { counts, roles };
 }
 
 function summarizeEventTitle(event) {
+  const normalized = normalizeSessionEvent(event);
+  if (normalized.semanticKind === "diagnostic") return "JSONL parse error";
+  if (normalized.semanticKind === "tool_call") return `Call ${normalized.toolName || "tool"}`;
+  if (normalized.semanticKind === "tool_result") return `Output ${normalized.toolName || normalized.callId || "tool"}`.trim();
+  if (normalized.rawType !== "event_msg" && normalized.rawType !== "response_item") {
+    if (normalized.kind === "user_message") return "user_message";
+    if (normalized.kind === "agent_message") return "agent_message";
+  }
   const payload = event.payload ?? {};
   if (event.type === "session_meta") return "Session metadata";
   if (event.type === "turn_context") return `Turn context ${payload.turn_id ?? ""}`.trim();
@@ -78,14 +85,21 @@ function summarizeEventTitle(event) {
 }
 
 function summarizeEventPreview(event) {
+  const normalized = normalizeSessionEvent(event);
+  if (normalized.text) return firstLine(normalized.text, 180);
+  if (normalized.toolInput) return firstLine(normalized.toolInput, 180);
+  if (normalized.toolOutput) return firstLine(normalized.toolOutput, 180);
+  if (normalized.attachments?.length) return firstLine(normalized.attachments.map((attachment) => attachment.label).join(", "), 180);
+  if (normalized.reasoning?.encrypted) return `加密 reasoning (${normalized.reasoning.encryptedLength} chars)`;
+  if (normalized.diagnostic?.preview) return firstLine(normalized.diagnostic.preview, 180);
   const payload = event.payload ?? {};
-  if (payload.message) return firstLine(payload.message, 180);
-  if (payload.last_agent_message) return firstLine(payload.last_agent_message, 180);
-  if (payload.content) return firstLine(extractContentText(payload.content), 180);
-  if (payload.arguments) return firstLine(payload.arguments, 180);
-  if (payload.input) return firstLine(payload.input, 180);
-  if (payload.output) return firstLine(payload.output, 180);
-  if (payload.stdout) return firstLine(payload.stdout, 180);
+  if (payload.message) return firstLine(redactSensitiveText(payload.message), 180);
+  if (payload.last_agent_message) return firstLine(redactSensitiveText(payload.last_agent_message), 180);
+  if (payload.content) return firstLine(redactSensitiveText(extractContentText(payload.content)), 180);
+  if (payload.arguments) return firstLine(redactSensitiveText(payload.arguments), 180);
+  if (payload.input) return firstLine(redactSensitiveText(payload.input), 180);
+  if (payload.output) return firstLine(redactSensitiveText(payload.output), 180);
+  if (payload.stdout) return firstLine(redactSensitiveText(payload.stdout), 180);
   if (payload.invocation) return firstLine(`${payload.invocation.server}.${payload.invocation.tool}`, 180);
   if (payload.summary?.length) return firstLine(JSON.stringify(payload.summary), 180);
   return "";

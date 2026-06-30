@@ -136,3 +136,64 @@ test("compactTurnsForClient keeps tool output complete for reading view", () => 
   assert.equal(item.truncated, undefined);
   assert.equal(item.truncatedFields, undefined);
 });
+
+test("buildTurns uses normalized field drift and coalesces assistant deltas", () => {
+  const events = [
+    { type: "user", time: 1782790557, content: "请总结" },
+    { type: "assistant", message_id: "msg-1", delta: true, content: [{ text: "第一" }] },
+    { type: "assistant", message_id: "msg-1", delta: true, content: [{ text: "第二" }] },
+    { type: "function_call", call_id: "call-1", function: { name: "run_check", arguments: "{\"cmd\":\"npm test\"}" } },
+    { type: "function_result", call_id: "call-1", stdout: "ok" },
+  ];
+
+  const turns = buildTurns(events);
+
+  assert.equal(turns.length, 1);
+  assert.deepEqual(
+    turns[0].items.map((item) => item.type),
+    ["user-message", "assistant-message", "tool-call"],
+  );
+  assert.equal(turns[0].items[0].text, "请总结");
+  assert.equal(turns[0].items[1].text, "第一第二");
+  assert.equal(turns[0].items[2].name, "run_check");
+  assert.equal(turns[0].items[2].output, "ok");
+});
+
+test("compactTurnsForClient exposes attachment summary without inline data", () => {
+  const dataUri = "data:image/png;base64," + Buffer.from("abc").toString("base64");
+  const turns = buildTurns([
+    {
+      type: "response_item",
+      payload: {
+        type: "message",
+        role: "user",
+        content: [{ text: "图片" }, { type: "input_image", image_url: { url: dataUri } }],
+      },
+    },
+  ]);
+
+  const compact = compactTurnsForClient(turns);
+
+  assert.equal(compact[0].items[0].attachments[0].kind, "inline");
+  assert.equal(compact[0].items[0].attachments[0].redacted, true);
+  assert.equal(JSON.stringify(compact).includes(dataUri), false);
+});
+
+test("buildTurns keeps image-only messages as attachment evidence", () => {
+  const turns = buildTurns([
+    {
+      type: "response_item",
+      payload: {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_image", image_url: { url: "https://example.invalid/only-image.png" } }],
+      },
+    },
+  ]);
+
+  assert.equal(turns.length, 1);
+  assert.equal(turns[0].items.length, 1);
+  assert.equal(turns[0].items[0].type, "user-message");
+  assert.equal(turns[0].items[0].text, "");
+  assert.equal(turns[0].items[0].attachments[0].kind, "url");
+});

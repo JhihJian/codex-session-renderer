@@ -82,10 +82,7 @@
           <div class="thread-controls">
             <div class="view-switch" role="tablist" aria-label="视图切换">
               <button class="view-tab active" id="compactViewButton" type="button" data-view-mode="compact">精简</button>
-              <button class="view-tab" id="readViewButton" type="button" data-view-mode="read">阅读</button>
-              <button class="view-tab" id="terminalViewButton" type="button" data-view-mode="terminal">Terminal</button>
               <button class="view-tab" id="auditViewButton" type="button" data-view-mode="audit">Audit</button>
-              <button class="view-tab" id="traceViewButton" type="button" data-view-mode="trace">Trace</button>
               <button class="view-tab" id="rawViewButton" type="button" data-view-mode="raw">Raw</button>
             </div>
             <input class="text-input compact" id="itemSearch" type="search" autocomplete="off" placeholder="搜索内容、命令、输出..." />
@@ -143,7 +140,7 @@
             <span class="muted" id="selectedEventLabel">未选择</span>
           </summary>
           <div class="inspector-actions" id="inspectorActions"></div>
-          <pre class="raw-preview" id="rawPreview">选择关键事件或 Trace 节点查看 JSON</pre>
+          <pre class="raw-preview" id="rawPreview">选择关键事件或 Audit 节点查看 JSON</pre>
         </details>
       </aside>
 
