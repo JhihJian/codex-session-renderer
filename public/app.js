@@ -26,6 +26,7 @@ const state = {
   visibleThreadItems: 140,
   visibleRawEvents: 240,
   reviewTab: "summary",
+  summaryRules: [],
 };
 
 const {
@@ -109,6 +110,16 @@ const els = {
   sourceSelect: document.getElementById("sourceSelect"),
   sourceStatus: document.getElementById("sourceStatus"),
   managePeersButton: document.getElementById("managePeersButton"),
+  settingsButton: document.getElementById("settingsButton"),
+  settingsDialog: document.getElementById("settingsDialog"),
+  settingsForm: document.getElementById("settingsForm"),
+  closeSettingsDialogButton: document.getElementById("closeSettingsDialogButton"),
+  summaryRuleList: document.getElementById("summaryRuleList"),
+  defaultSummaryRuleList: document.getElementById("defaultSummaryRuleList"),
+  addSummaryRuleButton: document.getElementById("addSummaryRuleButton"),
+  resetSummaryRulesButton: document.getElementById("resetSummaryRulesButton"),
+  saveSettingsButton: document.getElementById("saveSettingsButton"),
+  settingsStatus: document.getElementById("settingsStatus"),
   peerDialog: document.getElementById("peerDialog"),
   peerForm: document.getElementById("peerForm"),
   peerList: document.getElementById("peerList"),
@@ -183,6 +194,7 @@ const auditToStandardType = {
 init();
 
 function init() {
+  state.summaryRules = window.ToolSummary?.loadCustomRules?.() || [];
   bindEvents();
   loadHealthAndSources();
 }
@@ -192,6 +204,17 @@ function bindEvents() {
   els.refreshRemoteButton.addEventListener("click", refreshSelectedSource);
   els.sourceSelect.addEventListener("change", () => selectSource(els.sourceSelect.value));
   els.managePeersButton.addEventListener("click", openPeerDialog);
+  els.settingsButton?.addEventListener("click", openSettingsDialog);
+  els.closeSettingsDialogButton?.addEventListener("click", () => els.settingsDialog.close());
+  els.settingsForm?.addEventListener("submit", saveSettingsFromForm);
+  els.addSummaryRuleButton?.addEventListener("click", () => {
+    state.summaryRules.push(newSummaryRule());
+    renderSettingsDialog();
+  });
+  els.resetSummaryRulesButton?.addEventListener("click", () => {
+    state.summaryRules = [];
+    renderSettingsDialog();
+  });
   els.closePeerDialogButton.addEventListener("click", () => els.peerDialog.close());
   els.newPeerButton.addEventListener("click", () => selectPeerForEdit(null));
   els.peerForm.addEventListener("submit", savePeerFromForm);
@@ -561,6 +584,121 @@ async function deleteSelectedPeer() {
 function setPeerStatus(message) {
   els.peerEditorStatus.textContent = message;
   els.peerEditorStatus.dataset.sticky = "true";
+}
+
+function openSettingsDialog() {
+  state.summaryRules = window.ToolSummary?.loadCustomRules?.() || [];
+  renderSettingsDialog();
+  els.settingsDialog?.showModal();
+}
+
+function renderSettingsDialog() {
+  renderSummaryRuleList();
+  renderDefaultSummaryRuleList();
+  if (els.settingsStatus) els.settingsStatus.textContent = `自定义规则 ${state.summaryRules.length} 条；配置保存在当前浏览器本地。`;
+}
+
+function renderSummaryRuleList() {
+  if (!els.summaryRuleList) return;
+  if (!state.summaryRules.length) {
+    els.summaryRuleList.innerHTML = `<div class="rule-empty">暂无自定义规则。新增后会优先匹配，再回退到内置规则。</div>`;
+    return;
+  }
+  els.summaryRuleList.innerHTML = state.summaryRules.map((rule, index) => renderSummaryRuleEditor(rule, index)).join("");
+  els.summaryRuleList.querySelectorAll("[data-rule-field]").forEach((input) => {
+    input.addEventListener("input", () => updateSummaryRuleFromInput(input));
+    input.addEventListener("change", () => updateSummaryRuleFromInput(input));
+  });
+  els.summaryRuleList.querySelectorAll("[data-delete-rule]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.summaryRules.splice(Number(button.dataset.deleteRule), 1);
+      renderSettingsDialog();
+    });
+  });
+}
+
+function renderSummaryRuleEditor(rule, index) {
+  const enabled = rule.enabled !== false;
+  return `
+    <article class="summary-rule-card">
+      <div class="summary-rule-head">
+        <label class="toggle-control">
+          <input type="checkbox" ${enabled ? "checked" : ""} data-rule-field="enabled" data-rule-index="${escapeAttr(String(index))}" />
+          <span>启用</span>
+        </label>
+        <button class="ghost-button small danger" type="button" data-delete-rule="${escapeAttr(String(index))}">删除</button>
+      </div>
+      <div class="summary-rule-grid">
+        <label>
+          <span class="field-label">名称</span>
+          <input class="text-input" type="text" value="${escapeAttr(rule.label || "")}" data-rule-field="label" data-rule-index="${escapeAttr(String(index))}" placeholder="读取文件" />
+        </label>
+        <label>
+          <span class="field-label">工具</span>
+          <input class="text-input" type="text" value="${escapeAttr(rule.tool || "")}" data-rule-field="tool" data-rule-index="${escapeAttr(String(index))}" placeholder="exec_command 或 *" />
+        </label>
+        <label>
+          <span class="field-label">标题模板</span>
+          <input class="text-input" type="text" value="${escapeAttr(rule.title || "")}" data-rule-field="title" data-rule-index="${escapeAttr(String(index))}" placeholder="读取文件内容" />
+        </label>
+        <label>
+          <span class="field-label">摘要模板</span>
+          <input class="text-input" type="text" value="${escapeAttr(rule.summary || "")}" data-rule-field="summary" data-rule-index="${escapeAttr(String(index))}" placeholder="{path}" />
+        </label>
+      </div>
+      <label>
+        <span class="field-label">匹配正则</span>
+        <textarea class="text-input rule-pattern-input" data-rule-field="pattern" data-rule-index="${escapeAttr(String(index))}" spellcheck="false" placeholder="\\bGet-Content\\b">${escapeHtml(rule.pattern || "")}</textarea>
+      </label>
+    </article>
+  `;
+}
+
+function renderDefaultSummaryRuleList() {
+  if (!els.defaultSummaryRuleList) return;
+  const rules = window.ToolSummary?.defaultRules?.() || [];
+  els.defaultSummaryRuleList.innerHTML = rules
+    .map(
+      (rule) => `
+        <div class="default-rule-row">
+          <strong>${escapeHtml(rule.title || rule.label)}</strong>
+          <span>${escapeHtml([rule.tool || "*", rule.label].filter(Boolean).join(" · "))}</span>
+          <code>${escapeHtml(rule.pattern || "")}</code>
+        </div>
+      `,
+    )
+    .join("");
+}
+
+function updateSummaryRuleFromInput(input) {
+  const index = Number(input.dataset.ruleIndex);
+  const field = input.dataset.ruleField;
+  const rule = state.summaryRules[index];
+  if (!rule || !field) return;
+  rule[field] = field === "enabled" ? input.checked : input.value;
+}
+
+function saveSettingsFromForm(event) {
+  event.preventDefault();
+  const normalized = window.ToolSummary?.saveCustomRules?.(state.summaryRules) || [];
+  state.summaryRules = normalized;
+  renderSettingsDialog();
+  renderMainContent();
+  renderInspector();
+  showToast("摘要转换规则已保存");
+  els.settingsDialog?.close();
+}
+
+function newSummaryRule() {
+  return {
+    id: `custom-${Date.now()}`,
+    label: "自定义规则",
+    enabled: true,
+    tool: "exec_command",
+    pattern: "",
+    title: "",
+    summary: "{cmd}",
+  };
 }
 
 async function loadRemoteIndexForCurrentFilter() {
@@ -1774,14 +1912,15 @@ function renderAuditPhaseGroup(group, query) {
 
 function renderAuditPhaseNode(node, query) {
   const selected = state.selectedAuditNodeId === node.id ? " selected" : "";
-  const summary = firstLine(node.summary || node.outputPreview || node.argumentsPreview || "", 190);
+  const readable = readableAuditNode(node);
+  const summary = firstLine(readable.summary || "", 190);
   const label = [auditTypeLabel(node.type), node.status, node.riskLevel && node.riskLevel !== "none" ? auditRiskLabel(node.riskLevel) : ""]
     .filter(Boolean)
     .join(" · ");
   return `
     <button class="audit-phase-node type-${escapeAttr(node.type)} risk-${escapeAttr(node.riskLevel || "none")}${selected}" type="button" data-audit-node-id="${escapeAttr(node.id)}">
       <span>${escapeHtml(auditNodeGlyph(node.type))}</span>
-      <strong>${highlight(escapeHtml(firstLine(node.title || auditTypeLabel(node.type), 64)), query)}</strong>
+      <strong>${highlight(escapeHtml(firstLine(readable.title || auditTypeLabel(node.type), 64)), query)}</strong>
       <em>${escapeHtml(label)}</em>
       ${summary ? `<small>${highlight(escapeHtml(summary), query)}</small>` : ""}
     </button>
@@ -1820,10 +1959,14 @@ function renderAuditExecutionRow(row, query) {
   const riskLevel = highestRiskLevel(row.auditNodes || []);
   const statusNodes = auditExecutionStatusNodes(row.auditNodes || []);
   const childGroups = auditExecutionChildGroups(statusNodes);
+  const rowReadable = readableExecutionRow(row);
   const subSummary = statusNodes
     .filter((node) => node.type !== "action")
     .slice(0, 2)
-    .map((node) => `${auditTypeLabel(node.type)}: ${node.summary || node.title || ""}`)
+    .map((node) => {
+      const readable = readableAuditNode(node);
+      return `${auditTypeLabel(node.type)}: ${readable.summary || readable.title || ""}`;
+    })
     .filter(Boolean)
     .join("；");
   return `
@@ -1832,10 +1975,14 @@ function renderAuditExecutionRow(row, query) {
       <span class="trace-icon ${escapeAttr(row.icon || row.type)}">${traceIcon(row)}</span>
       <span class="audit-exec-main">
         <span class="audit-exec-title">
-          <strong>${highlight(escapeHtml(row.title || row.label || row.id), query)}</strong>
+          <strong>${highlight(escapeHtml(rowReadable.title || row.title || row.label || row.id), query)}</strong>
           <em>${escapeHtml(meta)}</em>
         </span>
-        ${subSummary ? `<span class="audit-exec-sub">${highlight(escapeHtml(firstLine(subSummary, 220)), query)}</span>` : ""}
+        ${
+          rowReadable.summary || subSummary
+            ? `<span class="audit-exec-sub">${highlight(escapeHtml(firstLine([rowReadable.summary, subSummary].filter(Boolean).join("；"), 220)), query)}</span>`
+            : ""
+        }
         ${statusNodes.length ? `<span class="audit-exec-badges">${statusNodes.slice(0, 6).map((node) => renderAuditNodeChip(node, query)).join("")}</span>` : ""}
         ${childGroups.length ? `<div class="audit-exec-nested">${childGroups.map((group) => renderAuditExecutionChildGroup(group, query)).join("")}</div>` : ""}
       </span>
@@ -1862,8 +2009,9 @@ function renderAuditExecutionChildGroup(group, query) {
 
 function renderAuditMiniNode(node, query) {
   const selected = state.selectedAuditNodeId === node.id ? " selected" : "";
-  const title = node.type === "risk" ? auditRiskLabel(node.riskLevel || "none") : node.title || auditTypeLabel(node.type);
-  const summary = firstLine(node.summary || node.outputPreview || node.argumentsPreview || "", 150);
+  const readable = readableAuditNode(node);
+  const title = node.type === "risk" ? auditRiskLabel(node.riskLevel || "none") : readable.title || auditTypeLabel(node.type);
+  const summary = firstLine(readable.summary || "", 150);
   return `
     <button class="audit-mini-node type-${escapeAttr(node.type)} risk-${escapeAttr(node.riskLevel || "none")}${selected}" type="button" data-audit-node-id="${escapeAttr(node.id)}" title="${escapeAttr(summary || title)}">
       <strong>${highlight(escapeHtml(firstLine(title, 42)), query)}</strong>
@@ -1874,17 +2022,19 @@ function renderAuditMiniNode(node, query) {
 
 function renderAuditNodeChip(node, query) {
   const selected = state.selectedAuditNodeId === node.id ? " selected" : "";
-  const label = node.type === "risk" ? auditRiskLabel(node.riskLevel || "none") : auditTypeLabel(node.type);
+  const readable = readableAuditNode(node);
+  const label = node.type === "risk" ? auditRiskLabel(node.riskLevel || "none") : readable.title || auditTypeLabel(node.type);
   return `
     <button class="audit-node-chip type-${escapeAttr(node.type)} risk-${escapeAttr(node.riskLevel || "none")}${selected}" type="button" data-audit-node-id="${escapeAttr(node.id)}" title="${escapeAttr(node.title || label)}">
       <span>${escapeHtml(auditNodeGlyph(node.type))}</span>
-      ${highlight(escapeHtml(label), query)}
+      ${highlight(escapeHtml(firstLine(label, 28)), query)}
     </button>
   `;
 }
 
 function renderAuditEvidenceNode(node, query) {
   const selected = state.selectedAuditNodeId === node.id ? " selected" : "";
+  const readable = readableAuditNode(node);
   const meta = [
     auditTypeLabel(node.type),
     node.status || "n/a",
@@ -1902,10 +2052,10 @@ function renderAuditEvidenceNode(node, query) {
       <span class="audit-evidence-kind">${escapeHtml(auditNodeGlyph(node.type))}</span>
       <span class="audit-evidence-main">
         <span class="audit-evidence-title">
-          <strong>${highlight(escapeHtml(node.title || auditTypeLabel(node.type)), query)}</strong>
+          <strong>${highlight(escapeHtml(readable.title || auditTypeLabel(node.type)), query)}</strong>
           ${node.riskLevel && node.riskLevel !== "none" ? `<em>${escapeHtml(auditRiskLabel(node.riskLevel))}</em>` : ""}
         </span>
-        <span class="audit-evidence-summary">${highlight(escapeHtml(node.summary || ""), query)}</span>
+        <span class="audit-evidence-summary">${highlight(escapeHtml(readable.summary || ""), query)}</span>
         <span class="audit-evidence-tags">
           ${tags.map((tag) => `<span>${highlight(escapeHtml(tag), query)}</span>`).join("")}
         </span>
@@ -2322,6 +2472,7 @@ function auditExecutionRowMatches(row, query, typeFilter) {
 }
 
 function auditExecutionSearchText(row) {
+  const readable = readableExecutionRow(row);
   return [
     row.id,
     row.traceNodeId,
@@ -2330,6 +2481,9 @@ function auditExecutionSearchText(row) {
     row.label,
     row.title,
     row.subtitle,
+    readable.title,
+    readable.summary,
+    readable.command,
     row.status,
     ...(row.auditNodes || []).map(auditNodeSearchText),
   ]
@@ -2550,11 +2704,15 @@ function auditNodeMatches(node, query, typeFilter) {
 }
 
 function auditNodeSearchText(node) {
+  const readable = readableAuditNode(node);
   return [
     node.id,
     node.type,
     node.title,
     node.summary,
+    readable.title,
+    readable.summary,
+    readable.command,
     node.status,
     node.riskLevel,
     node.turnNumber,
@@ -3407,8 +3565,9 @@ function currentSelectionActions() {
 }
 
 function auditSelectionActions(node) {
+  const readable = readableAuditNode(node);
   const actions = [
-    { label: "复制摘要", copy: node.summary || node.title || node.id, toast: "已复制审计摘要" },
+    { label: "复制摘要", copy: readable.summary || node.summary || node.title || node.id, toast: "已复制审计摘要" },
     { label: "复制 JSON", action: "copy-debug" },
   ];
   if (node.eventIndex != null || node.sourceIndex != null) {
@@ -3429,15 +3588,17 @@ function auditTurnSelectionActions(turn) {
 }
 
 function traceSelectionActions(node, body = "") {
+  const readable = node.detail?.item ? readableToolItem(node.detail.item) : null;
   const actions = [{ label: "复制 JSON", action: "copy-debug" }];
-  if (body) actions.unshift({ label: "复制摘要", copy: body, toast: "已复制节点摘要" });
+  if (readable?.summary || body) actions.unshift({ label: "复制摘要", copy: readable?.summary || body, toast: "已复制节点摘要" });
   if (node.type === "subagent" && node.threadId) actions.unshift({ label: "打开子会话", action: "open-thread", threadId: node.threadId });
   return actions;
 }
 
 function itemSelectionActions(item) {
   const actions = [{ label: "复制 JSON", action: "copy-debug" }];
-  const body = item.text || item.output || item.arguments || item.payloadPreview || "";
+  const readable = readableToolItem(item);
+  const body = readable.summary || item.text || item.output || item.arguments || item.payloadPreview || "";
   if (body) actions.unshift({ label: "复制内容", copy: body, toast: "已复制内容" });
   if (item.sourceIndex != null || item.outputSourceIndex != null) {
     actions.push({ label: "跳到 Raw", action: "open-raw-event", index: item.sourceIndex ?? item.outputSourceIndex });
@@ -3579,7 +3740,8 @@ function buildAuditNodeReviewContext(node) {
   const related = node.relatedNodeId ? findAuditNode(node.relatedNodeId) : null;
   const traceNode = node.traceNodeId ? findTraceNode(state.detail?.trace?.root, node.traceNodeId) : null;
   const event = eventByIndex(node.eventIndex ?? node.sourceIndex);
-  const body = [node.summary, node.outputPreview, node.argumentsPreview].filter(Boolean).join("\n\n");
+  const readable = readableAuditNode(node, item);
+  const body = readable.body || readable.summary;
   const evidence = [reviewEvidenceFromAuditNode(node)];
   if (item) evidence.push(reviewEvidenceFromItem(item, "关联项"));
   if (event) evidence.push(reviewEvidenceFromEvent(event, "来源事件"));
@@ -3592,7 +3754,7 @@ function buildAuditNodeReviewContext(node) {
   return reviewContextBase({
     kind: "audit_node",
     kindLabel: "Audit 节点",
-    title: node.title || auditTypeLabel(node.type),
+    title: readable.title || node.title || auditTypeLabel(node.type),
     riskLevel: node.riskLevel || "none",
     badges: [auditTypeLabel(node.type), node.turnNumber ? `Turn ${node.turnNumber}` : "未定位 Turn", auditEventIndexLabel(node)].filter(Boolean),
     summary: body || "该 Audit 节点没有摘要正文。",
@@ -3619,14 +3781,17 @@ function buildAuditTurnReviewContext(turn) {
   const riskNodes = turn.auditNodes.filter((node) => node.type === "risk" || (node.riskLevel && node.riskLevel !== "none"));
   const evidenceNodes = turn.auditNodes.filter((node) => ["evidence", "verification", "incomplete", "risk"].includes(node.type));
   const relations = [
-    ...turn.executionRows.slice(0, 12).map((row) => ({
-      kind: "执行",
-      title: row.title || row.id,
-      meta: [row.type, row.status].filter(Boolean).join(" · "),
-      action: row.traceNodeId ? "open-trace-node" : row.itemRef ? "open-item-ref" : "",
-      id: row.traceNodeId,
-      ref: row.itemRef,
-    })),
+    ...turn.executionRows.slice(0, 12).map((row) => {
+      const readable = readableExecutionRow(row);
+      return {
+        kind: "执行",
+        title: readable.title || row.title || row.id,
+        meta: [readable.summary, row.type, row.status].filter(Boolean).join(" · "),
+        action: row.traceNodeId ? "open-trace-node" : row.itemRef ? "open-item-ref" : "",
+        id: row.traceNodeId,
+        ref: row.itemRef,
+      };
+    }),
     ...turn.unlinkedAuditNodes.slice(0, 6).map((node) => reviewRelationFromAuditNode(node, "未关联")),
   ];
   return reviewContextBase({
@@ -3664,13 +3829,14 @@ function buildTraceReviewContext(node) {
   const detail = node.detail || {};
   const item = detail.item || null;
   const thread = detail.thread || detail.edge?.thread || {};
-  const body = item?.output || item?.arguments || item?.text || node.subtitle || detail.note || "";
+  const readable = item ? readableToolItem(item) : null;
+  const body = readable?.body || readable?.summary || item?.text || node.subtitle || detail.note || "";
   const childRelations = (node.children || []).slice(0, 10).map((child) => reviewRelationFromTraceNode(child, "下游"));
   const itemRefValue = item ? itemRef(item) : null;
   return reviewContextBase({
     kind: "trace_node",
     kindLabel: "执行节点",
-    title: node.title || node.label || node.id,
+    title: readable?.title || node.title || node.label || node.id,
     riskLevel: traceRiskLevel(node, item),
     badges: [traceTypeLabel(node.type), node.status, item?.sourceIndex != null ? `event #${item.sourceIndex}` : ""].filter(Boolean),
     summary: body || node.subtitle || "该执行节点没有可显示的正文摘要。",
@@ -3699,11 +3865,12 @@ function buildItemReviewContext(item) {
   const ref = itemRef(item);
   const event = eventByIndex(item.sourceIndex ?? item.outputSourceIndex);
   const linkedAuditNodes = auditNodesForItemRef(ref);
-  const body = item.text || item.output || item.arguments || item.payloadPreview || "";
+  const readable = readableToolItem(item);
+  const body = readable.body || readable.summary || item.text || item.output || item.arguments || item.payloadPreview || "";
   return reviewContextBase({
     kind: "item",
     kindLabel: itemTitle(item),
-    title: itemTitle(item),
+    title: readable.title || itemTitle(item),
     riskLevel: itemRiskLevel(item, linkedAuditNodes),
     badges: [item.turnIndex == null ? "未定位 Turn" : `Turn ${item.turnIndex + 1}`, item.name, item.sourceIndex != null ? `event #${item.sourceIndex}` : ""].filter(Boolean),
     summary: body || "该关联项没有正文摘要。",
@@ -3728,13 +3895,14 @@ function buildItemReviewContext(item) {
 function buildRawEventReviewContext(event) {
   const linkedItems = itemsForEventIndex(event.index);
   const linkedAuditNodes = auditNodesForEventIndex(event.index);
+  const readable = readableRawEvent(event);
   return reviewContextBase({
     kind: "raw_event",
     kindLabel: "Raw event",
-    title: `#${event.index} ${humanEventTitle(event)}`,
+    title: `#${event.index} ${readable.title || humanEventTitle(event)}`,
     riskLevel: rawEventRiskLevel(event, linkedAuditNodes),
     badges: [event.kind || event.type || "event", formatDate(event.timestamp) || "", event.payloadSize ? formatBytes(event.payloadSize) : ""].filter(Boolean),
-    summary: event.preview || "Raw 事件没有预览正文。",
+    summary: readable.summary || event.preview || "Raw 事件没有预览正文。",
     rows: [
       ["事件", `event #${event.index}`],
       ["分类", event.kind || "n/a"],
@@ -3797,21 +3965,82 @@ function renderReviewBody(context) {
 function renderReviewSummary(context) {
   const metrics = context.metrics || {};
   return `
-    <div class="review-section">
+    <div class="review-section review-summary-section">
       <div class="section-title-row">
         <h3>摘要</h3>
         <span class="muted">${escapeHtml(context.kindLabel || "对象")}</span>
       </div>
-      <div class="review-summary-text">${escapeHtml(context.summary || "没有摘要。")}</div>
+      ${renderReviewSummaryText(context.summary || "没有摘要。")}
       <div class="review-metric-grid">
         ${renderReviewMetric("证据", metrics.evidence ?? 0)}
         ${renderReviewMetric("关系", metrics.relations ?? 0)}
         ${renderReviewMetric("事件", metrics.events ?? 0)}
         ${renderReviewMetric("风险", metrics.risks ?? riskMetricValue(context.riskLevel))}
       </div>
-      ${renderReviewRows(context.rows || [])}
     </div>
   `;
+}
+
+function renderReviewSummaryText(summary) {
+  const model = reviewSummaryTextModel(summary);
+  return `
+    <div class="review-summary-text ${model.items.length ? "has-items" : ""}">
+      <p class="review-summary-lead">${escapeHtml(model.lead)}</p>
+      ${
+        model.items.length
+          ? `<div class="review-summary-items">
+              ${model.items
+                .map(
+                  (item) => `
+                    <div class="review-summary-item">
+                      ${item.label ? `<span>${escapeHtml(item.label)}</span>` : ""}
+                      <strong>${escapeHtml(item.text)}</strong>
+                    </div>
+                  `,
+                )
+                .join("")}
+            </div>`
+          : ""
+      }
+    </div>
+  `;
+}
+
+function reviewSummaryTextModel(summary) {
+  const raw = String(summary || "").trim() || "没有摘要。";
+  const lines = raw
+    .split(/\r?\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length <= 1) {
+    const parts = splitSummaryClauses(raw);
+    return {
+      lead: firstLine(parts.shift() || raw, 220),
+      items: parts.slice(0, 5).map(summaryClauseItem),
+    };
+  }
+  return {
+    lead: firstLine(lines.shift() || raw, 220),
+    items: lines.slice(0, 6).map(summaryClauseItem),
+  };
+}
+
+function splitSummaryClauses(text) {
+  const normalized = String(text || "").replace(/\s+/g, " ").trim();
+  if (!normalized) return [];
+  if (normalized.length <= 110) return [normalized];
+  const parts = normalized
+    .split(/(?:；|;|\s·\s)/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return parts.length > 1 ? parts : [normalized];
+}
+
+function summaryClauseItem(text) {
+  const value = firstLine(text, 220);
+  const match = value.match(/^([^：:]{1,10})[：:]\s*(.+)$/);
+  if (!match) return { label: "", text: value };
+  return { label: match[1], text: match[2] };
 }
 
 function renderReviewEvidence(context) {
@@ -4012,11 +4241,12 @@ async function loadReviewSource(source) {
 }
 
 function reviewEvidenceFromAuditNode(node) {
+  const readable = readableAuditNode(node);
   return {
     kind: auditTypeLabel(node.type),
-    title: node.title || auditTypeLabel(node.type),
+    title: readable.title || node.title || auditTypeLabel(node.type),
     meta: [node.turnNumber ? `Turn ${node.turnNumber}` : "", node.toolName, auditEventIndexLabel(node), auditRiskMetaLabel(node.riskLevel)].filter(Boolean).join(" · "),
-    body: [node.summary, node.outputPreview, node.argumentsPreview].filter(Boolean).join("\n\n"),
+    body: readable.body || readable.summary || [node.summary, node.outputPreview, node.argumentsPreview].filter(Boolean).join("\n\n"),
     riskLevel: node.riskLevel || "none",
     action: "open-audit-node",
     id: node.id,
@@ -4026,11 +4256,12 @@ function reviewEvidenceFromAuditNode(node) {
 
 function reviewEvidenceFromItem(item, kind = "关联项") {
   const ref = itemRef(item);
+  const readable = readableToolItem(item);
   return {
     kind,
-    title: itemTitle(item),
+    title: readable.title || itemTitle(item),
     meta: [item.turnIndex == null ? "" : `Turn ${item.turnIndex + 1}`, item.name, item.sourceIndex != null ? `event #${item.sourceIndex}` : ""].filter(Boolean).join(" · "),
-    body: item.text || item.output || item.arguments || item.payloadPreview || "",
+    body: readable.body || readable.summary || item.text || item.output || item.arguments || item.payloadPreview || "",
     riskLevel: itemRiskLevel(item, auditNodesForItemRef(ref)),
     action: "open-item-ref",
     ref,
@@ -4039,11 +4270,12 @@ function reviewEvidenceFromItem(item, kind = "关联项") {
 }
 
 function reviewEvidenceFromEvent(event, kind = "Raw event") {
+  const readable = readableRawEvent(event);
   return {
     kind,
-    title: `#${event.index} ${humanEventTitle(event)}`,
+    title: `#${event.index} ${readable.title || humanEventTitle(event)}`,
     meta: [event.kind || event.type, formatDate(event.timestamp)].filter(Boolean).join(" · "),
-    body: event.preview || "",
+    body: readable.summary || event.preview || "",
     riskLevel: rawEventRiskLevel(event, auditNodesForEventIndex(event.index)),
     action: "open-raw-event",
     index: event.index,
@@ -4052,40 +4284,44 @@ function reviewEvidenceFromEvent(event, kind = "Raw event") {
 }
 
 function reviewRelationFromAuditNode(node, kind = "Audit") {
+  const readable = readableAuditNode(node);
   return {
     kind,
-    title: node.title || auditTypeLabel(node.type),
-    meta: [auditTypeLabel(node.type), auditRiskMetaLabel(node.riskLevel), node.turnNumber ? `Turn ${node.turnNumber}` : ""].filter(Boolean).join(" · "),
+    title: readable.title || node.title || auditTypeLabel(node.type),
+    meta: [readable.summary, auditTypeLabel(node.type), auditRiskMetaLabel(node.riskLevel), node.turnNumber ? `Turn ${node.turnNumber}` : ""].filter(Boolean).join(" · "),
     action: "open-audit-node",
     id: node.id,
   };
 }
 
 function reviewRelationFromTraceNode(node, kind = "执行") {
+  const readable = node.detail?.item ? readableToolItem(node.detail.item) : null;
   return {
     kind,
-    title: node.title || node.label || node.id,
-    meta: [traceTypeLabel(node.type), node.status].filter(Boolean).join(" · "),
+    title: readable?.title || node.title || node.label || node.id,
+    meta: [readable?.summary, traceTypeLabel(node.type), node.status].filter(Boolean).join(" · "),
     action: "open-trace-node",
     id: node.id,
   };
 }
 
 function reviewRelationFromItem(item, kind = "关联项") {
+  const readable = readableToolItem(item);
   return {
     kind,
-    title: itemTitle(item),
-    meta: [item.turnIndex == null ? "" : `Turn ${item.turnIndex + 1}`, item.name].filter(Boolean).join(" · "),
+    title: readable.title || itemTitle(item),
+    meta: [readable.summary, item.turnIndex == null ? "" : `Turn ${item.turnIndex + 1}`, item.name].filter(Boolean).join(" · "),
     action: "open-item-ref",
     ref: itemRef(item),
   };
 }
 
 function reviewRelationFromEvent(event, kind = "Raw") {
+  const readable = readableRawEvent(event);
   return {
     kind,
-    title: `#${event.index} ${humanEventTitle(event)}`,
-    meta: [event.kind || event.type, formatDate(event.timestamp)].filter(Boolean).join(" · "),
+    title: `#${event.index} ${readable.title || humanEventTitle(event)}`,
+    meta: [readable.summary, event.kind || event.type, formatDate(event.timestamp)].filter(Boolean).join(" · "),
     action: "open-raw-event",
     index: event.index,
   };
@@ -4359,11 +4595,50 @@ function formatDuration(ms) {
   return `${minutes}m ${seconds}s`;
 }
 
+function summaryRuleOptions() {
+  return { customRules: state.summaryRules };
+}
+
+function readableToolItem(item) {
+  if (!item || !window.ToolSummary) {
+    return { matched: false, title: item?.name || item?.type || "", summary: "", body: "", command: "" };
+  }
+  return window.ToolSummary.summarizeToolItem(item, summaryRuleOptions());
+}
+
+function readableAuditNode(node, item = node?.itemRef ? findItemByRef(node.itemRef) : null) {
+  if (!node || !window.ToolSummary) {
+    return { matched: false, title: node?.title || "", summary: node?.summary || "", body: node?.summary || "", command: "" };
+  }
+  return window.ToolSummary.summarizeAuditNode(node, item, summaryRuleOptions());
+}
+
+function readableRawEvent(event) {
+  if (!event || !window.ToolSummary) {
+    return { matched: false, title: humanEventTitle(event), summary: event?.preview || "", body: event?.preview || "", command: "" };
+  }
+  return window.ToolSummary.summarizeRawEvent(event, summaryRuleOptions());
+}
+
+function readableExecutionRow(row) {
+  const action = (row.auditNodes || []).find((node) => node.type === "action");
+  if (action) return readableAuditNode(action);
+  const item = row.itemRef ? findItemByRef(row.itemRef) : null;
+  if (item) return readableToolItem(item);
+  return { matched: false, title: row.title || row.label || row.id, summary: row.subtitle || "", body: row.subtitle || "", command: "" };
+}
+
 function itemTitle(item) {
   if (item.type === "user-message") return "用户消息";
   if (item.type === "assistant-message") return item.phase === "final" ? "助手最终回复" : "助手消息";
-  if (item.type === "tool-call") return item.name ? `工具调用 · ${item.name}` : "工具调用";
-  if (item.type === "tool-output") return "工具输出";
+  if (item.type === "tool-call") {
+    const readable = readableToolItem(item);
+    return readable.matched ? readable.title : item.name ? `工具调用 · ${item.name}` : "工具调用";
+  }
+  if (item.type === "tool-output") {
+    const readable = readableToolItem(item);
+    return readable.matched ? readable.title : "工具输出";
+  }
   if (item.type === "reasoning") return "推理摘要";
   if (item.type === "token-count") return "Token 统计";
   return item.eventType || item.responseType || item.type;
@@ -4505,6 +4780,8 @@ function groupEventsByTurn(events) {
 }
 
 function humanEventTitle(event) {
+  const readable = window.ToolSummary ? window.ToolSummary.summarizeRawEvent(event, summaryRuleOptions()) : null;
+  if (readable?.matched && readable.title) return readable.title;
   const kind = event.kind || event.payloadType || event.type || "event";
   if (kind === "user_message") return "用户消息";
   if (kind === "agent_message") return "助手消息";

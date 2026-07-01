@@ -31,6 +31,7 @@
           <button class="ghost-button" id="refreshRemoteButton" type="button" hidden>刷新远程</button>
           <button class="ghost-button" id="copyMarkdownButton" type="button" disabled>复制 Markdown</button>
           <button class="primary-button" id="downloadMarkdownButton" type="button" disabled>下载 Markdown</button>
+          <button class="icon-button" id="settingsButton" type="button" title="摘要转换设置" aria-label="摘要转换设置">⚙</button>
           <button class="icon-button" id="toggleRight" type="button" title="切换检查器" aria-label="切换检查器">◫</button>
         </div>
       </header>
@@ -198,8 +199,45 @@
       </form>
     </dialog>
 
+    <dialog class="peer-dialog settings-dialog" id="settingsDialog">
+      <form class="peer-panel settings-panel" id="settingsForm" method="dialog">
+        <div class="peer-panel-header">
+          <div>
+            <p class="eyebrow">Readable Summary</p>
+            <h2>摘要转换设置</h2>
+          </div>
+          <button class="icon-button" id="closeSettingsDialogButton" type="button" title="关闭" aria-label="关闭">×</button>
+        </div>
+
+        <div class="settings-panel-body">
+          <section class="settings-section">
+            <div class="section-title-row">
+              <h3>自定义规则</h3>
+              <span class="muted">优先于内置规则</span>
+            </div>
+            <div class="summary-rule-list" id="summaryRuleList"></div>
+            <div class="settings-actions">
+              <button class="ghost-button" id="addSummaryRuleButton" type="button">新增规则</button>
+              <button class="ghost-button" id="resetSummaryRulesButton" type="button">清空自定义</button>
+              <button class="primary-button" id="saveSettingsButton" type="submit">保存</button>
+            </div>
+            <div class="source-status" id="settingsStatus">配置保存在当前浏览器本地。</div>
+          </section>
+
+          <section class="settings-section">
+            <div class="section-title-row">
+              <h3>内置规则</h3>
+              <span class="muted">只读参考</span>
+            </div>
+            <div class="default-rule-list" id="defaultSummaryRuleList"></div>
+          </section>
+        </div>
+      </form>
+    </dialog>
+
     <script src="./vendor/markdown-it.min.js" defer></script>
     <script src="./app-format.js" defer></script>
+    <script src="./tool-summary.js" defer></script>
     <script src="./app.js" defer></script>
   </body>
 </html>
