@@ -15,8 +15,10 @@ const state = {
   selectedEventIndex: null,
   selectedTraceNodeId: null,
   selectedAuditNodeId: null,
+  selectedAuditTurnKey: null,
   selectedTerminalBlockId: null,
   expandedTraceNodeIds: new Set(),
+  expandedAuditTurnKeys: new Set(),
   rawEventCache: new Map(),
   viewMode: "compact",
   sessionTimeFilter: "realtime",
@@ -343,8 +345,10 @@ async function selectSession(id) {
   state.selectedEventIndex = null;
   state.selectedTraceNodeId = null;
   state.selectedAuditNodeId = null;
+  state.selectedAuditTurnKey = null;
   state.selectedTerminalBlockId = null;
   state.expandedTraceNodeIds = new Set();
+  state.expandedAuditTurnKeys = new Set();
   state.rawEventCache = new Map();
   state.visibleEvents = 40;
   state.visibleThreadItems = 140;
@@ -374,8 +378,10 @@ function clearSelectedSession() {
   state.selectedEventIndex = null;
   state.selectedTraceNodeId = null;
   state.selectedAuditNodeId = null;
+  state.selectedAuditTurnKey = null;
   state.selectedTerminalBlockId = null;
   state.expandedTraceNodeIds = new Set();
+  state.expandedAuditTurnKeys = new Set();
   state.rawEventCache = new Map();
   els.copyMarkdownButton.disabled = true;
   els.downloadMarkdownButton.disabled = true;
@@ -658,6 +664,8 @@ function syncItemTypeFilterOptions() {
 function primeTraceExpansion(detail) {
   const root = detail?.trace?.root;
   state.expandedTraceNodeIds = new Set(root ? [root.id] : []);
+  const firstTurn = detail?.turns?.[0];
+  state.expandedAuditTurnKeys = new Set(firstTurn ? [auditTurnKey(firstTurn, 0)] : []);
 }
 
 function renderSessionList() {
@@ -1550,6 +1558,7 @@ function selectTerminalBlock(id) {
   state.selectedTerminalBlockId = id;
   state.selectedTraceNodeId = null;
   state.selectedAuditNodeId = null;
+  state.selectedAuditTurnKey = null;
   state.selectedEventIndex = null;
   state.selectedItemRef = block.itemRef || null;
   const item = block.item || findItemByRef(block.itemRef);
@@ -1578,54 +1587,49 @@ function jumpTerminalRole(role) {
 function renderAudit() {
   const detail = state.detail;
   if (!detail) {
-    els.auditContent.innerHTML = emptyState("选择一个会话", "Audit 视图串联意图、行动、证据、验证、风险和最终回复。");
+    els.auditContent.innerHTML = emptyState("选择一个会话", "Audit 视图按 Turn 聚合目标、执行链、证据、验证、风险和最终回复。");
     return;
   }
-  const audit = detail.audit || buildAuditFallback(detail);
-  const nodes = audit.nodes || [];
-  if (nodes.length === 0) {
+  const model = buildAuditTurnModel(detail);
+  const nodes = model.auditNodes;
+  if (nodes.length === 0 && model.turns.length === 0) {
     els.auditContent.innerHTML = emptyState("当前没有可展示审计链节点", "审计链依赖用户消息、工具调用、工具输出、验证动作和最终回复。");
     return;
   }
   const query = els.itemSearch.value.trim().toLowerCase();
   const typeFilter = els.itemTypeFilter.value;
-  const filtered = nodes.filter((node) => auditNodeMatches(node, query, typeFilter));
-  const counts = audit.counts || auditNodeCounts(nodes);
-  const filteredCounts = auditNodeCounts(filtered);
-  if (filtered.length === 0) {
+  const filters = { query, typeFilter };
+  const filteredTurns = model.turns.map((turn) => filterAuditTurnModel(turn, filters)).filter(Boolean);
+  const filteredUnplaced = model.unplacedAuditNodes.filter((node) => auditNodeMatches(node, query, typeFilter));
+  const filteredCounts = auditNodeCounts(nodes.filter((node) => auditNodeMatches(node, query, typeFilter)));
+  const counts = model.counts;
+  model.filteredTurnCount = filteredTurns.length;
+  const hasVisibleContent = filteredTurns.length > 0 || filteredUnplaced.length > 0;
+  if (!hasVisibleContent) {
     els.auditContent.innerHTML = `
       <div class="audit-shell">
-        ${renderAuditHead(detail, counts, filteredCounts, { query, typeFilter })}
-        ${emptyState("没有匹配的审计链节点", "调整内容搜索或类型过滤。")}
+        ${renderAuditHead(model, counts, filteredCounts, { query, typeFilter })}
+        ${emptyState("没有匹配的 Turn 审计单元", "调整内容搜索或类型过滤；Audit 会保留 Turn 上下文，不显示孤立风险列表。")}
       </div>
     `;
     return;
   }
   els.auditContent.innerHTML = `
     <div class="audit-shell">
-      ${renderAuditHead(detail, counts, filteredCounts, { query, typeFilter })}
-      <div class="audit-timeline" role="list">
-        ${filtered.map((node) => renderAuditNode(node, query)).join("")}
+      ${renderAuditHead(model, counts, filteredCounts, { query, typeFilter })}
+      <div class="audit-turn-list" role="list">
+        ${filteredTurns.map((turn) => renderAuditTurn(turn, { query, filtersActive: auditFiltersActive(filters) })).join("")}
+        ${filteredUnplaced.length ? renderAuditUnplacedSection(filteredUnplaced, query) : ""}
       </div>
     </div>
   `;
-  els.auditContent.querySelectorAll("[data-audit-node-id]").forEach((button) => {
-    button.addEventListener("click", (event) => {
-      if (event.target.closest("a, button:not([data-audit-node-id])")) return;
-      selectAuditNode(button.dataset.auditNodeId);
-    });
-    button.addEventListener("keydown", (event) => {
-      if (event.target.closest("a, button:not([data-audit-node-id])")) return;
-      if (event.key !== "Enter" && event.key !== " ") return;
-      event.preventDefault();
-      selectAuditNode(button.dataset.auditNodeId);
-    });
-  });
+  bindAuditInteractions();
 }
 
-function renderAuditHead(detail, counts, filteredCounts, filters = {}) {
+function renderAuditHead(model, counts, filteredCounts, filters = {}) {
   const filtered = Boolean(filters.query || (filters.typeFilter && filters.typeFilter !== "all"));
   const metrics = [
+    ["turn", "Turns", model.turns.length, model.filteredTurnCount ?? 0],
     ["intent", "意图", counts.intent || 0, filteredCounts.intent || 0],
     ["reasoning", "推理", counts.reasoning || 0, filteredCounts.reasoning || 0],
     ["action", "行动", counts.action || 0, filteredCounts.action || 0],
@@ -1638,8 +1642,12 @@ function renderAuditHead(detail, counts, filteredCounts, filters = {}) {
   return `
     <div class="audit-head">
       <div>
-        <p class="eyebrow">Audit Chain</p>
-        <h3 class="markdown-inline-title">${renderMarkdownTitle(detail.session?.title || "当前会话")}</h3>
+        <p class="eyebrow">Turn Audit Chain</p>
+        <h3 class="markdown-inline-title">${renderMarkdownTitle(model.detail.session?.title || "当前会话")}</h3>
+        <div class="audit-head-note">
+          ${model.hasTraceRoot ? "以 trace.root 投影执行链" : "缺少 trace.root，按 Turn item 提供有限执行复核"}
+          ${model.unplacedAuditNodes.length ? ` · ${model.unplacedAuditNodes.length} 个节点需 Raw 复核` : ""}
+        </div>
       </div>
       <div class="audit-summary" aria-label="审计链概览">
         ${metrics
@@ -1657,7 +1665,229 @@ function renderAuditHead(detail, counts, filteredCounts, filters = {}) {
   `;
 }
 
-function renderAuditNode(node, query) {
+function renderAuditTurn(turn, context = {}) {
+  const expanded = context.filtersActive || state.expandedAuditTurnKeys.has(turn.key);
+  const selected = state.selectedAuditTurnKey === turn.key ? " selected" : "";
+  const stats = turn.stats;
+  const verificationClass = auditVerificationClass(stats.verificationStatus);
+  const riskClass = stats.highestRisk === "none" ? "none" : stats.highestRisk;
+  const meta = [turn.turn?.status, formatDate(turn.turn?.startedAt), turn.turn?.cwd ? shortPath(turn.turn.cwd) : ""]
+    .filter(Boolean)
+    .join(" · ");
+  return `
+    <article class="audit-turn${selected}${expanded ? " expanded" : ""}" role="listitem" data-audit-turn-root="${escapeAttr(turn.key)}">
+      <div class="audit-turn-header">
+        <button class="audit-turn-toggle" type="button" data-audit-turn-toggle="${escapeAttr(turn.key)}" title="${expanded ? "收起 Turn" : "展开 Turn"}">
+          ${expanded ? "⌄" : "›"}
+        </button>
+        <button class="audit-turn-summary-button" type="button" data-audit-turn-key="${escapeAttr(turn.key)}">
+          <span class="audit-turn-main">
+            <span class="audit-turn-title">
+              <strong>Turn ${escapeHtml(String(turn.turnNumber))}</strong>
+              <span>${highlight(escapeHtml(turn.intentSummary), context.query)}</span>
+            </span>
+            <span class="audit-turn-result">${highlight(escapeHtml(turn.finalSummary), context.query)}</span>
+            <span class="audit-turn-meta">${escapeHtml(meta || "无时间元数据")}</span>
+          </span>
+          <span class="audit-turn-state">
+            <span class="audit-state-pill ${escapeAttr(verificationClass)}">${escapeHtml(stats.verificationStatus)}</span>
+            <span class="audit-state-pill risk-${escapeAttr(riskClass)}">${escapeHtml(stats.riskLabel)}</span>
+          </span>
+          <span class="audit-turn-metrics" aria-label="Turn 审计指标">
+            ${renderAuditTurnMetric("工具", stats.toolCount)}
+            ${renderAuditTurnMetric("子代理", stats.subagentCount)}
+            ${renderAuditTurnMetric("证据", stats.evidenceCount)}
+            ${renderAuditTurnMetric("缺口", stats.gapCount)}
+          </span>
+        </button>
+      </div>
+      ${
+        expanded
+          ? `<div class="audit-turn-expanded">
+              ${renderAuditExecutionSection(turn, context)}
+              ${renderAuditEvidenceSection(turn, context)}
+              ${turn.visibleUnlinkedAuditNodes.length ? renderAuditUnlinkedSection(turn.visibleUnlinkedAuditNodes, context.query) : ""}
+            </div>`
+          : ""
+      }
+    </article>
+  `;
+}
+
+function renderAuditTurnMetric(label, value) {
+  return `<span><strong>${escapeHtml(String(value ?? 0))}</strong><em>${escapeHtml(label)}</em></span>`;
+}
+
+function renderAuditExecutionSection(turn, context = {}) {
+  const rows = turn.visibleExecutionRows;
+  const emptyText = auditExecutionEmptyText(turn, context);
+  return `
+    <section class="audit-turn-section execution">
+      <div class="audit-section-title">
+        <strong>执行链</strong>
+        <span>${escapeHtml(rows.length ? `${rows.length} 个执行节点` : emptyText)}</span>
+      </div>
+      ${
+        rows.length
+          ? `<div class="audit-execution-list">${rows.map((row) => renderAuditExecutionRow(row, context.query)).join("")}</div>`
+          : `<div class="audit-section-empty">${escapeHtml(emptyText)}</div>`
+      }
+    </section>
+  `;
+}
+
+function renderAuditEvidenceSection(turn, context = {}) {
+  const nodes = turn.visibleAuditPhaseNodes || turn.visibleAuditEvidenceNodes;
+  const groups = auditPhaseGroups(turn, nodes);
+  return `
+    <section class="audit-turn-section evidence">
+      <div class="audit-section-title">
+        <strong>审计证据 / 闭环阶段</strong>
+        <span>${escapeHtml(nodes.length ? `${nodes.length} 个节点 · ${groups.filter((group) => group.nodes.length).length}/7 阶段` : "没有匹配的审计证据")}</span>
+      </div>
+      ${
+        nodes.length
+          ? `<div class="audit-phase-list">${groups.map((group) => renderAuditPhaseGroup(group, context.query)).join("")}</div>`
+          : `<div class="audit-section-empty">此 Turn 没有匹配的意图、证据、验证、风险、缺口或最终回复节点。</div>`
+      }
+    </section>
+  `;
+}
+
+function renderAuditPhaseGroup(group, query) {
+  const shown = group.nodes.slice(0, 4);
+  const more = group.nodes.length - shown.length;
+  return `
+    <div class="audit-phase-row phase-${escapeAttr(group.key)} state-${escapeAttr(group.state)}">
+      <div class="audit-phase-marker"><strong>${escapeHtml(group.index)}</strong></div>
+      <div class="audit-phase-head">
+        <strong>${escapeHtml(group.label)}</strong>
+        <span>${escapeHtml(group.caption)}</span>
+      </div>
+      <div class="audit-phase-body">
+        ${
+          shown.length
+            ? shown.map((node) => renderAuditPhaseNode(node, query)).join("")
+            : `<span class="audit-phase-empty">${escapeHtml(group.emptyText)}</span>`
+        }
+        ${more > 0 ? `<span class="audit-more-node">+${escapeHtml(String(more))}</span>` : ""}
+      </div>
+    </div>
+  `;
+}
+
+function renderAuditPhaseNode(node, query) {
+  const selected = state.selectedAuditNodeId === node.id ? " selected" : "";
+  const summary = firstLine(node.summary || node.outputPreview || node.argumentsPreview || "", 190);
+  const label = [auditTypeLabel(node.type), node.status, node.riskLevel && node.riskLevel !== "none" ? auditRiskLabel(node.riskLevel) : ""]
+    .filter(Boolean)
+    .join(" · ");
+  return `
+    <button class="audit-phase-node type-${escapeAttr(node.type)} risk-${escapeAttr(node.riskLevel || "none")}${selected}" type="button" data-audit-node-id="${escapeAttr(node.id)}">
+      <span>${escapeHtml(auditNodeGlyph(node.type))}</span>
+      <strong>${highlight(escapeHtml(firstLine(node.title || auditTypeLabel(node.type), 64)), query)}</strong>
+      <em>${escapeHtml(label)}</em>
+      ${summary ? `<small>${highlight(escapeHtml(summary), query)}</small>` : ""}
+    </button>
+  `;
+}
+
+function renderAuditUnlinkedSection(nodes, query) {
+  return `
+    <section class="audit-turn-section unlinked">
+      <div class="audit-section-title">
+        <strong>未关联 / Raw 复核</strong>
+        <span>${escapeHtml(`${nodes.length} 个节点无法可靠挂载到执行链`)}</span>
+      </div>
+      <div class="audit-evidence-list">${nodes.map((node) => renderAuditEvidenceNode(node, query)).join("")}</div>
+    </section>
+  `;
+}
+
+function renderAuditUnplacedSection(nodes, query) {
+  return `
+    <section class="audit-global-unlinked">
+      ${renderAuditUnlinkedSection(nodes, query)}
+    </section>
+  `;
+}
+
+function renderAuditExecutionRow(row, query) {
+  const selected =
+    (row.traceNodeId && state.selectedTraceNodeId === row.traceNodeId) ||
+    (!row.traceNodeId && row.itemRef && state.selectedItemRef === row.itemRef)
+      ? " selected"
+      : "";
+  const depth = Math.min(row.depth || 0, 5);
+  const duration = row.durationMs == null ? "" : `${formatDuration(row.durationMs)}${row.durationEstimated ? " est" : ""}`;
+  const meta = [traceTypeLabel(row.type), row.status, duration, formatDate(row.timestamp)].filter(Boolean).join(" · ");
+  const riskLevel = highestRiskLevel(row.auditNodes || []);
+  const statusNodes = auditExecutionStatusNodes(row.auditNodes || []);
+  const childGroups = auditExecutionChildGroups(statusNodes);
+  const subSummary = statusNodes
+    .filter((node) => node.type !== "action")
+    .slice(0, 2)
+    .map((node) => `${auditTypeLabel(node.type)}: ${node.summary || node.title || ""}`)
+    .filter(Boolean)
+    .join("；");
+  return `
+    <div class="audit-exec-row type-${escapeAttr(row.type)} risk-${escapeAttr(riskLevel)}${selected}" role="button" tabindex="0" data-audit-exec-node-id="${escapeAttr(row.id)}" style="--depth:${depth}">
+      <span class="audit-exec-indent" aria-hidden="true"></span>
+      <span class="trace-icon ${escapeAttr(row.icon || row.type)}">${traceIcon(row)}</span>
+      <span class="audit-exec-main">
+        <span class="audit-exec-title">
+          <strong>${highlight(escapeHtml(row.title || row.label || row.id), query)}</strong>
+          <em>${escapeHtml(meta)}</em>
+        </span>
+        ${subSummary ? `<span class="audit-exec-sub">${highlight(escapeHtml(firstLine(subSummary, 220)), query)}</span>` : ""}
+        ${statusNodes.length ? `<span class="audit-exec-badges">${statusNodes.slice(0, 6).map((node) => renderAuditNodeChip(node, query)).join("")}</span>` : ""}
+        ${childGroups.length ? `<div class="audit-exec-nested">${childGroups.map((group) => renderAuditExecutionChildGroup(group, query)).join("")}</div>` : ""}
+      </span>
+    </div>
+  `;
+}
+
+function renderAuditExecutionChildGroup(group, query) {
+  const shown = group.nodes.slice(0, 3);
+  const more = group.nodes.length - shown.length;
+  return `
+    <div class="audit-exec-child-group type-${escapeAttr(group.key)}">
+      <span class="audit-exec-child-label">
+        <strong>${escapeHtml(group.label)}</strong>
+        <em>${escapeHtml(String(group.nodes.length))}</em>
+      </span>
+      <span class="audit-exec-child-nodes">
+        ${shown.map((node) => renderAuditMiniNode(node, query)).join("")}
+        ${more > 0 ? `<span class="audit-more-node">+${escapeHtml(String(more))}</span>` : ""}
+      </span>
+    </div>
+  `;
+}
+
+function renderAuditMiniNode(node, query) {
+  const selected = state.selectedAuditNodeId === node.id ? " selected" : "";
+  const title = node.type === "risk" ? auditRiskLabel(node.riskLevel || "none") : node.title || auditTypeLabel(node.type);
+  const summary = firstLine(node.summary || node.outputPreview || node.argumentsPreview || "", 150);
+  return `
+    <button class="audit-mini-node type-${escapeAttr(node.type)} risk-${escapeAttr(node.riskLevel || "none")}${selected}" type="button" data-audit-node-id="${escapeAttr(node.id)}" title="${escapeAttr(summary || title)}">
+      <strong>${highlight(escapeHtml(firstLine(title, 42)), query)}</strong>
+      ${summary ? `<span>${highlight(escapeHtml(summary), query)}</span>` : ""}
+    </button>
+  `;
+}
+
+function renderAuditNodeChip(node, query) {
+  const selected = state.selectedAuditNodeId === node.id ? " selected" : "";
+  const label = node.type === "risk" ? auditRiskLabel(node.riskLevel || "none") : auditTypeLabel(node.type);
+  return `
+    <button class="audit-node-chip type-${escapeAttr(node.type)} risk-${escapeAttr(node.riskLevel || "none")}${selected}" type="button" data-audit-node-id="${escapeAttr(node.id)}" title="${escapeAttr(node.title || label)}">
+      <span>${escapeHtml(auditNodeGlyph(node.type))}</span>
+      ${highlight(escapeHtml(label), query)}
+    </button>
+  `;
+}
+
+function renderAuditEvidenceNode(node, query) {
   const selected = state.selectedAuditNodeId === node.id ? " selected" : "";
   const meta = [
     auditTypeLabel(node.type),
@@ -1672,31 +1902,624 @@ function renderAuditNode(node, query) {
     .join(" · ");
   const tags = (node.tags || []).slice(0, 4);
   return `
-    <button class="audit-node type-${escapeAttr(node.type)} risk-${escapeAttr(node.riskLevel || "none")}${selected}" type="button" role="listitem" data-audit-node-id="${escapeAttr(node.id)}">
-      <span class="audit-node-strip" aria-hidden="true"></span>
-      <span class="audit-node-kind">
-        <strong>${escapeHtml(auditNodeGlyph(node.type))}</strong>
-        <em>${escapeHtml(auditTypeLabel(node.type))}</em>
-      </span>
-      <span class="audit-node-main">
-        <span class="audit-node-title">
+    <button class="audit-evidence-node type-${escapeAttr(node.type)} risk-${escapeAttr(node.riskLevel || "none")}${selected}" type="button" data-audit-node-id="${escapeAttr(node.id)}">
+      <span class="audit-evidence-kind">${escapeHtml(auditNodeGlyph(node.type))}</span>
+      <span class="audit-evidence-main">
+        <span class="audit-evidence-title">
           <strong>${highlight(escapeHtml(node.title || auditTypeLabel(node.type)), query)}</strong>
-          ${node.riskLevel && node.riskLevel !== "none" ? `<span class="audit-risk-label">${escapeHtml(auditRiskLabel(node.riskLevel))}</span>` : ""}
+          ${node.riskLevel && node.riskLevel !== "none" ? `<em>${escapeHtml(auditRiskLabel(node.riskLevel))}</em>` : ""}
         </span>
-        <span class="audit-node-summary">${highlight(escapeHtml(node.summary || ""), query)}</span>
-        <span class="audit-node-tags">
+        <span class="audit-evidence-summary">${highlight(escapeHtml(node.summary || ""), query)}</span>
+        <span class="audit-evidence-tags">
           ${tags.map((tag) => `<span>${highlight(escapeHtml(tag), query)}</span>`).join("")}
         </span>
       </span>
-      <span class="audit-node-meta">${escapeHtml(meta)}</span>
+      <span class="audit-evidence-meta">${escapeHtml(meta)}</span>
     </button>
   `;
+}
+
+function buildAuditTurnModel(detail) {
+  const audit = detail.audit || buildAuditFallback(detail);
+  const auditNodes = audit.nodes || [];
+  const turnModels = (detail.turns || []).map((turn, index) => buildAuditTurnProjection(detail, turn, index, auditNodes));
+  const knownTurnIndexes = new Set(turnModels.map((turn) => turn.turnIndex));
+  const unplacedAuditNodes = auditNodes.filter((node) => !knownTurnIndexes.has(auditNodeTurnIndex(node)));
+  const model = {
+    detail,
+    audit,
+    auditNodes,
+    counts: audit.counts || auditNodeCounts(auditNodes),
+    turns: turnModels,
+    unplacedAuditNodes,
+    hasTraceRoot: Boolean(detail.trace?.root),
+    filteredTurnCount: turnModels.length,
+  };
+  return model;
+}
+
+function buildAuditTurnProjection(detail, turn, turnIndex, auditNodes) {
+  const key = auditTurnKey(turn, turnIndex);
+  const turnNumber = turn.turnNumber ?? turnIndex + 1;
+  const turnAuditNodes = auditNodes.filter((node) => auditNodeTurnIndex(node) === turnIndex);
+  const executionRows = buildAuditExecutionRows(detail, turn, turnIndex);
+  const rowByTraceId = new Map(executionRows.filter((row) => row.traceNodeId).map((row) => [row.traceNodeId, row]));
+  const rowByItemRef = new Map(executionRows.filter((row) => row.itemRef).map((row) => [row.itemRef, row]));
+  const linkedNodeIds = new Set();
+  const unlinkedAuditNodes = [];
+
+  for (const node of turnAuditNodes) {
+    const row = (node.traceNodeId && rowByTraceId.get(node.traceNodeId)) || (node.itemRef && rowByItemRef.get(node.itemRef));
+    if (row && auditNodeCanAttachToExecution(node)) {
+      row.auditNodes.push(node);
+      linkedNodeIds.add(node.id);
+    } else if (auditNodeNeedsExecutionMount(node)) {
+      unlinkedAuditNodes.push(node);
+    }
+  }
+
+  const auditEvidenceNodes = turnAuditNodes.filter((node) => {
+    if (node.type === "action") return false;
+    if (unlinkedAuditNodes.some((candidate) => candidate.id === node.id)) return false;
+    return true;
+  });
+  const intentSummary = auditTurnIntentSummary(turn, turnAuditNodes);
+  const finalSummary = auditTurnFinalSummary(turn, turnAuditNodes);
+  const stats = auditTurnStats(turn, executionRows, turnAuditNodes, unlinkedAuditNodes);
+
+  return {
+    key,
+    turn,
+    turnIndex,
+    turnNumber,
+    intentSummary,
+    finalSummary,
+    auditNodes: turnAuditNodes,
+    auditEvidenceNodes,
+    unlinkedAuditNodes,
+    executionRows,
+    linkedNodeIds,
+    stats,
+    visibleExecutionRows: executionRows,
+    visibleAuditEvidenceNodes: auditEvidenceNodes,
+    visibleAuditPhaseNodes: turnAuditNodes,
+    visibleUnlinkedAuditNodes: unlinkedAuditNodes,
+  };
+}
+
+function buildAuditExecutionRows(detail, turn, turnIndex) {
+  const rows = [];
+  const seen = new Set();
+  const traceTurn = traceTurnNodeForIndex(detail.trace?.root, turnIndex);
+  if (traceTurn) {
+    for (const row of flattenAuditExecutionRows(traceTurn.children || [], 0)) {
+      const key = row.traceNodeId || row.itemRef || row.id;
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      rows.push(row);
+    }
+  }
+  if (!rows.length) {
+    for (const item of turn.items || []) {
+      if (item.type !== "tool-call") continue;
+      const row = auditExecutionRowFromItem(item, turnIndex);
+      const key = row.traceNodeId || row.itemRef || row.id;
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      rows.push(row);
+    }
+  }
+  return rows;
+}
+
+function flattenAuditExecutionRows(nodes, depth) {
+  const rows = [];
+  for (const node of nodes || []) {
+    const isExecution = auditTraceNodeIsExecution(node);
+    if (isExecution) rows.push(auditExecutionRowFromTraceNode(node, depth));
+    rows.push(...flattenAuditExecutionRows(node.children || [], isExecution ? depth + 1 : depth));
+  }
+  return rows;
+}
+
+function auditTraceNodeIsExecution(node) {
+  return ["tool", "handoff", "subagent", "lazy-child"].includes(node?.type);
+}
+
+function auditExecutionRowFromTraceNode(node, depth = 0) {
+  const item = node.detail?.item || {};
+  return {
+    id: node.id,
+    traceNodeId: node.id,
+    itemRef: itemRefFromTraceNode(node),
+    type: node.type,
+    icon: node.icon || node.type,
+    label: node.label,
+    title: node.title || item.name || node.label || node.id,
+    subtitle: node.subtitle || "",
+    status: node.status || item.status || "",
+    timestamp: node.timestamp || item.timestamp || null,
+    completedAt: node.completedAt || item.completedAt || null,
+    durationMs: node.durationMs,
+    durationEstimated: node.durationEstimated,
+    depth,
+    auditNodes: [],
+  };
+}
+
+function auditExecutionRowFromItem(item, turnIndex) {
+  const itemIndex = item.itemIndex ?? 0;
+  const isHandoff = ["spawn_agent", "wait_agent", "handoff"].includes(item.name);
+  return {
+    id: `item:${turnIndex}:${itemIndex}:${item.id || item.type}`,
+    traceNodeId: `item:${turnIndex}:${itemIndex}:${item.id || item.type}`,
+    itemRef: itemRef(item),
+    type: isHandoff ? "handoff" : "tool",
+    icon: isHandoff ? "handoff" : "tool",
+    label: isHandoff ? "Handoff" : "Tool call",
+    title: item.name || item.callId || "tool",
+    subtitle: [item.status, formatDate(item.timestamp)].filter(Boolean).join(" · "),
+    status: item.status || "",
+    timestamp: item.timestamp || null,
+    completedAt: item.completedAt || null,
+    durationMs: durationBetween(item.timestamp, item.completedAt),
+    durationEstimated: !item.completedAt,
+    depth: 0,
+    auditNodes: [],
+  };
+}
+
+function traceTurnNodeForIndex(root, turnIndex) {
+  if (!root) return null;
+  const turns = (root.children || []).filter((node) => node.type === "turn");
+  return turns[turnIndex] || null;
+}
+
+function itemRefFromTraceNode(node) {
+  const match = String(node?.id || "").match(/^item:(\d+):(\d+):/);
+  const type = node?.detail?.item?.type;
+  if (!match || !type) return null;
+  return `${match[1]}:${match[2]}:${type}`;
+}
+
+function auditTurnKey(turn, index) {
+  return `turn:${turn?.id || index}:${index}`;
+}
+
+function auditNodeTurnIndex(node) {
+  if (Number.isInteger(node?.turnIndex)) return node.turnIndex;
+  if (Number.isInteger(node?.turnNumber)) return node.turnNumber - 1;
+  return null;
+}
+
+function auditNodeCanAttachToExecution(node) {
+  return ["action", "evidence", "verification", "risk", "incomplete"].includes(node?.type);
+}
+
+function auditNodeNeedsExecutionMount(node) {
+  if (!auditNodeCanAttachToExecution(node)) return false;
+  return Boolean(node.traceNodeId || node.itemRef || node.toolName || node.callId || node.type === "action");
+}
+
+function auditTurnIntentSummary(turn, nodes) {
+  const intent = nodes.find((node) => node.type === "intent" && node.summary);
+  if (intent) return firstLine(intent.summary, 180);
+  const user = (turn.items || []).find((item) => item.type === "user-message" && String(item.text || "").trim());
+  return user ? firstLine(user.text, 180) : "无明确用户意图";
+}
+
+function auditTurnFinalSummary(turn, nodes) {
+  const final = [...nodes].reverse().find((node) => node.type === "final" && node.summary);
+  if (final) return firstLine(final.summary, 190);
+  const assistant = [...(turn.items || [])].reverse().find((item) => item.type === "assistant-message" && String(item.text || "").trim());
+  return assistant ? firstLine(assistant.text, 190) : "尚无最终回复";
+}
+
+function auditTurnStats(turn, executionRows, nodes, unlinkedAuditNodes) {
+  const highestRisk = highestRiskLevel(nodes);
+  const riskCount = nodes.filter((node) => node.type === "risk" || (node.riskLevel && node.riskLevel !== "none")).length;
+  const verificationNodes = nodes.filter((node) => node.type === "verification");
+  const gapCount = nodes.filter(auditNodeIsGap).length + unlinkedAuditNodes.filter((node) => !auditNodeIsGap(node)).length;
+  return {
+    toolCount: executionRows.filter((row) => row.type === "tool" || row.type === "handoff").length,
+    subagentCount: executionRows.filter((row) => row.type === "subagent").length,
+    evidenceCount: nodes.filter((node) => node.type === "evidence").length,
+    gapCount,
+    highestRisk,
+    riskCount,
+    riskLabel: riskCount ? `${auditRiskLabel(highestRisk)} · ${riskCount}` : "无风险信号",
+    verificationStatus: auditVerificationStatus(verificationNodes, nodes),
+  };
+}
+
+function auditNodeIsGap(node) {
+  const tags = node.tags || [];
+  return (
+    node.type === "incomplete" ||
+    node.status === "needs-raw" ||
+    tags.includes("missing-output") ||
+    tags.includes("missing-verification") ||
+    tags.includes("truncated")
+  );
+}
+
+function auditVerificationStatus(verificationNodes, nodes) {
+  if (!verificationNodes.length) {
+    return nodes.some((node) => (node.tags || []).includes("missing-verification")) ? "缺少验证" : "未验证";
+  }
+  if (verificationNodes.some((node) => node.status === "failed" || (node.riskLevel && node.riskLevel !== "none"))) return "验证不足";
+  if (verificationNodes.some((node) => node.status === "truncated" || node.truncated)) return "验证需复核";
+  return "已验证";
+}
+
+function auditVerificationClass(status) {
+  if (status === "已验证") return "verified";
+  if (status === "验证不足" || status === "缺少验证") return "failed";
+  if (status === "验证需复核") return "review";
+  return "none";
+}
+
+function highestRiskLevel(nodes) {
+  return (nodes || []).reduce((level, node) => maxAuditRisk(level, node.riskLevel || (node.type === "risk" ? "low" : "none")), "none");
+}
+
+function maxAuditRisk(left, right) {
+  const rank = { none: 0, low: 1, medium: 2, high: 3 };
+  return (rank[right] || 0) > (rank[left] || 0) ? right : left;
+}
+
+function auditExecutionStatusNodes(nodes) {
+  const order = { action: 0, evidence: 1, verification: 2, incomplete: 3, risk: 4 };
+  return [...(nodes || [])].sort((left, right) => (order[left.type] ?? 9) - (order[right.type] ?? 9));
+}
+
+function auditExecutionChildGroups(nodes) {
+  const specs = [
+    ["action", "行动"],
+    ["evidence", "输出证据"],
+    ["verification", "验证"],
+    ["risk", "风险"],
+    ["incomplete", "缺口"],
+  ];
+  return specs
+    .map(([key, label]) => ({
+      key,
+      label,
+      nodes: (nodes || []).filter((node) => node.type === key),
+    }))
+    .filter((group) => group.nodes.length > 0);
+}
+
+function auditPhaseGroups(turn, nodes) {
+  const source = nodes || [];
+  const specs = [
+    {
+      key: "intent",
+      index: "1",
+      label: "目标",
+      caption: "用户要做什么",
+      emptyText: "没有明确意图节点",
+      types: ["intent"],
+    },
+    {
+      key: "reasoning",
+      index: "2",
+      label: "推理",
+      caption: "过程判断和中间说明",
+      emptyText: "没有可展示推理摘要",
+      types: ["reasoning"],
+    },
+    {
+      key: "action",
+      index: "3",
+      label: "执行",
+      caption: "工具、命令和委派动作",
+      emptyText: turn.visibleExecutionRows?.length ? "执行动作在左侧执行链中展示" : "没有工具调用",
+      types: ["action"],
+    },
+    {
+      key: "evidence",
+      index: "4",
+      label: "证据",
+      caption: "工具输出和可追溯事实",
+      emptyText: "没有输出证据",
+      types: ["evidence"],
+    },
+    {
+      key: "verification",
+      index: "5",
+      label: "验证",
+      caption: "测试、检查、构建或健康检查",
+      emptyText: "没有验证节点",
+      types: ["verification"],
+    },
+    {
+      key: "risk-gap",
+      index: "6",
+      label: "风险 / 缺口",
+      caption: "失败、截断、缺输出或需 Raw 复核",
+      emptyText: "没有风险或缺口信号",
+      types: ["risk", "incomplete"],
+    },
+    {
+      key: "final",
+      index: "7",
+      label: "结论",
+      caption: "最终回复是否被前面证据支撑",
+      emptyText: "没有最终回复节点",
+      types: ["final"],
+    },
+  ];
+  return specs.map((spec) => {
+    const groupNodes = source.filter((node) => spec.types.includes(node.type));
+    return {
+      ...spec,
+      nodes: groupNodes,
+      state: auditPhaseState(spec, groupNodes, turn),
+    };
+  });
+}
+
+function auditPhaseState(spec, nodes, turn) {
+  if (nodes.some((node) => node.type === "risk" || node.riskLevel === "high" || node.status === "failed")) return "risk";
+  if (nodes.some((node) => node.type === "incomplete" || node.status === "needs-raw" || node.truncated)) return "gap";
+  if (spec.key === "verification" && turn.stats?.verificationStatus !== "已验证") return "gap";
+  if (nodes.length > 0) return "filled";
+  return "empty";
+}
+
+function auditExecutionEmptyText(turn, context = {}) {
+  if (context.filtersActive && turn.executionRows.length) return "当前搜索或类型过滤没有匹配执行节点";
+  return "此 Turn 没有工具、handoff 或子代理调用";
+}
+
+function auditFiltersActive(filters = {}) {
+  return Boolean(filters.query || (filters.typeFilter && filters.typeFilter !== "all"));
+}
+
+function filterAuditTurnModel(turn, filters = {}) {
+  if (!auditFiltersActive(filters)) return turn;
+  const query = filters.query || "";
+  const typeFilter = filters.typeFilter || "all";
+  const matchingRows = turn.executionRows.filter((row) => auditExecutionRowMatches(row, query, typeFilter));
+  const matchingPhaseNodes = turn.auditNodes.filter((node) => auditNodeMatches(node, query, typeFilter));
+  const matchingNodes = turn.auditEvidenceNodes.filter((node) => auditNodeMatches(node, query, typeFilter));
+  const matchingUnlinked = turn.unlinkedAuditNodes.filter((node) => auditNodeMatches(node, query, typeFilter));
+  const rowContextIds = new Set(matchingRows.map((row) => row.id));
+  const nodeContextIds = new Set(matchingNodes.map((node) => node.id));
+  for (const row of matchingRows) {
+    for (const node of row.auditNodes || []) {
+      if (node.type !== "action") nodeContextIds.add(node.id);
+    }
+  }
+  for (const node of [...matchingNodes, ...matchingUnlinked]) {
+    const row = turn.executionRows.find((candidate) => candidate.auditNodes.some((auditNode) => auditNode.id === node.id));
+    if (row) rowContextIds.add(row.id);
+  }
+  const visibleExecutionRows = turn.executionRows.filter((row) => rowContextIds.has(row.id));
+  const visibleEvidenceNodes = turn.auditEvidenceNodes.filter((node) => nodeContextIds.has(node.id));
+  const visiblePhaseNodeIds = new Set([...matchingPhaseNodes.map((node) => node.id), ...visibleEvidenceNodes.map((node) => node.id)]);
+  for (const row of visibleExecutionRows) {
+    for (const node of row.auditNodes || []) visiblePhaseNodeIds.add(node.id);
+  }
+  for (const node of matchingUnlinked) visiblePhaseNodeIds.add(node.id);
+  const visiblePhaseNodes = turn.auditNodes.filter((node) => visiblePhaseNodeIds.has(node.id));
+  const summaryMatches = auditTurnSearchText(turn).includes(query) && auditTurnMatchesType(turn, typeFilter);
+  if (!summaryMatches && !visibleExecutionRows.length && !matchingNodes.length && !matchingUnlinked.length) return null;
+  return {
+    ...turn,
+    visibleExecutionRows: summaryMatches && typeFilter === "all" ? turn.executionRows : visibleExecutionRows,
+    visibleAuditEvidenceNodes: summaryMatches && !matchingNodes.length && typeFilter === "all" ? turn.auditEvidenceNodes : visibleEvidenceNodes,
+    visibleAuditPhaseNodes: summaryMatches && typeFilter === "all" ? turn.auditNodes : visiblePhaseNodes,
+    visibleUnlinkedAuditNodes: matchingUnlinked,
+  };
+}
+
+function auditExecutionRowMatches(row, query, typeFilter) {
+  const haystack = auditExecutionSearchText(row);
+  const queryMatches = !query || haystack.includes(query);
+  const typeMatches =
+    typeFilter === "all" ||
+    (typeFilter === "action" && (row.type === "tool" || row.type === "handoff")) ||
+    row.auditNodes.some((node) => auditNodeMatches(node, "", typeFilter));
+  return queryMatches && typeMatches;
+}
+
+function auditExecutionSearchText(row) {
+  return [
+    row.id,
+    row.traceNodeId,
+    row.itemRef,
+    row.type,
+    row.label,
+    row.title,
+    row.subtitle,
+    row.status,
+    ...(row.auditNodes || []).map(auditNodeSearchText),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function auditTurnMatchesType(turn, typeFilter) {
+  if (typeFilter === "all") return true;
+  if (typeFilter === "action") return turn.executionRows.length > 0;
+  return turn.auditNodes.some((node) => node.type === typeFilter);
+}
+
+function auditTurnSearchText(turn) {
+  return [
+    turn.key,
+    turn.turnNumber,
+    turn.intentSummary,
+    turn.finalSummary,
+    turn.turn?.status,
+    turn.turn?.cwd,
+    turn.stats?.verificationStatus,
+    turn.stats?.riskLabel,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function bindAuditInteractions() {
+  els.auditContent.querySelectorAll("[data-audit-turn-toggle]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleAuditTurn(button.dataset.auditTurnToggle);
+    });
+  });
+  els.auditContent.querySelectorAll("[data-audit-turn-key]").forEach((button) => {
+    button.addEventListener("click", () => selectAuditTurn(button.dataset.auditTurnKey));
+  });
+  els.auditContent.querySelectorAll("[data-audit-exec-node-id]").forEach((row) => {
+    row.addEventListener("click", (event) => {
+      if (event.target.closest("[data-audit-node-id]")) return;
+      selectAuditExecutionNode(row.dataset.auditExecNodeId);
+    });
+    row.addEventListener("keydown", (event) => {
+      if (event.target.closest("[data-audit-node-id]")) return;
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      selectAuditExecutionNode(row.dataset.auditExecNodeId);
+    });
+  });
+  els.auditContent.querySelectorAll("[data-audit-node-id]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      selectAuditNode(button.dataset.auditNodeId);
+    });
+    button.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      event.stopPropagation();
+      selectAuditNode(button.dataset.auditNodeId);
+    });
+  });
+}
+
+function toggleAuditTurn(key) {
+  if (!key) return;
+  if (state.expandedAuditTurnKeys.has(key)) {
+    state.expandedAuditTurnKeys.delete(key);
+  } else {
+    state.expandedAuditTurnKeys.add(key);
+  }
+  renderAudit();
+}
+
+function selectAuditTurn(key) {
+  const turn = findAuditTurn(key);
+  if (!turn) return;
+  state.selectedAuditTurnKey = key;
+  state.selectedTraceNodeId = null;
+  state.selectedAuditNodeId = null;
+  state.selectedItemRef = null;
+  state.selectedEventIndex = null;
+  state.selectedTerminalBlockId = null;
+  els.selectedEventLabel.textContent = `Turn ${turn.turnNumber} 审计摘要`;
+  els.rawPreview.textContent = JSON.stringify(auditTurnDebugPreview(turn), null, 2);
+  els.inspectorActions.innerHTML = "";
+  els.copyRawButton.disabled = false;
+  renderInspector();
+  renderSelectionDetails();
+  markAuditSelection();
+}
+
+function selectAuditExecutionNode(id) {
+  const row = findAuditExecutionRow(id);
+  if (!row) return;
+  state.selectedAuditTurnKey = null;
+  if (row.traceNodeId && findTraceNode(state.detail?.trace?.root, row.traceNodeId)) {
+    selectTraceNode(row.traceNodeId);
+  } else if (row.itemRef) {
+    selectItemRef(row.itemRef);
+  }
+  markAuditSelection();
+}
+
+function findAuditTurn(key) {
+  return buildAuditTurnModel(state.detail).turns.find((turn) => turn.key === key) || null;
+}
+
+function findAuditExecutionRow(id) {
+  for (const turn of buildAuditTurnModel(state.detail).turns) {
+    const row = turn.executionRows.find((candidate) => candidate.id === id);
+    if (row) return row;
+  }
+  return null;
+}
+
+function auditTurnDebugPreview(turn) {
+  return {
+    turn: {
+      key: turn.key,
+      turnNumber: turn.turnNumber,
+      status: turn.turn?.status || null,
+      startedAt: turn.turn?.startedAt || null,
+      completedAt: turn.turn?.completedAt || null,
+      cwd: turn.turn?.cwd || null,
+    },
+    intentSummary: turn.intentSummary,
+    finalSummary: turn.finalSummary,
+    stats: turn.stats,
+    executionRows: turn.executionRows.map((row) => ({
+      id: row.id,
+      traceNodeId: row.traceNodeId,
+      itemRef: row.itemRef,
+      type: row.type,
+      title: row.title,
+      status: row.status,
+      auditNodeIds: row.auditNodes.map((node) => node.id),
+    })),
+    auditNodes: turn.auditNodes.map((node) => ({
+      id: node.id,
+      type: node.type,
+      title: node.title,
+      status: node.status,
+      riskLevel: node.riskLevel,
+      traceNodeId: node.traceNodeId,
+      itemRef: node.itemRef,
+    })),
+    unlinkedAuditNodeIds: turn.unlinkedAuditNodes.map((node) => node.id),
+  };
+}
+
+function markAuditSelection() {
+  if (!els.auditContent) return;
+  els.auditContent.querySelectorAll(".audit-turn.selected").forEach((row) => row.classList.remove("selected"));
+  els.auditContent.querySelectorAll(".audit-exec-row.selected").forEach((row) => row.classList.remove("selected"));
+  els.auditContent.querySelectorAll(".audit-evidence-node.selected, .audit-node-chip.selected").forEach((row) => row.classList.remove("selected"));
+  if (state.selectedAuditTurnKey) {
+    els.auditContent.querySelector(`[data-audit-turn-root="${cssEscape(state.selectedAuditTurnKey)}"]`)?.classList.add("selected");
+  }
+  if (state.selectedTraceNodeId) {
+    els.auditContent.querySelector(`[data-audit-exec-node-id="${cssEscape(state.selectedTraceNodeId)}"]`)?.classList.add("selected");
+  }
+  if (state.selectedItemRef) {
+    const row = findAuditExecutionRowByItemRef(state.selectedItemRef);
+    if (row) els.auditContent.querySelector(`[data-audit-exec-node-id="${cssEscape(row.id)}"]`)?.classList.add("selected");
+  }
+  if (state.selectedAuditNodeId) {
+    els.auditContent.querySelectorAll(`[data-audit-node-id="${cssEscape(state.selectedAuditNodeId)}"]`).forEach((row) => row.classList.add("selected"));
+  }
+}
+
+function findAuditExecutionRowByItemRef(ref) {
+  for (const turn of buildAuditTurnModel(state.detail).turns) {
+    const row = turn.executionRows.find((candidate) => candidate.itemRef === ref);
+    if (row) return row;
+  }
+  return null;
 }
 
 function selectAuditNode(id) {
   const node = findAuditNode(id);
   if (!node) return;
   state.selectedAuditNodeId = id;
+  state.selectedAuditTurnKey = null;
   state.selectedTraceNodeId = null;
   state.selectedTerminalBlockId = null;
   state.selectedItemRef = null;
@@ -1707,9 +2530,7 @@ function selectAuditNode(id) {
   renderInspector();
   renderSelectionDetails();
   els.copyRawButton.disabled = false;
-  els.auditContent.querySelectorAll(".audit-node.selected").forEach((row) => row.classList.remove("selected"));
-  const active = els.auditContent.querySelector(`[data-audit-node-id="${cssEscape(id)}"]`);
-  active?.classList.add("selected");
+  markAuditSelection();
 }
 
 function renderAuditActions(node) {
@@ -1818,14 +2639,15 @@ function locateRelatedAuditNode(node) {
     state.viewMode = "audit";
     syncItemTypeFilterOptions();
   }
-  if (!auditNodeMatches(target, els.itemSearch.value.trim().toLowerCase(), els.itemTypeFilter.value)) {
-    els.itemSearch.value = "";
-    els.itemTypeFilter.value = target.type;
-  }
   renderMainContent();
   selectAuditNode(target.id);
   window.setTimeout(() => {
-    els.auditContent.querySelector(`[data-audit-node-id="${cssEscape(target.id)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const active = els.auditContent.querySelector(`[data-audit-node-id="${cssEscape(target.id)}"]`);
+    if (active) {
+      active.scrollIntoView({ behavior: "smooth", block: "center" });
+    } else {
+      showToast("关联节点已在右侧显示；当前搜索或过滤隐藏了它");
+    }
   }, 0);
 }
 
@@ -2035,7 +2857,6 @@ function renderRawViewEventRow(event) {
 
 async function openRawEventFromAudit(index) {
   state.viewMode = "raw";
-  els.itemTypeFilter.value = "all";
   state.selectedEventIndex = index;
   renderMainContent();
   await selectRawViewEvent(index);
@@ -2415,6 +3236,7 @@ async function selectRawEvent(index, { rerender = true } = {}) {
   state.selectedItemRef = null;
   state.selectedTerminalBlockId = null;
   state.selectedAuditNodeId = null;
+  state.selectedAuditTurnKey = null;
   els.inspectorActions.innerHTML = "";
   state.selectedEventIndex = index;
   const event = state.detail?.events.find((candidate) => candidate.index === index);
@@ -2453,6 +3275,7 @@ function selectTraceNode(id) {
   state.selectedItemRef = null;
   state.selectedTerminalBlockId = null;
   state.selectedAuditNodeId = null;
+  state.selectedAuditTurnKey = null;
   els.selectedEventLabel.textContent = traceNodeLabel(node);
   els.rawPreview.textContent = JSON.stringify(traceNodePreview(node), null, 2);
   renderTraceActions(node);
@@ -2461,6 +3284,7 @@ function selectTraceNode(id) {
   els.traceContent.querySelectorAll(".trace-row.selected").forEach((row) => row.classList.remove("selected"));
   const active = els.traceContent.querySelector(`[data-trace-node-id="${cssEscape(id)}"]`);
   active?.classList.add("selected");
+  markAuditSelection();
 }
 
 function renderTraceActions(node) {
@@ -2481,6 +3305,7 @@ function selectItemRef(ref) {
   state.selectedItemRef = ref;
   state.selectedTraceNodeId = null;
   state.selectedAuditNodeId = null;
+  state.selectedAuditTurnKey = null;
   state.selectedEventIndex = null;
   state.selectedTerminalBlockId = null;
   const item = findItemByRef(ref);
@@ -2509,6 +3334,12 @@ function renderSelectionDetails() {
   if (state.selectedAuditNodeId) {
     const node = findAuditNode(state.selectedAuditNodeId);
     els.selectionDetails.innerHTML = node ? renderAuditSelection(node) : emptyInspectorSection("选中内容", "Audit 节点不存在。");
+    bindSelectionActions();
+    return;
+  }
+  if (state.selectedAuditTurnKey) {
+    const turn = findAuditTurn(state.selectedAuditTurnKey);
+    els.selectionDetails.innerHTML = turn ? renderAuditTurnSelection(turn) : emptyInspectorSection("选中内容", "Turn 审计摘要不存在。");
     bindSelectionActions();
     return;
   }
@@ -2564,6 +3395,27 @@ function renderAuditSelection(node) {
     rows,
     body: body ? firstLine(body, 1100) : "",
     actions: auditSelectionActions(node),
+  });
+}
+
+function renderAuditTurnSelection(turn) {
+  const rows = [
+    ["Turn", String(turn.turnNumber)],
+    ["验证状态", turn.stats.verificationStatus],
+    ["最高风险", turn.stats.riskLabel],
+    ["工具调用", String(turn.stats.toolCount)],
+    ["子代理", String(turn.stats.subagentCount)],
+    ["证据", String(turn.stats.evidenceCount)],
+    ["缺口", String(turn.stats.gapCount)],
+  ];
+  const body = [`目标：${turn.intentSummary}`, `结果：${turn.finalSummary}`].join("\n");
+  return renderSelectionCard({
+    eyebrow: "Turn 审计摘要",
+    title: `Turn ${turn.turnNumber}`,
+    meta: [turn.stats.verificationStatus, turn.stats.riskLabel].filter(Boolean).join(" · "),
+    rows,
+    body,
+    actions: auditTurnSelectionActions(turn),
   });
 }
 
@@ -2706,6 +3558,10 @@ function currentSelectionActions() {
     const node = findAuditNode(state.selectedAuditNodeId);
     return node ? auditSelectionActions(node) : [];
   }
+  if (state.selectedAuditTurnKey) {
+    const turn = findAuditTurn(state.selectedAuditTurnKey);
+    return turn ? auditTurnSelectionActions(turn) : [];
+  }
   if (state.selectedItemRef) {
     const item = findItemByRef(state.selectedItemRef);
     return item ? itemSelectionActions(item) : [];
@@ -2735,6 +3591,13 @@ function auditSelectionActions(node) {
   if (node.traceNodeId) actions.push({ label: "查看执行节点", action: "open-trace-node", id: node.traceNodeId });
   if (node.relatedNodeId) actions.unshift({ label: "定位关联节点", action: "open-audit-node", node });
   return actions;
+}
+
+function auditTurnSelectionActions(turn) {
+  return [
+    { label: "复制摘要", copy: `Turn ${turn.turnNumber}\n目标：${turn.intentSummary}\n结果：${turn.finalSummary}`, toast: "已复制 Turn 审计摘要" },
+    { label: "复制 JSON", action: "copy-debug" },
+  ];
 }
 
 function traceSelectionActions(node, body = "") {
@@ -2774,6 +3637,13 @@ async function copySelectedRawEvent() {
     if (!node) return;
     await copyText(JSON.stringify(auditNodeDebugPreview(node), null, 2));
     showToast("已复制 Audit 节点");
+    return;
+  }
+  if (state.selectedAuditTurnKey) {
+    const turn = findAuditTurn(state.selectedAuditTurnKey);
+    if (!turn) return;
+    await copyText(JSON.stringify(auditTurnDebugPreview(turn), null, 2));
+    showToast("已复制 Turn 审计摘要");
     return;
   }
   if (state.selectedItemRef) {
@@ -3081,6 +3951,7 @@ function traceTypeLabel(type) {
   if (type === "tool") return "工具";
   if (type === "handoff") return "委派";
   if (type === "subagent") return "子代理";
+  if (type === "lazy-child") return "子会话";
   if (type === "message") return "消息";
   if (type === "reasoning") return "推理";
   if (type === "metric") return "指标";
