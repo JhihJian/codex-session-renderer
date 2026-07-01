@@ -27,6 +27,8 @@ const state = {
   visibleRawEvents: 240,
   reviewTab: "summary",
   summaryRules: [],
+  executionGroupRules: [],
+  expandedAuditGroupIds: new Set(),
 };
 
 const {
@@ -116,8 +118,12 @@ const els = {
   closeSettingsDialogButton: document.getElementById("closeSettingsDialogButton"),
   summaryRuleList: document.getElementById("summaryRuleList"),
   defaultSummaryRuleList: document.getElementById("defaultSummaryRuleList"),
+  executionGroupRuleList: document.getElementById("executionGroupRuleList"),
+  defaultExecutionGroupRuleList: document.getElementById("defaultExecutionGroupRuleList"),
   addSummaryRuleButton: document.getElementById("addSummaryRuleButton"),
   resetSummaryRulesButton: document.getElementById("resetSummaryRulesButton"),
+  addExecutionGroupRuleButton: document.getElementById("addExecutionGroupRuleButton"),
+  resetExecutionGroupRulesButton: document.getElementById("resetExecutionGroupRulesButton"),
   saveSettingsButton: document.getElementById("saveSettingsButton"),
   settingsStatus: document.getElementById("settingsStatus"),
   peerDialog: document.getElementById("peerDialog"),
@@ -193,6 +199,7 @@ init();
 
 function init() {
   state.summaryRules = window.ToolSummary?.loadCustomRules?.() || [];
+  state.executionGroupRules = window.ExecutionGrouping?.loadCustomRules?.() || [];
   bindEvents();
   loadHealthAndSources();
 }
@@ -211,6 +218,14 @@ function bindEvents() {
   });
   els.resetSummaryRulesButton?.addEventListener("click", () => {
     state.summaryRules = [];
+    renderSettingsDialog();
+  });
+  els.addExecutionGroupRuleButton?.addEventListener("click", () => {
+    state.executionGroupRules.push(newExecutionGroupRule());
+    renderSettingsDialog();
+  });
+  els.resetExecutionGroupRulesButton?.addEventListener("click", () => {
+    state.executionGroupRules = [];
     renderSettingsDialog();
   });
   els.closePeerDialogButton.addEventListener("click", () => els.peerDialog.close());
@@ -375,6 +390,7 @@ async function selectSession(id) {
   state.selectedTerminalBlockId = null;
   state.expandedTraceNodeIds = new Set();
   state.expandedAuditTurnKeys = new Set();
+  state.expandedAuditGroupIds = new Set();
   state.rawEventCache = new Map();
   state.visibleEvents = 40;
   state.visibleThreadItems = 140;
@@ -408,6 +424,7 @@ function clearSelectedSession() {
   state.selectedTerminalBlockId = null;
   state.expandedTraceNodeIds = new Set();
   state.expandedAuditTurnKeys = new Set();
+  state.expandedAuditGroupIds = new Set();
   state.rawEventCache = new Map();
   els.copyMarkdownButton.disabled = true;
   els.downloadMarkdownButton.disabled = true;
@@ -586,6 +603,7 @@ function setPeerStatus(message) {
 
 function openSettingsDialog() {
   state.summaryRules = window.ToolSummary?.loadCustomRules?.() || [];
+  state.executionGroupRules = window.ExecutionGrouping?.loadCustomRules?.() || [];
   renderSettingsDialog();
   els.settingsDialog?.showModal();
 }
@@ -593,7 +611,11 @@ function openSettingsDialog() {
 function renderSettingsDialog() {
   renderSummaryRuleList();
   renderDefaultSummaryRuleList();
-  if (els.settingsStatus) els.settingsStatus.textContent = `自定义规则 ${state.summaryRules.length} 条；配置保存在当前浏览器本地。`;
+  renderExecutionGroupRuleList();
+  renderDefaultExecutionGroupRuleList();
+  if (els.settingsStatus) {
+    els.settingsStatus.textContent = `摘要规则 ${state.summaryRules.length} 条；执行聚合规则 ${state.executionGroupRules.length} 条；配置保存在当前浏览器本地。`;
+  }
 }
 
 function renderSummaryRuleList() {
@@ -668,6 +690,82 @@ function renderDefaultSummaryRuleList() {
     .join("");
 }
 
+function renderExecutionGroupRuleList() {
+  if (!els.executionGroupRuleList) return;
+  if (!state.executionGroupRules.length) {
+    els.executionGroupRuleList.innerHTML = `<div class="rule-empty">暂无自定义执行聚合规则。Audit 会先使用自定义规则，再回退到内置规则。</div>`;
+    return;
+  }
+  els.executionGroupRuleList.innerHTML = state.executionGroupRules.map((rule, index) => renderExecutionGroupRuleEditor(rule, index)).join("");
+  els.executionGroupRuleList.querySelectorAll("[data-group-rule-field]").forEach((input) => {
+    input.addEventListener("input", () => updateExecutionGroupRuleFromInput(input));
+    input.addEventListener("change", () => updateExecutionGroupRuleFromInput(input));
+  });
+  els.executionGroupRuleList.querySelectorAll("[data-delete-group-rule]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.executionGroupRules.splice(Number(button.dataset.deleteGroupRule), 1);
+      renderSettingsDialog();
+    });
+  });
+}
+
+function renderExecutionGroupRuleEditor(rule, index) {
+  const enabled = rule.enabled !== false;
+  return `
+    <article class="summary-rule-card">
+      <div class="summary-rule-head">
+        <label class="toggle-control">
+          <input type="checkbox" ${enabled ? "checked" : ""} data-group-rule-field="enabled" data-group-rule-index="${escapeAttr(String(index))}" />
+          <span>启用</span>
+        </label>
+        <button class="ghost-button small danger" type="button" data-delete-group-rule="${escapeAttr(String(index))}">删除</button>
+      </div>
+      <div class="summary-rule-grid">
+        <label>
+          <span class="field-label">名称</span>
+          <input class="text-input" type="text" value="${escapeAttr(rule.label || "")}" data-group-rule-field="label" data-group-rule-index="${escapeAttr(String(index))}" placeholder="收集文件与目录信息" />
+        </label>
+        <label>
+          <span class="field-label">工具</span>
+          <input class="text-input" type="text" value="${escapeAttr(rule.tool || "")}" data-group-rule-field="tool" data-group-rule-index="${escapeAttr(String(index))}" placeholder="exec_command 或 *" />
+        </label>
+        <label>
+          <span class="field-label">组标题模板</span>
+          <input class="text-input" type="text" value="${escapeAttr(rule.title || "")}" data-group-rule-field="title" data-group-rule-index="${escapeAttr(String(index))}" placeholder="执行组 · 收集信息" />
+        </label>
+        <label>
+          <span class="field-label">最少连续节点</span>
+          <input class="text-input" type="number" min="2" max="30" step="1" value="${escapeAttr(String(rule.minItems || 2))}" data-group-rule-field="minItems" data-group-rule-index="${escapeAttr(String(index))}" />
+        </label>
+        <label class="summary-rule-grid-wide">
+          <span class="field-label">组摘要模板</span>
+          <input class="text-input" type="text" value="${escapeAttr(rule.summary || "")}" data-group-rule-field="summary" data-group-rule-index="${escapeAttr(String(index))}" placeholder="{count} 个执行节点 · {titles}" />
+        </label>
+      </div>
+      <label>
+        <span class="field-label">匹配正则</span>
+        <textarea class="text-input rule-pattern-input" data-group-rule-field="pattern" data-group-rule-index="${escapeAttr(String(index))}" spellcheck="false" placeholder="读取文件内容|列出目录">${escapeHtml(rule.pattern || "")}</textarea>
+      </label>
+    </article>
+  `;
+}
+
+function renderDefaultExecutionGroupRuleList() {
+  if (!els.defaultExecutionGroupRuleList) return;
+  const rules = window.ExecutionGrouping?.defaultRules?.() || [];
+  els.defaultExecutionGroupRuleList.innerHTML = rules
+    .map(
+      (rule) => `
+        <div class="default-rule-row">
+          <strong>${escapeHtml(rule.title || rule.label)}</strong>
+          <span>${escapeHtml([rule.tool || "*", `${rule.minItems || 2}+ 连续`, rule.label].filter(Boolean).join(" · "))}</span>
+          <code>${escapeHtml(rule.pattern || "")}</code>
+        </div>
+      `,
+    )
+    .join("");
+}
+
 function updateSummaryRuleFromInput(input) {
   const index = Number(input.dataset.ruleIndex);
   const field = input.dataset.ruleField;
@@ -676,14 +774,30 @@ function updateSummaryRuleFromInput(input) {
   rule[field] = field === "enabled" ? input.checked : input.value;
 }
 
+function updateExecutionGroupRuleFromInput(input) {
+  const index = Number(input.dataset.groupRuleIndex);
+  const field = input.dataset.groupRuleField;
+  const rule = state.executionGroupRules[index];
+  if (!rule || !field) return;
+  if (field === "enabled") {
+    rule[field] = input.checked;
+  } else if (field === "minItems") {
+    rule[field] = input.valueAsNumber || Number(input.value) || 2;
+  } else {
+    rule[field] = input.value;
+  }
+}
+
 function saveSettingsFromForm(event) {
   event.preventDefault();
   const normalized = window.ToolSummary?.saveCustomRules?.(state.summaryRules) || [];
+  const normalizedGroupRules = window.ExecutionGrouping?.saveCustomRules?.(state.executionGroupRules) || [];
   state.summaryRules = normalized;
+  state.executionGroupRules = normalizedGroupRules;
   renderSettingsDialog();
   renderMainContent();
   renderInspector();
-  showToast("摘要转换规则已保存");
+  showToast("展示规则已保存");
   els.settingsDialog?.close();
 }
 
@@ -696,6 +810,19 @@ function newSummaryRule() {
     pattern: "",
     title: "",
     summary: "{cmd}",
+  };
+}
+
+function newExecutionGroupRule() {
+  return {
+    id: `custom-group-${Date.now()}`,
+    label: "自定义执行组",
+    enabled: true,
+    tool: "exec_command",
+    minItems: 2,
+    pattern: "",
+    title: "执行组 · {label}",
+    summary: "{count} 个执行节点 · {titles}",
   };
 }
 
@@ -804,6 +931,7 @@ function primeTraceExpansion(detail) {
   state.expandedTraceNodeIds = new Set(root ? [root.id] : []);
   const firstTurn = detail?.turns?.[0];
   state.expandedAuditTurnKeys = new Set(firstTurn ? [auditTurnKey(firstTurn, 0)] : []);
+  state.expandedAuditGroupIds = new Set();
 }
 
 function renderSessionList() {
@@ -1851,16 +1979,21 @@ function renderAuditTurnMetric(label, value) {
 
 function renderAuditExecutionSection(turn, context = {}) {
   const rows = turn.visibleExecutionRows;
+  const entries = auditGroupedExecutionEntries(rows);
+  const groupCount = entries.filter((entry) => entry.kind === "group").length;
   const emptyText = auditExecutionEmptyText(turn, context);
+  const countLabel = rows.length
+    ? [`${rows.length} 个执行节点`, groupCount ? `${groupCount} 个执行组` : ""].filter(Boolean).join(" · ")
+    : emptyText;
   return `
     <section class="audit-turn-section execution">
       <div class="audit-section-title">
         <strong>执行链</strong>
-        <span>${escapeHtml(rows.length ? `${rows.length} 个执行节点` : emptyText)}</span>
+        <span>${escapeHtml(countLabel)}</span>
       </div>
       ${
         rows.length
-          ? `<div class="audit-execution-list">${rows.map((row) => renderAuditExecutionRow(row, context.query)).join("")}</div>`
+          ? `<div class="audit-execution-list">${entries.map((entry) => renderAuditExecutionEntry(entry, context)).join("")}</div>`
           : `<div class="audit-section-empty">${escapeHtml(emptyText)}</div>`
       }
     </section>
@@ -1945,11 +2078,7 @@ function renderAuditUnplacedSection(nodes, query) {
 }
 
 function renderAuditExecutionRow(row, query) {
-  const selected =
-    (row.traceNodeId && state.selectedTraceNodeId === row.traceNodeId) ||
-    (!row.traceNodeId && row.itemRef && state.selectedItemRef === row.itemRef)
-      ? " selected"
-      : "";
+  const selected = auditExecutionRowIsSelected(row) ? " selected" : "";
   const depth = Math.min(row.depth || 0, 5);
   const duration = row.durationMs == null ? "" : `${formatDuration(row.durationMs)}${row.durationEstimated ? " est" : ""}`;
   const meta = [traceTypeLabel(row.type), row.status, duration, formatDate(row.timestamp)].filter(Boolean).join(" · ");
@@ -1983,6 +2112,42 @@ function renderAuditExecutionRow(row, query) {
         ${statusNodes.length ? `<span class="audit-exec-badges">${statusNodes.slice(0, 6).map((node) => renderAuditNodeChip(node, query)).join("")}</span>` : ""}
         ${childGroups.length ? `<div class="audit-exec-nested">${childGroups.map((group) => renderAuditExecutionChildGroup(group, query)).join("")}</div>` : ""}
       </span>
+    </div>
+  `;
+}
+
+function renderAuditExecutionEntry(entry, context = {}) {
+  if (entry.kind === "group") return renderAuditExecutionGroup(entry, context);
+  return renderAuditExecutionRow(entry.row, context.query);
+}
+
+function renderAuditExecutionGroup(group, context = {}) {
+  const expanded = context.filtersActive || auditExecutionGroupContainsSelection(group) || state.expandedAuditGroupIds.has(group.id);
+  const selected = auditExecutionGroupContainsSelection(group) ? " selected" : "";
+  const riskLevel = highestRiskLevel(group.rows.flatMap((row) => row.auditNodes || []));
+  const depth = Math.min(group.depth || 0, 5);
+  const childIds = group.childIds.join(" ");
+  return `
+    <div class="audit-exec-group risk-${escapeAttr(riskLevel)}${selected}" style="--depth:${depth}" data-audit-exec-group-child-ids="${escapeAttr(childIds)}">
+      <button class="audit-exec-group-head" type="button" data-audit-exec-group-id="${escapeAttr(group.id)}" title="${escapeAttr(expanded ? "收起执行组" : "展开执行组")}">
+        <span class="audit-exec-indent" aria-hidden="true"></span>
+        <span class="audit-exec-group-expander">${expanded ? "⌄" : "›"}</span>
+        <span class="trace-icon tool">#</span>
+        <span class="audit-exec-main">
+          <span class="audit-exec-title">
+            <strong>${highlight(escapeHtml(group.title), context.query)}</strong>
+            <em>${escapeHtml([group.ruleLabel, `${group.count} 个节点`].filter(Boolean).join(" · "))}</em>
+          </span>
+          <span class="audit-exec-sub">${highlight(escapeHtml(group.summary), context.query)}</span>
+        </span>
+      </button>
+      ${
+        expanded
+          ? `<div class="audit-exec-group-children">${group.rows
+              .map((row) => renderAuditExecutionRow({ ...row, depth: Math.min((row.depth || 0) + 1, 6) }, context.query))
+              .join("")}</div>`
+          : ""
+      }
     </div>
   `;
 }
@@ -2479,6 +2644,24 @@ function auditExecutionSearchText(row) {
     .toLowerCase();
 }
 
+function auditGroupedExecutionEntries(rows) {
+  const preparedRows = (rows || []).map((row) => ({ ...row, readable: readableExecutionRow(row) }));
+  if (!window.ExecutionGrouping) return preparedRows.map((row) => ({ kind: "row", id: row.id, row }));
+  return window.ExecutionGrouping.groupExecutionRows(preparedRows, { customRules: state.executionGroupRules });
+}
+
+function auditExecutionGroupContainsSelection(group) {
+  return (group?.rows || []).some((row) => auditExecutionRowIsSelected(row));
+}
+
+function auditExecutionRowIsSelected(row) {
+  if (!row) return false;
+  if (row.traceNodeId && state.selectedTraceNodeId === row.traceNodeId) return true;
+  if (!row.traceNodeId && row.itemRef && state.selectedItemRef === row.itemRef) return true;
+  if (row.itemRef && state.selectedItemRef === row.itemRef) return true;
+  return false;
+}
+
 function auditTurnMatchesType(turn, typeFilter) {
   if (typeFilter === "all") return true;
   if (typeFilter === "action") return turn.executionRows.length > 0;
@@ -2523,6 +2706,12 @@ function bindAuditInteractions() {
       selectAuditExecutionNode(row.dataset.auditExecNodeId);
     });
   });
+  els.auditContent.querySelectorAll("[data-audit-exec-group-id]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleAuditExecutionGroup(button.dataset.auditExecGroupId);
+    });
+  });
   els.auditContent.querySelectorAll("[data-audit-node-id]").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -2543,6 +2732,16 @@ function toggleAuditTurn(key) {
     state.expandedAuditTurnKeys.delete(key);
   } else {
     state.expandedAuditTurnKeys.add(key);
+  }
+  renderAudit();
+}
+
+function toggleAuditExecutionGroup(id) {
+  if (!id) return;
+  if (state.expandedAuditGroupIds.has(id)) {
+    state.expandedAuditGroupIds.delete(id);
+  } else {
+    state.expandedAuditGroupIds.add(id);
   }
   renderAudit();
 }
@@ -2622,6 +2821,7 @@ function auditTurnDebugPreview(turn) {
 function markAuditSelection() {
   if (!els.auditContent) return;
   els.auditContent.querySelectorAll(".audit-turn.selected").forEach((row) => row.classList.remove("selected"));
+  els.auditContent.querySelectorAll(".audit-exec-group.selected").forEach((row) => row.classList.remove("selected"));
   els.auditContent.querySelectorAll(".audit-exec-row.selected").forEach((row) => row.classList.remove("selected"));
   els.auditContent.querySelectorAll(".audit-evidence-node.selected, .audit-node-chip.selected").forEach((row) => row.classList.remove("selected"));
   if (state.selectedAuditTurnKey) {
@@ -2629,14 +2829,25 @@ function markAuditSelection() {
   }
   if (state.selectedTraceNodeId) {
     els.auditContent.querySelector(`[data-audit-exec-node-id="${cssEscape(state.selectedTraceNodeId)}"]`)?.classList.add("selected");
+    markAuditGroupForExecutionRow(state.selectedTraceNodeId);
   }
   if (state.selectedItemRef) {
     const row = findAuditExecutionRowByItemRef(state.selectedItemRef);
-    if (row) els.auditContent.querySelector(`[data-audit-exec-node-id="${cssEscape(row.id)}"]`)?.classList.add("selected");
+    if (row) {
+      els.auditContent.querySelector(`[data-audit-exec-node-id="${cssEscape(row.id)}"]`)?.classList.add("selected");
+      markAuditGroupForExecutionRow(row.id);
+    }
   }
   if (state.selectedAuditNodeId) {
     els.auditContent.querySelectorAll(`[data-audit-node-id="${cssEscape(state.selectedAuditNodeId)}"]`).forEach((row) => row.classList.add("selected"));
   }
+}
+
+function markAuditGroupForExecutionRow(id) {
+  if (!id) return;
+  els.auditContent
+    .querySelectorAll(`[data-audit-exec-group-child-ids~="${cssEscape(id)}"]`)
+    .forEach((row) => row.classList.add("selected"));
 }
 
 function findAuditExecutionRowByItemRef(ref) {

@@ -726,6 +726,10 @@ button {
   gap: 4px;
 }
 
+.summary-rule-grid-wide {
+  grid-column: 1 / -1;
+}
+
 .rule-pattern-input {
   min-height: 58px;
   resize: vertical;
@@ -2246,6 +2250,64 @@ button:disabled {
 
 .audit-exec-row.risk-high {
   background: color-mix(in srgb, var(--red-soft) 22%, transparent);
+}
+
+.audit-exec-group {
+  display: grid;
+  min-width: 0;
+  border-bottom: 1px solid var(--hair);
+  background: color-mix(in srgb, var(--bg-sunken) 62%, transparent);
+}
+
+.audit-exec-group:last-child {
+  border-bottom: 0;
+}
+
+.audit-exec-group.selected,
+.audit-exec-group:hover {
+  background: color-mix(in srgb, var(--blue-soft) 42%, var(--bg-sunken));
+}
+
+.audit-exec-group.risk-high {
+  background: color-mix(in srgb, var(--red-soft) 20%, var(--bg-sunken));
+}
+
+.audit-exec-group-head {
+  display: grid;
+  grid-template-columns: calc(var(--depth) * 18px) 16px 22px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  padding: 7px 9px;
+  text-align: left;
+}
+
+.audit-exec-group-head:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--blue) 40%, transparent);
+  outline-offset: -2px;
+}
+
+.audit-exec-group-expander {
+  color: var(--text-3);
+  font-size: 14px;
+  line-height: 22px;
+  text-align: center;
+}
+
+.audit-exec-group-children {
+  display: grid;
+  min-width: 0;
+  border-top: 1px solid var(--hair);
+  background: color-mix(in srgb, var(--bg-elev) 74%, transparent);
+}
+
+.audit-exec-group-children .audit-exec-row:last-child {
+  border-bottom: 0;
 }
 
 .audit-exec-main {
