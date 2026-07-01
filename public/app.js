@@ -164,7 +164,6 @@ const auditItemTypeOptions = [
   ["action", "行动"],
   ["evidence", "证据"],
   ["verification", "验证"],
-  ["incomplete", "需 Raw 复核"],
   ["risk", "风险"],
   ["final", "最终回复"],
 ];
@@ -186,7 +185,6 @@ const auditToStandardType = {
   action: "tool",
   evidence: "output",
   verification: "system",
-  incomplete: "error",
   risk: "error",
   final: "message",
 };
@@ -1769,7 +1767,6 @@ function renderAuditHead(model, counts, filteredCounts, filters = {}) {
     ["action", "行动", counts.action || 0, filteredCounts.action || 0],
     ["evidence", "证据", counts.evidence || 0, filteredCounts.evidence || 0],
     ["verification", "验证", counts.verification || 0, filteredCounts.verification || 0],
-    ["incomplete", "需 Raw 复核", counts.incomplete || 0, filteredCounts.incomplete || 0],
     ["risk", "风险信号", counts.risk || 0, filteredCounts.risk || 0],
     ["final", "最终回复", counts.final || 0, filteredCounts.final || 0],
   ];
@@ -1780,7 +1777,7 @@ function renderAuditHead(model, counts, filteredCounts, filters = {}) {
         <h3 class="markdown-inline-title">${renderMarkdownTitle(model.detail.session?.title || "当前会话")}</h3>
         <div class="audit-head-note">
           ${model.hasTraceRoot ? "以 trace.root 投影执行链" : "缺少 trace.root，按 Turn item 提供有限执行复核"}
-          ${model.unplacedAuditNodes.length ? ` · ${model.unplacedAuditNodes.length} 个节点需 Raw 复核` : ""}
+          ${model.unplacedAuditNodes.length ? ` · ${model.unplacedAuditNodes.length} 个节点未关联` : ""}
         </div>
       </div>
       <div class="audit-summary" aria-label="审计链概览">
@@ -2239,7 +2236,7 @@ function auditNodeTurnIndex(node) {
 }
 
 function auditNodeCanAttachToExecution(node) {
-  return ["action", "evidence", "verification", "risk", "incomplete"].includes(node?.type);
+  return ["action", "evidence", "verification", "risk"].includes(node?.type);
 }
 
 function auditNodeNeedsExecutionMount(node) {
@@ -2280,13 +2277,7 @@ function auditTurnStats(turn, executionRows, nodes, unlinkedAuditNodes) {
 
 function auditNodeIsGap(node) {
   const tags = node.tags || [];
-  return (
-    node.type === "incomplete" ||
-    node.status === "needs-raw" ||
-    tags.includes("missing-output") ||
-    tags.includes("missing-verification") ||
-    tags.includes("truncated")
-  );
+  return tags.includes("missing-output") || tags.includes("missing-verification");
 }
 
 function auditVerificationStatus(verificationNodes, nodes) {
@@ -2294,14 +2285,12 @@ function auditVerificationStatus(verificationNodes, nodes) {
     return nodes.some((node) => (node.tags || []).includes("missing-verification")) ? "缺少验证" : "未验证";
   }
   if (verificationNodes.some((node) => node.status === "failed" || (node.riskLevel && node.riskLevel !== "none"))) return "验证不足";
-  if (verificationNodes.some((node) => node.status === "truncated" || node.truncated)) return "验证需复核";
   return "已验证";
 }
 
 function auditVerificationClass(status) {
   if (status === "已验证") return "verified";
   if (status === "验证不足" || status === "缺少验证") return "failed";
-  if (status === "验证需复核") return "review";
   return "none";
 }
 
@@ -2315,7 +2304,7 @@ function maxAuditRisk(left, right) {
 }
 
 function auditExecutionStatusNodes(nodes) {
-  const order = { action: 0, evidence: 1, verification: 2, incomplete: 3, risk: 4 };
+  const order = { action: 0, evidence: 1, verification: 2, risk: 3 };
   return [...(nodes || [])].sort((left, right) => (order[left.type] ?? 9) - (order[right.type] ?? 9));
 }
 
@@ -2325,7 +2314,6 @@ function auditExecutionChildGroups(nodes) {
     ["evidence", "输出证据"],
     ["verification", "验证"],
     ["risk", "风险"],
-    ["incomplete", "缺口"],
   ];
   return specs
     .map(([key, label]) => ({
@@ -2383,9 +2371,9 @@ function auditPhaseGroups(turn, nodes) {
       key: "risk-gap",
       index: "6",
       label: "风险 / 缺口",
-      caption: "失败、截断、缺输出或需 Raw 复核",
+      caption: "失败、缺输出或缺少验证证据",
       emptyText: "没有风险或缺口信号",
-      types: ["risk", "incomplete"],
+      types: ["risk"],
     },
     {
       key: "final",
@@ -2408,7 +2396,6 @@ function auditPhaseGroups(turn, nodes) {
 
 function auditPhaseState(spec, nodes, turn) {
   if (nodes.some((node) => node.type === "risk" || node.riskLevel === "high" || node.status === "failed")) return "risk";
-  if (nodes.some((node) => node.type === "incomplete" || node.status === "needs-raw" || node.truncated)) return "gap";
   if (spec.key === "verification" && turn.stats?.verificationStatus !== "已验证") return "gap";
   if (nodes.length > 0) return "filled";
   return "empty";
@@ -2738,7 +2725,7 @@ function auditNodeCounts(nodes) {
       counts.total += 1;
       return counts;
     },
-    { intent: 0, reasoning: 0, action: 0, evidence: 0, verification: 0, incomplete: 0, risk: 0, final: 0, total: 0 },
+    { intent: 0, reasoning: 0, action: 0, evidence: 0, verification: 0, risk: 0, final: 0, total: 0 },
   );
 }
 
@@ -2878,7 +2865,6 @@ function auditTypeLabel(type) {
   if (type === "action") return "行动";
   if (type === "evidence") return "证据";
   if (type === "verification") return "验证";
-  if (type === "incomplete") return "需 Raw 复核";
   if (type === "risk") return "风险";
   if (type === "final") return "最终";
   return type || "节点";
@@ -2890,7 +2876,6 @@ function auditNodeGlyph(type) {
   if (type === "action") return ">";
   if (type === "evidence") return "$";
   if (type === "verification") return "V";
-  if (type === "incomplete") return "Raw";
   if (type === "risk") return "!";
   if (type === "final") return "F";
   return "•";
@@ -3663,7 +3648,6 @@ function buildSessionBriefReviewContext(detail) {
   const audit = detail.audit || buildAuditFallback(detail) || { nodes: [] };
   const nodes = audit.nodes || [];
   const risks = nodes.filter((node) => node.type === "risk" || (node.riskLevel && node.riskLevel !== "none"));
-  const incomplete = nodes.filter((node) => node.type === "incomplete");
   const verification = nodes.filter((node) => node.type === "verification");
   const finalNode = [...nodes].reverse().find((node) => node.type === "final");
   const childThreads = detail.trace?.hierarchy?.children || [];
@@ -3683,7 +3667,6 @@ function buildSessionBriefReviewContext(detail) {
   const evidence = [
     ...verification.slice(0, 8).map(reviewEvidenceFromAuditNode),
     ...risks.slice(0, 8).map(reviewEvidenceFromAuditNode),
-    ...incomplete.slice(0, 5).map(reviewEvidenceFromAuditNode),
   ];
   if (!evidence.length) {
     evidence.push({
@@ -3779,7 +3762,7 @@ function buildAuditNodeReviewContext(node) {
 
 function buildAuditTurnReviewContext(turn) {
   const riskNodes = turn.auditNodes.filter((node) => node.type === "risk" || (node.riskLevel && node.riskLevel !== "none"));
-  const evidenceNodes = turn.auditNodes.filter((node) => ["evidence", "verification", "incomplete", "risk"].includes(node.type));
+  const evidenceNodes = turn.auditNodes.filter((node) => ["evidence", "verification", "risk"].includes(node.type));
   const relations = [
     ...turn.executionRows.slice(0, 12).map((row) => {
       const readable = readableExecutionRow(row);

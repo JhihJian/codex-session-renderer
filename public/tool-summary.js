@@ -212,7 +212,7 @@
       };
     }
 
-    if (nodeType === "risk" || nodeType === "incomplete") {
+    if (nodeType === "risk") {
       const prefix = op.title ? `${op.title}：` : "";
       return {
         ...op,

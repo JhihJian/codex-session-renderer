@@ -1984,11 +1984,6 @@ button:disabled {
   background: color-mix(in srgb, var(--red-soft) 54%, var(--bg-sunken));
 }
 
-.audit-summary-item.type-incomplete {
-  border-color: color-mix(in srgb, var(--orange) 22%, var(--hair));
-  background: color-mix(in srgb, var(--orange-soft) 42%, var(--bg-sunken));
-}
-
 .audit-turn-list {
   display: grid;
   gap: 8px;
@@ -2449,14 +2444,6 @@ button:disabled {
 .audit-mini-node.type-verification {
   --audit-color: var(--green);
   --audit-soft: var(--green-soft);
-}
-
-.audit-node-chip.type-incomplete,
-.audit-evidence-node.type-incomplete,
-.audit-phase-node.type-incomplete,
-.audit-mini-node.type-incomplete {
-  --audit-color: var(--orange);
-  --audit-soft: color-mix(in srgb, var(--orange-soft) 64%, var(--bg-sunken));
 }
 
 .audit-node-chip.type-risk,

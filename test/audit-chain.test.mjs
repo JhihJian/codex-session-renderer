@@ -396,7 +396,7 @@ test("successful verification output with zero failures does not emit risk", () 
   assert.equal(chain.counts.risk, 0);
 });
 
-test("truncated tool items emit incomplete nodes instead of risk nodes", () => {
+test("truncated tool items do not emit audit gap nodes", () => {
   const chain = buildAuditChain({
     turns: [
       {
@@ -424,12 +424,10 @@ test("truncated tool items emit incomplete nodes instead of risk nodes", () => {
     ],
   });
 
-  const incompleteNodes = chain.nodes.filter((node) => node.type === "incomplete");
+  const gapNodes = chain.nodes.filter((node) => node.title === "需 Raw 复核" || node.status === "needs-raw");
   assert.equal(chain.counts.risk, 0);
-  assert.equal(chain.counts.incomplete, 1);
-  assert.equal(incompleteNodes.length, 1);
-  assert.equal(incompleteNodes.every((node) => node.riskLevel === "none"), true);
-  assert.equal(incompleteNodes.every((node) => node.tags.includes("truncated")), true);
+  assert.equal(gapNodes.length, 0);
+  assert.equal(chain.nodes.some((node) => node.type === "incomplete"), false);
 });
 
 test("risk nodes expose related source metadata", () => {

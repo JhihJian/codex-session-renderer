@@ -255,10 +255,7 @@ function auditNode({
 function auditSignalNodesFromSignals(sourceNode, signals) {
   if (!signals.length) return [];
   const nodes = [];
-  const riskSignals = signals.filter((signal) => signal.kind !== "incomplete");
-  const incompleteSignals = signals.filter((signal) => signal.kind === "incomplete");
-  if (riskSignals.length) nodes.push(buildRiskNode(sourceNode, riskSignals));
-  if (incompleteSignals.length) nodes.push(buildIncompleteNode(sourceNode, incompleteSignals));
+  nodes.push(buildRiskNode(sourceNode, signals));
   return nodes;
 }
 
@@ -279,29 +276,6 @@ function buildRiskNode(sourceNode, signals) {
     itemRef: sourceNode.itemRef || null,
     traceNodeId: sourceNode.traceNodeId || null,
     riskLevel,
-    tags,
-    relatedNodeId: sourceNode.id,
-    relatedType: sourceNode.type,
-    toolName: sourceNode.toolName || null,
-  };
-}
-
-function buildIncompleteNode(sourceNode, signals) {
-  const tags = uniqueTags(["incomplete", ...signals.map((signal) => signal.tag).filter(Boolean)]);
-  return {
-    id: `${sourceNode.id}:incomplete:${tags.filter((tag) => tag !== "incomplete").join("-") || "signal"}`,
-    type: "incomplete",
-    title: "需 Raw 复核",
-    summary: signals.map((signal) => signal.summary).filter(Boolean).join("；"),
-    status: "needs-raw",
-    timestamp: sourceNode.timestamp || null,
-    turnIndex: sourceNode.turnIndex,
-    turnNumber: sourceNode.turnNumber,
-    eventIndex: sourceNode.eventIndex ?? null,
-    sourceIndex: sourceNode.sourceIndex ?? null,
-    itemRef: sourceNode.itemRef || null,
-    traceNodeId: sourceNode.traceNodeId || null,
-    riskLevel: "none",
     tags,
     relatedNodeId: sourceNode.id,
     relatedType: sourceNode.type,
@@ -346,9 +320,6 @@ function riskSignalsForAction(item) {
       summary: "工具调用参数或状态包含 error、failed、stderr、失败、错误等风险词。",
     });
   }
-  if (hasTruncatedField(item, ["arguments", "payload", "text"])) {
-    signals.push(incompleteSignal(item));
-  }
   if (largePayloadLength(item.arguments) || largePayloadLength(item.payloadPreview)) {
     signals.push({
       level: "medium",
@@ -376,9 +347,6 @@ function riskSignalsForEvidence(item) {
       summary: "工具输出或状态包含 error、failed、stderr、失败、错误等风险词。",
     });
   }
-  if (hasTruncatedField(item, ["output", "payload"])) {
-    signals.push(incompleteSignal(item));
-  }
   if (largePayloadLength(item.output) || largePayloadLength(item.payloadPreview)) {
     signals.push({
       level: "medium",
@@ -399,25 +367,7 @@ function riskSignalsForVerification(item) {
       summary: "验证动作输出或状态显示失败、错误或 stderr。",
     });
   }
-  if (hasTruncatedField(item, ["arguments", "output", "payload", "text"])) signals.push(incompleteSignal(item));
   return signals;
-}
-
-function incompleteSignal(item) {
-  const fields = item.truncatedFields?.join(", ") || "content";
-  return {
-    kind: "incomplete",
-    level: "none",
-    tag: "truncated",
-    summary: `轻量模型中的 ${fields} 已截断，需要回看原始事件。`,
-  };
-}
-
-function hasTruncatedField(item, fieldNames = []) {
-  if (!item?.truncated) return false;
-  const fields = item.truncatedFields || [];
-  if (!fields.length) return true;
-  return fields.some((field) => fieldNames.includes(field));
 }
 
 function isVerificationItem(item) {
@@ -571,7 +521,6 @@ function parseMaybeJson(text) {
 
 function evidenceStatus(item) {
   if (statusLooksFailed(item.status)) return "failed";
-  if (item.truncated) return "truncated";
   return item.status || (item.output == null ? "missing" : "completed");
 }
 
@@ -610,7 +559,6 @@ function countAuditNodes(nodes) {
     action: 0,
     evidence: 0,
     verification: 0,
-    incomplete: 0,
     risk: 0,
     final: 0,
     total: nodes.length,
