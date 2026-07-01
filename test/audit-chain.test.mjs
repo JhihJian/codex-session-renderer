@@ -430,6 +430,65 @@ test("truncated tool items do not emit audit gap nodes", () => {
   assert.equal(chain.nodes.some((node) => node.type === "incomplete"), false);
 });
 
+test("audit nodes keep compact summaries and full review bodies", () => {
+  const longIntent = `请完整复核 ${"用户目标 ".repeat(80)}`.trim();
+  const longOutput = `line-0\n${Array.from({ length: 120 }, (_, index) => `line-${index + 1} ${Array.from({ length: 8 }, () => "output").join(" ")}`).join("\n")}`;
+  const longFinal = `最终结论：${"已经完成详细说明 ".repeat(80)}`.trim();
+  const chain = buildAuditChain({
+    turns: [
+      {
+        id: "turn-1",
+        turnNumber: 1,
+        startedAt: "2026-06-26T10:00:00.000Z",
+        items: [
+          {
+            id: "item-0",
+            type: "user-message",
+            turnIndex: 0,
+            itemIndex: 0,
+            sourceIndex: 1,
+            text: longIntent,
+          },
+          {
+            id: "call-1",
+            type: "tool-call",
+            turnIndex: 0,
+            itemIndex: 1,
+            sourceIndex: 2,
+            outputSourceIndex: 3,
+            name: "exec_command",
+            callId: "call-1",
+            status: "completed",
+            arguments: "node scripts/report.mjs",
+            output: longOutput,
+          },
+          {
+            id: "item-2",
+            type: "assistant-message",
+            turnIndex: 0,
+            itemIndex: 2,
+            sourceIndex: 4,
+            phase: "final",
+            text: longFinal,
+          },
+        ],
+      },
+    ],
+  });
+
+  const intent = chain.nodes.find((node) => node.type === "intent");
+  const evidence = chain.nodes.find((node) => node.type === "evidence");
+  const final = chain.nodes.find((node) => node.type === "final");
+
+  assert.equal(intent.body, longIntent);
+  assert.equal(evidence.body, longOutput);
+  assert.equal(evidence.outputBody, longOutput);
+  assert.equal(final.body, longFinal);
+  assert.ok(intent.summary.length < intent.body.length);
+  assert.ok(evidence.summary.length < evidence.body.length);
+  assert.ok(final.summary.length < final.body.length);
+});
+
 test("risk nodes expose related source metadata", () => {
   const chain = buildAuditChain({
     turns: [

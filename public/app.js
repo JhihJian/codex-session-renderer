@@ -2423,6 +2423,20 @@ function auditTurnFinalSummary(turn, nodes) {
   return assistant ? firstLine(assistant.text, 190) : "尚无最终回复";
 }
 
+function auditTurnIntentBody(turn) {
+  const intent = turn.auditNodes.find((node) => node.type === "intent" && (node.body || node.summary));
+  if (intent) return auditNodeFullBody(intent) || intent.summary;
+  const user = (turn.turn?.items || []).find((item) => item.type === "user-message" && String(item.text || "").trim());
+  return user ? String(user.text || "").trim() : turn.intentSummary || "无明确用户意图";
+}
+
+function auditTurnFinalBody(turn) {
+  const final = [...turn.auditNodes].reverse().find((node) => node.type === "final" && (node.body || node.summary));
+  if (final) return auditNodeFullBody(final) || final.summary;
+  const assistant = [...(turn.turn?.items || [])].reverse().find((item) => item.type === "assistant-message" && String(item.text || "").trim());
+  return assistant ? String(assistant.text || "").trim() : turn.finalSummary || "尚无最终回复";
+}
+
 function auditTurnStats(turn, executionRows, nodes, unlinkedAuditNodes) {
   const highestRisk = highestRiskLevel(nodes);
   const riskCount = nodes.filter((node) => node.type === "risk" || (node.riskLevel && node.riskLevel !== "none")).length;
@@ -3893,7 +3907,7 @@ function buildSessionBriefReviewContext(detail) {
     title: session.title || "未命名会话",
     riskLevel: highestRiskLevel(risks),
     badges: [session.dataSourceKind === "remote" ? "远程快照" : "本机只读", `${metrics.turns} turns`, `${metrics.events} events`],
-    summary: finalNode?.summary || "当前会话的默认复核入口。选择 Audit 节点、工具调用、Raw event 或子代理后，右侧会切换到对象级复核。",
+    summary: auditNodeFullBody(finalNode) || finalNode?.summary || "当前会话的默认复核入口。选择 Audit 节点、工具调用、Raw event 或子代理后，右侧会切换到对象级复核。",
     rows: [
       ["数据源", session.sourceLabel || selectedSource()?.label || "本机 Codex Home"],
       ["模型", [session.model, session.reasoningEffort].filter(Boolean).join(" / ") || "unknown"],
@@ -3935,7 +3949,7 @@ function buildAuditNodeReviewContext(node) {
   const traceNode = node.traceNodeId ? findTraceNode(state.detail?.trace?.root, node.traceNodeId) : null;
   const event = eventByIndex(node.eventIndex ?? node.sourceIndex);
   const readable = readableAuditNode(node, item);
-  const body = readable.body || readable.summary;
+  const body = auditNodeFullBody(node, readable, item);
   const evidence = [reviewEvidenceFromAuditNode(node)];
   if (item) evidence.push(reviewEvidenceFromItem(item, "关联项"));
   if (event) evidence.push(reviewEvidenceFromEvent(event, "来源事件"));
@@ -3994,7 +4008,7 @@ function buildAuditTurnReviewContext(turn) {
     title: `Turn ${turn.turnNumber}`,
     riskLevel: highestRiskLevel(riskNodes),
     badges: [turn.stats.verificationStatus, turn.stats.riskLabel, `${turn.auditNodes.length} audit nodes`].filter(Boolean),
-    summary: [`目标：${turn.intentSummary}`, `结果：${turn.finalSummary}`].join("\n"),
+    summary: [`目标：${auditTurnIntentBody(turn)}`, `结果：${auditTurnFinalBody(turn)}`].join("\n"),
     rows: [
       ["Turn", String(turn.turnNumber)],
       ["验证状态", turn.stats.verificationStatus],
@@ -4021,12 +4035,13 @@ function buildAuditTurnReviewContext(turn) {
 
 function buildTraceReviewContext(node) {
   const detail = node.detail || {};
-  const item = detail.item || null;
+  const item = fullItemForTraceNode(node) || detail.item || null;
   const thread = detail.thread || detail.edge?.thread || {};
   const readable = item ? readableToolItem(item) : null;
-  const body = readable?.body || readable?.summary || item?.text || node.subtitle || detail.note || "";
+  const itemRefValue = itemRefFromTraceNode(node) || (item ? itemRef(item) : null);
+  const linkedAuditNodes = auditNodesForItemRef(itemRefValue);
+  const body = bestAuditBodyForItem(linkedAuditNodes) || readable?.body || readable?.summary || item?.text || item?.output || item?.arguments || node.subtitle || detail.note || "";
   const childRelations = (node.children || []).slice(0, 10).map((child) => reviewRelationFromTraceNode(child, "下游"));
-  const itemRefValue = item ? itemRef(item) : null;
   return reviewContextBase({
     kind: "trace_node",
     kindLabel: "执行节点",
@@ -4060,7 +4075,7 @@ function buildItemReviewContext(item) {
   const event = eventByIndex(item.sourceIndex ?? item.outputSourceIndex);
   const linkedAuditNodes = auditNodesForItemRef(ref);
   const readable = readableToolItem(item);
-  const body = readable.body || readable.summary || item.text || item.output || item.arguments || item.payloadPreview || "";
+  const body = bestAuditBodyForItem(linkedAuditNodes) || readable.body || readable.summary || item.text || item.output || item.arguments || item.payloadPreview || "";
   return reviewContextBase({
     kind: "item",
     kindLabel: itemTitle(item),
@@ -4209,13 +4224,13 @@ function reviewSummaryTextModel(summary) {
   if (lines.length <= 1) {
     const parts = splitSummaryClauses(raw);
     return {
-      lead: firstLine(parts.shift() || raw, 220),
-      items: parts.slice(0, 5).map(summaryClauseItem),
+      lead: parts.shift() || raw,
+      items: parts.map(summaryClauseItem),
     };
   }
   return {
-    lead: firstLine(lines.shift() || raw, 220),
-    items: lines.slice(0, 6).map(summaryClauseItem),
+    lead: lines.shift() || raw,
+    items: lines.map(summaryClauseItem),
   };
 }
 
@@ -4231,7 +4246,7 @@ function splitSummaryClauses(text) {
 }
 
 function summaryClauseItem(text) {
-  const value = firstLine(text, 220);
+  const value = String(text || "").trim();
   const match = value.match(/^([^：:]{1,10})[：:]\s*(.+)$/);
   if (!match) return { label: "", text: value };
   return { label: match[1], text: match[2] };
@@ -4440,7 +4455,7 @@ function reviewEvidenceFromAuditNode(node) {
     kind: auditTypeLabel(node.type),
     title: readable.title || node.title || auditTypeLabel(node.type),
     meta: [node.turnNumber ? `Turn ${node.turnNumber}` : "", node.toolName, auditEventIndexLabel(node), auditRiskMetaLabel(node.riskLevel)].filter(Boolean).join(" · "),
-    body: readable.body || readable.summary || [node.summary, node.outputPreview, node.argumentsPreview].filter(Boolean).join("\n\n"),
+    body: auditNodeFullBody(node, readable) || [node.summary, node.outputPreview, node.argumentsPreview].filter(Boolean).join("\n\n"),
     riskLevel: node.riskLevel || "none",
     action: "open-audit-node",
     id: node.id,
@@ -4451,12 +4466,13 @@ function reviewEvidenceFromAuditNode(node) {
 function reviewEvidenceFromItem(item, kind = "关联项") {
   const ref = itemRef(item);
   const readable = readableToolItem(item);
+  const linkedAuditNodes = auditNodesForItemRef(ref);
   return {
     kind,
     title: readable.title || itemTitle(item),
     meta: [item.turnIndex == null ? "" : `Turn ${item.turnIndex + 1}`, item.name, item.sourceIndex != null ? `event #${item.sourceIndex}` : ""].filter(Boolean).join(" · "),
-    body: readable.body || readable.summary || item.text || item.output || item.arguments || item.payloadPreview || "",
-    riskLevel: itemRiskLevel(item, auditNodesForItemRef(ref)),
+    body: bestAuditBodyForItem(linkedAuditNodes) || readable.body || readable.summary || item.text || item.output || item.arguments || item.payloadPreview || "",
+    riskLevel: itemRiskLevel(item, linkedAuditNodes),
     action: "open-item-ref",
     ref,
     actionLabel: "查看关联项",
@@ -4571,6 +4587,30 @@ function auditNodesForEventIndex(index) {
 function auditNodesForItemRef(ref) {
   if (!ref) return [];
   return (state.detail?.audit?.nodes || buildAuditFallback(state.detail)?.nodes || []).filter((node) => node.itemRef === ref);
+}
+
+function auditNodeFullBody(node, readable = null, item = null) {
+  if (!node) return "";
+  const direct = [node.body, node.outputBody, node.argumentsBody].find((value) => String(value || "").trim());
+  if (direct) return String(direct).trim();
+  const fallback = [readable?.body, readable?.summary, item?.text, item?.output, item?.arguments, node.summary, node.outputPreview, node.argumentsPreview].find((value) =>
+    String(value || "").trim(),
+  );
+  return fallback ? String(fallback).trim() : "";
+}
+
+function bestAuditBodyForItem(nodes = []) {
+  for (const type of ["evidence", "verification", "final", "intent", "reasoning", "action"]) {
+    const node = nodes.find((candidate) => candidate.type === type && auditNodeFullBody(candidate));
+    const body = auditNodeFullBody(node);
+    if (body) return body;
+  }
+  return auditNodeFullBody(nodes.find((node) => auditNodeFullBody(node))) || "";
+}
+
+function fullItemForTraceNode(node) {
+  const ref = itemRefFromTraceNode(node);
+  return ref ? findItemByRef(ref) : null;
 }
 
 function itemRiskLevel(item, auditNodes = []) {

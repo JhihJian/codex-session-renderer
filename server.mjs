@@ -364,7 +364,7 @@ async function getSessionDetail(context, id, options = {}) {
   const publicTurns = compactTurnsForClient(turns);
   const trace = buildTrace(sessionWithStat, rawEvents, analysisEvents, turns, hierarchy);
   const compact = await buildCompactView(context, sessionWithStat, analysisEvents, turns, hierarchy, { maxDepth });
-  const audit = buildAuditChain({ turns: publicTurns, events: publicEvents, trace });
+  const audit = buildAuditChain({ turns });
   const stats = {
     ...summarizeSessionEvents(rawEvents),
     eventCount: rawEvents.length,

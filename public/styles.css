@@ -3450,14 +3450,13 @@ button:disabled {
 
 .review-summary-section {
   min-height: 100%;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  align-content: start;
+  grid-template-rows: auto auto auto;
 }
 
 .review-summary-text {
   display: grid;
   gap: 8px;
-  max-height: 220px;
-  overflow: auto;
   border: 1px solid var(--hair);
   border-radius: var(--radius-tool);
   background: color-mix(in srgb, var(--bg-elev) 70%, var(--bg-sunken));
@@ -3472,7 +3471,6 @@ button:disabled {
 .review-summary-text.has-items {
   align-content: start;
   min-height: 0;
-  max-height: none;
 }
 
 .review-summary-lead {

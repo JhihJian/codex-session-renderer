@@ -138,7 +138,7 @@ npm start
 - `src/tool-events.mjs`：工具调用开始/结束识别、工具名/参数/输出提取、MCP 结果渲染和输出合并。
 - `src/session-normalizer.mjs`：Codex JSONL 原始事件规范化、字段漂移兼容、delta 合并、图片/附件摘要、加密 reasoning 脱敏和搜索文本构建。
 - `src/event-summary.mjs`：事件分类、重要事件判断、标题/预览摘要和会话事件计数。
-- `src/audit-chain.mjs`：基于轻量 turn/item 模型生成 Audit Chain，集中维护审计节点、验证识别和风险启发式规则。
+- `src/audit-chain.mjs`：基于服务端完整 turn/item 模型生成 Audit Chain，集中维护审计节点、验证识别和风险启发式规则。
 - `src/session-query.mjs`：面向外部项目的会话查询、筛选、分页游标、字段投影和事件增量查询参数处理。
 - `src/markdown-export.mjs`：会话 Markdown 导出。
 - `src/session-events.mjs`：会话事件核心解析逻辑，包括 turn 聚合、Trace 模型、精简视图模型和子代理锚定；同时重新导出旧的常用解析 API 以保持调用兼容。
@@ -203,7 +203,7 @@ npm test
 - 点击子代理小卡片或精简视图中的“打开会话”会按会话 ID 切换到对应子线程。
 - 会话详情接口默认返回轻量渲染模型：工具参数、事件 payload 只返回预览和长度信息，避免 MB 级内容一次性进入浏览器 DOM；内部 turn/item 模型仍保留完整工具输出，供导出、Audit 和外部查询使用。
 - 精简视图的用户/助手消息支持常用 Markdown 渲染，包括标题、列表、引用、行内代码、代码块、链接、粗体、斜体、删除线和 GFM 管道表格；会话标题在列表、顶部标题、详情和精简视图中支持行内 Markdown 链接、代码和强调；渲染层禁用原始 HTML，并缓存解析结果以减少大段消息重复渲染成本。
-- 右侧 Review Dock 是对象级复核台，默认展示 Session Brief；选中 Turn、执行节点、Audit 节点、关联项或 Raw event 后，统一切换为“摘要 / 证据 / 关系 / 来源”四页。它不再展示关键事件列表，也不默认渲染完整 JSON。
+- 右侧 Review Dock 是对象级复核台，默认展示 Session Brief；选中 Turn、执行节点、Audit 节点、关联项或 Raw event 后，统一切换为“摘要 / 证据 / 关系 / 来源”四页。摘要页优先展示 Audit 节点的完整 `body` 正文，长内容由复核台整体滚动，不在摘要框内截断；它不再展示关键事件列表，也不默认渲染完整 JSON。
 - 完整原始事件通过 `GET /api/sessions/:id/events/:index` 按需读取；Review Dock 只有在“来源”页读取完整 Raw payload 或执行复制 JSON 动作时才请求完整事件。
 - 图片和附件默认只以安全摘要进入轻量模型：data URI 会记录媒体类型和估算大小但不进入列表、搜索索引或默认 DOM；URL/文件引用只显示占位，不自动远程拉取。
 - Markdown 导出通过 `GET /api/sessions/:id/markdown` 按需生成，不内嵌在详情响应中。
@@ -211,7 +211,7 @@ npm test
 
 ### Audit Chain
 
-Audit Chain 是只读派生模型，不修改原始会话数据。服务端在会话详情里基于轻量 `turns/items` 生成 `audit.nodes` 和 `audit.counts`，前端不再把节点平铺成时间线，而是按 Turn 聚合展示。Turn 摘要展示意图、最终结果、验证状态、最高风险和工具/子代理/证据/缺口计数；展开后，“执行链”回答这个 Turn 怎么做的，并在每个执行节点下展示相关行动、证据、验证、风险和缺口；“审计证据 / 闭环阶段”按目标、推理、执行、证据、验证、风险/缺口、结论七段回答最终回复是否被支撑。前端展示 Audit 节点时会应用可读摘要规则，把高频工具调用压缩成人类可扫描的动作短语；执行链还会按可配置聚合规则把连续的同类执行节点折叠为执行组，组内节点可展开查看并继续支持 Review Dock 选择；“来源”页和复制 JSON 仍保留原始节点结构。
+Audit Chain 是只读派生模型，不修改原始会话数据。服务端在会话详情里基于内部完整 `turns/items` 生成 `audit.nodes` 和 `audit.counts`；返回给普通视图的 `turns/items` 仍是轻量渲染模型。Audit 节点的 `summary` 保持短摘要用于主列表和搜索，`body`、`argumentsBody`、`outputBody` 保留完整正文供 Review Dock 摘要页展示。前端不再把节点平铺成时间线，而是按 Turn 聚合展示。Turn 摘要展示意图、最终结果、验证状态、最高风险和工具/子代理/证据/缺口计数；展开后，“执行链”回答这个 Turn 怎么做的，并在每个执行节点下展示相关行动、证据、验证、风险和缺口；“审计证据 / 闭环阶段”按目标、推理、执行、证据、验证、风险/缺口、结论七段回答最终回复是否被支撑。前端展示 Audit 节点时会应用可读摘要规则，把高频工具调用压缩成人类可扫描的动作短语；执行链还会按可配置聚合规则把连续的同类执行节点折叠为执行组，组内节点可展开查看并继续支持 Review Dock 选择；“来源”页和复制 JSON 仍保留原始节点结构。
 
 执行聚合规则是前端展示规则，默认至少 2 个连续命中节点才会成组，内置规则覆盖文件/目录信息收集、代码搜索定位和 Git 状态/差异检查。规则包含名称、工具匹配、最少连续节点数、匹配正则、组标题模板和组摘要模板，保存在当前浏览器 localStorage；清空自定义后回退到内置规则。聚合只改变 Audit 执行链的视觉层级，不改变搜索到的原始执行节点、Audit 节点、Review Dock 来源或 Raw event。
 
@@ -237,7 +237,7 @@ Audit Chain 是只读派生模型，不修改原始会话数据。服务端在�
 
 证据映射采用尽力而为策略：执行结构以 `trace.root` 为骨架，Audit 节点通过 `traceNodeId`、`itemRef` 和 `turnIndex` 投影到对应 Turn 或执行节点；`relatedNodeId` 只用于 Review Dock 中的关联跳转，不用于反推树父子关系。无法可靠挂载到执行链的 Audit 节点会显示在“未关联”区域，不会静默丢失。
 
-Audit 节点保留 `itemRef`、`eventIndex/sourceIndex`、`traceNodeId` 和工具名；右侧 Review Dock 可复制引用、摘要、证据包或 JSON，并在存在事件索引时跳到 Raw event。完整 Raw JSON 仍通过单事件接口按需读取，不会把整条 JSONL 原文嵌入会话详情。
+Audit 节点保留 `itemRef`、`eventIndex/sourceIndex`、`traceNodeId`、工具名和完整正文 `body`；右侧 Review Dock 可复制引用、摘要、证据包或 JSON，并在存在事件索引时跳到 Raw event。完整 Raw JSON 仍通过单事件接口按需读取，不会把整条 JSONL 原文嵌入会话详情。
 
 ## 本地 API
 
