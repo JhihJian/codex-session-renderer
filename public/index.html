@@ -98,7 +98,7 @@
               <option value="system">系统事件</option>
               <option value="error">错误事件</option>
             </select>
-            <label class="toggle-control" id="importantOnlyControl">
+            <label class="toggle-control" id="importantOnlyControl" hidden>
               <input id="importantOnly" type="checkbox" />
               <span id="importantOnlyLabel">重要事件</span>
             </label>
@@ -115,36 +115,36 @@
         <section class="raw-content" id="rawContent" tabindex="-1" hidden></section>
       </main>
 
-      <aside class="inspector panel" id="inspectorPanel" aria-label="详情和事件检查器">
+      <aside class="inspector panel" id="inspectorPanel" aria-label="Review Dock 复核台">
         <div class="panel-header">
           <div>
-            <p class="eyebrow">Inspector</p>
-            <h2>会话辅助</h2>
+            <p class="eyebrow">Review Dock</p>
+            <h2>复核台</h2>
           </div>
-          <button class="ghost-button small" id="copyRawButton" type="button" disabled>复制调试 JSON</button>
+          <button class="ghost-button small" id="copyRawButton" type="button" disabled>复制引用</button>
         </div>
 
-        <section class="inspector-section" id="sessionDetails"></section>
+        <section class="review-context" id="sessionDetails"></section>
 
-        <section class="inspector-section" id="selectionDetails"></section>
+        <div class="review-tabs" id="reviewTabs" role="tablist" aria-label="复核模式">
+          <button class="review-tab active" type="button" data-review-tab="summary">摘要</button>
+          <button class="review-tab" type="button" data-review-tab="evidence">证据</button>
+          <button class="review-tab" type="button" data-review-tab="relations">关系</button>
+          <button class="review-tab" type="button" data-review-tab="source">来源</button>
+        </div>
 
-        <section class="inspector-section">
-          <div class="section-title-row">
-            <h3 id="keyEventsTitle">关键事件</h3>
-            <span class="count-pill" id="eventCount">0</span>
-          </div>
-          <div class="raw-event-list" id="rawEventList"></div>
-          <button class="ghost-button full-width" id="showMoreEventsButton" type="button" hidden>显示更多事件</button>
-        </section>
+        <section class="review-body" id="selectionDetails"></section>
 
-        <details class="inspector-section raw-preview-section" id="debugDetails">
-          <summary>
-            <span>调试 JSON</span>
-            <span class="muted" id="selectedEventLabel">未选择</span>
-          </summary>
-          <div class="inspector-actions" id="inspectorActions"></div>
-          <pre class="raw-preview" id="rawPreview">选择关键事件或 Audit 节点查看 JSON</pre>
-        </details>
+        <div class="review-actionbar" id="inspectorActions"></div>
+
+        <div class="review-hidden" hidden>
+          <span id="keyEventsTitle">Review Dock</span>
+          <span id="eventCount">0</span>
+          <div id="rawEventList"></div>
+          <button id="showMoreEventsButton" type="button"></button>
+          <span id="selectedEventLabel">未选择</span>
+          <pre id="rawPreview"></pre>
+        </div>
       </aside>
 
       <footer class="statusbar" aria-label="工作台状态">

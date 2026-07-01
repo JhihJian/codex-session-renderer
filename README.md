@@ -150,9 +150,9 @@ npm start
 
 ## 页面设计
 
-浏览器页面按本地优先的 agent 会话工作台设计，第一屏就是可操作的三栏 split view：左侧会话列表，中间精简/Audit/Raw 三个主视图，右侧 Inspector 辅助面板。界面使用系统字体、中性色背景、0.5 到 1px 轻边框、8px 工具圆角和紧凑行高，避免把工具界面做成营销卡片页。
+浏览器页面按本地优先的 agent 会话工作台设计，第一屏就是可操作的三栏 split view：左侧会话列表，中间精简/Audit/Raw 三个主视图，右侧 Review Dock 复核台。界面使用系统字体、中性色背景、0.5 到 1px 轻边框、8px 工具圆角和紧凑行高，避免把工具界面做成营销卡片页。
 
-左侧会话列表按时间分类和工作目录聚合，每行展示 agent 色点、标题、更新时间、模型和项目路径；顶部保留数据源、搜索、时间段和会话类型过滤。中间内容区只保留精简、Audit、Raw 三个主视图和内容搜索，统计条展示 Turns、Events、Important、Tools、Agents、Tokens。右侧 Inspector 默认展示会话概览、选中内容和关键事件；Raw 视图提供会话级事件摘要，折叠调试区继续按需查看选中项完整 JSON。
+左侧会话列表按时间分类和工作目录聚合，每行展示 agent 色点、标题、更新时间、模型和项目路径；顶部保留数据源、搜索、时间段和会话类型过滤。中间内容区只保留精简、Audit、Raw 三个主视图和内容搜索，统计条展示 Turns、Events、Important、Tools、Agents、Tokens。右侧 Review Dock 不再承担关键事件列表或会话概览职责，而是围绕当前选中对象展示“摘要 / 证据 / 关系 / 来源”四个复核页；默认状态是 Session Brief，优先暴露风险、验证、缺口和子代理入口。Raw 视图负责会话级事件浏览，完整 Raw payload 只在 Review Dock 的“来源”页或 Raw 主视图中按需读取。
 
 页面底部有状态条，显示当前数据源、选中会话、过滤后的 session 数和事件/turn 统计。样式支持系统浅色/深色模式，并建立统一角色色 token：蓝色用于用户输入和选中，深蓝用于助手叙述，紫色用于工具调用，绿色用于工具输出，红色用于错误风险，灰色用于元信息。为减少切换负担，主界面最多只保留三个视图：精简用于阅读，Audit 用于证据链复核，Raw 用于原始事件诊断。
 
@@ -177,7 +177,7 @@ npm test
 - 服务端只读访问本地文件，不写入 `.codex`。
 - 数据源是一等概念：旧接口默认读取本机 `local` 数据源，新接口可显式指定 `sourceId`；前端用 `sourceId + session id` 区分会话，避免不同数据源中相同 session id 混淆。
 - 远端设备可以通过页面管理，配置保存在本机私有 `config.json`；环境变量仍可作为高级配置来源。页面接口只返回 token 是否存在，不回显 token 原文。
-- 远程数据源的正文只在刷新阶段访问配置好的实时快照 URL 或快照目录；普通会话列表、会话辅助面板和 Markdown 导出都从本地 `current` 快照读取。历史分类可按需访问远端索引接口，但索引不包含会话正文。
+- 远程数据源的正文只在刷新阶段访问配置好的实时快照 URL 或快照目录；普通会话列表、Review Dock 复核台和 Markdown 导出都从本地 `current` 快照读取。历史分类可按需访问远端索引接口，但索引不包含会话正文。
 - 远程实时快照刷新使用 staging 目录构建，再原子切换到 `current`。刷新失败不会覆盖上一次成功快照。
 - 远程 SQLite 中的远端 `rollout_path` 会按配置的远端 Codex Home 映射到本地快照 Codex Home。
 - 本地工作台 API 默认绑定 `127.0.0.1`，适合作为同机只读数据源；局域网同步只开放 `npm run share` 的快照接口，并要求 Bearer token。
@@ -191,20 +191,20 @@ npm test
 - 同一条用户/助手消息如果同时出现在 response item 和事件消息里，会在渲染层去重。
 - 页面默认进入精简视图，并提供三种主视图：
   - 精简视图：负责日常阅读，只看用户输入、最终回复和子代理摘要；如果父会话中有 `spawn_agent` 子代理，会按父子层级内嵌展示子代理自己的用户输入和每轮最后助手消息，并在目录中按“会话 -> Turn -> 子代理 -> 子代理 Turn”展示执行层级用于快速跳转；执行层级区域会尽量使用可用视口高度展示更多目录内容。
-  - Audit 视图：负责复盘，以 Turn 为一级审计单元展示“目标、执行链、审计证据、验证、风险、缺口和最终回复是否闭环”。每个 Turn 默认显示紧凑摘要，展开后分为“执行链”和“审计证据 / 闭环阶段”两块；执行链按 `trace.root` 投影工具、handoff、子代理和 lazy-child 节点，并在每个执行节点下内嵌行动、输出证据、验证、风险和缺口子层级；审计证据区按目标、推理、执行、证据、验证、风险/缺口、结论七个阶段展示闭环。Audit 节点按 `traceNodeId`、`itemRef`、`turnIndex` 挂载为状态徽标或证据行，无法可靠挂载的节点进入“未关联 / Raw 复核”。右侧 Inspector 继续负责 Turn、执行节点、Audit 节点、关联项和 Raw event 详情。
+  - Audit 视图：负责复盘，以 Turn 为一级审计单元展示“目标、执行链、审计证据、验证、风险、缺口和最终回复是否闭环”。每个 Turn 默认显示紧凑摘要，展开后分为“执行链”和“审计证据 / 闭环阶段”两块；执行链按 `trace.root` 投影工具、handoff、子代理和 lazy-child 节点，并在每个执行节点下内嵌行动、输出证据、验证、风险和缺口子层级；审计证据区按目标、推理、执行、证据、验证、风险/缺口、结论七个阶段展示闭环。Audit 节点按 `traceNodeId`、`itemRef`、`turnIndex` 挂载为状态徽标或证据行，无法可靠挂载的节点进入“未关联 / Raw 复核”。右侧 Review Dock 负责解释当前 Turn、执行节点、Audit 节点、关联项或 Raw event 的可信度、证据、关系和来源。
   - Raw 视图：负责诊断，保留原始事件查看能力；它把会话事件摘要提升为主视图，左侧按事件索引和分类浏览，右侧显示选中事件的 Pretty JSON；完整 payload 仍通过单事件接口按需读取。
 - 左栏始终保持为会话列表，默认展示“实时”分类；会话列表可按实时（3 小时内）、一天（3 小时到 1 天）和更早（1 天以上或未知时间）切换，每个时间分类下再按工作目录聚合。精简视图目录会体现每个子代理是在哪个 Turn 下启动的，子代理下继续递归展示自己的 Turn。若未来出现子代理再 spawn 子代理，也会继续展开；若数据形成循环，会在目录中截断已出现过的线程以避免无限展开。
-- 执行树模型使用 `thread_spawn_edges` 作为父子线程强关系，使用 `threads.agent_nickname`、`threads.agent_role`、`threads.rollout_path` 展示子代理元数据；主界面不再单独暴露 Trace 视图，Audit 和 Inspector 按需展示执行节点。
+- 执行树模型使用 `thread_spawn_edges` 作为父子线程强关系，使用 `threads.agent_nickname`、`threads.agent_role`、`threads.rollout_path` 展示子代理元数据；主界面不再单独暴露 Trace 视图，Audit 和 Review Dock 按需展示执行节点。
 - JSONL 中的 `spawn_agent`、`wait_agent`、`subagent_notification` 用于把子代理节点锚定到父会话时间线中。
 - 精简视图会内嵌直接子代理及其下级子代理的轻量消息摘要，默认最多递归 3 层；完整子代理正文仍通过打开对应会话查看。
 - 点击子代理小卡片或精简视图中的“打开会话”会按会话 ID 切换到对应子线程。
 - 会话详情接口默认返回轻量渲染模型：工具参数、事件 payload 只返回预览和长度信息，避免 MB 级内容一次性进入浏览器 DOM；内部 turn/item 模型仍保留完整工具输出，供导出、Audit 和外部查询使用。
 - 精简视图的用户/助手消息支持常用 Markdown 渲染，包括标题、列表、引用、行内代码、代码块、链接、粗体、斜体、删除线和 GFM 管道表格；会话标题在列表、顶部标题、详情和精简视图中支持行内 Markdown 链接、代码和强调；渲染层禁用原始 HTML，并缓存解析结果以减少大段消息重复渲染成本。
-- 右侧 Inspector 是会话辅助面板，默认展示会话概览、当前选中内容和按 Turn 分组的关键事件；原始 JSON 降级到折叠的调试区。
-- 完整原始事件通过 `GET /api/sessions/:id/events/:index` 按需读取；右侧 Inspector 点选关键事件并查看调试 JSON 时才请求完整 payload。
+- 右侧 Review Dock 是对象级复核台，默认展示 Session Brief；选中 Turn、执行节点、Audit 节点、关联项或 Raw event 后，统一切换为“摘要 / 证据 / 关系 / 来源”四页。它不再展示关键事件列表，也不默认渲染完整 JSON。
+- 完整原始事件通过 `GET /api/sessions/:id/events/:index` 按需读取；Review Dock 只有在“来源”页读取完整 Raw payload 或执行复制 JSON 动作时才请求完整事件。
 - 图片和附件默认只以安全摘要进入轻量模型：data URI 会记录媒体类型和估算大小但不进入列表、搜索索引或默认 DOM；URL/文件引用只显示占位，不自动远程拉取。
 - Markdown 导出通过 `GET /api/sessions/:id/markdown` 按需生成，不内嵌在详情响应中。
-- 页面支持会话搜索、会话概览、选中内容详情、关键事件过滤、调试 JSON 和 Markdown 导出。
+- 页面支持会话搜索、Session Brief、对象级复核、证据包复制、按需 Raw 来源读取和 Markdown 导出。
 
 ### Audit Chain
 
@@ -232,9 +232,9 @@ Audit Chain 是只读派生模型，不修改原始会话数据。服务端在�
 
 风险节点只是复核信号，用来提示需要回看原始事件、工具输出或声明依据，不代表安全证明，也不等同于失败判定。
 
-证据映射采用尽力而为策略：执行结构以 `trace.root` 为骨架，Audit 节点通过 `traceNodeId`、`itemRef` 和 `turnIndex` 投影到对应 Turn 或执行节点；`relatedNodeId` 只用于 Inspector 中的关联跳转，不用于反推树父子关系。无法可靠挂载到执行链的 Audit 节点会显示在“未关联 / Raw 复核”区域，不会静默丢失。
+证据映射采用尽力而为策略：执行结构以 `trace.root` 为骨架，Audit 节点通过 `traceNodeId`、`itemRef` 和 `turnIndex` 投影到对应 Turn 或执行节点；`relatedNodeId` 只用于 Review Dock 中的关联跳转，不用于反推树父子关系。无法可靠挂载到执行链的 Audit 节点会显示在“未关联 / Raw 复核”区域，不会静默丢失。
 
-Audit 节点保留 `itemRef`、`eventIndex/sourceIndex`、`traceNodeId` 和工具名；右侧 Inspector 可复制摘要/JSON，并在存在事件索引时跳到 Raw event。完整 Raw JSON 仍通过单事件接口按需读取，不会把整条 JSONL 原文嵌入会话详情。
+Audit 节点保留 `itemRef`、`eventIndex/sourceIndex`、`traceNodeId` 和工具名；右侧 Review Dock 可复制引用、摘要、证据包或 JSON，并在存在事件索引时跳到 Raw event。完整 Raw JSON 仍通过单事件接口按需读取，不会把整条 JSONL 原文嵌入会话详情。
 
 ## 本地 API
 
@@ -406,6 +406,6 @@ GET /api/query/sessions/:id/events?cursor=0&limit=100
 - 当前本机样本中的 `reasoning.summary` 为空，真实推理内容在 `encrypted_content` 中，因此页面不会伪造“推理摘要”；默认搜索和轻量预览不会包含 `encrypted_content` 原文。
 - Trace duration 并非所有节点都有明确开始/结束时间；缺失结束时间时会标注为估算。
 - Codex App 原始 `.map` 未随包发布，因此本项目不会尝试还原官方 TSX 源码。
-- 不同 Codex 版本的事件字段可能变化；解析器保留折叠的调试 JSON 用于诊断。
+- 不同 Codex 版本的事件字段可能变化；Raw 主视图和 Review Dock 的来源页保留按需 JSON 诊断入口。
 - HTTP 快照下载要求远端提供 Codex Home 快照包，本项目不会把远程设备暴露成通用文件浏览器。
 - 远程 token 只能从运行时环境变量读取；不要写入 README、`.env.example` 之外的仓库文件、Issue 评论、日志或 API 响应。

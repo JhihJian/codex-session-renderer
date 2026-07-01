@@ -25,6 +25,7 @@ const state = {
   visibleEvents: 40,
   visibleThreadItems: 140,
   visibleRawEvents: 240,
+  reviewTab: "summary",
 };
 
 const {
@@ -96,6 +97,7 @@ const els = {
   rawEventList: document.getElementById("rawEventList"),
   rawPreview: document.getElementById("rawPreview"),
   inspectorActions: document.getElementById("inspectorActions"),
+  reviewTabs: document.getElementById("reviewTabs"),
   eventCount: document.getElementById("eventCount"),
   keyEventsTitle: document.getElementById("keyEventsTitle"),
   selectedEventLabel: document.getElementById("selectedEventLabel"),
@@ -223,15 +225,18 @@ function bindEvents() {
     state.visibleThreadItems = 140;
     renderMainContent();
   });
-  els.importantOnly.addEventListener("change", renderInspector);
+  els.importantOnly.addEventListener("change", renderMainContent);
   els.compactViewButton.addEventListener("click", () => setViewMode("compact"));
   els.auditViewButton.addEventListener("click", () => setViewMode("audit"));
   els.rawViewButton.addEventListener("click", () => setViewMode("raw"));
-  els.showMoreEventsButton.addEventListener("click", () => {
-    state.visibleEvents += 80;
-    renderInspector();
+  els.reviewTabs?.querySelectorAll("[data-review-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.reviewTab = button.dataset.reviewTab || "summary";
+      renderInspector();
+    });
   });
-  els.copyRawButton.addEventListener("click", copySelectedRawEvent);
+  els.showMoreEventsButton.addEventListener("click", renderInspector);
+  els.copyRawButton.addEventListener("click", copyReviewReference);
   els.copyMarkdownButton.addEventListener("click", copyMarkdown);
   els.downloadMarkdownButton.addEventListener("click", downloadMarkdown);
   els.toggleLeft.addEventListener("click", () => {
@@ -606,8 +611,6 @@ function renderAll() {
   renderThreadHeader();
   renderStats();
   renderMainContent();
-  renderDetails();
-  renderSelectionDetails();
   renderInspector();
   renderStatusbar();
 }
@@ -637,14 +640,13 @@ function syncViewControls() {
   els.traceContent.hidden = true;
   els.rawContent.hidden = state.viewMode !== "raw";
   if (els.importantOnlyLabel) {
-    els.importantOnlyLabel.textContent = state.viewMode === "audit" ? "右侧关键事件" : "重要事件";
+    els.importantOnlyLabel.textContent = "复核优先";
   }
   if (els.keyEventsTitle) {
-    els.keyEventsTitle.textContent = state.viewMode === "audit" ? "右侧关键事件" : "关键事件";
+    els.keyEventsTitle.textContent = "Review Dock";
   }
   if (els.importantOnlyControl) {
-    els.importantOnlyControl.title =
-      state.viewMode === "audit" ? "只过滤右侧关键事件列表，不影响 Audit 主链" : "只过滤右侧关键事件列表";
+    els.importantOnlyControl.title = "仅在主内容区突出重要或复核优先内容";
   }
 }
 
@@ -879,7 +881,6 @@ function renderMainContent() {
   } else {
     renderCompact();
   }
-  renderSelectionDetails();
   renderInspector();
 }
 
@@ -1561,12 +1562,7 @@ function selectTerminalBlock(id) {
   state.selectedAuditTurnKey = null;
   state.selectedEventIndex = null;
   state.selectedItemRef = block.itemRef || null;
-  const item = block.item || findItemByRef(block.itemRef);
-  els.selectedEventLabel.textContent = block.title || "Terminal 块";
-  els.rawPreview.textContent = JSON.stringify(item ? itemDebugPreview(item) : block, null, 2);
-  els.inspectorActions.innerHTML = "";
-  els.copyRawButton.disabled = false;
-  renderSelectionDetails();
+  renderInspector();
   els.terminalContent.querySelectorAll(".terminal-block.selected").forEach((row) => row.classList.remove("selected"));
   const active = els.terminalContent.querySelector(`[data-terminal-block-id="${cssEscape(id)}"]`);
   active?.classList.add("selected");
@@ -2419,12 +2415,7 @@ function selectAuditTurn(key) {
   state.selectedItemRef = null;
   state.selectedEventIndex = null;
   state.selectedTerminalBlockId = null;
-  els.selectedEventLabel.textContent = `Turn ${turn.turnNumber} 审计摘要`;
-  els.rawPreview.textContent = JSON.stringify(auditTurnDebugPreview(turn), null, 2);
-  els.inspectorActions.innerHTML = "";
-  els.copyRawButton.disabled = false;
   renderInspector();
-  renderSelectionDetails();
   markAuditSelection();
 }
 
@@ -2524,12 +2515,7 @@ function selectAuditNode(id) {
   state.selectedTerminalBlockId = null;
   state.selectedItemRef = null;
   state.selectedEventIndex = node.eventIndex ?? node.sourceIndex ?? null;
-  els.selectedEventLabel.textContent = auditNodeLabel(node);
-  els.rawPreview.textContent = JSON.stringify(auditNodeDebugPreview(node), null, 2);
-  renderAuditActions(node);
   renderInspector();
-  renderSelectionDetails();
-  els.copyRawButton.disabled = false;
   markAuditSelection();
 }
 
@@ -2867,6 +2853,7 @@ async function openRawEventFromAudit(index) {
 async function selectRawViewEvent(index) {
   await selectRawEvent(index, { rerender: false });
   renderRawView();
+  renderInspector();
 }
 
 function detailSummaryForRaw(detail) {
@@ -3090,117 +3077,21 @@ function renderTruncationNotice(item) {
 }
 
 function renderDetails() {
-  const detail = state.detail;
-  if (!detail) {
-    els.sessionDetails.innerHTML = emptyInspectorSection("会话概览", "选择会话后显示关键统计。");
-    return;
-  }
-  const session = detail.session;
-  const stats = detail.stats || {};
-  const tokenUsage = latestTokenUsage(detail.turns || []);
-  const toolCount = countItems("tool-call");
-  const errorCount = countErrors(detail);
-  const startedAt = session.startedAt || detail.turns?.[0]?.startedAt || stats.timing?.startedAt;
-  const endedAt = session.updatedAt || session.fileModifiedAt || detail.turns?.at(-1)?.completedAt || stats.timing?.completedAt;
-  const duration = durationBetween(startedAt, endedAt);
-  const metrics = [
-    ["Turns", stats.turnCount ?? detail.turns?.length ?? 0],
-    ["工具", toolCount],
-    ["错误", errorCount],
-    ["子代理", stats.childThreadCount || detail.trace?.hierarchy?.children?.length || 0],
-    ["Tokens", tokenUsage ? compactNumber(tokenUsage.total_tokens || tokenUsage.totalTokens || 0) : "n/a"],
-    ["大小", formatBytes(stats.sizeBytes || session.sizeBytes)],
-  ];
-  const rows = [
-    ["数据源", session.sourceLabel || selectedSource()?.label || "本机 Codex Home"],
-    ["模型", [session.model, session.reasoningEffort].filter(Boolean).join(" / ") || "unknown"],
-    ["工作目录", session.cwd || "Projectless"],
-    ["时间范围", [formatDate(startedAt), formatDate(endedAt)].filter(Boolean).join(" - ") || "n/a"],
-    ["持续时间", duration == null ? "n/a" : formatDuration(duration)],
-    ["数据文件", session.relativePath || "n/a"],
-  ];
-  const childThreads = detail.trace?.hierarchy?.children || [];
-  const childHtml = childThreads.length
-    ? `<div class="subagent-mini-list inspector-subagents">${childThreads
-        .map((child) => {
-          const thread = child.thread || {};
-          return `<div class="subagent-mini" role="button" tabindex="0" data-subagent-session-id="${escapeAttr(child.childThreadId)}">
-            <strong>${escapeHtml(thread.agentNickname || child.childThreadId)}</strong>
-            <span>${renderSubagentMiniTitle(thread)}</span>
-          </div>`;
-        })
-        .join("")}</div>`
-    : "";
-  els.sessionDetails.innerHTML = `
-    <div class="section-title-row">
-      <h3>会话概览</h3>
-      <span class="muted">${escapeHtml(session.dataSourceKind === "remote" ? "远程快照" : "本机")}</span>
-    </div>
-    <div class="inspector-title markdown-inline-title">${renderMarkdownTitle(session.title || "未命名会话")}</div>
-    <div class="inspector-metric-grid">
-      ${metrics
-        .map(
-          ([label, value]) => `
-            <div class="inspector-metric">
-              <strong>${escapeHtml(String(value))}</strong>
-              <span>${escapeHtml(label)}</span>
-            </div>
-          `,
-        )
-        .join("")}
-    </div>
-    <div class="details-grid compact-details">${rows
-      .map(([key, value]) => `<div class="detail-row"><strong>${escapeHtml(key)}</strong><span>${renderDetailValue(key, value)}</span></div>`)
-      .join("")}</div>
-    <div class="overview-actions">
-      <button class="ghost-button small" type="button" data-copy-session-id>复制 ID</button>
-      <button class="ghost-button small" type="button" data-copy-session-path>复制路径</button>
-      <button class="ghost-button small" type="button" data-copy-session-markdown>复制 Markdown</button>
-    </div>
-    ${childHtml}
-  `;
-  els.sessionDetails.querySelector("[data-copy-session-id]")?.addEventListener("click", () => copyInspectorText(session.id, "已复制会话 ID"));
-  els.sessionDetails
-    .querySelector("[data-copy-session-path]")
-    ?.addEventListener("click", () => copyInspectorText(detail.stats?.dataPath || session.relativePath || "", "已复制数据路径"));
-  els.sessionDetails.querySelector("[data-copy-session-markdown]")?.addEventListener("click", copyMarkdown);
-  els.sessionDetails.querySelectorAll("[data-subagent-session-id]").forEach((row) => {
-    row.addEventListener("click", (event) => {
-      if (event.target.closest("a")) return;
-      selectSession(row.dataset.subagentSessionId);
-    });
-    row.addEventListener("keydown", (event) => {
-      if (event.target.closest("a")) return;
-      if (event.key !== "Enter" && event.key !== " ") return;
-      event.preventDefault();
-      selectSession(row.dataset.subagentSessionId);
-    });
-  });
+  renderInspector();
 }
 
 function renderInspector() {
-  const detail = state.detail;
-  if (!detail) {
-    els.rawEventList.innerHTML = "";
-    els.eventCount.textContent = "0";
-    els.rawPreview.textContent = "选择会话后查看调试 JSON";
-    els.inspectorActions.innerHTML = "";
-    return;
-  }
-  const query = els.itemSearch.value.trim().toLowerCase();
-  const importantOnly = els.importantOnly.checked;
-  const events = buildKeyInspectorEvents(detail).filter((event) => {
-    if (importantOnly && !event.important) return false;
-    if (!query) return true;
-    return JSON.stringify(event).toLowerCase().includes(query);
-  });
-  els.eventCount.textContent = String(events.length);
-  const shown = events.slice(0, state.visibleEvents);
-  els.showMoreEventsButton.hidden = shown.length >= events.length;
-  els.rawEventList.innerHTML = renderKeyEventGroups(shown);
-  els.rawEventList.querySelectorAll("[data-event-index]").forEach((button) => {
-    button.addEventListener("click", () => selectRawEvent(Number(button.dataset.eventIndex)));
-  });
+  const context = buildReviewContext();
+  renderReviewHeader(context);
+  renderReviewTabs();
+  els.selectionDetails.innerHTML = renderReviewBody(context);
+  els.inspectorActions.innerHTML = renderReviewActions(context);
+  bindReviewBodyActions(context);
+  bindReviewActions(context);
+  if (els.eventCount) els.eventCount.textContent = String(context.metrics?.events ?? 0);
+  if (els.selectedEventLabel) els.selectedEventLabel.textContent = context.title || "未选择";
+  if (els.rawPreview) els.rawPreview.textContent = context.debugData ? JSON.stringify(context.debugData, null, 2) : "";
+  els.copyRawButton.disabled = !state.detail;
 }
 
 function renderKeyEventGroups(events) {
@@ -3237,25 +3128,10 @@ async function selectRawEvent(index, { rerender = true } = {}) {
   state.selectedTerminalBlockId = null;
   state.selectedAuditNodeId = null;
   state.selectedAuditTurnKey = null;
-  els.inspectorActions.innerHTML = "";
   state.selectedEventIndex = index;
   const event = state.detail?.events.find((candidate) => candidate.index === index);
   if (!event) return;
-  els.selectedEventLabel.textContent = `event #${event.index} ${event.kind}`;
-  els.copyRawButton.disabled = false;
   if (rerender) renderInspector();
-  renderSelectionDetails();
-  els.rawPreview.textContent = JSON.stringify(event, null, 2) + "\n\n正在按需读取完整 payload...";
-  try {
-    const raw = await loadRawEvent(index);
-    if (state.selectedEventIndex === index && !state.selectedTraceNodeId) {
-      els.rawPreview.textContent = JSON.stringify(raw, null, 2);
-    }
-  } catch (error) {
-    if (state.selectedEventIndex === index && !state.selectedTraceNodeId) {
-      els.rawPreview.textContent = JSON.stringify(event, null, 2) + `\n\n读取完整事件失败：${error.message}`;
-    }
-  }
 }
 
 async function loadRawEvent(index) {
@@ -3276,11 +3152,7 @@ function selectTraceNode(id) {
   state.selectedTerminalBlockId = null;
   state.selectedAuditNodeId = null;
   state.selectedAuditTurnKey = null;
-  els.selectedEventLabel.textContent = traceNodeLabel(node);
-  els.rawPreview.textContent = JSON.stringify(traceNodePreview(node), null, 2);
-  renderTraceActions(node);
-  renderSelectionDetails();
-  els.copyRawButton.disabled = false;
+  renderInspector();
   els.traceContent.querySelectorAll(".trace-row.selected").forEach((row) => row.classList.remove("selected"));
   const active = els.traceContent.querySelector(`[data-trace-node-id="${cssEscape(id)}"]`);
   active?.classList.add("selected");
@@ -3310,58 +3182,14 @@ function selectItemRef(ref) {
   state.selectedTerminalBlockId = null;
   const item = findItemByRef(ref);
   if (!item) return;
-  els.selectedEventLabel.textContent = itemTitle(item);
-  els.rawPreview.textContent = JSON.stringify(itemDebugPreview(item), null, 2);
-  els.inspectorActions.innerHTML = "";
-  els.copyRawButton.disabled = false;
-  renderSelectionDetails();
+  renderInspector();
   if (state.viewMode === "audit") {
     renderAudit();
   }
 }
 
 function renderSelectionDetails() {
-  if (!state.detail) {
-    els.selectionDetails.innerHTML = emptyInspectorSection("选中内容", "选择会话后可查看 Audit 节点、关联项或关键事件详情。");
-    return;
-  }
-  if (state.selectedTraceNodeId) {
-    const node = findTraceNode(state.detail.trace?.root, state.selectedTraceNodeId);
-    els.selectionDetails.innerHTML = node ? renderTraceSelection(node) : emptyInspectorSection("选中内容", "执行节点不存在。");
-    bindSelectionActions();
-    return;
-  }
-  if (state.selectedAuditNodeId) {
-    const node = findAuditNode(state.selectedAuditNodeId);
-    els.selectionDetails.innerHTML = node ? renderAuditSelection(node) : emptyInspectorSection("选中内容", "Audit 节点不存在。");
-    bindSelectionActions();
-    return;
-  }
-  if (state.selectedAuditTurnKey) {
-    const turn = findAuditTurn(state.selectedAuditTurnKey);
-    els.selectionDetails.innerHTML = turn ? renderAuditTurnSelection(turn) : emptyInspectorSection("选中内容", "Turn 审计摘要不存在。");
-    bindSelectionActions();
-    return;
-  }
-  if (state.selectedItemRef) {
-    const item = findItemByRef(state.selectedItemRef);
-    els.selectionDetails.innerHTML = item ? renderItemSelection(item) : emptyInspectorSection("选中内容", "关联项不存在。");
-    bindSelectionActions();
-    return;
-  }
-  if (state.selectedEventIndex != null) {
-    const event = state.detail.events.find((candidate) => candidate.index === state.selectedEventIndex);
-    els.selectionDetails.innerHTML = event ? renderEventSelection(event) : emptyInspectorSection("选中内容", "关键事件不存在。");
-    bindSelectionActions();
-    return;
-  }
-  els.selectionDetails.innerHTML = `
-    <div class="section-title-row">
-      <h3>选中内容</h3>
-      <span class="muted">未选择</span>
-    </div>
-    <div class="selection-empty">点击 Audit 节点或下方关键事件查看细节。</div>
-  `;
+  renderInspector();
 }
 
 function renderAuditSelection(node) {
@@ -3584,7 +3412,7 @@ function auditSelectionActions(node) {
     { label: "复制 JSON", action: "copy-debug" },
   ];
   if (node.eventIndex != null || node.sourceIndex != null) {
-    actions.unshift({ label: "打开 Raw event", action: "open-raw-event", index: node.eventIndex ?? node.sourceIndex });
+    actions.unshift({ label: "跳到 Raw", action: "open-raw-event", index: node.eventIndex ?? node.sourceIndex });
     actions.push({ label: "复制事件索引", copy: String(node.eventIndex ?? node.sourceIndex), toast: "已复制事件索引" });
   }
   if (node.itemRef) actions.unshift({ label: "查看关联项", action: "open-item-ref", ref: node.itemRef });
@@ -3611,7 +3439,769 @@ function itemSelectionActions(item) {
   const actions = [{ label: "复制 JSON", action: "copy-debug" }];
   const body = item.text || item.output || item.arguments || item.payloadPreview || "";
   if (body) actions.unshift({ label: "复制内容", copy: body, toast: "已复制内容" });
+  if (item.sourceIndex != null || item.outputSourceIndex != null) {
+    actions.push({ label: "跳到 Raw", action: "open-raw-event", index: item.sourceIndex ?? item.outputSourceIndex });
+  }
   return actions;
+}
+
+function buildReviewContext() {
+  if (!state.detail) {
+    return reviewContextBase({
+      kind: "empty",
+      kindLabel: "未选择",
+      title: "选择一个会话",
+      summary: "左侧选择会话后，复核台会显示当前对象的摘要、证据、关系和来源。",
+    });
+  }
+  if (state.selectedTraceNodeId) {
+    const node = findTraceNode(state.detail.trace?.root, state.selectedTraceNodeId);
+    if (node) return buildTraceReviewContext(node);
+  }
+  if (state.selectedAuditNodeId) {
+    const node = findAuditNode(state.selectedAuditNodeId);
+    if (node) return buildAuditNodeReviewContext(node);
+  }
+  if (state.selectedAuditTurnKey) {
+    const turn = findAuditTurn(state.selectedAuditTurnKey);
+    if (turn) return buildAuditTurnReviewContext(turn);
+  }
+  if (state.selectedItemRef) {
+    const item = findItemByRef(state.selectedItemRef);
+    if (item) return buildItemReviewContext(item);
+  }
+  if (state.selectedEventIndex != null) {
+    const event = eventByIndex(state.selectedEventIndex);
+    if (event) return buildRawEventReviewContext(event);
+  }
+  return buildSessionBriefReviewContext(state.detail);
+}
+
+function reviewContextBase(overrides = {}) {
+  return {
+    kind: "object",
+    kindLabel: "对象",
+    title: "未命名对象",
+    riskLevel: "none",
+    badges: [],
+    summary: "",
+    rows: [],
+    metrics: {},
+    evidence: [],
+    relations: [],
+    sources: [],
+    actions: [],
+    debugData: null,
+    ...overrides,
+  };
+}
+
+function buildSessionBriefReviewContext(detail) {
+  const session = detail.session || {};
+  const stats = detail.stats || {};
+  const audit = detail.audit || buildAuditFallback(detail) || { nodes: [] };
+  const nodes = audit.nodes || [];
+  const risks = nodes.filter((node) => node.type === "risk" || (node.riskLevel && node.riskLevel !== "none"));
+  const incomplete = nodes.filter((node) => node.type === "incomplete");
+  const verification = nodes.filter((node) => node.type === "verification");
+  const finalNode = [...nodes].reverse().find((node) => node.type === "final");
+  const childThreads = detail.trace?.hierarchy?.children || [];
+  const tokenUsage = latestTokenUsage(detail.turns || []);
+  const startedAt = session.startedAt || detail.turns?.[0]?.startedAt || stats.timing?.startedAt;
+  const endedAt = session.updatedAt || session.fileModifiedAt || detail.turns?.at(-1)?.completedAt || stats.timing?.completedAt;
+  const duration = durationBetween(startedAt, endedAt);
+  const metrics = {
+    events: stats.eventCount ?? detail.events?.length ?? 0,
+    evidence: verification.length,
+    relations: risks.length + childThreads.length,
+    risks: risks.length,
+    turns: stats.turnCount ?? detail.turns?.length ?? 0,
+    tools: countItems("tool-call"),
+    tokens: tokenUsage ? compactNumber(tokenUsage.total_tokens || tokenUsage.totalTokens || 0) : "n/a",
+  };
+  const evidence = [
+    ...verification.slice(0, 8).map(reviewEvidenceFromAuditNode),
+    ...risks.slice(0, 8).map(reviewEvidenceFromAuditNode),
+    ...incomplete.slice(0, 5).map(reviewEvidenceFromAuditNode),
+  ];
+  if (!evidence.length) {
+    evidence.push({
+      kind: "概览",
+      title: "没有优先风险或缺口",
+      meta: "Session Brief",
+      body: "从 Audit 视图选择 Turn、执行节点或证据节点后，复核台会切换到对象级复核。",
+    });
+  }
+  return reviewContextBase({
+    kind: "session",
+    kindLabel: "Session Brief",
+    title: session.title || "未命名会话",
+    riskLevel: highestRiskLevel(risks),
+    badges: [session.dataSourceKind === "remote" ? "远程快照" : "本机只读", `${metrics.turns} turns`, `${metrics.events} events`],
+    summary: finalNode?.summary || "当前会话的默认复核入口。选择 Audit 节点、工具调用、Raw event 或子代理后，右侧会切换到对象级复核。",
+    rows: [
+      ["数据源", session.sourceLabel || selectedSource()?.label || "本机 Codex Home"],
+      ["模型", [session.model, session.reasoningEffort].filter(Boolean).join(" / ") || "unknown"],
+      ["工作目录", session.cwd || "Projectless"],
+      ["时间范围", [formatDate(startedAt), formatDate(endedAt)].filter(Boolean).join(" - ") || "n/a"],
+      ["持续时间", duration == null ? "n/a" : formatDuration(duration)],
+      ["Tokens", metrics.tokens],
+      ["数据文件", session.relativePath || "n/a"],
+    ],
+    metrics,
+    evidence,
+    relations: [
+      ...risks.slice(0, 8).map((node) => reviewRelationFromAuditNode(node, "优先复核")),
+      ...childThreads.slice(0, 8).map((child) => ({
+        kind: "子代理",
+        title: child.thread?.agentNickname || child.childThreadId,
+        meta: child.thread?.title || child.thread?.agentRole || "",
+        action: "open-thread",
+        threadId: child.childThreadId,
+      })),
+    ],
+    sources: [
+      { label: "Session detail", value: session.id || "n/a", data: { session, stats } },
+      { label: "数据文件", value: stats.dataPath || session.relativePath || "n/a", data: stats.dataPath || session.relativePath || "" },
+    ],
+    actions: [
+      { label: "复制引用", action: "copy-reference" },
+      { label: "复制 Markdown", action: "copy-markdown" },
+      { label: "复制会话 ID", copy: session.id || "", toast: "已复制会话 ID" },
+      { label: "复制证据包", action: "copy-evidence" },
+    ],
+    debugData: { session, stats, metrics, auditCounts: audit.counts || auditNodeCounts(nodes) },
+  });
+}
+
+function buildAuditNodeReviewContext(node) {
+  const item = node.itemRef ? findItemByRef(node.itemRef) : null;
+  const related = node.relatedNodeId ? findAuditNode(node.relatedNodeId) : null;
+  const traceNode = node.traceNodeId ? findTraceNode(state.detail?.trace?.root, node.traceNodeId) : null;
+  const event = eventByIndex(node.eventIndex ?? node.sourceIndex);
+  const body = [node.summary, node.outputPreview, node.argumentsPreview].filter(Boolean).join("\n\n");
+  const evidence = [reviewEvidenceFromAuditNode(node)];
+  if (item) evidence.push(reviewEvidenceFromItem(item, "关联项"));
+  if (event) evidence.push(reviewEvidenceFromEvent(event, "来源事件"));
+  const relations = [
+    related ? reviewRelationFromAuditNode(related, "关联节点") : null,
+    traceNode ? reviewRelationFromTraceNode(traceNode, "执行节点") : null,
+    item ? reviewRelationFromItem(item, "关联项") : null,
+    event ? reviewRelationFromEvent(event, "Raw event") : null,
+  ].filter(Boolean);
+  return reviewContextBase({
+    kind: "audit_node",
+    kindLabel: "Audit 节点",
+    title: node.title || auditTypeLabel(node.type),
+    riskLevel: node.riskLevel || "none",
+    badges: [auditTypeLabel(node.type), node.turnNumber ? `Turn ${node.turnNumber}` : "未定位 Turn", auditEventIndexLabel(node)].filter(Boolean),
+    summary: body || "该 Audit 节点没有摘要正文。",
+    rows: [
+      ["节点类型", auditTypeLabel(node.type)],
+      ["状态", node.status || "n/a"],
+      ["风险信号", auditRiskLabel(node.riskLevel || "none")],
+      ["Turn", node.turnNumber ? String(node.turnNumber) : "n/a"],
+      ["时间", formatDate(node.timestamp) || "n/a"],
+      ["itemRef", node.itemRef || "n/a"],
+      ["事件索引", auditEventIndexLabel(node) || "n/a"],
+      ["工具", node.toolName || "n/a"],
+    ],
+    metrics: { events: Number(node.eventIndex != null || node.sourceIndex != null), evidence: evidence.length, relations: relations.length },
+    evidence,
+    relations,
+    sources: buildSourceRefs({ eventIndex: node.eventIndex ?? node.sourceIndex, item, node, traceNode }),
+    actions: auditSelectionActions(node),
+    debugData: auditNodeDebugPreview(node),
+  });
+}
+
+function buildAuditTurnReviewContext(turn) {
+  const riskNodes = turn.auditNodes.filter((node) => node.type === "risk" || (node.riskLevel && node.riskLevel !== "none"));
+  const evidenceNodes = turn.auditNodes.filter((node) => ["evidence", "verification", "incomplete", "risk"].includes(node.type));
+  const relations = [
+    ...turn.executionRows.slice(0, 12).map((row) => ({
+      kind: "执行",
+      title: row.title || row.id,
+      meta: [row.type, row.status].filter(Boolean).join(" · "),
+      action: row.traceNodeId ? "open-trace-node" : row.itemRef ? "open-item-ref" : "",
+      id: row.traceNodeId,
+      ref: row.itemRef,
+    })),
+    ...turn.unlinkedAuditNodes.slice(0, 6).map((node) => reviewRelationFromAuditNode(node, "未关联")),
+  ];
+  return reviewContextBase({
+    kind: "audit_turn",
+    kindLabel: "Turn 审计",
+    title: `Turn ${turn.turnNumber}`,
+    riskLevel: highestRiskLevel(riskNodes),
+    badges: [turn.stats.verificationStatus, turn.stats.riskLabel, `${turn.auditNodes.length} audit nodes`].filter(Boolean),
+    summary: [`目标：${turn.intentSummary}`, `结果：${turn.finalSummary}`].join("\n"),
+    rows: [
+      ["Turn", String(turn.turnNumber)],
+      ["验证状态", turn.stats.verificationStatus],
+      ["最高风险", turn.stats.riskLabel],
+      ["工具调用", String(turn.stats.toolCount)],
+      ["子代理", String(turn.stats.subagentCount)],
+      ["证据", String(turn.stats.evidenceCount)],
+      ["缺口", String(turn.stats.gapCount)],
+    ],
+    metrics: {
+      events: turn.auditNodes.filter((node) => node.eventIndex != null || node.sourceIndex != null).length,
+      evidence: evidenceNodes.length,
+      relations: relations.length,
+    },
+    evidence: evidenceNodes.length
+      ? evidenceNodes.slice(0, 14).map(reviewEvidenceFromAuditNode)
+      : [{ kind: "Turn", title: "没有独立证据节点", meta: "Audit", body: "展开 Audit 主视图可以查看本 Turn 的执行链。" }],
+    relations,
+    sources: [{ label: "Turn model", value: turn.key, data: auditTurnDebugPreview(turn) }],
+    actions: auditTurnSelectionActions(turn),
+    debugData: auditTurnDebugPreview(turn),
+  });
+}
+
+function buildTraceReviewContext(node) {
+  const detail = node.detail || {};
+  const item = detail.item || null;
+  const thread = detail.thread || detail.edge?.thread || {};
+  const body = item?.output || item?.arguments || item?.text || node.subtitle || detail.note || "";
+  const childRelations = (node.children || []).slice(0, 10).map((child) => reviewRelationFromTraceNode(child, "下游"));
+  const itemRefValue = item ? itemRef(item) : null;
+  return reviewContextBase({
+    kind: "trace_node",
+    kindLabel: "执行节点",
+    title: node.title || node.label || node.id,
+    riskLevel: traceRiskLevel(node, item),
+    badges: [traceTypeLabel(node.type), node.status, item?.sourceIndex != null ? `event #${item.sourceIndex}` : ""].filter(Boolean),
+    summary: body || node.subtitle || "该执行节点没有可显示的正文摘要。",
+    rows: [
+      ["类型", traceTypeLabel(node.type)],
+      ["状态", node.status || "n/a"],
+      ["时间", [formatDate(node.timestamp), formatDate(node.completedAt)].filter(Boolean).join(" - ") || "n/a"],
+      ["耗时", node.durationMs == null ? "n/a" : `${formatDuration(node.durationMs)}${node.durationEstimated ? " 估算" : ""}`],
+      ["工具", item?.name || "n/a"],
+      ["线程", thread.agentNickname || thread.title || node.threadId || thread.id || "n/a"],
+    ],
+    metrics: { events: item?.sourceIndex != null ? 1 : 0, evidence: item ? 1 : 0, relations: childRelations.length },
+    evidence: item ? [reviewEvidenceFromItem(item, "节点明细")] : [{ kind: "执行", title: node.label || node.id, meta: node.status || "", body: node.subtitle || "" }],
+    relations: [
+      itemRefValue ? { kind: "关联项", title: itemTitle(item), meta: itemRefValue, action: "open-item-ref", ref: itemRefValue } : null,
+      node.type === "subagent" && node.threadId ? { kind: "子会话", title: thread.agentNickname || node.threadId, meta: thread.title || "", action: "open-thread", threadId: node.threadId } : null,
+      ...childRelations,
+    ].filter(Boolean),
+    sources: buildSourceRefs({ eventIndex: item?.sourceIndex ?? item?.outputSourceIndex, item, traceNode: node }),
+    actions: traceSelectionActions(node, body),
+    debugData: traceNodePreview(node),
+  });
+}
+
+function buildItemReviewContext(item) {
+  const ref = itemRef(item);
+  const event = eventByIndex(item.sourceIndex ?? item.outputSourceIndex);
+  const linkedAuditNodes = auditNodesForItemRef(ref);
+  const body = item.text || item.output || item.arguments || item.payloadPreview || "";
+  return reviewContextBase({
+    kind: "item",
+    kindLabel: itemTitle(item),
+    title: itemTitle(item),
+    riskLevel: itemRiskLevel(item, linkedAuditNodes),
+    badges: [item.turnIndex == null ? "未定位 Turn" : `Turn ${item.turnIndex + 1}`, item.name, item.sourceIndex != null ? `event #${item.sourceIndex}` : ""].filter(Boolean),
+    summary: body || "该关联项没有正文摘要。",
+    rows: [
+      ["类型", itemTitle(item)],
+      ["Turn", item.turnIndex == null ? "n/a" : String(item.turnIndex + 1)],
+      ["时间", formatDate(item.timestamp) || "n/a"],
+      ["状态", [item.phase, item.status].filter(Boolean).join(" / ") || "n/a"],
+      ["工具", item.name || "n/a"],
+      ["Call ID", item.callId || "n/a"],
+      ["事件索引", item.sourceIndex != null ? `event #${item.sourceIndex}` : "n/a"],
+    ],
+    metrics: { events: item.sourceIndex != null || item.outputSourceIndex != null ? 1 : 0, evidence: linkedAuditNodes.length || (body ? 1 : 0), relations: linkedAuditNodes.length },
+    evidence: [reviewEvidenceFromItem(item, "关联项"), ...linkedAuditNodes.slice(0, 8).map(reviewEvidenceFromAuditNode)],
+    relations: [...linkedAuditNodes.slice(0, 10).map((node) => reviewRelationFromAuditNode(node, "Audit")), event ? reviewRelationFromEvent(event, "Raw event") : null].filter(Boolean),
+    sources: buildSourceRefs({ eventIndex: item.sourceIndex ?? item.outputSourceIndex, item }),
+    actions: itemSelectionActions(item),
+    debugData: itemDebugPreview(item),
+  });
+}
+
+function buildRawEventReviewContext(event) {
+  const linkedItems = itemsForEventIndex(event.index);
+  const linkedAuditNodes = auditNodesForEventIndex(event.index);
+  return reviewContextBase({
+    kind: "raw_event",
+    kindLabel: "Raw event",
+    title: `#${event.index} ${humanEventTitle(event)}`,
+    riskLevel: rawEventRiskLevel(event, linkedAuditNodes),
+    badges: [event.kind || event.type || "event", formatDate(event.timestamp) || "", event.payloadSize ? formatBytes(event.payloadSize) : ""].filter(Boolean),
+    summary: event.preview || "Raw 事件没有预览正文。",
+    rows: [
+      ["事件", `event #${event.index}`],
+      ["分类", event.kind || "n/a"],
+      ["类型", [event.type, event.payloadType, event.role].filter(Boolean).join(" / ") || "n/a"],
+      ["时间", formatDate(event.timestamp) || "n/a"],
+      ["Payload", event.payloadSize ? formatBytes(event.payloadSize) : "n/a"],
+    ],
+    metrics: { events: 1, evidence: linkedAuditNodes.length, relations: linkedItems.length + linkedAuditNodes.length },
+    evidence: [reviewEvidenceFromEvent(event, "事件预览"), ...linkedAuditNodes.slice(0, 8).map(reviewEvidenceFromAuditNode)],
+    relations: [...linkedItems.slice(0, 10).map((item) => reviewRelationFromItem(item, "关联项")), ...linkedAuditNodes.slice(0, 10).map((node) => reviewRelationFromAuditNode(node, "Audit"))],
+    sources: [{ label: "完整 Raw event", value: `event #${event.index}`, eventIndex: event.index, data: event, lazy: true }],
+    actions: rawEventSelectionActions(event),
+    debugData: event,
+  });
+}
+
+function renderReviewHeader(context) {
+  if (!state.detail) {
+    els.sessionDetails.innerHTML = `
+      <div class="review-object-head empty">
+        <span class="review-kind">未选择</span>
+        <strong>选择一个会话</strong>
+        <p>复核台会显示当前对象的摘要、证据、关系和来源。</p>
+      </div>
+    `;
+    return;
+  }
+  els.sessionDetails.innerHTML = `
+    <div class="review-object-head risk-${escapeAttr(context.riskLevel || "none")}">
+      <div class="review-object-topline">
+        <span class="review-kind">${escapeHtml(context.kindLabel || "对象")}</span>
+        <span class="review-risk">${escapeHtml(auditRiskLabel(context.riskLevel || "none"))}</span>
+      </div>
+      <strong class="review-object-title markdown-inline-title">${renderMarkdownTitle(context.title || "未命名对象")}</strong>
+      <div class="review-object-meta">
+        ${(context.badges || []).map((badge) => `<span>${escapeHtml(badge)}</span>`).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderReviewTabs() {
+  const allowed = new Set(["summary", "evidence", "relations", "source"]);
+  if (!allowed.has(state.reviewTab)) state.reviewTab = "summary";
+  els.reviewTabs?.querySelectorAll("[data-review-tab]").forEach((button) => {
+    const active = button.dataset.reviewTab === state.reviewTab;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  });
+}
+
+function renderReviewBody(context) {
+  if (!state.detail) return renderReviewEmpty("未选择会话", "左侧选择会话后，复核台会显示 Session Brief。");
+  if (state.reviewTab === "evidence") return renderReviewEvidence(context);
+  if (state.reviewTab === "relations") return renderReviewRelations(context);
+  if (state.reviewTab === "source") return renderReviewSource(context);
+  return renderReviewSummary(context);
+}
+
+function renderReviewSummary(context) {
+  const metrics = context.metrics || {};
+  return `
+    <div class="review-section">
+      <div class="section-title-row">
+        <h3>摘要</h3>
+        <span class="muted">${escapeHtml(context.kindLabel || "对象")}</span>
+      </div>
+      <div class="review-summary-text">${escapeHtml(context.summary || "没有摘要。")}</div>
+      <div class="review-metric-grid">
+        ${renderReviewMetric("证据", metrics.evidence ?? 0)}
+        ${renderReviewMetric("关系", metrics.relations ?? 0)}
+        ${renderReviewMetric("事件", metrics.events ?? 0)}
+        ${renderReviewMetric("风险", metrics.risks ?? riskMetricValue(context.riskLevel))}
+      </div>
+      ${renderReviewRows(context.rows || [])}
+    </div>
+  `;
+}
+
+function renderReviewEvidence(context) {
+  const evidence = context.evidence || [];
+  if (!evidence.length) return renderReviewEmpty("没有证据", "当前对象没有可投影的证据。可以切到来源页查看原始结构。");
+  return `
+    <div class="review-section">
+      <div class="section-title-row">
+        <h3>证据</h3>
+        <span class="count-pill">${escapeHtml(String(evidence.length))}</span>
+      </div>
+      <div class="review-card-list">
+        ${evidence.map((item, index) => renderReviewEvidenceCard(item, index)).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderReviewRelations(context) {
+  const relations = context.relations || [];
+  if (!relations.length) return renderReviewEmpty("没有关系", "当前对象没有可跳转的上游或下游对象。");
+  return `
+    <div class="review-section">
+      <div class="section-title-row">
+        <h3>关系</h3>
+        <span class="count-pill">${escapeHtml(String(relations.length))}</span>
+      </div>
+      <div class="review-card-list">
+        ${relations.map((relation, index) => renderReviewRelationCard(relation, index)).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderReviewSource(context) {
+  const sources = context.sources || [];
+  const debug = context.debugData ?? context;
+  return `
+    <div class="review-section">
+      <div class="section-title-row">
+        <h3>来源</h3>
+        <span class="muted">按需 Raw</span>
+      </div>
+      ${sources.length ? `<div class="review-source-list">${sources.map((source, index) => renderReviewSourceCard(source, index)).join("")}</div>` : ""}
+      <div class="review-source-preview">
+        <div class="raw-preview-title">
+          <strong>${escapeHtml(context.title || "调试结构")}</strong>
+          <span>${escapeHtml(context.kindLabel || "JSON")}</span>
+        </div>
+        <pre class="raw-preview" data-review-source-preview>${escapeHtml(JSON.stringify(debug, null, 2))}</pre>
+      </div>
+    </div>
+  `;
+}
+
+function renderReviewActions(context) {
+  const actions = normalizeReviewActions(context);
+  return actions
+    .map((action, index) => `<button class="ghost-button small" type="button" data-review-action="${index}">${escapeHtml(action.label)}</button>`)
+    .join("");
+}
+
+function normalizeReviewActions(context) {
+  if (!state.detail) return [];
+  const actions = [...(context.actions || [])];
+  if (!actions.some((action) => action.action === "copy-reference")) actions.unshift({ label: "复制引用", action: "copy-reference" });
+  if (!actions.some((action) => action.action === "copy-evidence")) actions.push({ label: "复制证据包", action: "copy-evidence" });
+  return dedupeActions(actions);
+}
+
+function renderReviewMetric(label, value) {
+  return `
+    <div class="review-metric">
+      <strong>${escapeHtml(String(value ?? 0))}</strong>
+      <span>${escapeHtml(label)}</span>
+    </div>
+  `;
+}
+
+function renderReviewRows(rows) {
+  if (!rows.length) return "";
+  return `
+    <div class="details-grid review-detail-grid">
+      ${rows.map(([key, value]) => `<div class="detail-row"><strong>${escapeHtml(key)}</strong><span>${renderDetailValue(key, value)}</span></div>`).join("")}
+    </div>
+  `;
+}
+
+function renderReviewEvidenceCard(item, index) {
+  return `
+    <article class="review-card risk-${escapeAttr(item.riskLevel || "none")}">
+      <div class="review-card-head">
+        <span>${escapeHtml(item.kind || "证据")}</span>
+        <strong>${escapeHtml(item.title || "未命名证据")}</strong>
+      </div>
+      ${item.meta ? `<div class="review-card-meta">${escapeHtml(item.meta)}</div>` : ""}
+      ${item.body ? `<pre class="review-card-body">${escapeHtml(firstLine(item.body, 1000))}</pre>` : ""}
+      ${item.action ? `<button class="ghost-button small" type="button" data-review-evidence-action="${index}">${escapeHtml(item.actionLabel || "打开")}</button>` : ""}
+    </article>
+  `;
+}
+
+function renderReviewRelationCard(relation, index) {
+  return `
+    <button class="review-relation" type="button" data-review-relation="${index}" ${relation.action ? "" : "disabled"}>
+      <span>${escapeHtml(relation.kind || "关系")}</span>
+      <strong>${escapeHtml(relation.title || "未命名对象")}</strong>
+      <em>${escapeHtml(relation.meta || "")}</em>
+    </button>
+  `;
+}
+
+function renderReviewSourceCard(source, index) {
+  const button = source.eventIndex != null || source.lazy ? `<button class="ghost-button small" type="button" data-review-source="${index}">读取完整来源</button>` : "";
+  return `
+    <div class="review-source-card">
+      <div>
+        <strong>${escapeHtml(source.label || "来源")}</strong>
+        <span>${escapeHtml(source.value || "n/a")}</span>
+      </div>
+      ${button}
+    </div>
+  `;
+}
+
+function renderReviewEmpty(title, subtitle) {
+  return `
+    <div class="review-section">
+      <div class="selection-empty">
+        <strong>${escapeHtml(title)}</strong>
+        <span>${escapeHtml(subtitle)}</span>
+      </div>
+    </div>
+  `;
+}
+
+function bindReviewBodyActions(context) {
+  const relations = context.relations || [];
+  const evidence = context.evidence || [];
+  const sources = context.sources || [];
+  els.selectionDetails.querySelectorAll("[data-review-relation]").forEach((button) => {
+    button.addEventListener("click", () => runReviewAction(relations[Number(button.dataset.reviewRelation)]));
+  });
+  els.selectionDetails.querySelectorAll("[data-review-evidence-action]").forEach((button) => {
+    button.addEventListener("click", () => runReviewAction(evidence[Number(button.dataset.reviewEvidenceAction)]));
+  });
+  els.selectionDetails.querySelectorAll("[data-review-source]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const source = sources[Number(button.dataset.reviewSource)];
+      if (source) await loadReviewSource(source);
+    });
+  });
+}
+
+function bindReviewActions(context) {
+  const actions = normalizeReviewActions(context);
+  els.inspectorActions.querySelectorAll("[data-review-action]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const action = actions[Number(button.dataset.reviewAction)];
+      await runReviewAction(action, context);
+    });
+  });
+}
+
+async function runReviewAction(action, context = buildReviewContext()) {
+  if (!action) return;
+  if (action.action === "copy-reference") return copyReviewReference(context);
+  if (action.action === "copy-evidence") return copyReviewEvidence(context);
+  if (action.action === "copy-debug") return copySelectedRawEvent();
+  if (action.action === "copy-markdown") return copyMarkdown();
+  if (action.action === "open-thread" && action.threadId) return selectSession(action.threadId);
+  if (action.action === "open-raw-event") return openRawEventFromAudit(action.index);
+  if (action.action === "open-item-ref") return locateItemRef(action.ref);
+  if (action.action === "open-trace-node") return locateTraceNode(action.id);
+  if (action.action === "open-audit-node") return locateAuditNode(action.id || action.node?.relatedNodeId);
+  if (action.action === "switch-review-tab") {
+    state.reviewTab = action.tab || "summary";
+    renderInspector();
+    return;
+  }
+  if (action.copy != null) return copyInspectorText(action.copy, action.toast || "已复制");
+}
+
+async function loadReviewSource(source) {
+  const preview = els.selectionDetails.querySelector("[data-review-source-preview]");
+  if (!preview) return;
+  if (source.eventIndex == null) {
+    preview.textContent = JSON.stringify(source.data ?? source.value ?? null, null, 2);
+    return;
+  }
+  preview.textContent = JSON.stringify(source.data || {}, null, 2) + "\n\n正在按需读取完整 payload...";
+  try {
+    const raw = await loadRawEvent(source.eventIndex);
+    preview.textContent = JSON.stringify(raw, null, 2);
+  } catch (error) {
+    preview.textContent = JSON.stringify(source.data || {}, null, 2) + `\n\n读取完整事件失败：${error.message}`;
+  }
+}
+
+function reviewEvidenceFromAuditNode(node) {
+  return {
+    kind: auditTypeLabel(node.type),
+    title: node.title || auditTypeLabel(node.type),
+    meta: [node.turnNumber ? `Turn ${node.turnNumber}` : "", node.toolName, auditEventIndexLabel(node), auditRiskMetaLabel(node.riskLevel)].filter(Boolean).join(" · "),
+    body: [node.summary, node.outputPreview, node.argumentsPreview].filter(Boolean).join("\n\n"),
+    riskLevel: node.riskLevel || "none",
+    action: "open-audit-node",
+    id: node.id,
+    actionLabel: "定位节点",
+  };
+}
+
+function reviewEvidenceFromItem(item, kind = "关联项") {
+  const ref = itemRef(item);
+  return {
+    kind,
+    title: itemTitle(item),
+    meta: [item.turnIndex == null ? "" : `Turn ${item.turnIndex + 1}`, item.name, item.sourceIndex != null ? `event #${item.sourceIndex}` : ""].filter(Boolean).join(" · "),
+    body: item.text || item.output || item.arguments || item.payloadPreview || "",
+    riskLevel: itemRiskLevel(item, auditNodesForItemRef(ref)),
+    action: "open-item-ref",
+    ref,
+    actionLabel: "查看关联项",
+  };
+}
+
+function reviewEvidenceFromEvent(event, kind = "Raw event") {
+  return {
+    kind,
+    title: `#${event.index} ${humanEventTitle(event)}`,
+    meta: [event.kind || event.type, formatDate(event.timestamp)].filter(Boolean).join(" · "),
+    body: event.preview || "",
+    riskLevel: rawEventRiskLevel(event, auditNodesForEventIndex(event.index)),
+    action: "open-raw-event",
+    index: event.index,
+    actionLabel: "打开 Raw",
+  };
+}
+
+function reviewRelationFromAuditNode(node, kind = "Audit") {
+  return {
+    kind,
+    title: node.title || auditTypeLabel(node.type),
+    meta: [auditTypeLabel(node.type), auditRiskMetaLabel(node.riskLevel), node.turnNumber ? `Turn ${node.turnNumber}` : ""].filter(Boolean).join(" · "),
+    action: "open-audit-node",
+    id: node.id,
+  };
+}
+
+function reviewRelationFromTraceNode(node, kind = "执行") {
+  return {
+    kind,
+    title: node.title || node.label || node.id,
+    meta: [traceTypeLabel(node.type), node.status].filter(Boolean).join(" · "),
+    action: "open-trace-node",
+    id: node.id,
+  };
+}
+
+function reviewRelationFromItem(item, kind = "关联项") {
+  return {
+    kind,
+    title: itemTitle(item),
+    meta: [item.turnIndex == null ? "" : `Turn ${item.turnIndex + 1}`, item.name].filter(Boolean).join(" · "),
+    action: "open-item-ref",
+    ref: itemRef(item),
+  };
+}
+
+function reviewRelationFromEvent(event, kind = "Raw") {
+  return {
+    kind,
+    title: `#${event.index} ${humanEventTitle(event)}`,
+    meta: [event.kind || event.type, formatDate(event.timestamp)].filter(Boolean).join(" · "),
+    action: "open-raw-event",
+    index: event.index,
+  };
+}
+
+function buildSourceRefs({ eventIndex, item, node, traceNode } = {}) {
+  const sources = [];
+  if (eventIndex != null) {
+    const event = eventByIndex(eventIndex);
+    sources.push({ label: "Raw event", value: `event #${eventIndex}`, eventIndex, data: event, lazy: true });
+  }
+  if (item) sources.push({ label: "Item model", value: itemRef(item), data: itemDebugPreview(item) });
+  if (node) sources.push({ label: "Audit node", value: node.id, data: auditNodeDebugPreview(node) });
+  if (traceNode) sources.push({ label: "Trace node", value: traceNode.id, data: traceNodePreview(traceNode) });
+  return sources;
+}
+
+function rawEventSelectionActions(event) {
+  return [
+    { label: "读取完整 Raw", action: "switch-review-tab", tab: "source" },
+    { label: "复制摘要", copy: event.preview || humanEventTitle(event), toast: "已复制事件摘要" },
+    { label: "复制 JSON", action: "copy-debug" },
+  ];
+}
+
+function dedupeActions(actions) {
+  const seen = new Set();
+  const result = [];
+  for (const action of actions.filter(Boolean)) {
+    const key = [action.label, action.action, action.index, action.ref, action.id, action.threadId].join("|");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(action);
+  }
+  return result;
+}
+
+function eventByIndex(index) {
+  if (index == null) return null;
+  return state.detail?.events?.find((event) => event.index === index) || null;
+}
+
+function itemsForEventIndex(index) {
+  if (index == null) return [];
+  return (state.detail?.turns || []).flatMap((turn) => turn.items || []).filter((item) => item.sourceIndex === index || item.outputSourceIndex === index);
+}
+
+function auditNodesForEventIndex(index) {
+  if (index == null) return [];
+  return (state.detail?.audit?.nodes || buildAuditFallback(state.detail)?.nodes || []).filter((node) => node.eventIndex === index || node.sourceIndex === index);
+}
+
+function auditNodesForItemRef(ref) {
+  if (!ref) return [];
+  return (state.detail?.audit?.nodes || buildAuditFallback(state.detail)?.nodes || []).filter((node) => node.itemRef === ref);
+}
+
+function itemRiskLevel(item, auditNodes = []) {
+  const level = highestRiskLevel(auditNodes);
+  if (level !== "none") return level;
+  const text = [item.status, item.phase, item.text, item.output, item.payloadPreview].filter(Boolean).join("\n");
+  return /error|failed|失败|错误/i.test(text) ? "medium" : "none";
+}
+
+function traceRiskLevel(node, item) {
+  if (item) return itemRiskLevel(item, auditNodesForItemRef(itemRef(item)));
+  return /error|failed|失败|错误/i.test([node.status, node.label, node.subtitle].filter(Boolean).join(" ")) ? "medium" : "none";
+}
+
+function rawEventRiskLevel(event, auditNodes = []) {
+  const level = highestRiskLevel(auditNodes);
+  if (level !== "none") return level;
+  return /error|failed|失败|错误/i.test(JSON.stringify(event)) ? "medium" : "none";
+}
+
+function riskMetricValue(level) {
+  return level && level !== "none" ? auditRiskLabel(level) : "0";
+}
+
+function locateAuditNode(id) {
+  if (!id) return;
+  const target = findAuditNode(id);
+  if (!target) {
+    showToast("未找到 Audit 节点");
+    return;
+  }
+  if (state.viewMode !== "audit") state.viewMode = "audit";
+  renderMainContent();
+  selectAuditNode(target.id);
+}
+
+function reviewReference(context = buildReviewContext()) {
+  const session = state.detail?.session || {};
+  const parts = [context.kindLabel || context.kind || "对象", context.title || "未命名对象"];
+  if (context.badges?.length) parts.push(context.badges.join(" · "));
+  if (session.id) parts.push(`session: ${session.id}`);
+  return parts.filter(Boolean).join("\n");
+}
+
+async function copyReviewReference(context = buildReviewContext()) {
+  if (!state.detail) return;
+  await copyText(reviewReference(context));
+  showToast("已复制引用");
+}
+
+async function copyReviewEvidence(context = buildReviewContext()) {
+  if (!state.detail) return;
+  const pack = {
+    reference: reviewReference(context),
+    summary: context.summary,
+    evidence: context.evidence,
+    relations: context.relations,
+    sources: (context.sources || []).map((source) => ({ label: source.label, value: source.value, eventIndex: source.eventIndex ?? null })),
+  };
+  await copyText(JSON.stringify(pack, null, 2));
+  showToast("已复制证据包");
 }
 
 function toggleTraceNode(id) {

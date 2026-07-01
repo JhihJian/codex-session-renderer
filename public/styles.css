@@ -228,7 +228,7 @@ button {
 }
 
 .inspector {
-  overflow: auto;
+  overflow: hidden;
   border-right: 0;
   border-left: 1px solid var(--hair);
 }
@@ -2972,7 +2972,8 @@ button:disabled {
   background: var(--orange);
 }
 
-.inspector-section {
+.inspector-section,
+.review-context {
   border-bottom: 1px solid var(--hair);
   padding: 12px 14px;
 }
@@ -3018,21 +3019,23 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
-.inspector-title {
-  margin-bottom: 11px;
+.inspector-title,
+.review-object-title {
   overflow-wrap: anywhere;
   font-size: 13px;
   font-weight: 740;
   line-height: 1.35;
 }
 
-.inspector-metric-grid {
+.inspector-metric-grid,
+.review-metric-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
 }
 
-.inspector-metric {
+.inspector-metric,
+.review-metric {
   min-width: 0;
   border: 1px solid var(--hair);
   border-radius: var(--radius-tool);
@@ -3040,7 +3043,8 @@ button:disabled {
   padding: 7px;
 }
 
-.inspector-metric strong {
+.inspector-metric strong,
+.review-metric strong {
   display: block;
   overflow: hidden;
   font-family: var(--mono);
@@ -3050,22 +3054,28 @@ button:disabled {
   white-space: nowrap;
 }
 
-.inspector-metric span {
+.inspector-metric span,
+.review-metric span {
   color: var(--text-3);
   font-size: 10px;
 }
 
 .overview-actions,
 .selection-actions,
-.inspector-actions {
+.inspector-actions,
+.review-actionbar {
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
   margin-top: 11px;
 }
 
-.inspector-actions {
-  margin: 11px 0 9px;
+.review-actionbar {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 10px 14px;
+  border-top: 1px solid var(--hair);
+  background: color-mix(in srgb, var(--bg-elev) 92%, var(--bg-sunken));
 }
 
 .inspector-subagents {
@@ -3165,6 +3175,253 @@ button:disabled {
   color: var(--text-3);
   font-size: 11px;
   padding: 9px 10px;
+}
+
+.selection-empty {
+  display: grid;
+  gap: 3px;
+}
+
+.review-object-head {
+  display: grid;
+  gap: 7px;
+}
+
+.review-object-topline,
+.review-object-meta {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.review-kind,
+.review-risk,
+.review-object-meta span,
+.review-card-head span,
+.review-relation span {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  border: 1px solid var(--hair);
+  border-radius: 5px;
+  background: var(--bg-sunken);
+  color: var(--text-3);
+  font-size: 10px;
+  font-weight: 720;
+  line-height: 1.1;
+  padding: 3px 5px;
+}
+
+.review-risk {
+  color: var(--text-2);
+}
+
+.review-object-head.risk-low .review-risk {
+  border-color: color-mix(in srgb, var(--orange) 38%, var(--hair));
+  background: var(--orange-soft);
+  color: var(--orange);
+}
+
+.review-object-head.risk-medium .review-risk,
+.review-card.risk-medium {
+  border-color: color-mix(in srgb, var(--orange) 42%, var(--hair));
+}
+
+.review-object-head.risk-high .review-risk,
+.review-card.risk-high {
+  border-color: color-mix(in srgb, var(--red) 48%, var(--hair));
+}
+
+.review-object-head.risk-high .review-risk {
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.review-object-head.empty p {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.review-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 3px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--hair);
+  background: color-mix(in srgb, var(--bg-elev) 86%, var(--bg-sunken));
+}
+
+.review-tab {
+  min-width: 0;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.review-tab:hover,
+.review-tab.active {
+  border-color: var(--hair);
+  background: var(--bg-elev);
+  color: var(--text);
+}
+
+.review-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.review-section {
+  display: grid;
+  gap: 11px;
+  padding: 12px 14px;
+}
+
+.review-summary-text {
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-tool);
+  background: var(--bg-sunken);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.55;
+  padding: 9px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.review-detail-grid {
+  border-top: 1px solid var(--hair);
+  padding-top: 10px;
+}
+
+.review-card-list,
+.review-source-list {
+  display: grid;
+  gap: 8px;
+}
+
+.review-card {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-tool);
+  background: var(--bg-elev);
+  padding: 9px;
+}
+
+.review-card-head {
+  display: grid;
+  gap: 5px;
+}
+
+.review-card-head strong,
+.review-relation strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.review-card-meta,
+.review-relation em {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: 11px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-card-body {
+  max-height: 180px;
+  margin: 0;
+  overflow: auto;
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-small);
+  background: var(--bg-sunken);
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.review-relation {
+  display: grid;
+  grid-template-columns: minmax(68px, auto) minmax(0, 1fr);
+  gap: 4px 8px;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-tool);
+  background: var(--bg-elev);
+  color: var(--text);
+  cursor: pointer;
+  padding: 8px;
+  text-align: left;
+}
+
+.review-relation:hover {
+  border-color: color-mix(in srgb, var(--blue) 50%, var(--hair));
+  background: var(--blue-soft);
+}
+
+.review-relation em {
+  grid-column: 2;
+}
+
+.review-source-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-tool);
+  background: var(--bg-elev);
+  padding: 8px;
+}
+
+.review-source-card div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.review-source-card strong,
+.review-source-card span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-source-card span {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.review-source-preview {
+  display: grid;
+  gap: 7px;
+}
+
+.review-hidden {
+  display: none;
 }
 
 .raw-event-list {
