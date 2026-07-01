@@ -41,6 +41,46 @@ test("parseRemoteDefinitions builds multiple remote sources from runtime env onl
   assert.equal(definitions[1].token, "secret-token");
 });
 
+test("parseRemoteDefinitions accepts compact peer URLs", () => {
+  const definitions = parseRemoteDefinitions({
+    CODEX_REMOTE_PEERS: "office|Office Box=192.168.1.20:4791,lab=https://lab.example.test/share.tar.gz",
+    CODEX_REMOTE_TOKEN: "shared-token",
+  });
+
+  assert.equal(definitions.length, 2);
+  assert.equal(definitions[0].id, "office");
+  assert.equal(definitions[0].label, "Office Box");
+  assert.equal(definitions[0].snapshotUrl, "http://192.168.1.20:4791/api/codex-snapshot.tar?scope=realtime");
+  assert.equal(definitions[0].tokenEnv, "CODEX_REMOTE_TOKEN");
+  assert.equal(definitions[0].token, "shared-token");
+  assert.equal(definitions[1].id, "lab");
+  assert.equal(definitions[1].snapshotUrl, "https://lab.example.test/share.tar.gz");
+});
+
+test("createDataSourceRegistry includes peers from persisted renderer config", () => {
+  const registry = createDataSourceRegistry({
+    env: { CODEX_HOME: "/tmp/codex-home" },
+    homeDir: "/home/user",
+    config: {
+      peers: [
+        {
+          id: "office",
+          label: "Office",
+          url: "http://192.168.1.20:4791",
+          token: "secret-token",
+        },
+      ],
+    },
+  });
+
+  const source = registry.getSource("office");
+  assert.equal(source.label, "Office");
+  assert.equal(source.definition.snapshotUrl, "http://192.168.1.20:4791/api/codex-snapshot.tar?scope=realtime");
+  assert.equal(source.definition.indexUrl, "http://192.168.1.20:4791/api/codex-session-index");
+  assert.equal(source.definition.token, "secret-token");
+  assert.equal(source.origin.managed, true);
+});
+
 test("remote snapshot refresh publishes current atomically and keeps previous snapshot after failure", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "csr-sources-"));
   try {

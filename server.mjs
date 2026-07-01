@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { buildAuditChain } from "./src/audit-chain.mjs";
 import { createDataSourceRegistry } from "./src/data-sources.mjs";
 import { sendError, sendJson, sendText, serveStaticFile } from "./src/http-response.mjs";
+import { createRendererConfigStore } from "./src/renderer-config.mjs";
 import { readJsonl, readJsonlLineWithDiagnostics, readJsonlRange, readJsonlWithDiagnostics } from "./src/jsonl-reader.mjs";
 import {
   buildTrace,
@@ -57,8 +58,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
 const maxListSessions = Number(process.env.CODEX_SESSION_RENDERER_LIMIT || 800);
 const port = Number(process.env.PORT || 4789);
-const dataSources = createDataSourceRegistry();
+const configStore = createRendererConfigStore();
+let rendererConfig = await configStore.readConfig();
+let dataSources = createDataSourceRegistry({ config: rendererConfig });
 const sourceContexts = new Map();
+
+async function reloadDataSources() {
+  rendererConfig = await configStore.readConfig();
+  dataSources = createDataSourceRegistry({ config: rendererConfig });
+  sourceContexts.clear();
+}
 
 function getSourceContext(sourceId = "local") {
   const source = dataSources.getSource(sourceId || "local");
@@ -170,9 +179,11 @@ async function listSessions(context) {
   const threads = await context.threadStore.readThreads();
   if (threads.size > 0) {
     const spawnEdges = await context.threadStore.readSpawnEdges();
-    const sessions = [...threads.values()]
-      .map((thread) => sessionFromThread(thread, context.codexHome, sourceModelOptions(context)))
-      .filter((session) => session.path);
+    const sessions = [];
+    for (const thread of threads.values()) {
+      const session = sessionFromThread(thread, context.codexHome, sourceModelOptions(context));
+      if (await sessionFileExists(session)) sessions.push(session);
+    }
     const rootSessions = rootSessionsOnly(sessions, spawnEdges);
     rootSessions.sort((a, b) => new Date(b.updatedAt || b.fileModifiedAt || 0) - new Date(a.updatedAt || a.fileModifiedAt || 0));
     context.sessionCache = rootSessions.slice(0, maxListSessions);
@@ -245,7 +256,10 @@ async function getSessionById(context, id) {
   if (cached) return cached;
 
   const thread = (await context.threadStore.readThreadRowsByIds([id])).get(id);
-  if (thread) return sessionFromThread(thread, context.codexHome, sourceModelOptions(context));
+  if (thread) {
+    const session = sessionFromThread(thread, context.codexHome, sourceModelOptions(context));
+    if (await sessionFileExists(session)) return session;
+  }
 
   const sessions = await listSessions(context);
   const listed = sessions.find((session) => session.id === id);
@@ -263,9 +277,11 @@ async function listAllSessionsForQuery(context) {
 
   const threads = await context.threadStore.readAllThreads();
   if (threads.size > 0) {
-    const sessions = [...threads.values()]
-      .map((thread) => sessionFromThread(thread, context.codexHome, sourceModelOptions(context)))
-      .filter((session) => session.path);
+    const sessions = [];
+    for (const thread of threads.values()) {
+      const session = sessionFromThread(thread, context.codexHome, sourceModelOptions(context));
+      if (await sessionFileExists(session)) sessions.push(session);
+    }
     sessions.sort((a, b) => new Date(b.updatedAt || b.fileModifiedAt || 0) - new Date(a.updatedAt || a.fileModifiedAt || 0));
     context.allSessionCache = sessions.slice(0, maxListSessions);
     context.allSessionCacheTime = now;
@@ -282,6 +298,16 @@ async function listAllSessionsForQuery(context) {
   context.allSessionCache = sessions;
   context.allSessionCacheTime = now;
   return context.allSessionCache;
+}
+
+async function sessionFileExists(session) {
+  if (!session?.path) return false;
+  try {
+    const stat = await fs.stat(session.path);
+    return stat.isFile();
+  } catch {
+    return false;
+  }
 }
 
 async function querySessions(context, params) {
@@ -418,6 +444,108 @@ async function getSessionEvent(context, id, index) {
   if (!event) return null;
   const projected = projectEventForApi(event, index, { includePayload: true, includeRaw: true });
   return projected;
+}
+
+async function queryRemoteSessionIndex(source, params) {
+  if (source.kind !== "remote" || !source.definition?.indexUrl) {
+    return {
+      ok: false,
+      status: 404,
+      error: "Remote index is not available",
+    };
+  }
+  if (!source.definition.token) {
+    return {
+      ok: false,
+      status: 400,
+      error: `缺少 ${source.definition.tokenEnv}。`,
+    };
+  }
+  const indexUrl = new URL(source.definition.indexUrl);
+  for (const [key, value] of params) indexUrl.searchParams.set(key, value);
+  const response = await fetch(indexUrl, {
+    headers: {
+      authorization: `Bearer ${source.definition.token}`,
+    },
+  }).catch((error) => {
+    throw new Error(`远端索引不可达：${error?.message || "连接失败"}`);
+  });
+  if (response.status === 401 || response.status === 403) {
+    return {
+      ok: false,
+      status: response.status,
+      error: "远端索引认证失败。",
+    };
+  }
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      error: `远端索引请求失败：HTTP ${response.status}`,
+    };
+  }
+  const data = await response.json();
+  return {
+    ok: true,
+    status: 200,
+    page: data.page,
+    sessions: (data.sessions || []).map((session) => ({
+      ...session,
+      sourceId: source.id,
+      sourceLabel: source.label,
+      dataSourceKind: "remote",
+      remoteIndexOnly: true,
+      availableInSnapshot: false,
+    })),
+  };
+}
+
+async function testRemotePeer(source) {
+  if (source.kind !== "remote" || !source.definition?.indexUrl) {
+    return {
+      ok: false,
+      error: "远端索引不可用。",
+    };
+  }
+  if (!source.definition.token) {
+    return {
+      ok: false,
+      error: "缺少远端 token。",
+    };
+  }
+  const healthUrl = new URL(source.definition.indexUrl);
+  healthUrl.pathname = healthUrl.pathname.replace(/\/api\/codex-session-index$/, "/api/share-health");
+  const response = await fetch(healthUrl, {
+    headers: {
+      authorization: `Bearer ${source.definition.token}`,
+    },
+  }).catch((error) => {
+    throw new Error(`远端不可达：${error?.message || "连接失败"}`);
+  });
+  if (response.status === 401 || response.status === 403) {
+    return {
+      ok: false,
+      status: response.status,
+      error: "远端认证失败。",
+    };
+  }
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      error: `远端健康检查失败：HTTP ${response.status}`,
+    };
+  }
+  const data = await response.json();
+  return {
+    ok: true,
+    status: response.status,
+    remote: {
+      codexHome: data.codexHome || null,
+      requiresAuth: data.requiresAuth !== false,
+      time: data.time || null,
+    },
+  };
 }
 
 async function buildCompactView(context, session, normalizedEvents, turns, hierarchy, options = {}) {
@@ -623,6 +751,28 @@ async function serveStatic(req, res, pathname) {
   return serveStaticFile(res, publicDir, pathname);
 }
 
+async function readJsonBody(req, maxBytes = 64 * 1024) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > maxBytes) {
+      const error = new Error("Request body too large");
+      error.status = 413;
+      throw error;
+    }
+    chunks.push(chunk);
+  }
+  if (chunks.length === 0) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    const error = new Error("Invalid JSON body");
+    error.status = 400;
+    throw error;
+  }
+}
+
 async function route(req, res) {
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
   const pathname = url.pathname;
@@ -641,6 +791,51 @@ async function route(req, res) {
     }
     if (pathname === "/api/sources") {
       return sendJson(res, 200, { sources: dataSources.listSources() });
+    }
+    if (pathname === "/api/peers") {
+      if (req.method === "GET") {
+        return sendJson(res, 200, { peers: await configStore.listPeers(), sources: dataSources.listSources() });
+      }
+      if (req.method === "POST") {
+        const peer = await configStore.upsertPeer(await readJsonBody(req));
+        await reloadDataSources();
+        return sendJson(res, 200, { peer, peers: await configStore.listPeers(), sources: dataSources.listSources() });
+      }
+      return sendError(res, 405, "Method not allowed");
+    }
+    const peerMatch = pathname.match(/^\/api\/peers\/([^/]+)$/);
+    if (peerMatch) {
+      const peerId = decodeURIComponent(peerMatch[1]);
+      if (req.method === "PUT") {
+        const peer = await configStore.upsertPeer({ ...(await readJsonBody(req)), id: peerId });
+        await reloadDataSources();
+        return sendJson(res, 200, { peer, peers: await configStore.listPeers(), sources: dataSources.listSources() });
+      }
+      if (req.method === "DELETE") {
+        const deleted = await configStore.deletePeer(peerId);
+        await reloadDataSources();
+        return sendJson(res, deleted ? 200 : 404, { ok: deleted, peers: await configStore.listPeers(), sources: dataSources.listSources() });
+      }
+      return sendError(res, 405, "Method not allowed");
+    }
+    const peerTestMatch = pathname.match(/^\/api\/peers\/([^/]+)\/test$/);
+    if (peerTestMatch) {
+      if (req.method !== "POST") return sendError(res, 405, "Method not allowed");
+      const source = dataSources.getSource(decodeURIComponent(peerTestMatch[1]));
+      if (!source) return sendError(res, 404, "Peer not found");
+      return sendJson(res, 200, await testRemotePeer(source));
+    }
+    const sourceIndexMatch = pathname.match(/^\/api\/sources\/([^/]+)\/index$/);
+    if (sourceIndexMatch) {
+      const source = dataSources.getSource(decodeURIComponent(sourceIndexMatch[1]));
+      if (!source) return sendError(res, 404, "Data source not found");
+      const result = await queryRemoteSessionIndex(source, url.searchParams);
+      if (!result.ok) return sendError(res, result.status || 502, result.error || "Remote index is not available");
+      return sendJson(res, 200, {
+        source: dataSources.listSources().find((item) => item.id === source.id),
+        page: result.page,
+        sessions: result.sessions,
+      });
     }
     const sourceRefreshMatch = pathname.match(/^\/api\/sources\/([^/]+)\/refresh$/);
     if (sourceRefreshMatch) {
@@ -764,7 +959,8 @@ async function route(req, res) {
     }
     return serveStatic(req, res, pathname);
   } catch (error) {
-    return sendError(res, 500, "Internal server error", {
+    const status = error?.status || 500;
+    return sendError(res, status, status >= 500 ? "Internal server error" : error?.message || "Bad request", {
       name: error?.name,
       message: error?.message,
       stack: process.env.NODE_ENV === "development" ? error?.stack : undefined,

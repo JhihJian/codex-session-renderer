@@ -1,8 +1,13 @@
 const state = {
   sources: [],
+  peers: [],
+  selectedPeerId: null,
   selectedSourceId: "local",
   sessions: [],
+  remoteIndexSessions: [],
   filteredSessions: [],
+  remoteIndexLoading: false,
+  remoteIndexError: "",
   selectedSessionId: null,
   selectedSessionKey: null,
   detail: null,
@@ -99,6 +104,21 @@ const els = {
   refreshRemoteButton: document.getElementById("refreshRemoteButton"),
   sourceSelect: document.getElementById("sourceSelect"),
   sourceStatus: document.getElementById("sourceStatus"),
+  managePeersButton: document.getElementById("managePeersButton"),
+  peerDialog: document.getElementById("peerDialog"),
+  peerForm: document.getElementById("peerForm"),
+  peerList: document.getElementById("peerList"),
+  peerId: document.getElementById("peerId"),
+  peerLabel: document.getElementById("peerLabel"),
+  peerUrl: document.getElementById("peerUrl"),
+  peerToken: document.getElementById("peerToken"),
+  peerEnabled: document.getElementById("peerEnabled"),
+  peerEditorStatus: document.getElementById("peerEditorStatus"),
+  savePeerButton: document.getElementById("savePeerButton"),
+  newPeerButton: document.getElementById("newPeerButton"),
+  testPeerButton: document.getElementById("testPeerButton"),
+  deletePeerButton: document.getElementById("deletePeerButton"),
+  closePeerDialogButton: document.getElementById("closePeerDialogButton"),
   statusSource: document.getElementById("statusSource"),
   statusSession: document.getElementById("statusSession"),
   statusEvents: document.getElementById("statusEvents"),
@@ -167,18 +187,31 @@ function bindEvents() {
   els.refreshButton.addEventListener("click", () => loadSessions({ keepSelection: true }));
   els.refreshRemoteButton.addEventListener("click", refreshSelectedSource);
   els.sourceSelect.addEventListener("change", () => selectSource(els.sourceSelect.value));
-  els.sessionSearch.addEventListener("input", renderSessionList);
+  els.managePeersButton.addEventListener("click", openPeerDialog);
+  els.closePeerDialogButton.addEventListener("click", () => els.peerDialog.close());
+  els.newPeerButton.addEventListener("click", () => selectPeerForEdit(null));
+  els.peerForm.addEventListener("submit", savePeerFromForm);
+  els.testPeerButton.addEventListener("click", testSelectedPeer);
+  els.deletePeerButton.addEventListener("click", deleteSelectedPeer);
+  els.sessionSearch.addEventListener("input", () => {
+    renderSessionList();
+    void loadRemoteIndexForCurrentFilter();
+  });
   els.sessionTimeFilter.querySelectorAll("[data-session-time]").forEach((button) => {
     button.addEventListener("click", () => {
       state.sessionTimeFilter = button.dataset.sessionTime || "realtime";
       renderSessionList();
+      void loadRemoteIndexForCurrentFilter();
       const nextSession = state.filteredSessions[0];
-      if (nextSession && !state.filteredSessions.some((session) => sessionKey(session) === state.selectedSessionKey)) {
+      if (nextSession && !nextSession.remoteIndexOnly && !state.filteredSessions.some((session) => sessionKey(session) === state.selectedSessionKey)) {
         selectSession(nextSession.id);
       }
     });
   });
-  els.sessionTypeFilter.addEventListener("change", renderSessionList);
+  els.sessionTypeFilter.addEventListener("change", () => {
+    renderSessionList();
+    void loadRemoteIndexForCurrentFilter();
+  });
   els.itemSearch.addEventListener("input", () => {
     state.visibleThreadItems = 140;
     state.visibleRawEvents = 240;
@@ -221,6 +254,7 @@ async function loadHealthAndSources() {
     state.selectedSourceId = health.defaultSourceId || "local";
     renderSourceControls();
     els.healthStatus.textContent = health.sources?.length > 1 ? `数据源 ${health.sources.length} 个` : `只读数据源 ${health.codexHome}`;
+    await reloadPeers();
     await loadSessions();
   } catch (error) {
     els.healthStatus.textContent = `接口不可用：${error.message}`;
@@ -252,12 +286,16 @@ function renderSourceStatus() {
   els.refreshRemoteButton.hidden = !status.refreshable;
   els.refreshRemoteButton.disabled = Boolean(status.refreshing);
   els.refreshRemoteButton.textContent = status.refreshing ? "远程刷新中" : "刷新远程";
-  const parts = [source.kind === "remote" ? "远程快照" : "本机"];
+  const parts = [source.kind === "remote" ? "远程实时快照" : "本机"];
   if (status.refreshing) parts.push("刷新中");
   if (status.lastSuccessfulRefreshAt) parts.push(`最近成功 ${formatDate(status.lastSuccessfulRefreshAt)}`);
   if (status.stale) parts.push("正在浏览旧快照");
   if (status.error?.message) parts.push(status.error.message);
   if (source.kind === "remote" && !status.snapshotAvailable) parts.push("尚无可用快照");
+  if (source.kind === "remote" && state.sessionTimeFilter !== "realtime") {
+    parts.push(state.remoteIndexLoading ? "历史索引检索中" : "历史仅索引");
+    if (state.remoteIndexError) parts.push(state.remoteIndexError);
+  }
   els.sourceStatus.textContent = parts.join(" · ");
   renderStatusbar();
 }
@@ -268,17 +306,20 @@ async function loadSessions({ keepSelection = false } = {}) {
     const data = await fetchJson(sourceSessionsUrl());
     if (data.source) upsertSource(data.source);
     state.sessions = data.sessions || [];
+    state.remoteIndexSessions = [];
+    state.remoteIndexError = "";
     renderSessionList();
     const nextSession =
       keepSelection && state.filteredSessions.some((session) => sessionKey(session) === state.selectedSessionKey)
         ? state.filteredSessions.find((session) => sessionKey(session) === state.selectedSessionKey)
         : state.filteredSessions[0] || state.sessions[0];
-    if (nextSession) {
+    if (nextSession && !nextSession.remoteIndexOnly) {
       await selectSession(nextSession.id);
     } else {
       clearSelectedSession();
       renderAll();
     }
+    await loadRemoteIndexForCurrentFilter();
   } catch (error) {
     showToast(`加载会话失败：${error.message}`);
     clearSelectedSession();
@@ -343,6 +384,8 @@ function clearSelectedSession() {
 async function selectSource(sourceId) {
   if (!sourceId || sourceId === state.selectedSourceId) return;
   state.selectedSourceId = sourceId;
+  state.remoteIndexSessions = [];
+  state.remoteIndexError = "";
   clearSelectedSession();
   renderSourceControls();
   await loadSessions();
@@ -373,6 +416,183 @@ async function reloadSources() {
   if (!data?.sources) return;
   state.sources = data.sources;
   renderSourceControls();
+}
+
+async function reloadPeers() {
+  const data = await fetchJson("/api/peers").catch((error) => {
+    state.peerEditorStatusText = error.message;
+    return null;
+  });
+  if (!data?.peers) return;
+  state.peers = data.peers;
+  if (data.sources) state.sources = data.sources;
+  renderSourceControls();
+  renderPeerManager();
+}
+
+function openPeerDialog() {
+  reloadPeers();
+  if (!state.selectedPeerId && state.peers.length > 0) state.selectedPeerId = state.peers[0].id;
+  renderPeerManager();
+  els.peerDialog.showModal();
+}
+
+function renderPeerManager() {
+  if (!els.peerList) return;
+  const selected = state.peers.find((peer) => peer.id === state.selectedPeerId) || null;
+  if (state.peers.length === 0) {
+    els.peerList.innerHTML = `<div class="peer-empty">暂无远端设备</div>`;
+  } else {
+    els.peerList.innerHTML = state.peers.map(renderPeerRow).join("");
+  }
+  els.peerList.querySelectorAll("[data-peer-id]").forEach((row) => {
+    row.addEventListener("click", () => selectPeerForEdit(row.dataset.peerId));
+  });
+  fillPeerForm(selected);
+}
+
+function renderPeerRow(peer) {
+  const active = peer.id === state.selectedPeerId ? " active" : "";
+  const status = peer.enabled ? (peer.hasToken ? "已配置" : "缺 token") : "停用";
+  return `
+    <button class="peer-row${active}" type="button" data-peer-id="${escapeAttr(peer.id)}">
+      <span>
+        <strong>${escapeHtml(peer.label || peer.id)}</strong>
+        <em>${escapeHtml(peer.url || "")}</em>
+      </span>
+      <small>${escapeHtml(status)}</small>
+    </button>
+  `;
+}
+
+function selectPeerForEdit(id) {
+  state.selectedPeerId = id;
+  renderPeerManager();
+}
+
+function fillPeerForm(peer) {
+  els.peerId.value = peer?.id || "";
+  els.peerLabel.value = peer?.label || "";
+  els.peerUrl.value = peer?.url || "";
+  els.peerToken.value = "";
+  els.peerToken.placeholder = peer?.hasToken ? "已保存；留空表示保留原 token" : "远端 CODEX_SHARE_TOKEN";
+  els.peerEnabled.checked = peer?.enabled !== false;
+  els.deletePeerButton.disabled = !peer;
+  els.testPeerButton.disabled = !peer;
+  if (!els.peerEditorStatus.textContent || els.peerEditorStatus.dataset.sticky !== "true") {
+    els.peerEditorStatus.textContent = peer ? "编辑设备；Token 留空会保留原值。" : "新建设备；保存后立即出现在数据源列表。";
+  }
+  els.peerEditorStatus.dataset.sticky = "false";
+}
+
+async function savePeerFromForm(event) {
+  event.preventDefault();
+  const existingId = els.peerId.value.trim();
+  const body = {
+    id: existingId || undefined,
+    label: els.peerLabel.value.trim(),
+    url: els.peerUrl.value.trim(),
+    token: els.peerToken.value.trim(),
+    enabled: els.peerEnabled.checked,
+  };
+  setPeerStatus("保存中...");
+  try {
+    const url = existingId ? `/api/peers/${encodeURIComponent(existingId)}` : "/api/peers";
+    const method = existingId ? "PUT" : "POST";
+    const data = await fetchJson(url, {
+      method,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    state.peers = data.peers || [];
+    state.sources = data.sources || state.sources;
+    state.selectedPeerId = data.peer?.id || existingId || null;
+    renderSourceControls();
+    renderPeerManager();
+    setPeerStatus("已保存");
+    showToast("远端设备已保存");
+  } catch (error) {
+    setPeerStatus(`保存失败：${error.message}`);
+  }
+}
+
+async function testSelectedPeer() {
+  const id = els.peerId.value.trim();
+  if (!id) return;
+  setPeerStatus("测试连接中...");
+  try {
+    const result = await fetchJson(`/api/peers/${encodeURIComponent(id)}/test`, { method: "POST" });
+    setPeerStatus(result.ok ? `连接正常 · ${formatDate(result.remote?.time) || "远端已响应"}` : `连接失败：${result.error || "未知错误"}`);
+  } catch (error) {
+    setPeerStatus(`连接失败：${error.message}`);
+  }
+}
+
+async function deleteSelectedPeer() {
+  const id = els.peerId.value.trim();
+  if (!id) return;
+  setPeerStatus("删除中...");
+  try {
+    const data = await fetchJson(`/api/peers/${encodeURIComponent(id)}`, { method: "DELETE" });
+    state.peers = data.peers || [];
+    state.sources = data.sources || state.sources.filter((source) => source.id !== id);
+    if (state.selectedSourceId === id) state.selectedSourceId = "local";
+    state.selectedPeerId = state.peers[0]?.id || null;
+    renderSourceControls();
+    renderPeerManager();
+    await loadSessions();
+    showToast("远端设备已删除");
+  } catch (error) {
+    setPeerStatus(`删除失败：${error.message}`);
+  }
+}
+
+function setPeerStatus(message) {
+  els.peerEditorStatus.textContent = message;
+  els.peerEditorStatus.dataset.sticky = "true";
+}
+
+async function loadRemoteIndexForCurrentFilter() {
+  const source = selectedSource();
+  if (source?.kind !== "remote" || state.sessionTimeFilter === "realtime") {
+    if (state.remoteIndexSessions.length || state.remoteIndexError) {
+      state.remoteIndexSessions = [];
+      state.remoteIndexError = "";
+      renderSessionList();
+    }
+    return;
+  }
+  const requestKey = [
+    state.selectedSourceId,
+    state.sessionTimeFilter,
+    els.sessionSearch.value.trim(),
+    els.sessionTypeFilter.value,
+  ].join("\n");
+  state.remoteIndexRequestKey = requestKey;
+  state.remoteIndexLoading = true;
+  renderSourceStatus();
+  try {
+    const data = await fetchJson(remoteIndexUrl());
+    if (state.remoteIndexRequestKey !== requestKey) return;
+    if (data.source) upsertSource(data.source);
+    state.remoteIndexSessions = (data.sessions || []).map((session) => ({
+      ...session,
+      remoteIndexOnly: true,
+      availableInSnapshot: false,
+    }));
+    state.remoteIndexError = "";
+  } catch (error) {
+    if (state.remoteIndexRequestKey !== requestKey) return;
+    state.remoteIndexSessions = [];
+    state.remoteIndexError = error.message;
+    showToast(`远端索引检索失败：${error.message}`);
+  } finally {
+    if (state.remoteIndexRequestKey === requestKey) {
+      state.remoteIndexLoading = false;
+      renderSourceStatus();
+      renderSessionList();
+    }
+  }
 }
 
 function renderAll() {
@@ -444,7 +664,7 @@ function renderSessionList() {
   const query = els.sessionSearch.value.trim().toLowerCase();
   const filter = els.sessionTypeFilter.value;
   syncSessionTimeFilter();
-  const sessions = state.sessions.filter((session) => {
+  const sessions = mergedVisibleSessions().filter((session) => {
     const haystack = [session.title, session.cwd, session.relativePath, session.model, session.agentNickname]
       .filter(Boolean)
       .join(" ")
@@ -460,7 +680,11 @@ function renderSessionList() {
   state.filteredSessions = sessions;
   els.sessionCount.textContent = String(sessions.length);
   if (sessions.length === 0) {
-    els.sessionList.innerHTML = emptyState("没有匹配的会话", "调整搜索或过滤条件。");
+    const hint =
+      selectedSource()?.kind === "remote" && state.sessionTimeFilter !== "realtime"
+        ? "远端历史只检索索引；如果还在加载，请稍候。"
+        : "调整搜索或过滤条件。";
+    els.sessionList.innerHTML = emptyState("没有匹配的会话", hint);
     renderStatusbar();
     return;
   }
@@ -473,16 +697,34 @@ function renderSessionList() {
   els.sessionList.querySelectorAll("[data-session-id]").forEach((row) => {
     row.addEventListener("click", (event) => {
       if (event.target.closest("a")) return;
+      if (row.dataset.remoteIndexOnly === "true") {
+        showToast("这是远端历史索引结果，未同步正文。请切回实时或刷新远程查看活跃会话。");
+        return;
+      }
       selectSession(row.dataset.sessionId);
     });
     row.addEventListener("keydown", (event) => {
       if (event.target.closest("a")) return;
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
+      if (row.dataset.remoteIndexOnly === "true") {
+        showToast("这是远端历史索引结果，未同步正文。");
+        return;
+      }
       selectSession(row.dataset.sessionId);
     });
   });
   renderStatusbar();
+}
+
+function mergedVisibleSessions() {
+  const byKey = new Map();
+  for (const session of state.sessions) byKey.set(sessionKey(session), session);
+  for (const session of state.remoteIndexSessions) {
+    const key = sessionKey(session);
+    if (!byKey.has(key)) byKey.set(key, session);
+  }
+  return [...byKey.values()];
 }
 
 function syncSessionTimeFilter() {
@@ -532,13 +774,14 @@ function groupSessionsByDirectory(sessions) {
 
 function renderSessionRow(session, query) {
   const active = sessionKey(session) === state.selectedSessionKey ? " active" : "";
+  const indexOnly = session.remoteIndexOnly ? " index-only" : "";
   const cwd = session.cwd ? shortPath(session.cwd) : "Projectless";
   const agentName = session.agentNickname || "Codex";
   const agent = session.agentNickname ? `${session.agentNickname}/${session.agentRole || "agent"}` : "Codex";
-  const source = session.sourceLabel || selectedSource()?.label || "";
+  const source = session.remoteIndexOnly ? `${session.sourceLabel || selectedSource()?.label || ""} · 仅索引` : session.sourceLabel || selectedSource()?.label || "";
   const model = session.model || session.modelProvider || "unknown";
   return `
-    <div class="session-row${active}" role="button" tabindex="0" data-session-id="${escapeAttr(session.id)}">
+    <div class="session-row${active}${indexOnly}" role="button" tabindex="0" data-session-id="${escapeAttr(session.id)}" data-remote-index-only="${session.remoteIndexOnly ? "true" : "false"}">
       <span class="agent-dot" data-agent="${escapeAttr(agentName.toLowerCase())}" aria-hidden="true"></span>
       <span class="session-title markdown-inline-title">${renderMarkdownTitle(session.title || "未命名会话", query)}</span>
       <span class="session-date">${formatShortDate(session.updatedAt || session.fileModifiedAt)}</span>
@@ -611,7 +854,8 @@ function renderStatusbar() {
   els.statusSession.textContent = session
     ? `当前：${firstLine(session.title || session.id || "未命名会话", 54)}`
     : "未选择会话";
-  els.statusEvents.textContent = `${state.filteredSessions.length || 0}/${state.sessions.length || 0} sessions`;
+  const remoteIndexText = state.remoteIndexSessions.length ? ` · ${state.remoteIndexSessions.length} index` : "";
+  els.statusEvents.textContent = `${state.filteredSessions.length || 0}/${state.sessions.length || 0} sessions${remoteIndexText}`;
   const updated = session?.updatedAt || session?.fileModifiedAt || session?.startedAt;
   els.statusUpdated.textContent = stats
     ? `${stats.eventCount || 0} events · ${stats.turnCount || 0} turns · ${formatDate(updated) || "未知时间"}`
@@ -2882,6 +3126,16 @@ function upsertSource(source) {
 
 function sourceSessionsUrl() {
   return `/api/sources/${encodeURIComponent(state.selectedSourceId)}/sessions`;
+}
+
+function remoteIndexUrl() {
+  const params = new URLSearchParams({
+    bucket: state.sessionTimeFilter,
+    limit: "220",
+  });
+  const query = els.sessionSearch.value.trim();
+  if (query) params.set("q", query);
+  return `/api/sources/${encodeURIComponent(state.selectedSourceId)}/index?${params.toString()}`;
 }
 
 function sourceSessionUrl(id) {

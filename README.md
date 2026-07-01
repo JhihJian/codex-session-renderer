@@ -33,9 +33,59 @@ npm start
 
 ## 远程会话数据源
 
-远程数据源通过“刷新到本地快照，再从快照读取”的方式工作。刷新失败不会删除上一份可用快照；如果已有旧快照，页面仍可继续浏览，并在数据源状态里标注失败或旧快照。
+远程数据源通过“实时会话刷新到本地快照，历史会话只查远端索引”的方式工作。刷新失败不会删除上一份可用快照；如果已有旧快照，页面仍可继续浏览，并在数据源状态里标注失败或旧快照。
 
-首版支持两种获取方式：
+推荐的最简方式是：每台需要被查看的设备启动快照共享服务，然后在任意一台已打开页面的设备里通过“设备”面板添加对端。实例之间不区分主次；谁添加了对端，谁就能从页面刷新对端实时会话并检索对端历史索引。
+
+被查看设备：
+
+```powershell
+cd D:\github\codex-session-renderer
+$env:CODEX_SHARE_TOKEN='<同一段随机 token>'
+npm run share
+```
+
+默认共享端口是 `4791`，默认只把最近 3 小时内变更过的 `sessions/**/*.jsonl` 打包进实时快照。`state_5.sqlite` 和 `session_index.jsonl` 会随实时快照一起传输，用于标题、归档、子代理关系和路径映射。
+
+如果要改端口或实时窗口：
+
+```powershell
+$env:CODEX_SHARE_PORT=4792
+$env:CODEX_SHARE_REALTIME_HOURS=6
+```
+
+如果主查看设备无法访问该端口，需要在被查看设备的 Windows 防火墙中放行 Node.js 或对应端口。
+
+任意查看设备：
+
+```powershell
+cd D:\github\codex-session-renderer
+npm start
+```
+
+启动后点击左侧数据源旁的“设备”，添加：
+
+- 名称：例如 `office`
+- 地址：例如 `192.168.1.20:4791`
+- Token：对端 `CODEX_SHARE_TOKEN`
+
+保存后页面会立即刷新数据源列表，不需要重启 `npm start`。选择 `office` 后点击“刷新远程”，服务端会从 `http://192.168.1.20:4791/api/codex-snapshot.tar?scope=realtime` 下载实时快照并发布到本机缓存。
+
+页面保存的远端设备配置位于：
+
+```text
+%USERPROFILE%\.codex-session-renderer\config.json
+```
+
+该文件包含远端 token，应按本机私密配置处理。页面 API 只返回 `hasToken`，不会把 token 回显给浏览器表单；编辑设备时 Token 留空表示保留原 token。
+
+左侧时间分类的“实时”展示已同步到本机的可打开会话；“一天”和“更早”会调用远端 `/api/codex-session-index` 做统一入口检索，只返回标题、时间、项目路径、模型等索引信息，不传历史正文。历史索引结果会标注“仅索引”，用于定位和搜索，不会被误当成已同步的可打开正文。
+
+快照共享接口只响应带有 `Authorization: Bearer <token>` 的请求。没有 `CODEX_SHARE_TOKEN` 时，`npm run share` 会拒绝启动，避免误把会话正文、命令输出、项目路径和错误栈暴露到网络。
+
+高级模式仍支持环境变量配置和两种获取方式：
+
+- `CODEX_REMOTE_PEERS`：用 `id=host:port` 或 `id=http://host:port` 配置对端，适合无人值守部署或临时启动。
 
 - `CODEX_REMOTE_<ID>_SNAPSHOT_PATH`：从一个本机可读目录复制 Codex Home，适合先用 rsync、scp、挂载盘或其他脚本把远程 `/root/.codex` 同步到本机。
 - `CODEX_REMOTE_<ID>_SNAPSHOT_URL`：从远端 HTTP(S) 下载 `.tar`、`.tar.gz` 或 `.tgz` 快照包。服务端会用 `Authorization: Bearer ...` 请求，token 只从环境变量读取。
@@ -63,7 +113,7 @@ $env:CODEX_REMOTE_OFFICE_TOKEN='<runtime token>'
 npm start
 ```
 
-启动后页面左侧会出现“数据源”选择框。选择远程数据源后点击“刷新远程”，服务端会把远端内容复制或下载到本地快照目录，然后原子发布到：
+远程内容会原子发布到：
 
 ```text
 %USERPROFILE%\.codex-session-renderer\remote-snapshots\<source-id>\current
@@ -76,7 +126,10 @@ npm start
 ## 项目结构
 
 - `server.mjs`：HTTP 路由、数据源分发、会话文件定位、缓存和接口编排；底层响应、SQLite、DTO 和解析逻辑已拆到 `src/`。
+- `share-server.mjs`：远端快照共享服务入口；只暴露受 Bearer token 保护的 Codex 快照下载接口。
 - `src/data-sources.mjs`：本机/远程数据源配置、远程快照刷新、原子发布和脱敏状态。
+- `src/renderer-config.mjs`：页面管理的远端设备配置读写、校验和脱敏输出。
+- `src/snapshot-share.mjs`：按需复制实时 Codex 会话文件、写入快照元数据、打包 tar，并提供历史会话索引检索。
 - `src/jsonl-reader.mjs`：UTF-8 JSONL 流式读取工具；支持按逻辑行数上限读取和按事件索引读取单条事件。
 - `src/http-response.mjs`：JSON/Text 响应、错误响应、静态文件类型和路径安全解析。
 - `src/sqlite-threads.mjs`：只读 SQLite 查询、线程行映射、spawn edge 读取和 SQL 字符串转义。
@@ -123,10 +176,11 @@ npm test
 
 - 服务端只读访问本地文件，不写入 `.codex`。
 - 数据源是一等概念：旧接口默认读取本机 `local` 数据源，新接口可显式指定 `sourceId`；前端用 `sourceId + session id` 区分会话，避免不同数据源中相同 session id 混淆。
-- 远程数据源只在刷新阶段访问配置好的快照 URL 或快照目录；普通会话列表、会话辅助面板和 Markdown 导出都从本地 `current` 快照读取。
-- 远程快照刷新使用 staging 目录构建，再原子切换到 `current`。刷新失败不会覆盖上一次成功快照。
+- 远端设备可以通过页面管理，配置保存在本机私有 `config.json`；环境变量仍可作为高级配置来源。页面接口只返回 token 是否存在，不回显 token 原文。
+- 远程数据源的正文只在刷新阶段访问配置好的实时快照 URL 或快照目录；普通会话列表、会话辅助面板和 Markdown 导出都从本地 `current` 快照读取。历史分类可按需访问远端索引接口，但索引不包含会话正文。
+- 远程实时快照刷新使用 staging 目录构建，再原子切换到 `current`。刷新失败不会覆盖上一次成功快照。
 - 远程 SQLite 中的远端 `rollout_path` 会按配置的远端 Codex Home 映射到本地快照 Codex Home。
-- 本地 API 默认绑定 `127.0.0.1`，适合作为同机只读数据源；如果未来开放到局域网，需要先增加鉴权和访问控制。
+- 本地工作台 API 默认绑定 `127.0.0.1`，适合作为同机只读数据源；局域网同步只开放 `npm run share` 的快照接口，并要求 Bearer token。
 - 前端使用原生 HTML/CSS/JavaScript，无构建步骤；Markdown 渲染通过本地 `markdown-it` 浏览器包完成。
 - 会话列表优先读取 SQLite `threads` 表，并在 SQLite 查询层排除 `thread_spawn_edges.child_thread_id` 对应的子代理线程，避免子代理在左侧会话列表独立展示；只有 SQLite 不可用时才回退扫描文件。
 - JSONL 读取使用流式逐行解析；列表回退读取前若干条事件时不会把整个大文件一次性读入内存。
@@ -182,6 +236,9 @@ Audit Chain 是只读派生模型，不修改原始会话数据。服务端在�
 
 - `GET /api/health`：查看只读数据源和服务状态。
 - `GET /api/sources`：列出本机和远程数据源、刷新状态和脱敏失败原因。
+- `GET /api/peers`：列出页面管理的远端设备配置，token 只返回 `hasToken`。
+- `POST /api/peers` / `PUT /api/peers/:id` / `DELETE /api/peers/:id`：新增、更新、删除远端设备配置，并热重载数据源。
+- `POST /api/peers/:id/test`：用已保存 token 调用对端健康检查。
 - `POST /api/sources/:sourceId/refresh`：刷新远程数据源快照；本机数据源不可刷新。
 - `GET /api/sessions`：读取轻量会话列表，优先来自 SQLite。
 - `GET /api/sessions/:id`：读取单个会话的轻量渲染模型、Trace 和事件摘要。
@@ -191,6 +248,7 @@ Audit Chain 是只读派生模型，不修改原始会话数据。服务端在�
 旧的 `/api/sessions...` 接口保持兼容，默认读取 `local` 数据源，也可临时用 `?sourceId=<id>` 指定数据源。新代码优先使用显式数据源接口：
 
 - `GET /api/sources/:sourceId/sessions`
+- `GET /api/sources/:sourceId/index?bucket=day|earlier&q=...`：代理远端历史索引检索，只返回会话元数据，不返回正文。
 - `GET /api/sources/:sourceId/sessions/:id`
 - `GET /api/sources/:sourceId/sessions/:id/events/:index`
 - `GET /api/sources/:sourceId/sessions/:id/markdown`

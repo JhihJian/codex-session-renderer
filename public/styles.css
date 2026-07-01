@@ -350,6 +350,12 @@ button {
   font-weight: 680;
 }
 
+.source-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
 .source-status {
   min-height: 28px;
   overflow-wrap: anywhere;
@@ -536,6 +542,151 @@ button {
 
 .session-row:hover {
   background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+
+.peer-dialog {
+  width: min(760px, calc(100vw - 28px));
+  max-height: min(680px, calc(100vh - 34px));
+  border: 1px solid var(--hair-strong);
+  border-radius: 10px;
+  background: var(--bg-elev);
+  color: var(--text);
+  padding: 0;
+  box-shadow: var(--shadow-2);
+}
+
+.peer-dialog::backdrop {
+  background: rgb(0 0 0 / 0.28);
+  backdrop-filter: blur(4px);
+}
+
+.peer-panel {
+  display: grid;
+  min-height: 430px;
+}
+
+.peer-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--hair);
+}
+
+.peer-panel-header h2 {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.peer-panel-body {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  min-height: 0;
+}
+
+.peer-list {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  overflow: auto;
+  border-right: 1px solid var(--hair);
+  padding: 8px;
+  background: var(--bg-sunken);
+}
+
+.peer-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-tool);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  padding: 8px;
+  text-align: left;
+}
+
+.peer-row:hover {
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+
+.peer-row.active {
+  border-color: color-mix(in srgb, var(--blue) 22%, transparent);
+  background: var(--blue-soft);
+}
+
+.peer-row span,
+.peer-row strong,
+.peer-row em {
+  min-width: 0;
+}
+
+.peer-row strong,
+.peer-row em {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.peer-row strong {
+  font-size: 12px;
+}
+
+.peer-row em,
+.peer-row small,
+.peer-empty {
+  color: var(--text-3);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.peer-row small {
+  font-family: var(--mono);
+}
+
+.peer-empty {
+  padding: 10px;
+}
+
+.peer-editor {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 12px;
+}
+
+.peer-toggle {
+  justify-self: start;
+}
+
+.peer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.ghost-button.danger {
+  color: var(--red);
+}
+
+.session-row.index-only {
+  color: var(--text-2);
+  cursor: default;
+}
+
+.session-row.index-only .agent-dot {
+  background: var(--text-3);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--text-3) 16%, transparent);
+}
+
+.session-row.index-only:hover {
+  background: transparent;
 }
 
 .session-row.active {
@@ -2773,5 +2924,20 @@ mark {
   .raw-view-preview {
     min-height: 320px;
     padding: 12px;
+  }
+
+  .peer-dialog {
+    width: calc(100vw - 18px);
+    max-height: calc(100vh - 18px);
+  }
+
+  .peer-panel-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .peer-list {
+    max-height: 180px;
+    border-right: 0;
+    border-bottom: 1px solid var(--hair);
   }
 }

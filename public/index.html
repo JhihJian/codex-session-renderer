@@ -46,7 +46,10 @@
 
         <div class="control-stack">
           <label class="field-label" for="sourceSelect">数据源</label>
-          <select class="select-input" id="sourceSelect"></select>
+          <div class="source-row">
+            <select class="select-input" id="sourceSelect"></select>
+            <button class="ghost-button small" id="managePeersButton" type="button">设备</button>
+          </div>
           <div class="source-status" id="sourceStatus">读取数据源状态中</div>
 
           <label class="field-label" for="sessionSearch">搜索会话</label>
@@ -153,6 +156,47 @@
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <dialog class="peer-dialog" id="peerDialog">
+      <form class="peer-panel" id="peerForm" method="dialog">
+        <div class="peer-panel-header">
+          <div>
+            <p class="eyebrow">Devices</p>
+            <h2>远端设备</h2>
+          </div>
+          <button class="icon-button" id="closePeerDialogButton" type="button" title="关闭" aria-label="关闭">×</button>
+        </div>
+
+        <div class="peer-panel-body">
+          <div class="peer-list" id="peerList"></div>
+
+          <div class="peer-editor">
+            <input id="peerId" type="hidden" />
+            <label class="field-label" for="peerLabel">名称</label>
+            <input class="text-input" id="peerLabel" type="text" autocomplete="off" placeholder="office" />
+
+            <label class="field-label" for="peerUrl">地址</label>
+            <input class="text-input" id="peerUrl" type="text" autocomplete="off" placeholder="192.168.1.20:4791" />
+
+            <label class="field-label" for="peerToken">Token</label>
+            <input class="text-input" id="peerToken" type="password" autocomplete="new-password" placeholder="保存后不会回显" />
+
+            <label class="toggle-control peer-toggle">
+              <input id="peerEnabled" type="checkbox" checked />
+              <span>启用设备</span>
+            </label>
+
+            <div class="peer-actions">
+              <button class="primary-button" id="savePeerButton" type="submit">保存</button>
+              <button class="ghost-button" id="newPeerButton" type="button">新建</button>
+              <button class="ghost-button" id="testPeerButton" type="button">测试</button>
+              <button class="ghost-button danger" id="deletePeerButton" type="button">删除</button>
+            </div>
+            <div class="source-status" id="peerEditorStatus">本机保存配置；Token 只保存在本机配置文件。</div>
+          </div>
+        </div>
+      </form>
+    </dialog>
 
     <script src="./vendor/markdown-it.min.js" defer></script>
     <script src="./app-format.js" defer></script>

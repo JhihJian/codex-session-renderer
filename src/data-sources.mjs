@@ -9,7 +9,8 @@ import { spawn } from "node:child_process";
 const defaultRemoteSnapshotRoot = path.join(os.homedir(), ".codex-session-renderer", "remote-snapshots");
 const safeIdPattern = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const snapshotStatusFile = ".codex-session-renderer-source.json";
-const allowedSnapshotFiles = new Set(["state_5.sqlite", "session_index.jsonl"]);
+const snapshotMetadataFile = ".codex-session-renderer-snapshot.json";
+const allowedSnapshotFiles = new Set(["state_5.sqlite", "session_index.jsonl", snapshotMetadataFile]);
 
 function createDataSourceRegistry(options = {}) {
   const env = options.env || process.env;
@@ -20,7 +21,7 @@ function createDataSourceRegistry(options = {}) {
   const spawnImpl = options.spawnImpl || spawn;
   const localCodexHome = path.resolve(env.CODEX_HOME || path.join(homeDir, ".codex"));
   const remoteSnapshotRoot = path.resolve(env.CODEX_REMOTE_SNAPSHOT_ROOT || defaultRemoteSnapshotRoot);
-  const remoteDefinitions = parseRemoteDefinitions(env);
+  const remoteDefinitions = [...parseConfigRemoteDefinitions(options.config), ...parseRemoteDefinitions(env)];
 
   const sources = new Map();
   const localSource = createLocalDataSource({ codexHome: localCodexHome });
@@ -115,18 +116,22 @@ function createLocalDataSource({ codexHome }) {
 function createRemoteDataSource({ definition, remoteSnapshotRoot, now }) {
   const snapshotRoot = path.resolve(definition.snapshotRoot || path.join(remoteSnapshotRoot, definition.id));
   const codexHome = path.join(snapshotRoot, "current");
+  const snapshotMetadata = readSnapshotMetadataSync(codexHome);
+  const originalCodexHome = definition.remoteCodexHome || snapshotMetadata?.codexHome || codexHome;
   const source = {
     id: definition.id,
     label: definition.label || definition.id,
     kind: "remote",
     origin: {
       type: "remote",
-      remoteCodexHome: definition.remoteCodexHome || null,
+      remoteCodexHome: originalCodexHome === codexHome ? null : originalCodexHome,
       snapshotUrlConfigured: Boolean(definition.snapshotUrl),
       snapshotPathConfigured: Boolean(definition.snapshotPath),
+      peerUrl: definition.peerUrl || null,
+      managed: definition.managed === true,
     },
     codexHome,
-    originalCodexHome: definition.remoteCodexHome || codexHome,
+    originalCodexHome,
     sessionsRoot: path.join(codexHome, "sessions"),
     sessionIndexPath: path.join(codexHome, "session_index.jsonl"),
     stateDbPath: path.join(codexHome, "state_5.sqlite"),
@@ -156,12 +161,13 @@ function createRemoteDataSource({ definition, remoteSnapshotRoot, now }) {
 }
 
 function parseRemoteDefinitions(env = process.env) {
+  const peerDefinitions = parsePeerDefinitions(env);
   const raw = env.CODEX_REMOTE_SOURCES || "";
   const ids = raw
     .split(",")
     .map((id) => id.trim())
     .filter(Boolean);
-  const definitions = ids.map((id) => parseRemoteDefinition(id, env)).filter(Boolean);
+  const definitions = [...peerDefinitions, ...ids.map((id) => parseRemoteDefinition(id, env)).filter(Boolean)];
 
   if (definitions.length === 0 && hasSingleRemoteConfig(env)) {
     const single = parseRemoteDefinition(env.CODEX_REMOTE_SOURCE_ID || "remote", env);
@@ -170,14 +176,126 @@ function parseRemoteDefinitions(env = process.env) {
   return definitions;
 }
 
+function parseConfigRemoteDefinitions(config = {}) {
+  return (config.peers || [])
+    .filter((peer) => peer && peer.enabled !== false)
+    .map((peer, index) => parseConfigPeerDefinition(peer, index))
+    .filter(Boolean);
+}
+
+function parseConfigPeerDefinition(peer, index = 0) {
+  const sourceId = normalizeSourceId(peer.id || peer.label || peer.url || `remote-${index + 1}`);
+  const peerUrl = normalizePeerUrl(peer.url);
+  return {
+    id: sourceId,
+    label: peer.label || sourceId,
+    snapshotUrl: snapshotUrlFromPeerUrl(peerUrl),
+    snapshotPath: "",
+    remoteCodexHome: peer.remoteCodexHome || "",
+    tokenEnv: "renderer-config",
+    token: peer.token || "",
+    snapshotRoot: peer.snapshotRoot ? path.resolve(peer.snapshotRoot) : "",
+    allowInsecureTls: peer.allowInsecureTls === true,
+    peerUrl,
+    indexUrl: peerIndexUrlFromPeerUrl(peerUrl),
+    managed: true,
+  };
+}
+
 function hasSingleRemoteConfig(env) {
   return Boolean(
+    env.CODEX_REMOTE_PEERS ||
     env.CODEX_REMOTE_SOURCE_ID ||
       env.CODEX_REMOTE_LABEL ||
       env.CODEX_REMOTE_SNAPSHOT_URL ||
       env.CODEX_REMOTE_SNAPSHOT_PATH ||
       env.CODEX_REMOTE_CODEX_HOME,
   );
+}
+
+function parsePeerDefinitions(env = process.env) {
+  return String(env.CODEX_REMOTE_PEERS || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry, index) => parsePeerDefinition(entry, env, index))
+    .filter(Boolean);
+}
+
+function parsePeerDefinition(entry, env = process.env, index = 0) {
+  const parsed = splitPeerEntry(entry);
+  const sourceId = normalizeSourceId(parsed.id || peerIdFromUrl(parsed.url) || `remote-${index + 1}`);
+  const prefix = envPrefix(sourceId);
+  const tokenEnv = env[`${prefix}_TOKEN_ENV`] || env.CODEX_REMOTE_TOKEN_ENV || "CODEX_REMOTE_TOKEN";
+  const token = env[`${prefix}_TOKEN`] || env[tokenEnv] || env.CODEX_REMOTE_TOKEN || "";
+  const label = env[`${prefix}_LABEL`] || parsed.label || sourceId;
+  const remoteCodexHome = env[`${prefix}_CODEX_HOME`] || "";
+  const snapshotRoot = env[`${prefix}_SNAPSHOT_ROOT`] || "";
+  const allowInsecureTls = env[`${prefix}_ALLOW_INSECURE_TLS`] === "1";
+  const peerUrl = normalizePeerUrl(parsed.url);
+
+  return {
+    id: sourceId,
+    label,
+    snapshotUrl: snapshotUrlFromPeerUrl(peerUrl),
+    snapshotPath: "",
+    remoteCodexHome,
+    tokenEnv,
+    token,
+    snapshotRoot: snapshotRoot ? path.resolve(snapshotRoot) : "",
+    allowInsecureTls,
+    peerUrl,
+    indexUrl: peerIndexUrlFromPeerUrl(peerUrl),
+  };
+}
+
+function splitPeerEntry(entry) {
+  const separator = entry.indexOf("=");
+  if (separator < 0) {
+    return {
+      id: "",
+      label: "",
+      url: entry,
+    };
+  }
+  const left = entry.slice(0, separator).trim();
+  const [id, label = ""] = left.split("|").map((part) => part.trim());
+  return {
+    id,
+    label,
+    url: entry.slice(separator + 1).trim(),
+  };
+}
+
+function peerIdFromUrl(value) {
+  try {
+    return new URL(normalizePeerUrl(value)).hostname;
+  } catch {
+    return "";
+  }
+}
+
+function snapshotUrlFromPeerUrl(value) {
+  const url = new URL(normalizePeerUrl(value));
+  const pathname = url.pathname || "/";
+  if (!/\.(tar|tgz|tar\.gz)$/i.test(pathname)) {
+    url.pathname = `${pathname.replace(/\/+$/, "")}/api/codex-snapshot.tar`;
+    url.searchParams.set("scope", "realtime");
+  }
+  return url.toString();
+}
+
+function peerIndexUrlFromPeerUrl(value) {
+  const url = new URL(normalizePeerUrl(value));
+  const pathname = url.pathname || "/";
+  url.pathname = `${pathname.replace(/\/+$/, "")}/api/codex-session-index`;
+  url.search = "";
+  return url.toString();
+}
+
+function normalizePeerUrl(value) {
+  const text = String(value || "").trim();
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `http://${text}`;
 }
 
 function parseRemoteDefinition(id, env = process.env) {
@@ -234,6 +352,10 @@ async function refreshRemoteSource(source, options = {}) {
     try {
       await fetchRemoteSnapshotToDirectory(source, stagingPath, options);
       const codexHomePath = await findSnapshotCodexHome(stagingPath, source.definition.remoteCodexHome, fsApi);
+      const snapshotMetadata = await readSnapshotMetadata(codexHomePath, fsApi);
+      if (!source.definition.remoteCodexHome && snapshotMetadata?.codexHome) {
+        updateSourceOriginalCodexHome(source, snapshotMetadata.codexHome);
+      }
       await validateSnapshot(codexHomePath, fsApi);
       await publishSnapshot(source, codexHomePath, fsApi, now);
       source.status.lastRefreshOk = true;
@@ -288,12 +410,21 @@ async function copyCodexTree(sourcePath, targetPath, fsApi = fs, options = {}) {
     const to = path.join(targetPath, entry.name);
     if (entry.isDirectory()) {
       if (!options.inSessions && entry.name !== "sessions") continue;
-      await copyCodexTree(from, to, fsApi, { inSessions: options.inSessions || entry.name === "sessions" });
-    } else if (entry.isFile() && (allowedSnapshotFiles.has(entry.name) || (options.inSessions && entry.name.endsWith(".jsonl")))) {
+      await copyCodexTree(from, to, fsApi, { ...options, inSessions: options.inSessions || entry.name === "sessions" });
+    } else if (
+      entry.isFile() &&
+      (allowedSnapshotFiles.has(entry.name) ||
+        (options.inSessions && entry.name.endsWith(".jsonl") && (await shouldCopySessionFile(from, entry, options))))
+    ) {
       await fsApi.mkdir(path.dirname(to), { recursive: true });
       await fsApi.copyFile(from, to);
     }
   }
+}
+
+async function shouldCopySessionFile(filePath, entry, options = {}) {
+  if (!options.includeSessionFile) return true;
+  return Boolean(await options.includeSessionFile(filePath, entry));
 }
 
 async function downloadSnapshotArchive(source, stagingPath, options = {}) {
@@ -401,6 +532,27 @@ async function validateSnapshot(codexHomePath, fsApi = fs) {
   }
 }
 
+async function readSnapshotMetadata(codexHomePath, fsApi = fs) {
+  try {
+    return JSON.parse(await fsApi.readFile(path.join(codexHomePath, snapshotMetadataFile), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function readSnapshotMetadataSync(codexHomePath) {
+  try {
+    return JSON.parse(readFileSync(path.join(codexHomePath, snapshotMetadataFile), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function updateSourceOriginalCodexHome(source, originalCodexHome) {
+  source.originalCodexHome = originalCodexHome;
+  source.origin.remoteCodexHome = originalCodexHome;
+}
+
 async function publishSnapshot(source, codexHomePath, fsApi = fs, now = () => new Date()) {
   const nextPath = path.join(source.snapshotRoot, `next-${Date.now()}-${process.pid}`);
   const previousPath = path.join(source.snapshotRoot, "previous");
@@ -500,9 +652,14 @@ function firstSafeLine(value) {
 }
 
 export {
+  copyCodexTree,
   createDataSourceRegistry,
+  normalizeSourceId,
+  parseConfigRemoteDefinitions,
   parseRemoteDefinitions,
   publicDataSource,
   safeRemoteError,
   sanitizeErrorMessage,
+  snapshotMetadataFile,
+  validateSnapshot,
 };
