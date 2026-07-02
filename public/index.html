@@ -222,8 +222,25 @@
           <button class="icon-button" id="closeSettingsDialogButton" type="button" title="关闭" aria-label="关闭">×</button>
         </div>
 
+        <div class="settings-overview" id="settingsOverview" aria-label="展示规则概览"></div>
+
+        <div class="settings-tabs" id="settingsTabs" role="tablist" aria-label="展示规则分类">
+          <button class="settings-tab active" id="settingsTabSummary" type="button" role="tab" aria-selected="true" aria-controls="settingsSectionSummary" data-settings-view="summary">
+            <span>摘要规则</span>
+          </button>
+          <button class="settings-tab" id="settingsTabExecution" type="button" role="tab" aria-selected="false" aria-controls="settingsSectionExecution" data-settings-view="execution">
+            <span>执行聚合</span>
+          </button>
+          <button class="settings-tab" id="settingsTabEvidence" type="button" role="tab" aria-selected="false" aria-controls="settingsSectionEvidence" data-settings-view="evidence">
+            <span>Evidence 风险</span>
+          </button>
+          <button class="settings-tab" id="settingsTabStructured" type="button" role="tab" aria-selected="false" aria-controls="settingsSectionStructured" data-settings-view="structured">
+            <span>结构化展示</span>
+          </button>
+        </div>
+
         <div class="settings-panel-body">
-          <section class="settings-section">
+          <section class="settings-section" id="settingsSectionSummary" role="tabpanel" aria-labelledby="settingsTabSummary" data-settings-panel="summary">
             <div class="section-title-row">
               <h3>摘要转换规则</h3>
               <span class="muted">优先于内置规则</span>
@@ -232,12 +249,10 @@
             <div class="settings-actions">
               <button class="ghost-button" id="addSummaryRuleButton" type="button">新增规则</button>
               <button class="ghost-button" id="resetSummaryRulesButton" type="button">清空自定义</button>
-              <button class="primary-button" id="saveSettingsButton" type="submit">保存</button>
             </div>
-            <div class="source-status" id="settingsStatus">配置保存在当前浏览器本地。</div>
           </section>
 
-          <section class="settings-section">
+          <section class="settings-section" id="settingsSectionStructured" role="tabpanel" aria-labelledby="settingsTabStructured" data-settings-panel="structured" hidden>
             <div class="section-title-row">
               <h3>命令输出结构化展示</h3>
               <span class="muted">Review Dock 自动识别</span>
@@ -262,7 +277,7 @@
             <div class="rule-empty compact">命中这些模式时，摘要页和证据卡会使用结构化 viewer；未命中时仍按普通摘要或原始文本展示。自定义摘要规则影响标题和短摘要，不改变这里的输出解析。</div>
           </section>
 
-          <section class="settings-section">
+          <section class="settings-section" id="settingsSectionExecution" role="tabpanel" aria-labelledby="settingsTabExecution" data-settings-panel="execution" hidden>
             <div class="section-title-row">
               <h3>执行聚合规则</h3>
               <span class="muted">连续命中才会折叠成组</span>
@@ -274,7 +289,7 @@
             </div>
           </section>
 
-          <section class="settings-section">
+          <section class="settings-section" id="settingsSectionEvidence" role="tabpanel" aria-labelledby="settingsTabEvidence" data-settings-panel="evidence" hidden>
             <div class="section-title-row">
               <h3>Evidence 风险规则</h3>
               <span class="muted">影响服务端 Audit 风险节点</span>
@@ -286,7 +301,7 @@
             </div>
           </section>
 
-          <section class="settings-section">
+          <section class="settings-section" data-settings-panel="summary">
             <div class="section-title-row">
               <h3>内置摘要规则</h3>
               <span class="muted">只读参考</span>
@@ -294,7 +309,7 @@
             <div class="default-rule-list" id="defaultSummaryRuleList"></div>
           </section>
 
-          <section class="settings-section">
+          <section class="settings-section" data-settings-panel="execution" hidden>
             <div class="section-title-row">
               <h3>内置聚合规则</h3>
               <span class="muted">只读参考</span>
@@ -302,13 +317,18 @@
             <div class="default-rule-list" id="defaultExecutionGroupRuleList"></div>
           </section>
 
-          <section class="settings-section">
+          <section class="settings-section" data-settings-panel="evidence" hidden>
             <div class="section-title-row">
               <h3>内置 Evidence 风险规则</h3>
               <span class="muted">只读参考</span>
             </div>
             <div class="default-rule-list" id="defaultEvidenceRiskRuleList"></div>
           </section>
+        </div>
+
+        <div class="settings-footer">
+          <div class="source-status" id="settingsStatus">配置保存在当前浏览器本地。</div>
+          <button class="primary-button" id="saveSettingsButton" type="submit">保存</button>
         </div>
       </form>
     </dialog>

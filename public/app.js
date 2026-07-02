@@ -29,6 +29,7 @@ const state = {
   summaryRules: [],
   executionGroupRules: [],
   evidenceRiskRules: [],
+  settingsView: "summary",
   expandedAuditGroupIds: new Set(),
   inspectorWidth: 388,
   resizingInspector: false,
@@ -127,6 +128,8 @@ const els = {
   settingsDialog: document.getElementById("settingsDialog"),
   settingsForm: document.getElementById("settingsForm"),
   closeSettingsDialogButton: document.getElementById("closeSettingsDialogButton"),
+  settingsOverview: document.getElementById("settingsOverview"),
+  settingsTabs: document.getElementById("settingsTabs"),
   summaryRuleList: document.getElementById("summaryRuleList"),
   defaultSummaryRuleList: document.getElementById("defaultSummaryRuleList"),
   executionGroupRuleList: document.getElementById("executionGroupRuleList"),
@@ -210,6 +213,14 @@ const auditToStandardType = {
   final: "message",
 };
 
+const settingsViewOptions = [
+  { id: "summary", label: "摘要规则" },
+  { id: "execution", label: "执行聚合" },
+  { id: "evidence", label: "Evidence 风险" },
+  { id: "structured", label: "结构化展示" },
+];
+const settingsViewIds = new Set(settingsViewOptions.map((view) => view.id));
+
 init();
 
 function init() {
@@ -230,29 +241,37 @@ function bindEvents() {
   els.settingsButton?.addEventListener("click", openSettingsDialog);
   els.closeSettingsDialogButton?.addEventListener("click", () => els.settingsDialog.close());
   els.settingsForm?.addEventListener("submit", saveSettingsFromForm);
+  els.settingsTabs?.addEventListener("click", selectSettingsViewFromEvent);
+  els.settingsOverview?.addEventListener("click", selectSettingsViewFromEvent);
   els.addSummaryRuleButton?.addEventListener("click", () => {
     state.summaryRules.push(newSummaryRule());
+    state.settingsView = "summary";
     renderSettingsDialog();
   });
   els.resetSummaryRulesButton?.addEventListener("click", () => {
     state.summaryRules = [];
+    state.settingsView = "summary";
     renderSettingsDialog();
   });
   els.addExecutionGroupRuleButton?.addEventListener("click", () => {
     state.executionGroupRules.push(newExecutionGroupRule());
+    state.settingsView = "execution";
     renderSettingsDialog();
   });
   els.resetExecutionGroupRulesButton?.addEventListener("click", () => {
     state.executionGroupRules = [];
+    state.settingsView = "execution";
     renderSettingsDialog();
   });
   els.addEvidenceRiskRuleButton?.addEventListener("click", () => {
     ensureEvidenceRiskEditorRules();
     state.evidenceRiskRules.unshift(newEvidenceRiskRule());
+    state.settingsView = "evidence";
     renderSettingsDialog();
   });
   els.resetEvidenceRiskRulesButton?.addEventListener("click", () => {
     state.evidenceRiskRules = [];
+    state.settingsView = "evidence";
     renderSettingsDialog();
   });
   els.closePeerDialogButton.addEventListener("click", () => els.peerDialog.close());
@@ -755,20 +774,114 @@ function openSettingsDialog() {
   state.summaryRules = window.ToolSummary?.loadCustomRules?.() || [];
   state.executionGroupRules = window.ExecutionGrouping?.loadCustomRules?.() || [];
   state.evidenceRiskRules = window.EvidenceRiskRules?.loadCustomRules?.() || [];
+  normalizeSettingsView();
   renderSettingsDialog();
   els.settingsDialog?.showModal();
 }
 
+function selectSettingsViewFromEvent(event) {
+  const button = event.target.closest("[data-settings-view]");
+  if (!button) return;
+  const view = button.dataset.settingsView;
+  if (!settingsViewIds.has(view)) return;
+  state.settingsView = view;
+  renderSettingsDialog();
+}
+
+function normalizeSettingsView() {
+  if (!settingsViewIds.has(state.settingsView)) state.settingsView = "summary";
+}
+
 function renderSettingsDialog() {
-  renderSummaryRuleList();
-  renderDefaultSummaryRuleList();
-  renderExecutionGroupRuleList();
-  renderDefaultExecutionGroupRuleList();
-  renderEvidenceRiskRuleList();
-  renderDefaultEvidenceRiskRuleList();
+  normalizeSettingsView();
+  renderSettingsOverview();
+  renderSettingsTabs();
+  syncSettingsPanelVisibility();
+  renderActiveSettingsPanel();
   if (els.settingsStatus) {
     const evidenceCount = window.EvidenceRiskRules?.activeRules?.(state.evidenceRiskRules)?.length || 0;
-    els.settingsStatus.textContent = `摘要规则 ${state.summaryRules.length} 条；执行聚合规则 ${state.executionGroupRules.length} 条；Evidence 风险规则 ${evidenceCount} 条；配置保存在当前浏览器本地。`;
+    const currentView = settingsViewOptions.find((view) => view.id === state.settingsView);
+    els.settingsStatus.textContent = `${currentView?.label || "展示规则"} · 摘要自定义 ${state.summaryRules.length} 条；执行聚合自定义 ${state.executionGroupRules.length} 条；Evidence 生效 ${evidenceCount} 条；配置保存在当前浏览器本地。`;
+  }
+}
+
+function renderSettingsOverview() {
+  if (!els.settingsOverview) return;
+  els.settingsOverview.innerHTML = settingsOverviewItems()
+    .map(
+      (item) => `
+        <button class="settings-overview-card ${state.settingsView === item.id ? "active" : ""}" type="button" data-settings-view="${escapeAttr(item.id)}">
+          <span>${escapeHtml(item.label)}</span>
+          <strong>${escapeHtml(item.value)}</strong>
+          <em>${escapeHtml(item.detail)}</em>
+        </button>
+      `,
+    )
+    .join("");
+}
+
+function settingsOverviewItems() {
+  const summaryDefaultCount = window.ToolSummary?.defaultRules?.()?.length || 0;
+  const summaryActiveCount = window.ToolSummary?.activeRules?.(state.summaryRules)?.length || summaryDefaultCount;
+  const executionDefaultCount = window.ExecutionGrouping?.defaultRules?.()?.length || 0;
+  const executionActiveCount = window.ExecutionGrouping?.activeRules?.(state.executionGroupRules)?.length || executionDefaultCount;
+  const evidenceDefaultCount = window.EvidenceRiskRules?.defaultRules?.()?.length || 0;
+  const evidenceActiveCount = window.EvidenceRiskRules?.activeRules?.(state.evidenceRiskRules)?.length || evidenceDefaultCount;
+  const evidenceLocalCount = window.EvidenceRiskRules?.customRulesFromMerged?.(state.evidenceRiskRules)?.length ?? state.evidenceRiskRules.length;
+  return [
+    {
+      id: "summary",
+      label: "摘要规则",
+      value: `${summaryActiveCount}`,
+      detail: `${state.summaryRules.length} 条自定义 · ${summaryDefaultCount} 条内置`,
+    },
+    {
+      id: "execution",
+      label: "执行聚合",
+      value: `${executionActiveCount}`,
+      detail: `${state.executionGroupRules.length} 条自定义 · ${executionDefaultCount} 条内置`,
+    },
+    {
+      id: "evidence",
+      label: "Evidence 风险",
+      value: `${evidenceActiveCount}`,
+      detail: `${evidenceLocalCount} 条本地覆盖 · ${evidenceDefaultCount} 条内置`,
+    },
+    {
+      id: "structured",
+      label: "结构化展示",
+      value: "3",
+      detail: "Git、搜索、测试检查 viewer",
+    },
+  ];
+}
+
+function renderSettingsTabs() {
+  if (!els.settingsTabs) return;
+  els.settingsTabs.querySelectorAll("[data-settings-view]").forEach((button) => {
+    const active = button.dataset.settingsView === state.settingsView;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+    button.tabIndex = active ? 0 : -1;
+  });
+}
+
+function syncSettingsPanelVisibility() {
+  document.querySelectorAll("[data-settings-panel]").forEach((section) => {
+    section.hidden = section.dataset.settingsPanel !== state.settingsView;
+  });
+}
+
+function renderActiveSettingsPanel() {
+  if (state.settingsView === "summary") {
+    renderSummaryRuleList();
+    renderDefaultSummaryRuleList();
+  } else if (state.settingsView === "execution") {
+    renderExecutionGroupRuleList();
+    renderDefaultExecutionGroupRuleList();
+  } else if (state.settingsView === "evidence") {
+    renderEvidenceRiskRuleList();
+    renderDefaultEvidenceRiskRuleList();
   }
 }
 

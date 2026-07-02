@@ -98,6 +98,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   height: 100%;
@@ -729,7 +733,98 @@ button {
 }
 
 .settings-panel {
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   min-height: min(660px, calc(100vh - 70px));
+}
+
+.settings-overview {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--hair);
+  background: var(--bg-sunken);
+}
+
+.settings-overview-card {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-tool);
+  background: var(--bg-elev);
+  color: var(--text);
+  cursor: pointer;
+  padding: 8px 9px;
+  text-align: left;
+}
+
+.settings-overview-card:hover {
+  border-color: color-mix(in srgb, var(--blue) 22%, var(--hair));
+}
+
+.settings-overview-card.active {
+  border-color: color-mix(in srgb, var(--blue) 36%, transparent);
+  background: var(--blue-soft);
+}
+
+.settings-overview-card span,
+.settings-overview-card strong,
+.settings-overview-card em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-overview-card span {
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.settings-overview-card strong {
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 18px;
+  line-height: 1.15;
+}
+
+.settings-overview-card em {
+  color: var(--text-3);
+  font-size: 10.5px;
+  font-style: normal;
+}
+
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--hair);
+  background: var(--bg-elev);
+}
+
+.settings-tab {
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 9px;
+}
+
+.settings-tab:hover {
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  color: var(--text);
+}
+
+.settings-tab.active {
+  border-color: color-mix(in srgb, var(--blue) 24%, transparent);
+  background: var(--blue-soft);
+  color: var(--blue);
 }
 
 .settings-panel-body {
@@ -737,6 +832,16 @@ button {
   gap: 14px;
   overflow: auto;
   padding: 12px;
+}
+
+.settings-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-top: 1px solid var(--hair);
+  background: var(--toolbar);
 }
 
 .settings-section,
@@ -4766,6 +4871,27 @@ mark {
   }
 
   .peer-panel-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settings-tabs {
+    flex-wrap: wrap;
+  }
+
+  .settings-tab {
+    flex: 1 1 140px;
+  }
+
+  .settings-footer {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .summary-rule-grid,
+  .default-rule-row {
     grid-template-columns: minmax(0, 1fr);
   }
 
