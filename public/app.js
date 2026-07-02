@@ -30,6 +30,8 @@ const state = {
   executionGroupRules: [],
   evidenceRiskRules: [],
   expandedAuditGroupIds: new Set(),
+  inspectorWidth: 388,
+  resizingInspector: false,
 };
 
 const {
@@ -52,6 +54,13 @@ const {
 
 const markdownCache = new Map();
 const markdownCacheLimit = 700;
+const inspectorWidthStorageKey = "codexSessionRenderer.inspectorWidth.v1";
+const inspectorWidthDefaults = {
+  min: 310,
+  max: 680,
+  step: 24,
+  contentMin: 360,
+};
 const visibleViewModes = new Set(["compact", "audit", "raw"]);
 const markdownRenderer = window.markdownit?.({
   html: false,
@@ -102,6 +111,7 @@ const els = {
   rawPreview: document.getElementById("rawPreview"),
   inspectorActions: document.getElementById("inspectorActions"),
   reviewTabs: document.getElementById("reviewTabs"),
+  inspectorResizer: document.getElementById("inspectorResizer"),
   eventCount: document.getElementById("eventCount"),
   keyEventsTitle: document.getElementById("keyEventsTitle"),
   selectedEventLabel: document.getElementById("selectedEventLabel"),
@@ -206,7 +216,9 @@ function init() {
   state.summaryRules = window.ToolSummary?.loadCustomRules?.() || [];
   state.executionGroupRules = window.ExecutionGrouping?.loadCustomRules?.() || [];
   state.evidenceRiskRules = window.EvidenceRiskRules?.loadCustomRules?.() || [];
+  loadInspectorWidth();
   bindEvents();
+  applyInspectorWidth(state.inspectorWidth);
   loadHealthAndSources();
 }
 
@@ -297,12 +309,125 @@ function bindEvents() {
   els.toggleRight.addEventListener("click", () => {
     const next = els.appShell.dataset.right === "open" ? "closed" : "open";
     els.appShell.dataset.right = next;
+    syncInspectorResizerState();
   });
+  bindInspectorResize();
+  window.addEventListener("resize", () => applyInspectorWidth(state.inspectorWidth));
   document.querySelectorAll("[data-panel-target]").forEach((button) => {
     button.addEventListener("click", () => {
       els.appShell.dataset.panel = button.dataset.panelTarget;
     });
   });
+}
+
+function bindInspectorResize() {
+  if (!els.inspectorResizer) return;
+  els.inspectorResizer.addEventListener("pointerdown", (event) => {
+    if (!inspectorResizeEnabled()) return;
+    event.preventDefault();
+    state.resizingInspector = true;
+    els.appShell.classList.add("resizing-inspector");
+    els.inspectorResizer.setPointerCapture?.(event.pointerId);
+    applyInspectorWidth(widthFromPointer(event.clientX));
+  });
+  els.inspectorResizer.addEventListener("pointermove", (event) => {
+    if (!state.resizingInspector) return;
+    event.preventDefault();
+    applyInspectorWidth(widthFromPointer(event.clientX));
+  });
+  els.inspectorResizer.addEventListener("pointerup", (event) => finishInspectorResize(event));
+  els.inspectorResizer.addEventListener("pointercancel", (event) => finishInspectorResize(event));
+  window.addEventListener("pointermove", (event) => {
+    if (!state.resizingInspector) return;
+    event.preventDefault();
+    applyInspectorWidth(widthFromPointer(event.clientX));
+  });
+  window.addEventListener("pointerup", (event) => finishInspectorResize(event));
+  window.addEventListener("pointercancel", (event) => finishInspectorResize(event));
+  els.inspectorResizer.addEventListener("keydown", (event) => {
+    if (!inspectorResizeEnabled()) return;
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const bounds = inspectorWidthBounds();
+    if (!bounds) return;
+    let next = state.inspectorWidth;
+    if (event.key === "ArrowLeft") next += inspectorWidthDefaults.step;
+    if (event.key === "ArrowRight") next -= inspectorWidthDefaults.step;
+    if (event.key === "Home") next = bounds.min;
+    if (event.key === "End") next = bounds.max;
+    applyInspectorWidth(next, { persist: true });
+  });
+}
+
+function finishInspectorResize(event) {
+  if (!state.resizingInspector) return;
+  state.resizingInspector = false;
+  els.appShell.classList.remove("resizing-inspector");
+  try {
+    if (els.inspectorResizer?.hasPointerCapture?.(event.pointerId)) els.inspectorResizer.releasePointerCapture(event.pointerId);
+  } catch {
+    // Pointer capture can already be released by the browser.
+  }
+  saveInspectorWidth(state.inspectorWidth);
+}
+
+function loadInspectorWidth(storage = globalThis.localStorage) {
+  const saved = Number(storage?.getItem(inspectorWidthStorageKey));
+  state.inspectorWidth = Number.isFinite(saved) && saved > 0 ? saved : state.inspectorWidth;
+}
+
+function saveInspectorWidth(width, storage = globalThis.localStorage) {
+  if (!storage) return;
+  try {
+    storage.setItem(inspectorWidthStorageKey, String(Math.round(width)));
+  } catch {
+    // Ignore private-mode or quota failures; resizing still works for this page session.
+  }
+}
+
+function applyInspectorWidth(width, options = {}) {
+  const bounds = inspectorWidthBounds();
+  const fallback = Number.isFinite(Number(width)) ? Number(width) : state.inspectorWidth;
+  const next = bounds ? clamp(fallback, bounds.min, bounds.max) : Math.max(inspectorWidthDefaults.min, fallback);
+  state.inspectorWidth = Math.round(next);
+  els.appShell.style.setProperty("--inspector-width", `${state.inspectorWidth}px`);
+  if (els.inspectorResizer) {
+    const min = bounds?.min ?? inspectorWidthDefaults.min;
+    const max = bounds?.max ?? inspectorWidthDefaults.max;
+    els.inspectorResizer.setAttribute("aria-valuemin", String(min));
+    els.inspectorResizer.setAttribute("aria-valuemax", String(max));
+    els.inspectorResizer.setAttribute("aria-valuenow", String(state.inspectorWidth));
+    els.inspectorResizer.setAttribute("aria-disabled", inspectorResizeEnabled() ? "false" : "true");
+  }
+  if (options.persist) saveInspectorWidth(state.inspectorWidth);
+}
+
+function widthFromPointer(clientX) {
+  const rect = els.appShell.getBoundingClientRect();
+  return rect.right - Number(clientX || 0);
+}
+
+function inspectorWidthBounds() {
+  if (!els.appShell || !inspectorResizeEnabled()) return null;
+  const shellWidth = els.appShell.getBoundingClientRect().width || window.innerWidth || 0;
+  const leftMin = els.appShell.dataset.left === "closed" ? 0 : 286;
+  const max = Math.min(inspectorWidthDefaults.max, Math.max(inspectorWidthDefaults.min, shellWidth - leftMin - inspectorWidthDefaults.contentMin));
+  return {
+    min: inspectorWidthDefaults.min,
+    max,
+  };
+}
+
+function inspectorResizeEnabled() {
+  return Boolean(els.appShell?.dataset.right !== "closed" && window.matchMedia("(min-width: 1181px)").matches);
+}
+
+function syncInspectorResizerState() {
+  applyInspectorWidth(state.inspectorWidth);
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, Number(value) || min));
 }
 
 async function loadHealthAndSources() {
@@ -2306,6 +2431,7 @@ function renderAuditExecutionRow(row, query) {
             ? `<span class="audit-exec-sub">${highlight(escapeHtml(firstLine([rowReadable.summary, subSummary].filter(Boolean).join("；"), 220)), query)}</span>`
             : ""
         }
+        ${renderChangeSetSummary(rowReadable.changeSet, { query, compact: true })}
         ${statusNodes.length ? `<span class="audit-exec-badges">${statusNodes.slice(0, 6).map((node) => renderAuditNodeChip(node, query)).join("")}</span>` : ""}
         ${childGroups.length ? `<div class="audit-exec-nested">${childGroups.map((group) => renderAuditExecutionChildGroup(group, query)).join("")}</div>` : ""}
       </span>
@@ -2316,6 +2442,65 @@ function renderAuditExecutionRow(row, query) {
 function renderAuditExecutionEntry(entry, context = {}) {
   if (entry.kind === "group") return renderAuditExecutionGroup(entry, context);
   return renderAuditExecutionRow(entry.row, context.query);
+}
+
+function renderChangeSetSummary(changeSet, options = {}) {
+  const files = (changeSet?.files || []).filter((file) => file?.path);
+  if (!files.length) return "";
+  const compact = Boolean(options.compact);
+  const maxFiles = options.maxFiles ?? (compact ? 3 : 7);
+  const shown = files.slice(0, maxFiles);
+  const more = files.length - shown.length;
+  const additions = Number(changeSet.additions) || 0;
+  const deletions = Number(changeSet.deletions) || 0;
+  const hasLineStats = Boolean(additions || deletions);
+  const stat = hasLineStats ? `+${additions} -${deletions}` : "文件列表";
+  return `
+    <div class="tool-diff-summary ${compact ? "compact" : "expanded"}">
+      <div class="tool-diff-head">
+        <span>${escapeHtml(`${files.length} 个文件`)}</span>
+        ${hasLineStats ? `<strong><span class="tool-diff-add">+${escapeHtml(String(additions))}</span> <span class="tool-diff-del">-${escapeHtml(String(deletions))}</span></strong>` : ""}
+        <em>${escapeHtml(stat)}</em>
+      </div>
+      <div class="tool-diff-files">
+        ${shown.map((file) => renderChangeSetFile(file, changeSet, options.query)).join("")}
+        ${more > 0 ? `<div class="tool-diff-more">还有 ${escapeHtml(String(more))} 个文件</div>` : ""}
+      </div>
+    </div>
+  `;
+}
+
+function renderChangeSetFile(file, changeSet, query) {
+  const additions = Number(file.additions) || 0;
+  const deletions = Number(file.deletions) || 0;
+  const maxChanges = Math.max(1, ...(changeSet?.files || []).map((entry) => Number(entry.changeCount) || Number(entry.additions) + Number(entry.deletions) || 0));
+  const addWidth = Math.round((additions / maxChanges) * 100);
+  const delWidth = Math.round((deletions / maxChanges) * 100);
+  const status = changeStatusLabel(file.status);
+  const path = displayChangeFilePath(file);
+  return `
+    <div class="tool-diff-file status-${escapeAttr(file.status || "modified")}" style="--add:${addWidth};--del:${delWidth}">
+      <span class="tool-diff-status">${escapeHtml(status)}</span>
+      <span class="tool-diff-path">${highlight(escapeHtml(path), query)}</span>
+      <span class="tool-diff-counts">
+        ${additions ? `<span class="tool-diff-add">+${escapeHtml(String(additions))}</span>` : ""}
+        ${deletions ? `<span class="tool-diff-del">-${escapeHtml(String(deletions))}</span>` : ""}
+      </span>
+      <span class="tool-diff-bars" aria-hidden="true"><i class="add"></i><i class="del"></i></span>
+    </div>
+  `;
+}
+
+function changeStatusLabel(status) {
+  if (status === "added") return "A";
+  if (status === "deleted") return "D";
+  if (status === "renamed") return "R";
+  return "M";
+}
+
+function displayChangeFilePath(file) {
+  if (!file) return "";
+  return file.oldPath && file.oldPath !== file.path ? `${file.oldPath} -> ${file.path}` : file.path || "";
 }
 
 function renderAuditExecutionGroup(group, context = {}) {
@@ -4163,6 +4348,7 @@ function buildAuditNodeReviewContext(node) {
     riskLevel: node.riskLevel || "none",
     badges: [auditTypeLabel(node.type), node.turnNumber ? `Turn ${node.turnNumber}` : "未定位 Turn", auditEventIndexLabel(node)].filter(Boolean),
     summary: body || "该 Audit 节点没有摘要正文。",
+    changeSet: readable.changeSet,
     rows: [
       ["节点类型", auditTypeLabel(node.type)],
       ["状态", node.status || "n/a"],
@@ -4246,6 +4432,7 @@ function buildTraceReviewContext(node) {
     riskLevel: traceRiskLevel(node, item),
     badges: [traceTypeLabel(node.type), node.status, item?.sourceIndex != null ? `event #${item.sourceIndex}` : ""].filter(Boolean),
     summary: body || node.subtitle || "该执行节点没有可显示的正文摘要。",
+    changeSet: readable?.changeSet,
     rows: [
       ["类型", traceTypeLabel(node.type)],
       ["状态", node.status || "n/a"],
@@ -4280,6 +4467,7 @@ function buildItemReviewContext(item) {
     riskLevel: itemRiskLevel(item, linkedAuditNodes),
     badges: [item.turnIndex == null ? "未定位 Turn" : `Turn ${item.turnIndex + 1}`, item.name, item.sourceIndex != null ? `event #${item.sourceIndex}` : ""].filter(Boolean),
     summary: body || "该关联项没有正文摘要。",
+    changeSet: readable.changeSet,
     rows: [
       ["类型", itemTitle(item)],
       ["Turn", item.turnIndex == null ? "n/a" : String(item.turnIndex + 1)],
@@ -4309,6 +4497,7 @@ function buildRawEventReviewContext(event) {
     riskLevel: rawEventRiskLevel(event, linkedAuditNodes),
     badges: [event.kind || event.type || "event", formatDate(event.timestamp) || "", event.payloadSize ? formatBytes(event.payloadSize) : ""].filter(Boolean),
     summary: readable.summary || event.preview || "Raw 事件没有预览正文。",
+    changeSet: readable.changeSet,
     rows: [
       ["事件", `event #${event.index}`],
       ["分类", event.kind || "n/a"],
@@ -4370,13 +4559,16 @@ function renderReviewBody(context) {
 
 function renderReviewSummary(context) {
   const metrics = context.metrics || {};
+  const patchModel = reviewPatchSummaryModel(context.summary, context.changeSet);
+  const commandModel = patchModel ? null : reviewCommandOutputModel(context);
   return `
     <div class="review-section review-summary-section">
       <div class="section-title-row">
         <h3>摘要</h3>
         <span class="muted">${escapeHtml(context.kindLabel || "对象")}</span>
       </div>
-      ${renderReviewSummaryText(context.summary || "没有摘要。")}
+      ${renderReviewSummaryText(context.summary || "没有摘要。", { patchModel, commandModel })}
+      ${patchModel || commandModel ? "" : renderChangeSetSummary(context.changeSet, { maxFiles: 9 })}
       <div class="review-metric-grid">
         ${renderReviewMetric("证据", metrics.evidence ?? 0)}
         ${renderReviewMetric("关系", metrics.relations ?? 0)}
@@ -4387,7 +4579,9 @@ function renderReviewSummary(context) {
   `;
 }
 
-function renderReviewSummaryText(summary) {
+function renderReviewSummaryText(summary, options = {}) {
+  if (options.patchModel) return renderReviewPatchSummaryText(options.patchModel);
+  if (options.commandModel) return renderReviewCommandOutputText(options.commandModel);
   const model = reviewSummaryTextModel(summary);
   return `
     <div class="review-summary-text ${model.items.length ? "has-items" : ""}">
@@ -4410,6 +4604,175 @@ function renderReviewSummaryText(summary) {
       }
     </div>
   `;
+}
+
+function reviewPatchSummaryModel(summary, changeSet) {
+  return window.ToolSummary?.patchBodyModel?.(summary, changeSet) || null;
+}
+
+function renderReviewPatchSummaryText(model) {
+  const stat = model.additions || model.deletions ? `+${model.additions || 0} -${model.deletions || 0}` : "无行级统计";
+  return `
+    <div class="review-summary-text has-items review-patch-summary">
+      <p class="review-summary-lead review-patch-lead">
+        <span class="review-patch-command">${escapeHtml(model.command || "apply_patch")}</span>
+        <span>${escapeHtml(`${model.fileCount || model.files.length} 个文件 · ${stat}`)}</span>
+      </p>
+      <div class="review-patch-files">
+        ${model.files.map((file) => renderReviewPatchFile(file)).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderReviewPatchFile(file) {
+  const additions = Number(file.additions) || 0;
+  const deletions = Number(file.deletions) || 0;
+  const stat = additions || deletions ? `+${additions} -${deletions}` : "文件状态";
+  const lines = file.lines?.length ? file.lines : [{ kind: "context", marker: " ", text: "该文件只有状态记录，没有行级 patch 正文。" }];
+  return `
+    <section class="review-patch-file status-${escapeAttr(file.status || "modified")}">
+      <div class="review-patch-file-head">
+        <span class="tool-diff-status">${escapeHtml(changeStatusLabel(file.status))}</span>
+        <strong title="${escapeAttr(displayChangeFilePath(file))}">${escapeHtml(displayChangeFilePath(file))}</strong>
+        <em>${
+          additions || deletions
+            ? `<span class="tool-diff-add">+${escapeHtml(String(additions))}</span> <span class="tool-diff-del">-${escapeHtml(String(deletions))}</span>`
+            : escapeHtml(stat)
+        }</em>
+      </div>
+      <div class="review-patch-lines">
+        ${lines.map((line) => renderReviewPatchLine(line)).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderReviewPatchLine(line) {
+  const kind = line.kind || "context";
+  return `
+    <div class="review-patch-line kind-${escapeAttr(kind)}">
+      <span>${escapeHtml(line.marker || "")}</span>
+      <code>${escapeHtml(line.text || "")}</code>
+    </div>
+  `;
+}
+
+function reviewCommandOutputModel(context) {
+  return reviewCommandOutputModelFromPieces(context.summary, reviewCommandPiecesFromContext(context));
+}
+
+function reviewCommandOutputModelFromPieces(body, pieces = {}) {
+  return window.ToolSummary?.commandOutputModel?.(body, pieces) || null;
+}
+
+function reviewCommandPiecesFromContext(context = {}) {
+  const data = context.debugData || {};
+  const item = data.item || data.detail?.item || (["tool-call", "tool-output"].includes(data.type) ? data : null);
+  const output = firstReviewValue(data.outputBody, item?.output, data.outputPreview, data.type === "evidence" ? data.body : "");
+  const args = firstReviewValue(data.argumentsBody, item?.arguments, data.argumentsPreview, data.arguments);
+  return {
+    title: context.title || data.title || item?.title || "",
+    toolName: firstReviewValue(data.toolName, item?.name, data.name),
+    command: firstReviewValue(data.command, item?.command),
+    arguments: args,
+    output,
+    status: firstReviewValue(data.status, item?.status),
+  };
+}
+
+function firstReviewValue(...values) {
+  for (const value of values) {
+    if (String(value ?? "").trim()) return String(value).trim();
+  }
+  return "";
+}
+
+function renderReviewCommandOutputText(model, options = {}) {
+  const compact = options.compact ? " compact" : "";
+  return `
+    <div class="review-summary-text has-items review-command-output category-${escapeAttr(model.category || "command")} status-${escapeAttr(model.status || "info")}${compact}">
+      <p class="review-summary-lead review-command-lead">
+        <span class="review-command-name">${escapeHtml(model.command || model.title || "exec_command")}</span>
+        <span class="review-command-status">${escapeHtml(commandOutputStatusLabel(model.status))}</span>
+        <span>${escapeHtml(model.summary || model.title || "命令输出")}</span>
+      </p>
+      ${renderReviewCommandMetrics(model.metrics || [])}
+      <div class="review-command-sections">
+        ${(model.sections || []).map(renderReviewCommandSection).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderReviewCommandMetrics(metrics) {
+  if (!metrics.length) return "";
+  return `
+    <div class="review-command-metrics">
+      ${metrics
+        .map(
+          (metric) => `
+            <div class="review-command-metric tone-${escapeAttr(metric.tone || "info")}">
+              <span>${escapeHtml(metric.label || "")}</span>
+              <strong title="${escapeAttr(metric.value || "")}">${escapeHtml(metric.value || "")}</strong>
+            </div>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderReviewCommandSection(section) {
+  return `
+    <section class="review-command-section">
+      <div class="review-command-section-head">
+        <strong>${escapeHtml(section.title || "输出")}</strong>
+        ${section.meta ? `<span>${escapeHtml(section.meta)}</span>` : ""}
+      </div>
+      ${
+        section.items?.length
+          ? `<div class="review-command-items">${section.items.map(renderReviewCommandItem).join("")}</div>`
+          : `<div class="review-command-lines">${(section.lines || []).map(renderReviewCommandLine).join("")}</div>`
+      }
+    </section>
+  `;
+}
+
+function renderReviewCommandItem(item) {
+  const label = item.label || item.status || item.kind || "";
+  return `
+    <div class="review-command-item tone-${escapeAttr(item.tone || "info")} kind-${escapeAttr(item.kind || "item")}">
+      <span>${escapeHtml(label)}</span>
+      <code title="${escapeAttr(item.path || "")}">${escapeHtml(item.path || "")}</code>
+      ${item.meta ? `<em>${escapeHtml(item.meta)}</em>` : ""}
+      ${item.text ? `<p>${escapeHtml(item.text)}</p>` : ""}
+    </div>
+  `;
+}
+
+function renderReviewCommandLine(line) {
+  return `
+    <div class="review-command-line kind-${escapeAttr(line.kind || "muted")}">
+      <span>${escapeHtml(commandOutputLineMarker(line.kind))}</span>
+      <code>${escapeHtml(line.text || "")}</code>
+    </div>
+  `;
+}
+
+function commandOutputStatusLabel(status) {
+  if (status === "passed") return "通过";
+  if (status === "failed") return "失败";
+  if (status === "changed") return "有变更";
+  if (status === "found") return "有命中";
+  if (status === "empty") return "空结果";
+  return "输出";
+}
+
+function commandOutputLineMarker(kind) {
+  if (kind === "error") return "!";
+  if (kind === "success") return "✓";
+  return "·";
 }
 
 function reviewSummaryTextModel(summary) {
@@ -4543,7 +4906,8 @@ function renderReviewEvidenceCard(item, index) {
         <strong>${escapeHtml(item.title || "未命名证据")}</strong>
       </div>
       ${item.meta ? `<div class="review-card-meta">${escapeHtml(item.meta)}</div>` : ""}
-      ${item.body ? `<pre class="review-card-body">${escapeHtml(firstLine(item.body, 1000))}</pre>` : ""}
+      ${renderChangeSetSummary(item.changeSet, { maxFiles: 7 })}
+      ${item.commandModel ? renderReviewCommandOutputText(item.commandModel, { compact: true }) : item.body ? `<pre class="review-card-body">${escapeHtml(firstLine(item.body, 1000))}</pre>` : ""}
       ${item.action ? `<button class="ghost-button small" type="button" data-review-evidence-action="${index}">${escapeHtml(item.actionLabel || "打开")}</button>` : ""}
     </article>
   `;
@@ -4648,11 +5012,21 @@ async function loadReviewSource(source) {
 
 function reviewEvidenceFromAuditNode(node) {
   const readable = readableAuditNode(node);
+  const item = node.itemRef ? findItemByRef(node.itemRef) : null;
+  const body = auditNodeFullBody(node, readable, item) || [node.summary, node.outputPreview, node.argumentsPreview].filter(Boolean).join("\n\n");
   return {
     kind: auditTypeLabel(node.type),
     title: readable.title || node.title || auditTypeLabel(node.type),
     meta: [node.turnNumber ? `Turn ${node.turnNumber}` : "", node.toolName, auditEventIndexLabel(node), auditRiskMetaLabel(node.riskLevel)].filter(Boolean).join(" · "),
-    body: auditNodeFullBody(node, readable) || [node.summary, node.outputPreview, node.argumentsPreview].filter(Boolean).join("\n\n"),
+    body,
+    changeSet: readable.changeSet,
+    commandModel: reviewCommandOutputModelFromPieces(body, {
+      title: readable.title || node.title || "",
+      toolName: node.toolName,
+      arguments: node.argumentsBody || node.argumentsPreview || item?.arguments || "",
+      output: node.outputBody || item?.output || node.outputPreview || (node.type === "evidence" ? node.body : ""),
+      status: node.status,
+    }),
     riskLevel: node.riskLevel || "none",
     action: "open-audit-node",
     id: node.id,
@@ -4664,11 +5038,20 @@ function reviewEvidenceFromItem(item, kind = "关联项") {
   const ref = itemRef(item);
   const readable = readableToolItem(item);
   const linkedAuditNodes = auditNodesForItemRef(ref);
+  const body = bestAuditBodyForItem(linkedAuditNodes) || readable.body || readable.summary || item.text || item.output || item.arguments || item.payloadPreview || "";
   return {
     kind,
     title: readable.title || itemTitle(item),
     meta: [item.turnIndex == null ? "" : `Turn ${item.turnIndex + 1}`, item.name, item.sourceIndex != null ? `event #${item.sourceIndex}` : ""].filter(Boolean).join(" · "),
-    body: bestAuditBodyForItem(linkedAuditNodes) || readable.body || readable.summary || item.text || item.output || item.arguments || item.payloadPreview || "",
+    body,
+    changeSet: readable.changeSet,
+    commandModel: reviewCommandOutputModelFromPieces(body, {
+      title: readable.title || itemTitle(item),
+      toolName: item.name,
+      arguments: item.arguments,
+      output: item.output,
+      status: item.status || item.phase,
+    }),
     riskLevel: itemRiskLevel(item, linkedAuditNodes),
     action: "open-item-ref",
     ref,
@@ -4683,6 +5066,7 @@ function reviewEvidenceFromEvent(event, kind = "Raw event") {
     title: `#${event.index} ${readable.title || humanEventTitle(event)}`,
     meta: [event.kind || event.type, formatDate(event.timestamp)].filter(Boolean).join(" · "),
     body: readable.summary || event.preview || "",
+    changeSet: readable.changeSet,
     riskLevel: rawEventRiskLevel(event, auditNodesForEventIndex(event.index)),
     action: "open-raw-event",
     index: event.index,

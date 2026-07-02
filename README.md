@@ -145,7 +145,7 @@ npm start
 - `src/session-events.mjs`：会话事件核心解析逻辑，包括 turn 聚合、Trace 模型、精简视图模型和子代理锚定；同时重新导出旧的常用解析 API 以保持调用兼容。
 - `public/`：无构建前端，包含页面、样式、交互脚本和本地 `markdown-it` 浏览器包。
 - `public/app-format.js`：前端格式化、转义、高亮、路径缩短和文件名清理工具；通过浏览器全局 `window.AppFormat` 暴露，避免引入构建步骤。
-- `public/tool-summary.js`：前端工具调用可读摘要规则，内置常见 `exec_command`、`apply_patch`、工具搜索等转换，并支持浏览器本地自定义规则覆盖。
+- `public/tool-summary.js`：前端工具调用可读摘要规则，内置常见 `exec_command`、`apply_patch`、工具搜索等转换；`apply_patch` 会解析文件级增删统计，供 Audit/Review 以类 git diff stat 视图展示；高频命令输出会解析 Git 状态、搜索命中和验证结果，供 Review Dock 以结构化 viewer 展示；同时支持浏览器本地自定义规则覆盖。
 - `public/execution-grouping.js`：Audit 执行链连续节点聚合规则，内置“收集文件与目录信息、搜索与定位代码、检查 Git 状态与差异”等分组，并支持浏览器本地自定义规则覆盖。
 - `public/evidence-risk-rules.js`：Evidence 风险规则的浏览器配置模块，负责设置页展示、localStorage 保存和会话详情请求参数序列化。
 - `test/`：Node 内置测试，覆盖 JSONL 读取、HTTP/静态文件边界、SQLite 映射、服务端 DTO、事件摘要、工具协议、事件解析、前端格式化和 Markdown 导出等回归点。
@@ -154,9 +154,9 @@ npm start
 
 ## 页面设计
 
-浏览器页面按本地优先的 agent 会话工作台设计，第一屏就是可操作的三栏 split view：左侧会话列表，中间精简/Audit/Raw 三个主视图，右侧 Review Dock 复核台。界面使用系统字体、中性色背景、0.5 到 1px 轻边框、8px 工具圆角和紧凑行高，避免把工具界面做成营销卡片页。
+浏览器页面按本地优先的 agent 会话工作台设计，第一屏就是可操作的三栏 split view：左侧会话列表，中间精简/Audit/Raw 三个主视图，右侧 Review Dock 复核台；桌面端可拖动 Review Dock 左侧分隔条调整宽度，宽度会保存在浏览器本地。界面使用系统字体、中性色背景、0.5 到 1px 轻边框、8px 工具圆角和紧凑行高，避免把工具界面做成营销卡片页。
 
-左侧会话列表按时间分类和工作目录聚合，每行展示 agent 色点、标题、更新时间、模型和项目路径；顶部保留数据源、搜索、时间段和会话类型过滤。中间内容区只保留精简、Audit、Raw 三个主视图和内容搜索，统计条展示 Turns、Events、Important、Tools、Agents、Tokens。右侧 Review Dock 不再承担关键事件列表或会话概览职责，而是围绕当前选中对象展示“摘要 / 证据 / 关系 / 来源”四个复核页；默认状态是 Session Brief，优先暴露风险、验证、缺口和子代理入口。工具调用、工具输出和 Raw event 会先经过前端可读摘要规则转换，例如把 `Get-Content -Raw -Encoding UTF8` 显示为“读取文件内容”。Raw 视图负责会话级事件浏览，完整 Raw payload 只在 Review Dock 的“来源”页或 Raw 主视图中按需读取。
+左侧会话列表按时间分类和工作目录聚合，每行展示 agent 色点、标题、更新时间、模型和项目路径；顶部保留数据源、搜索、时间段和会话类型过滤。中间内容区只保留精简、Audit、Raw 三个主视图和内容搜索，统计条展示 Turns、Events、Important、Tools、Agents、Tokens。右侧 Review Dock 不再承担关键事件列表或会话概览职责，而是围绕当前选中对象展示“摘要 / 证据 / 关系 / 来源”四个复核页；默认状态是 Session Brief，优先暴露风险、验证、缺口和子代理入口。工具调用、工具输出和 Raw event 会先经过前端可读摘要规则转换，例如把 `Get-Content -Raw -Encoding UTF8` 显示为“读取文件内容”，把 `apply_patch` 显示为文件数、增删行和文件状态组成的类 `git diff --stat` 摘要；当 Review Dock 摘要页展示 `apply_patch` 正文时，会进一步按文件、hunk、添加行和删除行渲染 patch。常见 `exec_command` 输出会进入命令输出 viewer：`git status` 展示文件状态，`rg`/`grep`/`findstr` 展示搜索命中，`npm test`、`node --test` 等验证命令展示通过/失败、计数和关键输出。Raw 视图负责会话级事件浏览，完整 Raw payload 只在 Review Dock 的“来源”页或 Raw 主视图中按需读取。
 
 页面底部有状态条，显示当前数据源、选中会话、过滤后的 session 数和事件/turn 统计。样式支持系统浅色/深色模式，并建立统一角色色 token：蓝色用于用户输入和选中，深蓝用于助手叙述，紫色用于工具调用，绿色用于工具输出，红色用于错误风险，灰色用于元信息。为减少切换负担，主界面最多只保留三个视图：精简用于阅读，Audit 用于证据链复核，Raw 用于原始事件诊断。
 
@@ -186,7 +186,7 @@ npm test
 - 远程 SQLite 中的远端 `rollout_path` 会按配置的远端 Codex Home 映射到本地快照 Codex Home。
 - 本地工作台 API 默认绑定 `127.0.0.1`，适合作为同机只读数据源；局域网同步只开放 `npm run share` 的快照接口，并要求 Bearer token。
 - 前端使用原生 HTML/CSS/JavaScript，无构建步骤；Markdown 渲染通过本地 `markdown-it` 浏览器包完成。
-- 顶栏设置入口提供“展示规则设置”，用户可在浏览器本地新增、启停或删除工具摘要规则、Audit 执行聚合规则和 Evidence 风险规则；自定义规则优先于内置规则。摘要规则只影响 Audit、Review Dock、Raw 列表标题和前端搜索；执行聚合规则只影响 Audit 执行链中连续执行节点的折叠展示，不改变服务端 `audit.nodes`、turn/item 轻量模型、`trace.root` 或 Raw event；Evidence 风险规则会随会话详情请求传给服务端，用于重新派生 `audit.nodes` 中的 evidence 风险节点和风险计数。
+- 顶栏设置入口提供“展示规则设置”，用户可在浏览器本地新增、启停或删除工具摘要规则、Audit 执行聚合规则和 Evidence 风险规则；自定义规则优先于内置规则。设置页会用只读说明列出命令输出结构化 viewer 当前覆盖的命令类型和展示内容，便于判断哪些 `exec_command` 输出会被自动整理。摘要规则只影响 Audit、Review Dock、Raw 列表标题和前端搜索；执行聚合规则只影响 Audit 执行链中连续执行节点的折叠展示，不改变服务端 `audit.nodes`、turn/item 轻量模型、`trace.root` 或 Raw event；Evidence 风险规则会随会话详情请求传给服务端，用于重新派生 `audit.nodes` 中的 evidence 风险节点和风险计数。
 - 会话列表优先读取 SQLite `threads` 表，并在 SQLite 查询层排除 `thread_spawn_edges.child_thread_id` 对应的子代理线程，避免子代理在左侧会话列表独立展示；只有 SQLite 不可用时才回退扫描文件。
 - JSONL 读取使用流式逐行解析；列表回退读取前若干条事件时不会把整个大文件一次性读入内存。
 - JSONL 事件会先经过规范化层形成稳定字段，兼容 `type`/`role`、多种时间字段、content parts、工具字段漂移、delta chunk、图片引用和加密 reasoning；契约见 `docs/session-event-normalization.md`。
@@ -205,7 +205,7 @@ npm test
 - 点击子代理小卡片或精简视图中的“打开会话”会按会话 ID 切换到对应子线程。
 - 会话详情接口默认返回轻量渲染模型：工具参数、事件 payload 只返回预览和长度信息，避免 MB 级内容一次性进入浏览器 DOM；内部 turn/item 模型仍保留完整工具输出，供导出、Audit 和外部查询使用。
 - 精简视图的用户/助手消息支持常用 Markdown 渲染，包括标题、列表、引用、行内代码、代码块、链接、粗体、斜体、删除线和 GFM 管道表格；会话标题在列表、顶部标题、详情和精简视图中支持行内 Markdown 链接、代码和强调；渲染层禁用原始 HTML，并缓存解析结果以减少大段消息重复渲染成本。
-- 右侧 Review Dock 是对象级复核台，默认展示 Session Brief；选中 Turn、执行节点、Audit 节点、关联项或 Raw event 后，统一切换为“摘要 / 证据 / 关系 / 来源”四页。摘要页优先展示 Audit 节点的完整 `body` 正文，长内容由复核台整体滚动，不在摘要框内截断；它不再展示关键事件列表，也不默认渲染完整 JSON。
+- 右侧 Review Dock 是对象级复核台，默认展示 Session Brief；选中 Turn、执行节点、Audit 节点、关联项或 Raw event 后，统一切换为“摘要 / 证据 / 关系 / 来源”四页。摘要页优先展示 Audit 节点的完整 `body` 正文，长内容由复核台整体滚动，不在摘要框内截断；其中 `apply_patch` 正文会使用 patch 专用视图，而不是拆成普通摘要条目；高频命令输出会使用命令输出 viewer 展示状态、指标和关键行，而不是直接显示一整段终端文本；桌面端 Review Dock 宽度支持拖拽和键盘方向键调整；它不再展示关键事件列表，也不默认渲染完整 JSON。
 - 完整原始事件通过 `GET /api/sessions/:id/events/:index` 按需读取；Review Dock 只有在“来源”页读取完整 Raw payload 或执行复制 JSON 动作时才请求完整事件。
 - 图片和附件默认只以安全摘要进入轻量模型：data URI 会记录媒体类型和估算大小但不进入列表、搜索索引或默认 DOM；URL/文件引用只显示占位，不自动远程拉取。
 - Markdown 导出通过 `GET /api/sessions/:id/markdown` 按需生成，不内嵌在详情响应中。
@@ -213,7 +213,7 @@ npm test
 
 ### Audit Chain
 
-Audit Chain 是只读派生模型，不修改原始会话数据。服务端在会话详情里基于内部完整 `turns/items` 生成 `audit.nodes` 和 `audit.counts`；返回给普通视图的 `turns/items` 仍是轻量渲染模型。Audit 节点的 `summary` 保持短摘要用于主列表和搜索，`body`、`argumentsBody`、`outputBody` 保留完整正文供 Review Dock 摘要页展示。Evidence 风险规则保存在浏览器 localStorage，前端请求会话详情时会把规则序列化到查询参数，服务端按规则指纹区分缓存并重新派生 Audit。前端不再把节点平铺成时间线，而是按 Turn 聚合展示。Turn 摘要展示意图、最终结果、验证状态、最高风险和工具/子代理/证据/缺口计数；展开后，“执行链”回答这个 Turn 怎么做的，并在每个执行节点下展示相关行动、证据、验证、风险和缺口；“审计证据 / 闭环阶段”按目标、推理、执行、证据、验证、风险/缺口、结论七段回答最终回复是否被支撑。前端展示 Audit 节点时会应用可读摘要规则，把高频工具调用压缩成人类可扫描的动作短语；执行链还会按可配置聚合规则把连续的同类执行节点折叠为执行组，组内节点可展开查看并继续支持 Review Dock 选择；“来源”页和复制 JSON 仍保留原始节点结构。
+Audit Chain 是只读派生模型，不修改原始会话数据。服务端在会话详情里基于内部完整 `turns/items` 生成 `audit.nodes` 和 `audit.counts`；返回给普通视图的 `turns/items` 仍是轻量渲染模型。Audit 节点的 `summary` 保持短摘要用于主列表和搜索，`body`、`argumentsBody`、`outputBody` 保留完整正文供 Review Dock 摘要页展示。Evidence 风险规则保存在浏览器 localStorage，前端请求会话详情时会把规则序列化到查询参数，服务端按规则指纹区分缓存并重新派生 Audit。前端不再把节点平铺成时间线，而是按 Turn 聚合展示。Turn 摘要展示意图、最终结果、验证状态、最高风险和工具/子代理/证据/缺口计数；展开后，“执行链”回答这个 Turn 怎么做的，并在每个执行节点下展示相关行动、证据、验证、风险和缺口；修改文件类行动会在执行链和 Review Dock 中显示文件状态、路径、增删行和 stat bar，减少用户打开 Raw patch 才能判断改动范围的成本；“审计证据 / 闭环阶段”按目标、推理、执行、证据、验证、风险/缺口、结论七段回答最终回复是否被支撑。前端展示 Audit 节点时会应用可读摘要规则，把高频工具调用压缩成人类可扫描的动作短语；执行链还会按可配置聚合规则把连续的同类执行节点折叠为执行组，组内节点可展开查看并继续支持 Review Dock 选择；“来源”页和复制 JSON 仍保留原始节点结构。
 
 执行聚合规则是前端展示规则，默认至少 2 个连续命中节点才会成组，内置规则覆盖文件/目录信息收集、代码搜索定位和 Git 状态/差异检查。规则包含名称、工具匹配、最少连续节点数、匹配正则、组标题模板和组摘要模板，保存在当前浏览器 localStorage；清空自定义后回退到内置规则。聚合只改变 Audit 执行链的视觉层级，不改变搜索到的原始执行节点、Audit 节点、Review Dock 来源或 Raw event。
 

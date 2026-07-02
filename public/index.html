@@ -116,6 +116,19 @@
         <section class="raw-content" id="rawContent" tabindex="-1" hidden></section>
       </main>
 
+      <div
+        class="inspector-resizer"
+        id="inspectorResizer"
+        role="separator"
+        aria-label="调整 Review Dock 宽度"
+        aria-controls="inspectorPanel"
+        aria-orientation="vertical"
+        aria-valuemin="310"
+        aria-valuemax="680"
+        aria-valuenow="388"
+        tabindex="0"
+      ></div>
+
       <aside class="inspector panel" id="inspectorPanel" aria-label="Review Dock 复核台">
         <div class="panel-header">
           <div>
@@ -222,6 +235,31 @@
               <button class="primary-button" id="saveSettingsButton" type="submit">保存</button>
             </div>
             <div class="source-status" id="settingsStatus">配置保存在当前浏览器本地。</div>
+          </section>
+
+          <section class="settings-section">
+            <div class="section-title-row">
+              <h3>命令输出结构化展示</h3>
+              <span class="muted">Review Dock 自动识别</span>
+            </div>
+            <div class="command-capability-list" aria-label="命令输出结构化展示能力">
+              <div class="command-capability-row">
+                <strong>Git 状态</strong>
+                <code>git status</code>
+                <span>展示分支、文件总数、修改/新增/删除/未跟踪/冲突计数，并按文件列出状态和路径。</span>
+              </div>
+              <div class="command-capability-row">
+                <strong>文本搜索</strong>
+                <code>rg / grep / findstr</code>
+                <span>展示命中数、文件数、路径、行号和匹配摘录；无命中或错误输出会显示为空结果/失败线索。</span>
+              </div>
+              <div class="command-capability-row">
+                <strong>测试与检查</strong>
+                <code>npm test / node --test / pytest / vitest / jest / playwright test / tsc / go test / cargo test / mvn test / gradle test</code>
+                <span>展示通过/失败状态、退出码、测试/通过/失败/错误计数、耗时，以及关键输出或失败线索。</span>
+              </div>
+            </div>
+            <div class="rule-empty compact">命中这些模式时，摘要页和证据卡会使用结构化 viewer；未命中时仍按普通摘要或原始文本展示。自定义摘要规则影响标题和短摘要，不改变这里的输出解析。</div>
           </section>
 
           <section class="settings-section">
