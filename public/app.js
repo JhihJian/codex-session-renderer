@@ -2479,37 +2479,82 @@ function renderAuditExecutionSection(turn, context = {}) {
 
 function renderAuditEvidenceSection(turn, context = {}) {
   const nodes = turn.visibleAuditPhaseNodes || turn.visibleAuditEvidenceNodes;
-  const groups = auditPhaseGroups(turn, nodes);
+  const review = window.AuditClosure?.buildClosureReview(turn, {
+    visibleNodes: nodes,
+    visibleExecutionRows: turn.visibleExecutionRows,
+    filtersActive: context.filtersActive,
+  });
+  if (!review) {
+    return `
+      <section class="audit-turn-section evidence">
+        <div class="audit-section-title">
+          <strong>闭环判断</strong>
+          <span>缺少闭环判断模块</span>
+        </div>
+        <div class="audit-section-empty">闭环判断模块未加载，无法展示证据支撑和风险缺口。</div>
+      </section>
+    `;
+  }
   return `
     <section class="audit-turn-section evidence">
       <div class="audit-section-title">
-        <strong>审计证据 / 闭环阶段</strong>
-        <span>${escapeHtml(nodes.length ? `${nodes.length} 个节点 · ${groups.filter((group) => group.nodes.length).length}/7 阶段` : "没有匹配的审计证据")}</span>
+        <strong>闭环判断</strong>
+        <span>${escapeHtml(review.countLabel)}</span>
       </div>
-      ${
-        nodes.length
-          ? `<div class="audit-phase-list">${groups.map((group) => renderAuditPhaseGroup(group, context.query)).join("")}</div>`
-          : `<div class="audit-section-empty">此 Turn 没有匹配的意图、证据、验证、风险、缺口或最终回复节点。</div>`
-      }
+      ${renderAuditClosureReview(review, context.query)}
     </section>
   `;
 }
 
-function renderAuditPhaseGroup(group, query) {
-  const shown = group.nodes.slice(0, 4);
-  const more = group.nodes.length - shown.length;
+function renderAuditClosureReview(review, query) {
   return `
-    <div class="audit-phase-row phase-${escapeAttr(group.key)} state-${escapeAttr(group.state)}">
-      <div class="audit-phase-marker"><strong>${escapeHtml(group.index)}</strong></div>
-      <div class="audit-phase-head">
-        <strong>${escapeHtml(group.label)}</strong>
-        <span>${escapeHtml(group.caption)}</span>
+    <div class="audit-closure-panel state-${escapeAttr(review.status)}">
+      <div class="audit-closure-verdict state-${escapeAttr(review.status)}">
+        <div class="audit-closure-verdict-main">
+          <span class="audit-closure-status">${escapeHtml(review.label)}</span>
+          <strong>${escapeHtml(review.headline)}</strong>
+          <p>${escapeHtml(review.summary)}</p>
+        </div>
+        <div class="audit-closure-score" title="${escapeAttr("闭环度按目标、结论、风险、执行、证据和验证计算")}">
+          <span>闭环度</span>
+          <strong>${escapeHtml(review.score.label)}</strong>
+        </div>
       </div>
-      <div class="audit-phase-body">
+      <div class="audit-closure-metrics">
+        ${review.metrics.map(renderAuditClosureMetric).join("")}
+      </div>
+      <div class="audit-closure-lanes">
+        ${review.lanes.map((lane) => renderAuditClosureLane(lane, query)).join("")}
+        ${renderAuditClosureActionLane(review.actions)}
+      </div>
+    </div>
+  `;
+}
+
+function renderAuditClosureMetric(metric) {
+  return `
+    <div class="audit-closure-metric state-${escapeAttr(metric.state)}">
+      <span>${escapeHtml(metric.label)}</span>
+      <strong>${escapeHtml(metric.value)}</strong>
+      <em>${escapeHtml(metric.detail)}</em>
+    </div>
+  `;
+}
+
+function renderAuditClosureLane(lane, query) {
+  const shown = lane.nodes.slice(0, 5);
+  const more = lane.nodes.length - shown.length;
+  return `
+    <div class="audit-closure-lane state-${escapeAttr(lane.state)} lane-${escapeAttr(lane.key)}">
+      <div class="audit-closure-lane-head">
+        <strong>${escapeHtml(lane.label)}</strong>
+        <span>${escapeHtml(lane.caption)}</span>
+      </div>
+      <div class="audit-closure-lane-body">
         ${
           shown.length
-            ? shown.map((node) => renderAuditPhaseNode(node, query)).join("")
-            : `<span class="audit-phase-empty">${escapeHtml(group.emptyText)}</span>`
+            ? shown.map((node) => renderAuditClosureNode(node, query)).join("")
+            : `<span class="audit-closure-empty">${escapeHtml(lane.emptyText)}</span>`
         }
         ${more > 0 ? `<span class="audit-more-node">+${escapeHtml(String(more))}</span>` : ""}
       </div>
@@ -2517,19 +2562,44 @@ function renderAuditPhaseGroup(group, query) {
   `;
 }
 
-function renderAuditPhaseNode(node, query) {
+function renderAuditClosureActionLane(actions = []) {
+  return `
+    <div class="audit-closure-lane state-action lane-next">
+      <div class="audit-closure-lane-head">
+        <strong>下一步</strong>
+        <span>${escapeHtml(`${actions.length} 条建议`)}</span>
+      </div>
+      <div class="audit-closure-lane-body">
+        ${actions.map(renderAuditClosureAction).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderAuditClosureAction(action) {
+  return `
+    <div class="audit-closure-action tone-${escapeAttr(action.tone || "neutral")}">
+      <strong>${escapeHtml(action.title || "复核")}</strong>
+      <span>${escapeHtml(action.body || "")}</span>
+    </div>
+  `;
+}
+
+function renderAuditClosureNode(node, query) {
   const selected = state.selectedAuditNodeId === node.id ? " selected" : "";
   const readable = readableAuditNode(node);
-  const summary = firstLine(readable.summary || "", 190);
+  const summary = firstLine(readable.summary || "", 150);
   const label = [auditTypeLabel(node.type), node.status, node.riskLevel && node.riskLevel !== "none" ? auditRiskLabel(node.riskLevel) : ""]
     .filter(Boolean)
     .join(" · ");
   return `
-    <button class="audit-phase-node type-${escapeAttr(node.type)} risk-${escapeAttr(node.riskLevel || "none")}${selected}" type="button" data-audit-node-id="${escapeAttr(node.id)}">
-      <span>${escapeHtml(auditNodeGlyph(node.type))}</span>
-      <strong>${highlight(escapeHtml(firstLine(readable.title || auditTypeLabel(node.type), 64)), query)}</strong>
+    <button class="audit-closure-node type-${escapeAttr(node.type)} risk-${escapeAttr(node.riskLevel || "none")}${selected}" type="button" data-audit-node-id="${escapeAttr(node.id)}">
+      <span class="audit-closure-node-kind">${escapeHtml(auditNodeGlyph(node.type))}</span>
+      <span class="audit-closure-node-main">
+        <strong>${highlight(escapeHtml(firstLine(readable.title || auditTypeLabel(node.type), 54)), query)}</strong>
+        ${summary ? `<small>${highlight(escapeHtml(summary), query)}</small>` : ""}
+      </span>
       <em>${escapeHtml(label)}</em>
-      ${summary ? `<small>${highlight(escapeHtml(summary), query)}</small>` : ""}
     </button>
   `;
 }
@@ -3169,83 +3239,6 @@ function auditExecutionChildGroups(nodes) {
     .filter((group) => group.nodes.length > 0);
 }
 
-function auditPhaseGroups(turn, nodes) {
-  const source = nodes || [];
-  const specs = [
-    {
-      key: "intent",
-      index: "1",
-      label: "目标",
-      caption: "用户要做什么",
-      emptyText: "没有明确意图节点",
-      types: ["intent"],
-    },
-    {
-      key: "reasoning",
-      index: "2",
-      label: "推理",
-      caption: "过程判断和中间说明",
-      emptyText: "没有可展示推理摘要",
-      types: ["reasoning"],
-    },
-    {
-      key: "action",
-      index: "3",
-      label: "执行",
-      caption: "工具、命令和委派动作",
-      emptyText: turn.visibleExecutionRows?.length ? "执行动作在左侧执行链中展示" : "没有工具调用",
-      types: ["action"],
-    },
-    {
-      key: "evidence",
-      index: "4",
-      label: "证据",
-      caption: "工具输出和可追溯事实",
-      emptyText: "没有输出证据",
-      types: ["evidence"],
-    },
-    {
-      key: "verification",
-      index: "5",
-      label: "验证",
-      caption: "测试、检查、构建或健康检查",
-      emptyText: "没有验证节点",
-      types: ["verification"],
-    },
-    {
-      key: "risk-gap",
-      index: "6",
-      label: "风险 / 缺口",
-      caption: "失败、缺输出或缺少验证证据",
-      emptyText: "没有风险或缺口信号",
-      types: ["risk"],
-    },
-    {
-      key: "final",
-      index: "7",
-      label: "结论",
-      caption: "最终回复是否被前面证据支撑",
-      emptyText: "没有最终回复节点",
-      types: ["final"],
-    },
-  ];
-  return specs.map((spec) => {
-    const groupNodes = source.filter((node) => spec.types.includes(node.type));
-    return {
-      ...spec,
-      nodes: groupNodes,
-      state: auditPhaseState(spec, groupNodes, turn),
-    };
-  });
-}
-
-function auditPhaseState(spec, nodes, turn) {
-  if (nodes.some((node) => node.type === "risk" || node.riskLevel === "high" || node.status === "failed")) return "risk";
-  if (spec.key === "verification" && turn.stats?.verificationStatus !== "已验证") return "gap";
-  if (nodes.length > 0) return "filled";
-  return "empty";
-}
-
 function auditExecutionEmptyText(turn, context = {}) {
   if (context.filtersActive && turn.executionRows.length) return "当前搜索或类型过滤没有匹配执行节点";
   return "此 Turn 没有工具、handoff、子代理调用或助手消息";
@@ -3532,7 +3525,9 @@ function markAuditSelection() {
   els.auditContent.querySelectorAll(".audit-turn.selected").forEach((row) => row.classList.remove("selected"));
   els.auditContent.querySelectorAll(".audit-exec-group.selected").forEach((row) => row.classList.remove("selected"));
   els.auditContent.querySelectorAll(".audit-exec-row.selected").forEach((row) => row.classList.remove("selected"));
-  els.auditContent.querySelectorAll(".audit-evidence-node.selected, .audit-node-chip.selected").forEach((row) => row.classList.remove("selected"));
+  els.auditContent
+    .querySelectorAll(".audit-evidence-node.selected, .audit-node-chip.selected, .audit-closure-node.selected")
+    .forEach((row) => row.classList.remove("selected"));
   if (state.selectedAuditTurnKey) {
     els.auditContent.querySelector(`[data-audit-turn-root="${cssEscape(state.selectedAuditTurnKey)}"]`)?.classList.add("selected");
   }

@@ -2882,7 +2882,7 @@ button:disabled {
 
 .audit-node-chip.type-intent,
 .audit-evidence-node.type-intent,
-.audit-phase-node.type-intent,
+.audit-closure-node.type-intent,
 .audit-mini-node.type-intent {
   --audit-color: var(--role-user);
   --audit-soft: var(--role-user-soft);
@@ -2890,7 +2890,7 @@ button:disabled {
 
 .audit-node-chip.type-reasoning,
 .audit-evidence-node.type-reasoning,
-.audit-phase-node.type-reasoning,
+.audit-closure-node.type-reasoning,
 .audit-mini-node.type-reasoning {
   --audit-color: var(--teal);
   --audit-soft: var(--teal-soft);
@@ -2898,7 +2898,7 @@ button:disabled {
 
 .audit-node-chip.type-action,
 .audit-evidence-node.type-action,
-.audit-phase-node.type-action,
+.audit-closure-node.type-action,
 .audit-mini-node.type-action {
   --audit-color: var(--role-tool-call);
   --audit-soft: var(--role-tool-call-soft);
@@ -2906,7 +2906,7 @@ button:disabled {
 
 .audit-node-chip.type-evidence,
 .audit-evidence-node.type-evidence,
-.audit-phase-node.type-evidence,
+.audit-closure-node.type-evidence,
 .audit-mini-node.type-evidence {
   --audit-color: var(--role-tool-output);
   --audit-soft: var(--role-tool-output-soft);
@@ -2914,7 +2914,7 @@ button:disabled {
 
 .audit-node-chip.type-verification,
 .audit-evidence-node.type-verification,
-.audit-phase-node.type-verification,
+.audit-closure-node.type-verification,
 .audit-mini-node.type-verification {
   --audit-color: var(--green);
   --audit-soft: var(--green-soft);
@@ -2924,8 +2924,8 @@ button:disabled {
 .audit-node-chip.risk-high,
 .audit-evidence-node.type-risk,
 .audit-evidence-node.risk-high,
-.audit-phase-node.type-risk,
-.audit-phase-node.risk-high,
+.audit-closure-node.type-risk,
+.audit-closure-node.risk-high,
 .audit-mini-node.type-risk,
 .audit-mini-node.risk-high {
   --audit-color: var(--red);
@@ -2936,8 +2936,8 @@ button:disabled {
 .audit-node-chip.risk-low,
 .audit-evidence-node.risk-medium,
 .audit-evidence-node.risk-low,
-.audit-phase-node.risk-medium,
-.audit-phase-node.risk-low,
+.audit-closure-node.risk-medium,
+.audit-closure-node.risk-low,
 .audit-mini-node.risk-medium,
 .audit-mini-node.risk-low {
   --audit-color: var(--orange);
@@ -2946,137 +2946,266 @@ button:disabled {
 
 .audit-node-chip.type-final,
 .audit-evidence-node.type-final,
-.audit-phase-node.type-final,
+.audit-closure-node.type-final,
 .audit-mini-node.type-final {
   --audit-color: var(--role-assistant);
   --audit-soft: var(--role-assistant-soft);
 }
 
-.audit-phase-list {
+.audit-closure-panel {
   display: grid;
-}
-
-.audit-phase-row {
-  display: grid;
-  grid-template-columns: 30px 118px minmax(0, 1fr);
   gap: 8px;
   min-width: 0;
-  border-bottom: 1px solid var(--hair);
-  padding: 8px 9px;
+  padding: 8px;
 }
 
-.audit-phase-row:last-child {
-  border-bottom: 0;
+.audit-closure-verdict {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 84px;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-tool);
+  background: color-mix(in srgb, var(--bg-sunken) 54%, var(--bg-elev));
+  padding: 8px;
 }
 
-.audit-phase-marker {
-  position: relative;
-  display: flex;
-  justify-content: center;
+.audit-closure-verdict.state-closed {
+  border-color: color-mix(in srgb, var(--green) 32%, var(--hair));
+  background: color-mix(in srgb, var(--green-soft) 36%, var(--bg-elev));
 }
 
-.audit-phase-marker::after {
-  content: "";
-  position: absolute;
-  top: 24px;
-  bottom: -10px;
-  width: 1px;
-  background: var(--hair-strong);
-}
-
-.audit-phase-row:last-child .audit-phase-marker::after {
-  display: none;
-}
-
-.audit-phase-marker strong {
-  z-index: 1;
-  display: inline-flex;
-  width: 22px;
-  height: 22px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--hair-strong);
-  border-radius: 999px;
-  background: var(--bg-elev);
-  color: var(--text-3);
-  font-family: var(--mono);
-  font-size: 10px;
-}
-
-.audit-phase-row.state-filled .audit-phase-marker strong {
-  border-color: color-mix(in srgb, var(--blue) 30%, var(--hair));
-  background: var(--blue-soft);
-  color: var(--blue);
-}
-
-.audit-phase-row.state-risk .audit-phase-marker strong {
-  border-color: color-mix(in srgb, var(--red) 36%, var(--hair));
-  background: var(--red-soft);
-  color: var(--red);
-}
-
-.audit-phase-row.state-gap .audit-phase-marker strong {
+.audit-closure-verdict.state-review {
   border-color: color-mix(in srgb, var(--orange) 34%, var(--hair));
-  background: var(--orange-soft);
+  background: color-mix(in srgb, var(--orange-soft) 34%, var(--bg-elev));
+}
+
+.audit-closure-verdict.state-blocked {
+  border-color: color-mix(in srgb, var(--red) 34%, var(--hair));
+  background: color-mix(in srgb, var(--red-soft) 32%, var(--bg-elev));
+}
+
+.audit-closure-verdict-main {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.audit-closure-status {
+  width: fit-content;
+  border: 1px solid var(--hair);
+  border-radius: 5px;
+  background: var(--bg-elev);
+  color: var(--text-2);
+  font-size: 10px;
+  font-weight: 820;
+  line-height: 1.15;
+  padding: 2px 6px;
+}
+
+.audit-closure-verdict.state-closed .audit-closure-status {
+  border-color: color-mix(in srgb, var(--green) 34%, var(--hair));
+  color: var(--green);
+}
+
+.audit-closure-verdict.state-review .audit-closure-status {
+  border-color: color-mix(in srgb, var(--orange) 34%, var(--hair));
   color: var(--orange);
 }
 
-.audit-phase-head {
+.audit-closure-verdict.state-blocked .audit-closure-status {
+  border-color: color-mix(in srgb, var(--red) 34%, var(--hair));
+  color: var(--red);
+}
+
+.audit-closure-verdict-main strong,
+.audit-closure-verdict-main p {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.audit-closure-verdict-main strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 780;
+  white-space: nowrap;
+}
+
+.audit-closure-verdict-main p {
+  color: var(--text-2);
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+.audit-closure-score {
   display: grid;
-  align-content: start;
-  gap: 3px;
+  place-items: center;
+  gap: 2px;
+  min-width: 0;
+  border-left: 1px solid var(--hair);
+  color: var(--text-3);
+  padding-left: 8px;
+}
+
+.audit-closure-score span {
+  font-size: 10px;
+  font-weight: 760;
+}
+
+.audit-closure-score strong {
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 18px;
+}
+
+.audit-closure-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
   min-width: 0;
 }
 
-.audit-phase-head strong,
-.audit-phase-head span {
+.audit-closure-metric {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-small);
+  background: var(--bg-sunken);
+  padding: 6px 7px;
+}
+
+.audit-closure-metric span,
+.audit-closure-metric strong,
+.audit-closure-metric em {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.audit-phase-head strong {
-  font-size: 12px;
+.audit-closure-metric span {
+  color: var(--text-3);
+  font-size: 10px;
   font-weight: 760;
 }
 
-.audit-phase-head span {
+.audit-closure-metric strong {
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 760;
+}
+
+.audit-closure-metric em {
+  color: var(--text-3);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.audit-closure-metric.state-ok {
+  border-color: color-mix(in srgb, var(--green) 22%, var(--hair));
+}
+
+.audit-closure-metric.state-warn {
+  border-color: color-mix(in srgb, var(--orange) 28%, var(--hair));
+  background: color-mix(in srgb, var(--orange-soft) 24%, var(--bg-sunken));
+}
+
+.audit-closure-metric.state-block {
+  border-color: color-mix(in srgb, var(--red) 30%, var(--hair));
+  background: color-mix(in srgb, var(--red-soft) 26%, var(--bg-sunken));
+}
+
+.audit-closure-lanes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.audit-closure-lane {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-tool);
+  background: var(--bg-elev);
+}
+
+.audit-closure-lane.state-warn {
+  border-color: color-mix(in srgb, var(--orange) 26%, var(--hair));
+}
+
+.audit-closure-lane.state-block {
+  border-color: color-mix(in srgb, var(--red) 30%, var(--hair));
+}
+
+.audit-closure-lane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  border-bottom: 1px solid var(--hair);
+  background: color-mix(in srgb, var(--bg-sunken) 60%, transparent);
+  padding: 6px 7px;
+}
+
+.audit-closure-lane-head strong,
+.audit-closure-lane-head span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audit-closure-lane-head strong {
+  font-size: 11.5px;
+  font-weight: 780;
+}
+
+.audit-closure-lane-head span {
   color: var(--text-3);
   font-size: 10px;
 }
 
-.audit-phase-body {
+.audit-closure-lane-body {
   display: grid;
   gap: 5px;
   min-width: 0;
+  padding: 6px;
 }
 
-.audit-phase-node {
+.audit-closure-node {
   --audit-color: var(--role-meta);
   --audit-soft: var(--role-meta-soft);
   display: grid;
   width: 100%;
-  grid-template-columns: 24px minmax(110px, 0.6fr) minmax(92px, 0.42fr) minmax(0, 1fr);
+  grid-template-columns: 22px minmax(0, 1fr) minmax(74px, auto);
   align-items: center;
   gap: 7px;
-  min-height: 32px;
+  min-height: 34px;
   border: 1px solid var(--hair);
   border-radius: var(--radius-small);
   background: var(--bg-elev);
   color: var(--text);
   cursor: pointer;
-  padding: 4px 6px;
+  padding: 5px 6px;
   text-align: left;
 }
 
-.audit-phase-node:hover,
-.audit-phase-node.selected {
-  border-color: color-mix(in srgb, var(--audit-color) 38%, var(--hair));
-  background: color-mix(in srgb, var(--audit-soft) 56%, var(--bg-elev));
+.audit-closure-node:hover,
+.audit-closure-node.selected {
+  border-color: color-mix(in srgb, var(--audit-color) 40%, var(--hair));
+  background: color-mix(in srgb, var(--audit-soft) 55%, var(--bg-elev));
 }
 
-.audit-phase-node > span {
+.audit-closure-node-kind {
   display: inline-flex;
   width: 20px;
   height: 20px;
@@ -3090,33 +3219,85 @@ button:disabled {
   font-weight: 820;
 }
 
-.audit-phase-node strong,
-.audit-phase-node em,
-.audit-phase-node small {
+.audit-closure-node-main {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.audit-closure-node-main strong,
+.audit-closure-node-main small,
+.audit-closure-node em {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.audit-phase-node strong {
+.audit-closure-node-main strong {
   font-size: 11px;
-  font-weight: 720;
+  font-weight: 730;
 }
 
-.audit-phase-node em {
+.audit-closure-node-main small {
+  color: var(--text-2);
+  font-size: 10.5px;
+}
+
+.audit-closure-node em {
   color: var(--text-3);
   font-family: var(--mono);
   font-size: 10px;
   font-style: normal;
+  justify-self: end;
 }
 
-.audit-phase-node small {
-  color: var(--text-2);
+.audit-closure-action {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-small);
+  background: var(--bg-sunken);
+  padding: 6px 7px;
+}
+
+.audit-closure-action strong,
+.audit-closure-action span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.audit-closure-action strong {
+  color: var(--text);
   font-size: 11px;
+  font-weight: 760;
+  white-space: nowrap;
 }
 
-.audit-phase-empty,
+.audit-closure-action span {
+  color: var(--text-2);
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+
+.audit-closure-action.tone-ok {
+  border-color: color-mix(in srgb, var(--green) 24%, var(--hair));
+  background: color-mix(in srgb, var(--green-soft) 22%, var(--bg-sunken));
+}
+
+.audit-closure-action.tone-warn {
+  border-color: color-mix(in srgb, var(--orange) 28%, var(--hair));
+  background: color-mix(in srgb, var(--orange-soft) 24%, var(--bg-sunken));
+}
+
+.audit-closure-action.tone-block {
+  border-color: color-mix(in srgb, var(--red) 30%, var(--hair));
+  background: color-mix(in srgb, var(--red-soft) 24%, var(--bg-sunken));
+}
+
+.audit-closure-empty,
 .audit-more-node {
   display: inline-flex;
   align-items: center;
@@ -4863,17 +5044,27 @@ mark {
   }
 
   .audit-exec-child-group,
-  .audit-phase-row,
-  .audit-phase-node {
+  .audit-closure-verdict,
+  .audit-closure-lanes,
+  .audit-closure-node {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .audit-phase-marker {
-    justify-content: flex-start;
+  .audit-closure-score {
+    grid-template-columns: auto auto;
+    justify-content: start;
+    border-left: 0;
+    border-top: 1px solid var(--hair);
+    padding-top: 7px;
+    padding-left: 0;
   }
 
-  .audit-phase-marker::after {
-    display: none;
+  .audit-closure-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .audit-closure-node em {
+    justify-self: start;
   }
 
   .terminal-role-button {
