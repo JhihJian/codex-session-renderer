@@ -39,6 +39,10 @@
 
 规范化层提供 `coalesceNormalizedEvents`。当事件带有 `delta`、`chunk` 或 `delta_index`，且存在同一 `messageId` 时，会把同一消息的文本 chunk 合并为连续内容，同时保留 `sourceIndexes` 和 `rawEvents` 供诊断回溯。
 
+## 助手消息保留
+
+`agent_message` 和 `role: "assistant"` 的消息会转换为 turn item 中的 `assistant-message`。精简视图模型保留 `assistantMessages` 数组以展示每一条助手消息，同时保留 `assistantMessage` 指向最后一条助手消息作为兼容字段。若同一 Turn 内的 `token_count` 可解析出 context window 或上下文百分比，助手消息会携带 `contextUsage.percent`，渲染为 1-100% 的上下文占用率；缺少上限和百分比时不显示该字段。前端会把占用率渲染为独立徽标，超过 70% 时使用高占用提示样式。Audit 执行链会把助手消息投影为 `agent_message` 父行，工具、handoff 和子代理执行节点缩进挂载在对应助手消息下；没有助手正文时使用占位父行，避免执行节点脱离 agent 消息上下文。
+
 ## 图片与附件
 
 图片只进入安全摘要，默认不把大体积内容放入列表、轻量详情或搜索文本：

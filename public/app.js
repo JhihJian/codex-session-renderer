@@ -1646,7 +1646,7 @@ function renderCompact() {
   const typeFilter = els.itemTypeFilter.value;
   const filtered = filterCompactNode(compact, query, typeFilter, true);
   if (!filtered || (filtered.turns.length === 0 && filtered.children.length === 0)) {
-    els.compactContent.innerHTML = emptyState("没有匹配的精简内容", "精简视图只包含用户输入、每轮最后助手消息和子代理层级。");
+    els.compactContent.innerHTML = emptyState("没有匹配的精简内容", "精简视图包含用户输入、全部助手消息和子代理层级。");
     return;
   }
   els.compactContent.innerHTML = `
@@ -1690,9 +1690,9 @@ function compactTurnFallback(turn, index) {
   const userMessages = items
     .filter((item) => item.type === "user-message" && String(item.text || "").trim())
     .map(compactMessageFallback);
-  const assistant = [...items]
-    .reverse()
-    .find((item) => item.type === "assistant-message" && String(item.text || "").trim());
+  const assistantMessages = items
+    .filter((item) => item.type === "assistant-message" && String(item.text || "").trim())
+    .map(compactMessageFallback);
   return {
     id: turn.id || `turn-${index}`,
     turnNumber: turn.turnNumber ?? index + 1,
@@ -1700,7 +1700,8 @@ function compactTurnFallback(turn, index) {
     startedAt: turn.startedAt,
     completedAt: turn.completedAt,
     userMessages,
-    assistantMessage: assistant ? compactMessageFallback(assistant) : null,
+    assistantMessages,
+    assistantMessage: assistantMessages.at(-1) || null,
     children: [],
   };
 }
@@ -1712,6 +1713,7 @@ function compactMessageFallback(item) {
     phase: item.phase,
     truncated: item.truncated,
     textLength: item.textLength,
+    contextUsage: item.contextUsage || null,
   };
 }
 
@@ -1739,7 +1741,7 @@ function filterCompactTurn(turn, query, typeFilter) {
 }
 
 function compactTurnMatches(turn, query, typeFilter) {
-  const hasMessage = turn.userMessages?.length || turn.assistantMessage;
+  const hasMessage = turn.userMessages?.length || compactAssistantMessages(turn).length;
   const hasChild = turn.children?.length;
   if (typeFilter === "tool") return Boolean(hasChild);
   if (!["all", "message", "error"].includes(typeFilter)) return false;
@@ -1751,7 +1753,7 @@ function compactTurnMatches(turn, query, typeFilter) {
 
 function compactNodeMatchesType(node, typeFilter) {
   if (typeFilter === "all") return true;
-  if (typeFilter === "message") return Boolean(node.turns?.some((turn) => turn.userMessages?.length || turn.assistantMessage));
+  if (typeFilter === "message") return Boolean(node.turns?.some((turn) => turn.userMessages?.length || compactAssistantMessages(turn).length));
   if (typeFilter === "tool") return !node.session || Boolean(node.edgeStatus || node.spawnEvent || node.notificationEvent);
   if (typeFilter === "error") return /error|failed|失败|错误/i.test(compactSearchText(node));
   return false;
@@ -1780,7 +1782,7 @@ function compactTurnSearchText(turn) {
     turn.id,
     turn.status,
     ...(turn.userMessages || []).map((message) => message.text),
-    turn.assistantMessage?.text,
+    ...compactAssistantMessages(turn).map((message) => message.text),
     ...(turn.children || []).map(compactSearchText),
   ];
   return parts.filter(Boolean).join(" ").toLowerCase();
@@ -1916,7 +1918,7 @@ function compactNodeChildEntries(node, basePath) {
 }
 
 function compactTurnOutlineTitle(turn) {
-  const text = turn.userMessages?.[0]?.text || turn.assistantMessage?.text || turn.status || "";
+  const text = turn.userMessages?.[0]?.text || compactAssistantMessages(turn)[0]?.text || turn.status || "";
   return firstLine(text, 72) || "无消息";
 }
 
@@ -2003,9 +2005,10 @@ function renderCompactTurn(turn, context) {
   const users = turn.userMessages?.length
     ? turn.userMessages.map((message) => renderCompactMessage("user", "用户", message, context.query)).join("")
     : `<div class="compact-missing">本轮没有可展示的用户输入。</div>`;
-  const assistant = turn.assistantMessage
-    ? renderCompactMessage("assistant", "助手最后消息", turn.assistantMessage, context.query)
-    : `<div class="compact-missing">本轮没有助手最终消息。</div>`;
+  const assistantMessages = compactAssistantMessages(turn);
+  const assistant = assistantMessages.length
+    ? assistantMessages.map((message, index) => renderCompactMessage("assistant", compactAssistantMessageLabel(message, index, assistantMessages.length), message, context.query)).join("")
+    : `<div class="compact-missing">本轮没有助手消息。</div>`;
   const children = (turn.children || [])
     .map((child, index) =>
       renderCompactThread(child, { depth: context.depth + 1, path: `${path}-child-${index}`, query: context.query }),
@@ -2026,6 +2029,44 @@ function renderCompactTurn(turn, context) {
   `;
 }
 
+function compactAssistantMessages(turn) {
+  if (Array.isArray(turn?.assistantMessages)) return turn.assistantMessages.filter((message) => String(message?.text || "").trim());
+  return turn?.assistantMessage && String(turn.assistantMessage.text || "").trim() ? [turn.assistantMessage] : [];
+}
+
+function compactAssistantMessageLabel(message, index, count) {
+  if (message?.phase === "final") return count > 1 ? `助手消息 ${index + 1} · 最终` : "助手最终消息";
+  return count > 1 ? `助手消息 ${index + 1}` : "助手消息";
+}
+
+function contextUsageLabel(usage) {
+  const percent = contextUsagePercent(usage);
+  if (!Number.isFinite(percent)) return "";
+  return `上下文 ${percent}%`;
+}
+
+function contextUsagePercent(usage) {
+  const percent = Number(usage?.percent);
+  if (!Number.isFinite(percent)) return null;
+  return Math.max(1, Math.min(100, Math.round(percent)));
+}
+
+function contextUsageLevel(usage) {
+  const percent = contextUsagePercent(usage);
+  if (!Number.isFinite(percent)) return "";
+  return percent > 70 ? "high" : "normal";
+}
+
+function renderContextUsageBadge(usage) {
+  const label = contextUsageLabel(usage);
+  if (!label) return "";
+  const level = contextUsageLevel(usage);
+  const detail = [usage?.used != null && usage?.limit != null ? `${compactNumber(usage.used)} / ${compactNumber(usage.limit)} tokens` : "", level === "high" ? "超过 70%" : ""]
+    .filter(Boolean)
+    .join(" · ");
+  return `<strong class="context-usage-badge level-${escapeAttr(level)}" title="${escapeAttr(detail || label)}">${escapeHtml(label)}</strong>`;
+}
+
 function renderCompactMessage(kind, label, message, query) {
   const meta = [formatDate(message.timestamp), message.phase, message.truncated ? `已截断 ${compactNumber(message.textLength || 0)} 字符` : ""]
     .filter(Boolean)
@@ -2033,7 +2074,8 @@ function renderCompactMessage(kind, label, message, query) {
   return `
     <section class="compact-message ${kind}">
       <div class="compact-message-label">
-        <span>${escapeHtml(label)}</span>
+        <span class="compact-message-role">${escapeHtml(label)}</span>
+        ${renderContextUsageBadge(message.contextUsage)}
         <em>${escapeHtml(meta)}</em>
       </div>
       ${renderMarkdownMessage(message.text || "", query)}
@@ -2537,6 +2579,7 @@ function renderAuditExecutionRow(row, query) {
       <span class="audit-exec-main">
         <span class="audit-exec-title">
           <strong>${highlight(escapeHtml(rowReadable.title || row.title || row.label || row.id), query)}</strong>
+          ${renderContextUsageBadge(row.contextUsage)}
           <em>${escapeHtml(meta)}</em>
         </span>
         ${
@@ -2812,7 +2855,7 @@ function buildAuditExecutionRows(detail, turn, turnIndex) {
       rows.push(row);
     }
   }
-  return rows;
+  return attachAuditRowsToAgentMessages(rows, turn, turnIndex);
 }
 
 function flattenAuditExecutionRows(nodes, depth) {
@@ -2831,10 +2874,13 @@ function auditTraceNodeIsExecution(node) {
 
 function auditExecutionRowFromTraceNode(node, depth = 0) {
   const item = node.detail?.item || {};
+  const ref = itemRefFromTraceNode(node);
+  const itemIndex = itemIndexFromItemRef(ref);
   return {
     id: node.id,
     traceNodeId: node.id,
-    itemRef: itemRefFromTraceNode(node),
+    itemRef: ref,
+    itemIndex,
     type: node.type,
     icon: node.icon || node.type,
     label: node.label,
@@ -2857,6 +2903,7 @@ function auditExecutionRowFromItem(item, turnIndex) {
     id: `item:${turnIndex}:${itemIndex}:${item.id || item.type}`,
     traceNodeId: `item:${turnIndex}:${itemIndex}:${item.id || item.type}`,
     itemRef: itemRef(item),
+    itemIndex,
     type: isHandoff ? "handoff" : "tool",
     icon: isHandoff ? "handoff" : "tool",
     label: isHandoff ? "Handoff" : "Tool call",
@@ -2872,6 +2919,122 @@ function auditExecutionRowFromItem(item, turnIndex) {
   };
 }
 
+function attachAuditRowsToAgentMessages(rows, turn, turnIndex) {
+  const sourceRows = Array.isArray(rows) ? rows : [];
+  const agentRows = (turn.items || [])
+    .map((item, itemIndex) => (item.type === "assistant-message" && String(item.text || "").trim() ? auditAgentMessageRowFromItem(item, turnIndex, itemIndex) : null))
+    .filter(Boolean);
+
+  if (!agentRows.length) {
+    if (!sourceRows.length) return [];
+    const parent = auditImplicitAgentMessageRow(turn, turnIndex);
+    return linkAuditExecutionHierarchy([parent, ...sourceRows.map((row) => auditExecutionChildRow(row, parent))]);
+  }
+
+  if (!sourceRows.length) return linkAuditExecutionHierarchy(agentRows);
+
+  const childrenByAgentId = new Map(agentRows.map((row) => [row.id, []]));
+  for (const row of sourceRows) {
+    const parent = auditAgentParentForExecutionRow(row, agentRows);
+    if (parent) {
+      childrenByAgentId.get(parent.id)?.push(auditExecutionChildRow(row, parent));
+    }
+  }
+
+  const result = agentRows.flatMap((row) => [row, ...(childrenByAgentId.get(row.id) || [])]);
+
+  return linkAuditExecutionHierarchy(result);
+}
+
+function auditAgentMessageRowFromItem(item, turnIndex, itemIndex) {
+  const phase = item.phase || null;
+  const title = phase === "final" ? "助手最终回复" : "助手消息";
+  return {
+    id: `agent-message:${turnIndex}:${itemIndex}:${item.id || "assistant"}`,
+    traceNodeId: null,
+    itemRef: itemRef({ ...item, turnIndex, itemIndex }),
+    itemIndex,
+    type: "agent_message",
+    icon: "assistant",
+    label: "Agent message",
+    title,
+    subtitle: firstLine(item.text || "", 180),
+    status: phase || "observed",
+    timestamp: item.timestamp || null,
+    completedAt: item.completedAt || null,
+    durationMs: null,
+    durationEstimated: false,
+    depth: 0,
+    auditNodes: [],
+    childRowIds: [],
+    contextUsage: item.contextUsage || null,
+  };
+}
+
+function auditImplicitAgentMessageRow(turn, turnIndex) {
+  return {
+    id: `agent-message:${turnIndex}:implicit`,
+    traceNodeId: null,
+    itemRef: null,
+    itemIndex: -1,
+    type: "agent_message",
+    icon: "assistant",
+    label: "Agent message",
+    title: "助手消息 · 未记录正文",
+    subtitle: "此 Turn 有执行动作，但原始日志没有对应的 agent_message 文本。",
+    status: turn.status || "observed",
+    timestamp: turn.startedAt || null,
+    completedAt: turn.completedAt || null,
+    durationMs: null,
+    durationEstimated: false,
+    depth: 0,
+    auditNodes: [],
+    childRowIds: [],
+    synthetic: true,
+  };
+}
+
+function auditExecutionChildRow(row, parent) {
+  return {
+    ...row,
+    parentRowId: parent.id,
+    agentMessageItemRef: parent.itemRef || null,
+    depth: (parent.depth || 0) + 1 + (row.depth || 0),
+  };
+}
+
+function auditAgentParentForExecutionRow(row, agentRows) {
+  if (!agentRows.length) return null;
+  const itemIndex = Number.isInteger(row.itemIndex) ? row.itemIndex : itemIndexFromItemRef(row.itemRef);
+  if (Number.isInteger(itemIndex)) {
+    const previous = [...agentRows].reverse().find((agent) => agent.itemIndex <= itemIndex);
+    return previous || agentRows.find((agent) => agent.itemIndex > itemIndex) || agentRows[0];
+  }
+  const rowTime = dateValue(row.timestamp);
+  if (rowTime != null) {
+    const previous = [...agentRows].reverse().find((agent) => {
+      const agentTime = dateValue(agent.timestamp);
+      return agentTime != null && agentTime <= rowTime;
+    });
+    return previous || agentRows.find((agent) => {
+      const agentTime = dateValue(agent.timestamp);
+      return agentTime != null && agentTime > rowTime;
+    }) || agentRows[0];
+  }
+  return agentRows[0];
+}
+
+function linkAuditExecutionHierarchy(rows) {
+  const linked = rows.map((row) => ({ ...row, childRowIds: [...(row.childRowIds || [])] }));
+  const byId = new Map(linked.map((row) => [row.id, row]));
+  for (const row of linked) {
+    if (!row.parentRowId) continue;
+    const parent = byId.get(row.parentRowId);
+    if (parent && !parent.childRowIds.includes(row.id)) parent.childRowIds.push(row.id);
+  }
+  return linked;
+}
+
 function traceTurnNodeForIndex(root, turnIndex) {
   if (!root) return null;
   const turns = (root.children || []).filter((node) => node.type === "turn");
@@ -2885,6 +3048,13 @@ function itemRefFromTraceNode(node) {
   return `${match[1]}:${match[2]}:${type}`;
 }
 
+function itemIndexFromItemRef(ref) {
+  const match = String(ref || "").match(/^\d+:(\d+):/);
+  if (!match) return null;
+  const value = Number(match[1]);
+  return Number.isInteger(value) ? value : null;
+}
+
 function auditTurnKey(turn, index) {
   return `turn:${turn?.id || index}:${index}`;
 }
@@ -2896,11 +3066,12 @@ function auditNodeTurnIndex(node) {
 }
 
 function auditNodeCanAttachToExecution(node) {
-  return ["action", "evidence", "verification", "risk"].includes(node?.type);
+  return ["reasoning", "action", "evidence", "verification", "risk", "final"].includes(node?.type);
 }
 
 function auditNodeNeedsExecutionMount(node) {
   if (!auditNodeCanAttachToExecution(node)) return false;
+  if (node.type === "reasoning" || node.type === "final") return false;
   return Boolean(node.traceNodeId || node.itemRef || node.toolName || node.callId || node.type === "action");
 }
 
@@ -3077,7 +3248,7 @@ function auditPhaseState(spec, nodes, turn) {
 
 function auditExecutionEmptyText(turn, context = {}) {
   if (context.filtersActive && turn.executionRows.length) return "当前搜索或类型过滤没有匹配执行节点";
-  return "此 Turn 没有工具、handoff 或子代理调用";
+  return "此 Turn 没有工具、handoff、子代理调用或助手消息";
 }
 
 function auditFiltersActive(filters = {}) {
@@ -3093,7 +3264,12 @@ function filterAuditTurnModel(turn, filters = {}) {
   const matchingNodes = turn.auditEvidenceNodes.filter((node) => auditNodeMatches(node, query, typeFilter));
   const matchingUnlinked = turn.unlinkedAuditNodes.filter((node) => auditNodeMatches(node, query, typeFilter));
   const rowContextIds = new Set(matchingRows.map((row) => row.id));
+  const rowById = new Map(turn.executionRows.map((row) => [row.id, row]));
   const nodeContextIds = new Set(matchingNodes.map((node) => node.id));
+  for (const row of matchingRows) {
+    addAuditExecutionAncestors(row, rowById, rowContextIds);
+    addAuditExecutionDescendants(row, rowById, rowContextIds);
+  }
   for (const row of matchingRows) {
     for (const node of row.auditNodes || []) {
       if (node.type !== "action") nodeContextIds.add(node.id);
@@ -3101,7 +3277,11 @@ function filterAuditTurnModel(turn, filters = {}) {
   }
   for (const node of [...matchingNodes, ...matchingUnlinked]) {
     const row = turn.executionRows.find((candidate) => candidate.auditNodes.some((auditNode) => auditNode.id === node.id));
-    if (row) rowContextIds.add(row.id);
+    if (row) {
+      rowContextIds.add(row.id);
+      addAuditExecutionAncestors(row, rowById, rowContextIds);
+      addAuditExecutionDescendants(row, rowById, rowContextIds);
+    }
   }
   const visibleExecutionRows = turn.executionRows.filter((row) => rowContextIds.has(row.id));
   const visibleEvidenceNodes = turn.auditEvidenceNodes.filter((node) => nodeContextIds.has(node.id));
@@ -3132,6 +3312,25 @@ function auditExecutionRowMatches(row, query, typeFilter) {
   return queryMatches && typeMatches;
 }
 
+function addAuditExecutionAncestors(row, rowById, ids) {
+  let current = row;
+  while (current?.parentRowId) {
+    const parent = rowById.get(current.parentRowId);
+    if (!parent || ids.has(parent.id)) break;
+    ids.add(parent.id);
+    current = parent;
+  }
+}
+
+function addAuditExecutionDescendants(row, rowById, ids) {
+  for (const childId of row.childRowIds || []) {
+    const child = rowById.get(childId);
+    if (!child || ids.has(child.id)) continue;
+    ids.add(child.id);
+    addAuditExecutionDescendants(child, rowById, ids);
+  }
+}
+
 function auditExecutionSearchText(row) {
   const readable = readableExecutionRow(row);
   return [
@@ -3142,6 +3341,7 @@ function auditExecutionSearchText(row) {
     row.label,
     row.title,
     row.subtitle,
+    contextUsageLabel(row.contextUsage),
     readable.title,
     readable.summary,
     readable.command,
@@ -5552,6 +5752,15 @@ function readableExecutionRow(row) {
   const action = (row.auditNodes || []).find((node) => node.type === "action");
   if (action) return readableAuditNode(action);
   const item = row.itemRef ? findItemByRef(row.itemRef) : null;
+  if (row.type === "agent_message" || item?.type === "assistant-message") {
+    return {
+      matched: true,
+      title: row.title || itemTitle(item),
+      summary: firstLine(item?.text || row.subtitle || "", 220),
+      body: item?.text || row.subtitle || "",
+      command: "",
+    };
+  }
   if (item) return readableToolItem(item);
   return { matched: false, title: row.title || row.label || row.id, summary: row.subtitle || "", body: row.subtitle || "", command: "" };
 }
@@ -5743,6 +5952,7 @@ function dateMs(value) {
 function traceTypeLabel(type) {
   if (type === "thread") return "线程";
   if (type === "turn") return "Turn";
+  if (type === "agent_message") return "助手消息";
   if (type === "tool") return "工具";
   if (type === "handoff") return "委派";
   if (type === "subagent") return "子代理";

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildTurns,
+  compactTurnForView,
   compactTurnsForClient,
   extractTitleFromEvents,
   findSubagentNotifications,
@@ -135,6 +136,55 @@ test("compactTurnsForClient keeps tool output complete for reading view", () => 
   assert.equal(item.outputLength, longOutput.length);
   assert.equal(item.truncated, undefined);
   assert.equal(item.truncatedFields, undefined);
+});
+
+test("compactTurnForView keeps all assistant messages", () => {
+  const view = compactTurnForView(
+    {
+      id: "turn-1",
+      status: "completed",
+      items: [
+        { id: "user-1", type: "user-message", timestamp: "2026-06-24T10:00:00.000Z", text: "请检查实现" },
+        { id: "assistant-1", type: "assistant-message", timestamp: "2026-06-24T10:00:01.000Z", text: "我先看代码。" },
+        { id: "tokens-1", type: "token-count", timestamp: "2026-06-24T10:00:01.500Z", info: { total_token_usage: { total_tokens: 64000 }, context_window: 128000 } },
+        { id: "call-1", type: "tool-call", name: "exec_command", arguments: "rg audit" },
+        { id: "assistant-2", type: "assistant-message", timestamp: "2026-06-24T10:00:02.000Z", phase: "final", text: "检查完成。" },
+        { id: "tokens-2", type: "token-count", timestamp: "2026-06-24T10:00:02.500Z", info: { total_token_usage: { total_tokens: 96000 }, context_window: 128000 } },
+      ],
+    },
+    0,
+    [],
+  );
+
+  assert.equal(view.assistantMessages.length, 2);
+  assert.equal(view.assistantMessages[0].text, "我先看代码。");
+  assert.equal(view.assistantMessages[0].contextUsage.percent, 50);
+  assert.equal(view.assistantMessage.text, "检查完成。");
+  assert.equal(view.assistantMessage.contextUsage.percent, 75);
+});
+
+test("compactTurnsForClient exposes assistant context usage", () => {
+  const compact = compactTurnsForClient([
+    {
+      id: "turn-1",
+      items: [
+        { id: "assistant-1", type: "assistant-message", timestamp: "2026-06-24T10:00:00.000Z", text: "处理中。" },
+        {
+          id: "tokens-1",
+          type: "token-count",
+          timestamp: "2026-06-24T10:00:01.000Z",
+          info: {
+            total_token_usage: { total_tokens: 586292 },
+            last_token_usage: { total_tokens: 47197 },
+            model_context_window: 258400,
+          },
+        },
+      ],
+    },
+  ]);
+
+  assert.equal(compact[0].items[0].contextUsage.percent, 18);
+  assert.equal(compact[0].items[1].info.context_usage.percent, 18);
 });
 
 test("buildTurns uses normalized field drift and coalesces assistant deltas", () => {

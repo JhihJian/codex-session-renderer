@@ -62,11 +62,15 @@ function compactTurnsForClient(turns) {
   return turns.map((turn, turnIndex) => ({
     ...turn,
     turnNumber: turnIndex + 1,
-    items: turn.items.map((item, itemIndex) => compactItemForClient(item, turnIndex, itemIndex)),
+    items: turn.items.map((item, itemIndex) =>
+      compactItemForClient(item, turnIndex, itemIndex, {
+        contextUsage: item.type === "assistant-message" ? contextUsageForAssistantMessage(turn.items, itemIndex) : null,
+      }),
+    ),
   }));
 }
 
-function compactItemForClient(item, turnIndex, itemIndex) {
+function compactItemForClient(item, turnIndex, itemIndex, options = {}) {
   const base = {
     id: item.id,
     type: item.type,
@@ -92,6 +96,7 @@ function compactItemForClient(item, turnIndex, itemIndex) {
   if (item.attachments?.length) base.attachments = item.attachments;
   const info = compactTraceInfo(item.info);
   if (info) base.info = info;
+  if (options.contextUsage) base.contextUsage = options.contextUsage;
 
   if (item.text != null) {
     const limited = limitText(item.text, previewLimits.message);
@@ -126,9 +131,14 @@ function compactTurnForView(turn, turnIndex, children) {
     .filter((item) => item.type === "user-message" && normalizeText(item.text))
     .map(compactUserMessageForView)
     .filter(Boolean);
-  const assistant = [...turn.items]
-    .reverse()
-    .find((item) => item.type === "assistant-message" && normalizeText(item.text));
+  const assistantMessages = turn.items
+    .map((item, itemIndex) =>
+      item.type === "assistant-message" && normalizeText(item.text)
+        ? compactMessageForView(item, { contextUsage: contextUsageForAssistantMessage(turn.items, itemIndex) })
+        : null,
+    )
+    .filter(Boolean);
+  const assistant = assistantMessages.at(-1) || null;
   return {
     id: turn.id,
     turnNumber: turnIndex + 1,
@@ -136,7 +146,8 @@ function compactTurnForView(turn, turnIndex, children) {
     completedAt: turn.completedAt || null,
     status: turn.status || null,
     userMessages,
-    assistantMessage: assistant ? compactMessageForView(assistant) : null,
+    assistantMessages,
+    assistantMessage: assistant,
     children,
   };
 }
@@ -147,9 +158,9 @@ function compactUserMessageForView(item) {
   return compactMessageForView({ ...item, text });
 }
 
-function compactMessageForView(item) {
+function compactMessageForView(item, options = {}) {
   const limited = limitText(item.text || "", previewLimits.compactMessage);
-  return {
+  const message = {
     id: item.id,
     type: item.type,
     timestamp: item.timestamp || null,
@@ -159,6 +170,155 @@ function compactMessageForView(item) {
     textLength: limited.originalLength,
     truncated: limited.truncated,
   };
+  if (options.contextUsage) message.contextUsage = options.contextUsage;
+  return message;
+}
+
+function contextUsageForAssistantMessage(items = [], assistantIndex) {
+  const nextAssistantIndex = items.findIndex((item, index) => index > assistantIndex && item.type === "assistant-message");
+  const after = items.find(
+    (item, index) =>
+      index > assistantIndex &&
+      (nextAssistantIndex < 0 || index < nextAssistantIndex) &&
+      item.type === "token-count" &&
+      contextUsageFromTokenInfo(item.info),
+  );
+  const source =
+    after ||
+    [...items]
+      .slice(0, assistantIndex)
+      .reverse()
+      .find((item) => item.type === "token-count" && contextUsageFromTokenInfo(item.info));
+  return source ? contextUsageFromTokenInfo(source.info) : null;
+}
+
+function contextUsageFromTokenInfo(info) {
+  if (!info || typeof info !== "object") return null;
+  const sources = tokenInfoSources(info);
+  const usageSources = tokenUsageSources(info);
+  const directPercent = firstNumericField(sources, [
+    "context_percent",
+    "contextPercent",
+    "context_usage_percent",
+    "contextUsagePercent",
+    "context_window_percent",
+    "contextWindowPercent",
+    "percent",
+    "percentage",
+  ]);
+  const used = firstNumericField(sources, [
+    "context_used",
+    "contextUsed",
+  ]) ?? firstNumericField(usageSources, [
+    "context_used",
+    "contextUsed",
+    "used_tokens",
+    "usedTokens",
+    "tokens_used",
+    "tokensUsed",
+    "total_tokens",
+    "totalTokens",
+    "tokens",
+  ]) ?? tokenTotalFromSources(usageSources);
+  const limit = firstNumericField(sources, [
+    "context_window",
+    "contextWindow",
+    "context_window_tokens",
+    "contextWindowTokens",
+    "max_context",
+    "maxContext",
+    "max_context_tokens",
+    "maxContextTokens",
+    "model_context_window",
+    "modelContextWindow",
+    "context_length",
+    "contextLength",
+    "token_limit",
+    "tokenLimit",
+    "max_tokens",
+    "maxTokens",
+  ]);
+  const percent = normalizeContextPercent(directPercent, used, limit);
+  if (percent == null) return null;
+  const usage = { percent };
+  if (Number.isFinite(used)) usage.used = Math.round(used);
+  if (Number.isFinite(limit)) usage.limit = Math.round(limit);
+  return usage;
+}
+
+function tokenInfoSources(info) {
+  return [
+    info,
+    info.total_token_usage,
+    info.totalTokenUsage,
+    info.last_token_usage,
+    info.lastTokenUsage,
+    info.context_usage,
+    info.contextUsage,
+    info.usage,
+    info.token_usage,
+    info.tokenUsage,
+    info.context,
+  ].filter((value) => value && typeof value === "object");
+}
+
+function tokenUsageSources(info) {
+  return [
+    info.last_token_usage,
+    info.lastTokenUsage,
+    info.context_usage,
+    info.contextUsage,
+    info.usage,
+    info.token_usage,
+    info.tokenUsage,
+    info.context,
+    info,
+    info.total_token_usage,
+    info.totalTokenUsage,
+  ].filter((value) => value && typeof value === "object");
+}
+
+function firstNumericField(sources, keys) {
+  for (const source of sources) {
+    for (const key of keys) {
+      const value = numericValue(source[key]);
+      if (Number.isFinite(value)) return value;
+    }
+  }
+  return null;
+}
+
+function tokenTotalFromSources(sources) {
+  for (const source of sources) {
+    const input = numericValue(source.input_tokens ?? source.inputTokens ?? source.prompt_tokens ?? source.promptTokens);
+    const output = numericValue(source.output_tokens ?? source.outputTokens ?? source.completion_tokens ?? source.completionTokens);
+    if (Number.isFinite(input) || Number.isFinite(output)) return (Number.isFinite(input) ? input : 0) + (Number.isFinite(output) ? output : 0);
+  }
+  return null;
+}
+
+function normalizeContextPercent(percent, used, limit) {
+  let value = numericValue(percent);
+  if (Number.isFinite(value)) {
+    if (value > 0 && value <= 1) value *= 100;
+    return clampContextPercent(value);
+  }
+  const usedTokens = numericValue(used);
+  const limitTokens = numericValue(limit);
+  if (!Number.isFinite(usedTokens) || !Number.isFinite(limitTokens) || limitTokens <= 0) return null;
+  return clampContextPercent((usedTokens / limitTokens) * 100);
+}
+
+function clampContextPercent(value) {
+  if (!Number.isFinite(value)) return null;
+  if (value <= 0) return 1;
+  return Math.max(1, Math.min(100, Math.round(value)));
+}
+
+function numericValue(value) {
+  if (value == null || value === "") return null;
+  const number = typeof value === "string" ? Number(value.replace(/,/g, "")) : Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function cleanCompactUserText(text) {
@@ -672,7 +832,8 @@ function compactTraceInfo(info) {
   if (!info) return null;
   const total = info.total_token_usage || info.totalTokenUsage || info.total_tokens || null;
   const last = info.last_token_usage || info.lastTokenUsage || null;
-  return { total_token_usage: total, last_token_usage: last };
+  const contextUsage = contextUsageFromTokenInfo(info);
+  return { total_token_usage: total, last_token_usage: last, context_usage: contextUsage };
 }
 
 function truncateTraceText(value, max) {
