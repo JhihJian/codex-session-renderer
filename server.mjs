@@ -39,6 +39,8 @@ import {
   relativeCodexPath,
   rootSessionsOnly,
   sessionFromThread,
+  spawnEdgesFromSessions,
+  withSubagentMeta,
   withFileStat,
 } from "./src/session-models.mjs";
 import {
@@ -192,6 +194,15 @@ async function listSessions(context) {
     return context.sessionCache;
   }
 
+  const sessions = await listFileSessions(context);
+  const rootSessions = rootSessionsOnly(sessions, spawnEdgesFromSessions(sessions));
+  rootSessions.sort((a, b) => new Date(b.updatedAt || b.fileModifiedAt) - new Date(a.updatedAt || a.fileModifiedAt));
+  context.sessionCache = rootSessions.slice(0, maxListSessions);
+  context.sessionCacheTime = now;
+  return context.sessionCache;
+}
+
+async function listFileSessions(context) {
   const index = await readIndex(context);
   const files = [];
   for await (const filePath of walkJsonl(context.sessionsRoot)) {
@@ -208,48 +219,88 @@ async function listSessions(context) {
     }
     const id = sessionIdFromFile(filePath);
     const indexed = index.get(id);
-    const thread = threads.get(id);
     let events = [];
     try {
       events = await readJsonl(filePath, { maxLines: 40 });
     } catch {
       // Keep the unreadable file visible in diagnostics.
     }
-    const meta = events.find((event) => event.type === "session_meta")?.payload ?? {};
-    const startedAt = thread?.createdAt || toIso(meta.timestamp) || sessionStartedFromFile(filePath);
-    const updatedAt = thread?.updatedAt || indexed?.updatedAt || toIso(stat.mtime);
-    const title = thread?.title || indexed?.title || extractTitleFromEvents(events, path.basename(filePath, ".jsonl"));
-    sessions.push({
-      id,
-      sourceId: context.source.id,
-      sourceLabel: context.source.label,
-      dataSourceKind: context.source.kind,
-      title,
-      cwd: thread?.cwd || stripLongPathPrefix(meta.cwd || "") || null,
-      originator: meta.originator || null,
-      model: thread?.model || meta.model || meta.model_provider || null,
-      reasoningEffort: thread?.reasoningEffort || null,
-      source: thread?.source || meta.source || null,
-      threadSource: thread?.threadSource || meta.thread_source || null,
-      modelProvider: thread?.modelProvider || meta.model_provider || null,
-      archived: thread?.archived ?? false,
-      archivedAt: thread?.archivedAt || null,
-      agentNickname: thread?.agentNickname || null,
-      agentRole: thread?.agentRole || null,
-      preview: thread?.preview || null,
-      path: filePath,
-      relativePath: relativeCodexPath(context.codexHome, filePath),
-      startedAt,
-      updatedAt,
-      sizeBytes: stat.size,
-      fileModifiedAt: toIso(stat.mtime),
-    });
+    const meta = sessionMetaFromEvents(events);
+    sessions.push(
+      withSubagentMeta({
+        id,
+        sourceId: context.source.id,
+        sourceLabel: context.source.label,
+        dataSourceKind: context.source.kind,
+        title: indexed?.title || extractTitleFromEvents(events, path.basename(filePath, ".jsonl")),
+        cwd: stripLongPathPrefix(meta.cwd || "") || null,
+        originator: meta.originator || null,
+        model: meta.model || meta.model_provider || null,
+        reasoningEffort: null,
+        source: meta.source || null,
+        threadSource: meta.thread_source || null,
+        modelProvider: meta.model_provider || null,
+        archived: false,
+        archivedAt: null,
+        agentNickname: null,
+        agentRole: null,
+        preview: null,
+        path: filePath,
+        relativePath: relativeCodexPath(context.codexHome, filePath),
+        startedAt: toIso(meta.timestamp) || sessionStartedFromFile(filePath),
+        updatedAt: indexed?.updatedAt || toIso(stat.mtime),
+        sizeBytes: stat.size,
+        fileModifiedAt: toIso(stat.mtime),
+      }),
+    );
   }
-
   sessions.sort((a, b) => new Date(b.updatedAt || b.fileModifiedAt) - new Date(a.updatedAt || a.fileModifiedAt));
-  context.sessionCache = sessions.slice(0, maxListSessions);
-  context.sessionCacheTime = now;
-  return context.sessionCache;
+  return sessions;
+}
+
+function sessionMetaFromEvents(events) {
+  return events.find((event) => event.type === "session_meta")?.payload ?? {};
+}
+
+async function enrichSessionFromFileMeta(session) {
+  if (!session?.path) return withSubagentMeta(session);
+  const events = await readJsonl(session.path, { maxLines: 40 }).catch(() => []);
+  const meta = sessionMetaFromEvents(events);
+  const sourceForExtraction = meta.source || session.source || null;
+  const enriched = withSubagentMeta({
+    ...session,
+    cwd: session.cwd || stripLongPathPrefix(meta.cwd || "") || null,
+    originator: session.originator || meta.originator || null,
+    model: session.model || meta.model || meta.model_provider || null,
+    source: sourceForExtraction,
+    threadSource: session.threadSource || meta.thread_source || null,
+    modelProvider: session.modelProvider || meta.model_provider || null,
+    startedAt: session.startedAt || toIso(meta.timestamp) || null,
+  });
+  return {
+    ...enriched,
+    source: session.source || sourceForExtraction,
+  };
+}
+
+async function enrichThreadRowsFromFiles(context, threads) {
+  const enriched = new Map();
+  await Promise.all(
+    [...threads.entries()].map(async ([id, thread]) => {
+      const session = sessionFromThread(thread, context.codexHome, sourceModelOptions(context));
+      const sessionMeta = await enrichSessionFromFileMeta(session);
+      enriched.set(id, {
+        ...thread,
+        cwd: thread.cwd || sessionMeta.cwd || null,
+        model: thread.model || sessionMeta.model || null,
+        threadSource: thread.threadSource || sessionMeta.threadSource || null,
+        modelProvider: thread.modelProvider || sessionMeta.modelProvider || null,
+        agentNickname: thread.agentNickname || sessionMeta.agentNickname || null,
+        agentRole: thread.agentRole || sessionMeta.agentRole || null,
+      });
+    }),
+  );
+  return enriched;
 }
 
 async function getSessionById(context, id) {
@@ -259,7 +310,7 @@ async function getSessionById(context, id) {
   const thread = (await context.threadStore.readThreadRowsByIds([id])).get(id);
   if (thread) {
     const session = sessionFromThread(thread, context.codexHome, sourceModelOptions(context));
-    if (await sessionFileExists(session)) return session;
+    if (await sessionFileExists(session)) return enrichSessionFromFileMeta(session);
   }
 
   const sessions = await listSessions(context);
@@ -281,7 +332,7 @@ async function listAllSessionsForQuery(context) {
     const sessions = [];
     for (const thread of threads.values()) {
       const session = sessionFromThread(thread, context.codexHome, sourceModelOptions(context));
-      if (await sessionFileExists(session)) sessions.push(session);
+      if (await sessionFileExists(session)) sessions.push(await enrichSessionFromFileMeta(session));
     }
     sessions.sort((a, b) => new Date(b.updatedAt || b.fileModifiedAt || 0) - new Date(a.updatedAt || a.fileModifiedAt || 0));
     context.allSessionCache = sessions.slice(0, maxListSessions);
@@ -289,13 +340,7 @@ async function listAllSessionsForQuery(context) {
     return context.allSessionCache;
   }
 
-  const previousCache = context.sessionCache;
-  const previousCacheTime = context.sessionCacheTime;
-  context.sessionCache = null;
-  context.sessionCacheTime = 0;
-  const sessions = await listSessions(context);
-  context.sessionCache = previousCache;
-  context.sessionCacheTime = previousCacheTime;
+  const sessions = await listFileSessions(context);
   context.allSessionCache = sessions;
   context.allSessionCacheTime = now;
   return context.allSessionCache;
@@ -692,9 +737,9 @@ async function sessionFromFilePath(context, filePath) {
   }
   const id = sessionIdFromFile(filePath);
   const events = await readJsonl(filePath, { maxLines: 40 }).catch(() => []);
-  const meta = events.find((event) => event.type === "session_meta")?.payload ?? {};
+  const meta = sessionMetaFromEvents(events);
   return withFileStat(
-    {
+    withSubagentMeta({
       id,
       sourceId: context.source.id,
       sourceLabel: context.source.label,
@@ -718,7 +763,7 @@ async function sessionFromFilePath(context, filePath) {
       updatedAt: null,
       sizeBytes: null,
       fileModifiedAt: null,
-    },
+    }),
     stat,
   );
 }
@@ -741,7 +786,10 @@ async function getThreadHierarchy(context, threadId) {
   const childIds = directEdges.map((edge) => edge.childThreadId);
   const parentIds = parentEdges.map((edge) => edge.parentThreadId);
   const siblingIds = siblingEdges.map((edge) => edge.childThreadId);
-  const threads = await context.threadStore.readThreadRowsByIds([threadId, ...childIds, ...parentIds, ...siblingIds]);
+  const threads = await enrichThreadRowsFromFiles(
+    context,
+    await context.threadStore.readThreadRowsByIds([threadId, ...childIds, ...parentIds, ...siblingIds]),
+  );
   const modelOptions = sourceModelOptions(context);
   return {
     parent: primaryParentEdge

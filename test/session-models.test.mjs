@@ -7,7 +7,10 @@ import {
   publicThreadMeta,
   rootSessionsOnly,
   sessionFromThread,
+  spawnEdgesFromSessions,
+  subagentThreadSpawn,
   withFileStat,
+  withSubagentMeta,
 } from "../src/session-models.mjs";
 
 test("sessionFromThread creates the API session model without touching the file", () => {
@@ -77,6 +80,41 @@ test("rootSessionsOnly removes subagent child threads from the standalone list",
     ],
   );
   assert.equal(rootSessionsOnly(sessions, []), sessions);
+});
+
+test("JSONL subagent metadata supplies child relation and display name", () => {
+  const source = {
+    subagent: {
+      thread_spawn: {
+        parent_thread_id: "root",
+        agent_nickname: "Nash",
+        agent_role: "explorer",
+      },
+    },
+  };
+  const session = withSubagentMeta({
+    id: "child-from-jsonl",
+    title: "子代理会话",
+    source,
+    threadSource: null,
+    agentNickname: null,
+    agentRole: null,
+  });
+
+  assert.deepEqual(subagentThreadSpawn(source), {
+    parentThreadId: "root",
+    agentNickname: "Nash",
+    agentRole: "explorer",
+    agentPath: null,
+    depth: null,
+  });
+  assert.equal(session.threadSource, "subagent");
+  assert.equal(session.agentNickname, "Nash");
+  assert.equal(session.agentRole, "explorer");
+  assert.deepEqual(spawnEdgesFromSessions([session]), [
+    { parentThreadId: "root", childThreadId: "child-from-jsonl", status: "unknown" },
+  ]);
+  assert.deepEqual(rootSessionsOnly([{ id: "root", title: "根会话" }, session]).map((item) => item.id), ["root"]);
 });
 
 test("sessionFromThread maps remote rollout paths into the local snapshot source", () => {

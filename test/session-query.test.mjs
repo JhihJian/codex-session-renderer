@@ -65,6 +65,54 @@ test("session query can include and select child sessions", () => {
   assert.deepEqual(filterSessions(sessions, query, edges).map((session) => session.id), ["child"]);
 });
 
+test("session query derives child sessions from JSONL subagent metadata", () => {
+  const sessions = [
+    { id: "root", title: "根", updatedAt: "2026-06-25T08:00:00.000Z" },
+    {
+      id: "child",
+      title: "子",
+      updatedAt: "2026-06-25T08:05:00.000Z",
+      source: {
+        subagent: {
+          thread_spawn: {
+            parent_thread_id: "root",
+            agent_nickname: "Bernoulli",
+            agent_role: "explorer",
+          },
+        },
+      },
+    },
+  ];
+
+  assert.deepEqual(filterSessions(sessions, parseSessionListQuery(new URLSearchParams()), []).map((session) => session.id), ["root"]);
+  assert.deepEqual(
+    filterSessions(sessions, parseSessionListQuery(new URLSearchParams("includeChildren=true&isChild=true&agentNickname=bernoulli")), []).map(
+      (session) => session.id,
+    ),
+    ["child"],
+  );
+});
+
+test("projectSessionForApi exposes subagent display name from JSONL metadata", () => {
+  const projected = projectSessionForApi({
+    id: "child",
+    title: "子",
+    source: {
+      subagent: {
+        thread_spawn: {
+          parent_thread_id: "root",
+          agent_nickname: "Leibniz",
+          agent_role: "explorer",
+        },
+      },
+    },
+  });
+
+  assert.equal(projected.threadSource, "subagent");
+  assert.equal(projected.agentNickname, "Leibniz");
+  assert.equal(projected.agentRole, "explorer");
+});
+
 test("session query sorts, paginates and projects fields", () => {
   const query = parseSessionListQuery(new URLSearchParams("limit=1&sort=updatedAt&order=desc&fields=title,changedAt"));
   const sessions = sortSessions(

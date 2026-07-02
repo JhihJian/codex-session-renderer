@@ -8,6 +8,7 @@ import {
   summarizeEventTitle,
   toIso,
 } from "./session-events.mjs";
+import { spawnEdgesFromSessions, withSubagentMeta } from "./session-models.mjs";
 import { normalizeSessionEvent } from "./session-normalizer.mjs";
 
 const defaultSessionLimit = 100;
@@ -81,9 +82,10 @@ function parseSessionViewQuery(params) {
 }
 
 function filterSessions(sessions, query, spawnEdges = []) {
-  const childIds = new Set(spawnEdges.map((edge) => edge?.childThreadId).filter(Boolean));
-  const parentIds = new Set(spawnEdges.map((edge) => edge?.parentThreadId).filter(Boolean));
-  return sessions.filter((session) => sessionMatchesQuery(session, query, { childIds, parentIds }));
+  const edges = [...spawnEdges, ...spawnEdgesFromSessions(sessions)];
+  const childIds = new Set(edges.map((edge) => edge?.childThreadId).filter(Boolean));
+  const parentIds = new Set(edges.map((edge) => edge?.parentThreadId).filter(Boolean));
+  return sessions.map(withSubagentMeta).filter((session) => sessionMatchesQuery(session, query, { childIds, parentIds }));
 }
 
 function sortSessions(sessions, query) {
@@ -111,35 +113,36 @@ function paginateSessions(sessions, query) {
 }
 
 function projectSessionForApi(session, query = {}) {
+  const enriched = withSubagentMeta(session);
   const projected = {
-    id: session.id,
-    title: session.title || "未命名会话",
-    preview: firstLine(session.preview || "", 180) || null,
-    cwd: session.cwd || null,
-    originator: session.originator || null,
-    model: session.model || null,
-    reasoningEffort: session.reasoningEffort || null,
-    source: session.source || null,
-    threadSource: session.threadSource || null,
-    modelProvider: session.modelProvider || null,
-    archived: session.archived ?? false,
-    archivedAt: session.archivedAt || null,
-    agentNickname: session.agentNickname || null,
-    agentRole: session.agentRole || null,
-    relativePath: session.relativePath || null,
-    startedAt: session.startedAt || null,
-    updatedAt: session.updatedAt || null,
-    fileModifiedAt: session.fileModifiedAt || null,
-    changedAt: sessionChangedAt(session),
-    sizeBytes: session.sizeBytes ?? null,
+    id: enriched.id,
+    title: enriched.title || "未命名会话",
+    preview: firstLine(enriched.preview || "", 180) || null,
+    cwd: enriched.cwd || null,
+    originator: enriched.originator || null,
+    model: enriched.model || null,
+    reasoningEffort: enriched.reasoningEffort || null,
+    source: enriched.source || null,
+    threadSource: enriched.threadSource || null,
+    modelProvider: enriched.modelProvider || null,
+    archived: enriched.archived ?? false,
+    archivedAt: enriched.archivedAt || null,
+    agentNickname: enriched.agentNickname || null,
+    agentRole: enriched.agentRole || null,
+    relativePath: enriched.relativePath || null,
+    startedAt: enriched.startedAt || null,
+    updatedAt: enriched.updatedAt || null,
+    fileModifiedAt: enriched.fileModifiedAt || null,
+    changedAt: sessionChangedAt(enriched),
+    sizeBytes: enriched.sizeBytes ?? null,
     links: {
-      detail: `/api/sessions/${encodeURIComponent(session.id)}`,
-      compactView: `/api/query/sessions/${encodeURIComponent(session.id)}/view?view=compact`,
-      events: `/api/query/sessions/${encodeURIComponent(session.id)}/events`,
-      markdown: `/api/sessions/${encodeURIComponent(session.id)}/markdown`,
+      detail: `/api/sessions/${encodeURIComponent(enriched.id)}`,
+      compactView: `/api/query/sessions/${encodeURIComponent(enriched.id)}/view?view=compact`,
+      events: `/api/query/sessions/${encodeURIComponent(enriched.id)}/events`,
+      markdown: `/api/sessions/${encodeURIComponent(enriched.id)}/markdown`,
     },
   };
-  if (query.includePath) projected.path = session.path || null;
+  if (query.includePath) projected.path = enriched.path || null;
   return pickFields(projected, query.fields);
 }
 
