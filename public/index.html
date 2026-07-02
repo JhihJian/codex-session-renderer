@@ -238,6 +238,18 @@
 
           <section class="settings-section">
             <div class="section-title-row">
+              <h3>Evidence 风险规则</h3>
+              <span class="muted">影响服务端 Audit 风险节点</span>
+            </div>
+            <div class="summary-rule-list" id="evidenceRiskRuleList"></div>
+            <div class="settings-actions">
+              <button class="ghost-button" id="addEvidenceRiskRuleButton" type="button">新增风险规则</button>
+              <button class="ghost-button" id="resetEvidenceRiskRulesButton" type="button">恢复内置规则</button>
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <div class="section-title-row">
               <h3>内置摘要规则</h3>
               <span class="muted">只读参考</span>
             </div>
@@ -251,6 +263,14 @@
             </div>
             <div class="default-rule-list" id="defaultExecutionGroupRuleList"></div>
           </section>
+
+          <section class="settings-section">
+            <div class="section-title-row">
+              <h3>内置 Evidence 风险规则</h3>
+              <span class="muted">只读参考</span>
+            </div>
+            <div class="default-rule-list" id="defaultEvidenceRiskRuleList"></div>
+          </section>
         </div>
       </form>
     </dialog>
@@ -259,6 +279,7 @@
     <script src="./app-format.js" defer></script>
     <script src="./tool-summary.js" defer></script>
     <script src="./execution-grouping.js" defer></script>
+    <script src="./evidence-risk-rules.js" defer></script>
     <script src="./app.js" defer></script>
   </body>
 </html>

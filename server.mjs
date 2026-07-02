@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildAuditChain } from "./src/audit-chain.mjs";
 import { createDataSourceRegistry } from "./src/data-sources.mjs";
+import { evidenceRiskRulesFingerprint, normalizeEvidenceRiskRules } from "./src/evidence-risk-rules.mjs";
 import { sendError, sendJson, sendText, serveStaticFile } from "./src/http-response.mjs";
 import { createRendererConfigStore } from "./src/renderer-config.mjs";
 import { readJsonl, readJsonlLineWithDiagnostics, readJsonlRange, readJsonlWithDiagnostics } from "./src/jsonl-reader.mjs";
@@ -334,10 +335,12 @@ async function getSessionDetail(context, id, options = {}) {
   const session = await getSessionById(context, id);
   if (!session) return null;
   const maxDepth = options.maxDepth ?? 3;
+  const evidenceRiskRules = normalizeEvidenceRiskRules(options.evidenceRiskRules);
+  const evidenceRiskRulesKey = evidenceRiskRulesFingerprint(evidenceRiskRules);
   const stat = await fs.stat(session.path);
   const sessionWithStat = withFileStat(session, stat);
   const hierarchy = await getThreadHierarchy(context, id);
-  const cacheKey = `${id}:maxDepth=${maxDepth}`;
+  const cacheKey = `${id}:maxDepth=${maxDepth}:evidenceRiskRules=${evidenceRiskRulesKey}`;
   const cached = context.sessionDetailCache.get(cacheKey);
   if (cached && cached.mtimeMs === fileTimeMs(stat) && cached.size === stat.size && hierarchy.children.length === 0) return cached.detail;
 
@@ -364,7 +367,7 @@ async function getSessionDetail(context, id, options = {}) {
   const publicTurns = compactTurnsForClient(turns);
   const trace = buildTrace(sessionWithStat, rawEvents, analysisEvents, turns, hierarchy);
   const compact = await buildCompactView(context, sessionWithStat, analysisEvents, turns, hierarchy, { maxDepth });
-  const audit = buildAuditChain({ turns });
+  const audit = buildAuditChain({ turns, evidenceRiskRules });
   const stats = {
     ...summarizeSessionEvents(rawEvents),
     eventCount: rawEvents.length,
@@ -422,7 +425,7 @@ async function querySessionEvents(context, id, params) {
 
 async function querySessionView(context, id, params) {
   const query = parseSessionViewQuery(params);
-  const detail = await getSessionDetail(context, id, { maxDepth: query.maxDepth });
+  const detail = await getSessionDetail(context, id, { maxDepth: query.maxDepth, evidenceRiskRules: parseEvidenceRiskRulesParam(params) });
   if (!detail) return null;
   const base = {
     session: projectSessionForApi(detail.session, {}),
@@ -444,6 +447,18 @@ async function getSessionEvent(context, id, index) {
   if (!event) return null;
   const projected = projectEventForApi(event, index, { includePayload: true, includeRaw: true });
   return projected;
+}
+
+function parseEvidenceRiskRulesParam(params) {
+  const text = params.get("evidenceRiskRules");
+  if (!text) return [];
+  try {
+    return JSON.parse(text);
+  } catch {
+    const error = new Error("Invalid evidenceRiskRules parameter");
+    error.status = 400;
+    throw error;
+  }
 }
 
 async function queryRemoteSessionIndex(source, params) {
@@ -886,7 +901,9 @@ async function route(req, res) {
     if (sourceSessionMatch) {
       const context = getSourceContext(decodeURIComponent(sourceSessionMatch[1]));
       if (!context) return sendError(res, 404, "Data source not found");
-      const detail = await getSessionDetail(context, decodeURIComponent(sourceSessionMatch[2]));
+      const detail = await getSessionDetail(context, decodeURIComponent(sourceSessionMatch[2]), {
+        evidenceRiskRules: parseEvidenceRiskRulesParam(url.searchParams),
+      });
       if (!detail) return sendError(res, 404, "Session not found");
       return sendJson(res, 200, detail);
     }
@@ -953,7 +970,9 @@ async function route(req, res) {
     if (sessionMatch) {
       const context = resolveRequestSource(url);
       if (!context) return sendError(res, 404, "Data source not found");
-      const detail = await getSessionDetail(context, decodeURIComponent(sessionMatch[1]));
+      const detail = await getSessionDetail(context, decodeURIComponent(sessionMatch[1]), {
+        evidenceRiskRules: parseEvidenceRiskRulesParam(url.searchParams),
+      });
       if (!detail) return sendError(res, 404, "Session not found");
       return sendJson(res, 200, detail);
     }

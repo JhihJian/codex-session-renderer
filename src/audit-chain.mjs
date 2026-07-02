@@ -1,3 +1,4 @@
+import { riskSignalsForEvidence } from "./evidence-risk-rules.mjs";
 import { firstLine, normalizeText } from "./text-utils.mjs";
 
 const previewLimits = {
@@ -25,9 +26,10 @@ const riskRank = {
   high: 3,
 };
 
-function buildAuditChain({ turns = [] } = {}) {
+function buildAuditChain({ turns = [], evidenceRiskRules = [] } = {}) {
   const nodes = [];
   const finalNodes = [];
+  const auditOptions = { evidenceRiskRules };
 
   for (const [turnIndex, turn] of turns.entries()) {
     const assistantItems = (turn.items || []).filter((item) => item.type === "assistant-message" && normalizeText(item.text));
@@ -102,9 +104,9 @@ function buildAuditChain({ turns = [] } = {}) {
         pushAuditSignalNodes(nodes, auditSignalNodesFromSignals(actionNode, riskSignalsForAction(item)));
 
         if (item.output != null && String(item.output) !== "") {
-          const evidenceNode = buildEvidenceNode(turn, turnIndex, item, itemIndex);
+          const evidenceNode = buildEvidenceNode(turn, turnIndex, item, itemIndex, auditOptions);
           nodes.push(evidenceNode);
-          pushAuditSignalNodes(nodes, auditSignalNodesFromSignals(evidenceNode, riskSignalsForEvidence(item)));
+          pushAuditSignalNodes(nodes, auditSignalNodesFromSignals(evidenceNode, riskSignalsForEvidence(item, auditOptions)));
         }
 
         if (isVerificationItem(item)) {
@@ -169,8 +171,8 @@ function buildActionNode(turn, turnIndex, item, itemIndex) {
   });
 }
 
-function buildEvidenceNode(turn, turnIndex, item, itemIndex) {
-  const riskLevel = riskSignalsForEvidence(item).reduce((level, signal) => maxRiskLevel(level, signal.level), "none");
+function buildEvidenceNode(turn, turnIndex, item, itemIndex, auditOptions = {}) {
+  const riskLevel = riskSignalsForEvidence(item, auditOptions).reduce((level, signal) => maxRiskLevel(level, signal.level), "none");
   const sourceIndex = item.outputSourceIndex ?? item.sourceIndex;
   return auditNode({
     id: auditId("evidence", turnIndex, itemIndex, item, "output"),
@@ -345,26 +347,6 @@ function riskSignalsForAction(item) {
       level: statusLooksFailed(item.status) ? "medium" : "low",
       tag: "missing-output",
       summary: "检测到工具调用，但当前轻量模型中没有对应输出证据。",
-    });
-  }
-  return signals;
-}
-
-function riskSignalsForEvidence(item) {
-  const signals = [];
-  const text = [item.status, item.output, item.payloadPreview].filter(Boolean).join("\n");
-  if (hasRiskText(text)) {
-    signals.push({
-      level: statusLooksFailed(item.status) ? "high" : "medium",
-      tag: "error-output",
-      summary: "工具输出或状态包含 error、failed、stderr、失败、错误等风险词。",
-    });
-  }
-  if (largePayloadLength(item.output) || largePayloadLength(item.payloadPreview)) {
-    signals.push({
-      level: "medium",
-      tag: "large-payload",
-      summary: "工具输出较大，轻量视图可能不足以完整审计。",
     });
   }
   return signals;

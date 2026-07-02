@@ -143,6 +143,95 @@ test("buildAuditChain does not treat search text or display formatting as high-r
   }
 });
 
+test("buildAuditChain ignores risk words from file read and text search command output", () => {
+  const cases = [
+    {
+      command: "cat src/audit-chain.mjs",
+      output: "const riskTextPattern = /error|failed|stderr|失败|错误/i;",
+    },
+    {
+      command: "Get-Content .\\src\\audit-chain.mjs",
+      output: "summary: \"工具输出或状态包含 error、failed、stderr、失败、错误等风险词。\"",
+    },
+    {
+      command: "{\"cmd\":\"rg -n \\\"riskTextPattern\\\" src test\"}",
+      output: "src/audit-chain.mjs:9:const riskTextPattern = /error|failed|stderr/i;",
+    },
+    {
+      command: "Select-String -Path src/*.mjs -Pattern riskTextPattern",
+      output: "src\\audit-chain.mjs:9:const riskTextPattern = /error|failed|stderr/i;",
+    },
+  ];
+
+  for (const [index, itemCase] of cases.entries()) {
+    const chain = buildAuditChain({
+      turns: [
+        {
+          id: `turn-${index}`,
+          turnNumber: 1,
+          startedAt: "2026-06-26T10:00:00.000Z",
+          items: [
+            {
+              id: `call-${index}`,
+              type: "tool-call",
+              turnIndex: 0,
+              itemIndex: 0,
+              sourceIndex: index + 50,
+              outputSourceIndex: index + 70,
+              name: "exec_command",
+              callId: `call-${index}`,
+              status: "completed",
+              arguments: itemCase.command,
+              output: itemCase.output,
+            },
+          ],
+        },
+      ],
+    });
+
+    const risks = chain.nodes.filter((node) => node.type === "risk");
+    assert.equal(risks.some((node) => node.tags.includes("error-output")), false, itemCase.command);
+    assert.equal(chain.counts.risk, 0, itemCase.command);
+  }
+});
+
+test("buildAuditChain applies custom evidence risk rules", () => {
+  const chain = buildAuditChain({
+    evidenceRiskRules: [
+      {
+        id: "error-output",
+        enabled: false,
+        kind: "risk-text",
+      },
+    ],
+    turns: [
+      {
+        id: "turn-1",
+        turnNumber: 1,
+        startedAt: "2026-06-26T10:00:00.000Z",
+        items: [
+          {
+            id: "call-1",
+            type: "tool-call",
+            turnIndex: 0,
+            itemIndex: 0,
+            sourceIndex: 50,
+            outputSourceIndex: 51,
+            name: "exec_command",
+            callId: "call-1",
+            status: "completed",
+            arguments: "node scripts/run.mjs",
+            output: "failed with stderr",
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(chain.counts.risk, 0);
+  assert.equal(chain.nodes.find((node) => node.type === "evidence")?.riskLevel, "none");
+});
+
 test("patch text with dangerous words is not treated as an executed high-risk command", () => {
   const chain = buildAuditChain({
     turns: [

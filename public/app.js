@@ -28,6 +28,7 @@ const state = {
   reviewTab: "summary",
   summaryRules: [],
   executionGroupRules: [],
+  evidenceRiskRules: [],
   expandedAuditGroupIds: new Set(),
 };
 
@@ -120,10 +121,14 @@ const els = {
   defaultSummaryRuleList: document.getElementById("defaultSummaryRuleList"),
   executionGroupRuleList: document.getElementById("executionGroupRuleList"),
   defaultExecutionGroupRuleList: document.getElementById("defaultExecutionGroupRuleList"),
+  evidenceRiskRuleList: document.getElementById("evidenceRiskRuleList"),
+  defaultEvidenceRiskRuleList: document.getElementById("defaultEvidenceRiskRuleList"),
   addSummaryRuleButton: document.getElementById("addSummaryRuleButton"),
   resetSummaryRulesButton: document.getElementById("resetSummaryRulesButton"),
   addExecutionGroupRuleButton: document.getElementById("addExecutionGroupRuleButton"),
   resetExecutionGroupRulesButton: document.getElementById("resetExecutionGroupRulesButton"),
+  addEvidenceRiskRuleButton: document.getElementById("addEvidenceRiskRuleButton"),
+  resetEvidenceRiskRulesButton: document.getElementById("resetEvidenceRiskRulesButton"),
   saveSettingsButton: document.getElementById("saveSettingsButton"),
   settingsStatus: document.getElementById("settingsStatus"),
   peerDialog: document.getElementById("peerDialog"),
@@ -200,6 +205,7 @@ init();
 function init() {
   state.summaryRules = window.ToolSummary?.loadCustomRules?.() || [];
   state.executionGroupRules = window.ExecutionGrouping?.loadCustomRules?.() || [];
+  state.evidenceRiskRules = window.EvidenceRiskRules?.loadCustomRules?.() || [];
   bindEvents();
   loadHealthAndSources();
 }
@@ -226,6 +232,15 @@ function bindEvents() {
   });
   els.resetExecutionGroupRulesButton?.addEventListener("click", () => {
     state.executionGroupRules = [];
+    renderSettingsDialog();
+  });
+  els.addEvidenceRiskRuleButton?.addEventListener("click", () => {
+    ensureEvidenceRiskEditorRules();
+    state.evidenceRiskRules.unshift(newEvidenceRiskRule());
+    renderSettingsDialog();
+  });
+  els.resetEvidenceRiskRulesButton?.addEventListener("click", () => {
+    state.evidenceRiskRules = [];
     renderSettingsDialog();
   });
   els.closePeerDialogButton.addEventListener("click", () => els.peerDialog.close());
@@ -410,6 +425,16 @@ async function selectSession(id) {
   } catch (error) {
     showToast(`读取会话失败：${error.message}`);
   }
+}
+
+async function reloadSelectedSessionDetail() {
+  if (!state.selectedSessionId) return;
+  const detail = await fetchJson(sourceSessionUrl(state.selectedSessionId));
+  state.detail = detail;
+  state.selectedSourceId = detail.session?.sourceId || state.selectedSourceId;
+  state.selectedSessionKey = sessionKey(detail.session || { id: state.selectedSessionId, sourceId: state.selectedSourceId });
+  primeTraceExpansion(detail);
+  renderAll();
 }
 
 function clearSelectedSession() {
@@ -604,6 +629,7 @@ function setPeerStatus(message) {
 function openSettingsDialog() {
   state.summaryRules = window.ToolSummary?.loadCustomRules?.() || [];
   state.executionGroupRules = window.ExecutionGrouping?.loadCustomRules?.() || [];
+  state.evidenceRiskRules = window.EvidenceRiskRules?.loadCustomRules?.() || [];
   renderSettingsDialog();
   els.settingsDialog?.showModal();
 }
@@ -613,8 +639,11 @@ function renderSettingsDialog() {
   renderDefaultSummaryRuleList();
   renderExecutionGroupRuleList();
   renderDefaultExecutionGroupRuleList();
+  renderEvidenceRiskRuleList();
+  renderDefaultEvidenceRiskRuleList();
   if (els.settingsStatus) {
-    els.settingsStatus.textContent = `摘要规则 ${state.summaryRules.length} 条；执行聚合规则 ${state.executionGroupRules.length} 条；配置保存在当前浏览器本地。`;
+    const evidenceCount = window.EvidenceRiskRules?.activeRules?.(state.evidenceRiskRules)?.length || 0;
+    els.settingsStatus.textContent = `摘要规则 ${state.summaryRules.length} 条；执行聚合规则 ${state.executionGroupRules.length} 条；Evidence 风险规则 ${evidenceCount} 条；配置保存在当前浏览器本地。`;
   }
 }
 
@@ -766,6 +795,122 @@ function renderDefaultExecutionGroupRuleList() {
     .join("");
 }
 
+function renderEvidenceRiskRuleList() {
+  if (!els.evidenceRiskRuleList) return;
+  ensureEvidenceRiskEditorRules();
+  if (!state.evidenceRiskRules.length) {
+    els.evidenceRiskRuleList.innerHTML = `<div class="rule-empty">暂无 Evidence 风险规则。Audit 会回退到内置规则。</div>`;
+    return;
+  }
+  const defaultIds = new Set(window.EvidenceRiskRules?.defaultRuleIds?.() || []);
+  els.evidenceRiskRuleList.innerHTML = state.evidenceRiskRules.map((rule, index) => renderEvidenceRiskRuleEditor(rule, index, defaultIds.has(rule.id))).join("");
+  els.evidenceRiskRuleList.querySelectorAll("[data-evidence-rule-field]").forEach((input) => {
+    input.addEventListener("input", () => updateEvidenceRiskRuleFromInput(input));
+    input.addEventListener("change", () => updateEvidenceRiskRuleFromInput(input));
+  });
+  els.evidenceRiskRuleList.querySelectorAll("[data-delete-evidence-rule]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.evidenceRiskRules.splice(Number(button.dataset.deleteEvidenceRule), 1);
+      renderSettingsDialog();
+    });
+  });
+}
+
+function renderEvidenceRiskRuleEditor(rule, index, isDefaultRule) {
+  const enabled = rule.enabled !== false;
+  const fieldText = Array.isArray(rule.textFields) ? rule.textFields.join(",") : rule.textFields || "";
+  return `
+    <article class="summary-rule-card">
+      <div class="summary-rule-head">
+        <label class="toggle-control">
+          <input type="checkbox" ${enabled ? "checked" : ""} data-evidence-rule-field="enabled" data-evidence-rule-index="${escapeAttr(String(index))}" />
+          <span>${isDefaultRule ? "启用内置规则" : "启用自定义规则"}</span>
+        </label>
+        ${isDefaultRule ? `<span class="muted">内置项</span>` : `<button class="ghost-button small danger" type="button" data-delete-evidence-rule="${escapeAttr(String(index))}">删除</button>`}
+      </div>
+      <div class="summary-rule-grid">
+        <label>
+          <span class="field-label">名称</span>
+          <input class="text-input" type="text" value="${escapeAttr(rule.label || "")}" data-evidence-rule-field="label" data-evidence-rule-index="${escapeAttr(String(index))}" placeholder="工具输出风险词" />
+        </label>
+        <label>
+          <span class="field-label">类型</span>
+          <select class="text-input" data-evidence-rule-field="kind" data-evidence-rule-index="${escapeAttr(String(index))}">
+            <option value="risk-text" ${rule.kind === "risk-text" ? "selected" : ""}>风险词</option>
+            <option value="large-payload" ${rule.kind === "large-payload" ? "selected" : ""}>大型输出</option>
+          </select>
+        </label>
+        <label>
+          <span class="field-label">工具</span>
+          <input class="text-input" type="text" value="${escapeAttr(rule.tool || "*")}" data-evidence-rule-field="tool" data-evidence-rule-index="${escapeAttr(String(index))}" placeholder="exec_command 或 *" />
+        </label>
+        <label>
+          <span class="field-label">Tag</span>
+          <input class="text-input" type="text" value="${escapeAttr(rule.tag || "")}" data-evidence-rule-field="tag" data-evidence-rule-index="${escapeAttr(String(index))}" placeholder="error-output" />
+        </label>
+        <label>
+          <span class="field-label">风险等级</span>
+          <select class="text-input" data-evidence-rule-field="level" data-evidence-rule-index="${escapeAttr(String(index))}">
+            ${renderRiskLevelOptions(rule.level || "medium")}
+          </select>
+        </label>
+        <label>
+          <span class="field-label">状态失败等级</span>
+          <select class="text-input" data-evidence-rule-field="failedLevel" data-evidence-rule-index="${escapeAttr(String(index))}">
+            ${renderRiskLevelOptions(rule.failedLevel || rule.level || "medium")}
+          </select>
+        </label>
+        <label>
+          <span class="field-label">字段</span>
+          <input class="text-input" type="text" value="${escapeAttr(fieldText)}" data-evidence-rule-field="textFields" data-evidence-rule-index="${escapeAttr(String(index))}" placeholder="status,output,payloadPreview" />
+        </label>
+        <label>
+          <span class="field-label">大型输出阈值</span>
+          <input class="text-input" type="number" min="1" step="1" value="${escapeAttr(String(rule.maxLength || 100000))}" data-evidence-rule-field="maxLength" data-evidence-rule-index="${escapeAttr(String(index))}" />
+        </label>
+        <label class="summary-rule-grid-wide">
+          <span class="field-label">提示文案</span>
+          <input class="text-input" type="text" value="${escapeAttr(rule.summary || "")}" data-evidence-rule-field="summary" data-evidence-rule-index="${escapeAttr(String(index))}" placeholder="工具输出或状态包含风险词。" />
+        </label>
+      </div>
+      <label>
+        <span class="field-label">风险词正则</span>
+        <textarea class="text-input rule-pattern-input" data-evidence-rule-field="riskPattern" data-evidence-rule-index="${escapeAttr(String(index))}" spellcheck="false">${escapeHtml(rule.riskPattern || "")}</textarea>
+      </label>
+      <label>
+        <span class="field-label">非零失败正则</span>
+        <textarea class="text-input rule-pattern-input" data-evidence-rule-field="nonZeroFailurePattern" data-evidence-rule-index="${escapeAttr(String(index))}" spellcheck="false">${escapeHtml(rule.nonZeroFailurePattern || "")}</textarea>
+      </label>
+      <label>
+        <span class="field-label">忽略输出正文的命令正则</span>
+        <textarea class="text-input rule-pattern-input" data-evidence-rule-field="ignoredCommandPattern" data-evidence-rule-index="${escapeAttr(String(index))}" spellcheck="false" placeholder="读取文件或搜索文本命令">${escapeHtml(rule.ignoredCommandPattern || "")}</textarea>
+      </label>
+    </article>
+  `;
+}
+
+function renderRiskLevelOptions(selected) {
+  return ["low", "medium", "high"]
+    .map((level) => `<option value="${level}" ${selected === level ? "selected" : ""}>${escapeHtml(auditRiskLabel(level))}</option>`)
+    .join("");
+}
+
+function renderDefaultEvidenceRiskRuleList() {
+  if (!els.defaultEvidenceRiskRuleList) return;
+  const rules = window.EvidenceRiskRules?.defaultRules?.() || [];
+  els.defaultEvidenceRiskRuleList.innerHTML = rules
+    .map(
+      (rule) => `
+        <div class="default-rule-row">
+          <strong>${escapeHtml(rule.label || rule.id)}</strong>
+          <span>${escapeHtml([rule.kind, rule.tool || "*", rule.tag].filter(Boolean).join(" · "))}</span>
+          <code>${escapeHtml(rule.kind === "large-payload" ? `maxLength>${rule.maxLength}` : rule.riskPattern || "")}</code>
+        </div>
+      `,
+    )
+    .join("");
+}
+
 function updateSummaryRuleFromInput(input) {
   const index = Number(input.dataset.ruleIndex);
   const field = input.dataset.ruleField;
@@ -788,17 +933,50 @@ function updateExecutionGroupRuleFromInput(input) {
   }
 }
 
-function saveSettingsFromForm(event) {
+function updateEvidenceRiskRuleFromInput(input) {
+  const index = Number(input.dataset.evidenceRuleIndex);
+  const field = input.dataset.evidenceRuleField;
+  const rule = state.evidenceRiskRules[index];
+  if (!rule || !field) return;
+  if (field === "enabled") {
+    rule[field] = input.checked;
+  } else if (field === "maxLength") {
+    rule[field] = input.valueAsNumber || Number(input.value) || 100000;
+  } else if (field === "textFields") {
+    rule[field] = input.value
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+  } else {
+    rule[field] = input.value;
+  }
+}
+
+function ensureEvidenceRiskEditorRules() {
+  state.evidenceRiskRules = window.EvidenceRiskRules?.mergedRules?.(state.evidenceRiskRules) || state.evidenceRiskRules || [];
+}
+
+async function saveSettingsFromForm(event) {
   event.preventDefault();
-  const normalized = window.ToolSummary?.saveCustomRules?.(state.summaryRules) || [];
-  const normalizedGroupRules = window.ExecutionGrouping?.saveCustomRules?.(state.executionGroupRules) || [];
-  state.summaryRules = normalized;
-  state.executionGroupRules = normalizedGroupRules;
-  renderSettingsDialog();
-  renderMainContent();
-  renderInspector();
-  showToast("展示规则已保存");
-  els.settingsDialog?.close();
+  try {
+    const normalized = window.ToolSummary?.saveCustomRules?.(state.summaryRules) || [];
+    const normalizedGroupRules = window.ExecutionGrouping?.saveCustomRules?.(state.executionGroupRules) || [];
+    const normalizedEvidenceRiskRules = window.EvidenceRiskRules?.saveCustomRules?.(state.evidenceRiskRules) || [];
+    state.summaryRules = normalized;
+    state.executionGroupRules = normalizedGroupRules;
+    state.evidenceRiskRules = normalizedEvidenceRiskRules;
+    renderSettingsDialog();
+    if (state.selectedSessionId) {
+      await reloadSelectedSessionDetail();
+    } else {
+      renderMainContent();
+      renderInspector();
+    }
+    showToast("展示规则已保存");
+    els.settingsDialog?.close();
+  } catch (error) {
+    showToast(`保存展示规则失败：${error.message}`);
+  }
 }
 
 function newSummaryRule() {
@@ -823,6 +1001,25 @@ function newExecutionGroupRule() {
     pattern: "",
     title: "执行组 · {label}",
     summary: "{count} 个执行节点 · {titles}",
+  };
+}
+
+function newEvidenceRiskRule() {
+  return {
+    id: `custom-evidence-risk-${Date.now()}`,
+    label: "自定义 Evidence 风险",
+    enabled: true,
+    kind: "risk-text",
+    tool: "*",
+    level: "medium",
+    failedLevel: "high",
+    tag: "error-output",
+    textFields: ["status", "output", "payloadPreview"],
+    maxLength: 100000,
+    riskPattern: "\\b(error|failed|failure|exception|stderr)\\b|失败|错误",
+    nonZeroFailurePattern: "\\bfail(?:ed|ures?)?\\s*[:=]?\\s*[1-9]\\d*\\b|\\berrors?\\s*[:=]?\\s*[1-9]\\d*\\b",
+    ignoredCommandPattern: "",
+    summary: "工具输出或状态包含风险词。",
   };
 }
 
@@ -5111,7 +5308,11 @@ function remoteIndexUrl() {
 }
 
 function sourceSessionUrl(id) {
-  return `/api/sources/${encodeURIComponent(state.selectedSourceId)}/sessions/${encodeURIComponent(id)}`;
+  const params = new URLSearchParams();
+  const evidenceRiskRules = window.EvidenceRiskRules?.serializeForQuery?.(state.evidenceRiskRules);
+  if (evidenceRiskRules) params.set("evidenceRiskRules", evidenceRiskRules);
+  const query = params.toString();
+  return `/api/sources/${encodeURIComponent(state.selectedSourceId)}/sessions/${encodeURIComponent(id)}${query ? `?${query}` : ""}`;
 }
 
 function sourceEventUrl(id, index) {
