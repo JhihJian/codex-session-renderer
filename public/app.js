@@ -1489,6 +1489,7 @@ function renderSessionRow(session, query) {
   const agent = session.agentNickname ? `${session.agentNickname}/${session.agentRole || "agent"}` : "Codex";
   const source = session.remoteIndexOnly ? `${session.sourceLabel || selectedSource()?.label || ""} · 仅索引` : session.sourceLabel || selectedSource()?.label || "";
   const model = session.model || session.modelProvider || "unknown";
+  const status = sessionStatusLabel(session.status);
   return `
     <div class="session-row${active}${indexOnly}" role="button" tabindex="0" data-session-id="${escapeAttr(session.id)}" data-remote-index-only="${session.remoteIndexOnly ? "true" : "false"}">
       <span class="agent-dot" data-agent="${escapeAttr(agentName.toLowerCase())}" aria-hidden="true"></span>
@@ -1497,11 +1498,21 @@ function renderSessionRow(session, query) {
       <span class="session-meta">
         <span>${escapeHtml(agent)}</span>
         <span>${escapeHtml(model)}</span>
+        ${status ? `<span>${escapeHtml(status)}</span>` : ""}
         <span>${escapeHtml(cwd)}</span>
       </span>
       <span class="session-source">${escapeHtml(source)}</span>
     </div>
   `;
+}
+
+function sessionStatusLabel(status) {
+  if (status === "completed") return "已完成";
+  if (status === "failed") return "失败";
+  if (status === "aborted") return "已中断";
+  if (status === "waiting") return "等待输入";
+  if (status === "running") return "运行中";
+  return "";
 }
 
 function sessionListTimeMs(session) {
@@ -2288,7 +2299,7 @@ function renderTerminalBlock(block, query) {
           <span>${escapeHtml(meta)}</span>
         </div>
         <div class="terminal-block-body">${body}</div>
-        ${block.item?.truncated ? renderTruncationNotice(block.item) : ""}
+        ${block.item?.truncated ? renderTruncationNotice(block.item, terminalVisibleFieldsForBlock(block)) : ""}
       </div>
     </section>
   `;
@@ -4118,20 +4129,28 @@ function renderItemContent(item, query) {
             : ""
         }
       </div>
-      ${renderTruncationNotice(item)}
+      ${renderTruncationNotice(item, ["arguments", "output"])}
     `;
   }
   if (item.type === "tool-output") {
-    return `<pre class="code-block">${highlight(escapeHtml(String(item.output || "")), query)}</pre>${renderTruncationNotice(item)}`;
+    return `<pre class="code-block">${highlight(escapeHtml(String(item.output || "")), query)}</pre>${renderTruncationNotice(item, ["output"])}`;
   }
   const fallback = item.payloadPreview || JSON.stringify(item.info || item, null, 2);
-  return `<pre class="json-block">${highlight(escapeHtml(fallback), query)}</pre>${renderTruncationNotice(item)}`;
+  return `<pre class="json-block">${highlight(escapeHtml(fallback), query)}</pre>${renderTruncationNotice(item, ["payload"])}`;
 }
 
-function renderTruncationNotice(item) {
+function terminalVisibleFieldsForBlock(block) {
+  if (block.role === "user" || block.role === "assistant") return ["text"];
+  if (block.role === "tool") return ["arguments"];
+  if (block.role === "output" || block.role === "error") return ["output"];
+  return ["text", "arguments", "output", "payload"];
+}
+
+function renderTruncationNotice(item, visibleFields = null) {
   if (!item.truncated) return "";
-  const fields = item.truncatedFields?.join(", ") || "content";
-  return `<div class="truncation-notice">已截断 ${escapeHtml(fields)}，完整内容可在右侧调试 JSON 中按需查看。</div>`;
+  const fields = item.truncatedFields?.filter((field) => !visibleFields || visibleFields.includes(field)) || [];
+  if (!fields.length) return "";
+  return `<div class="truncation-notice">已截断 ${escapeHtml(fields.join(", "))}，完整内容可在右侧调试 JSON 中按需查看。</div>`;
 }
 
 function renderDetails() {

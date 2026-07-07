@@ -1,14 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import {
   buildTurns,
   compactTurnForView,
   compactTurnsForClient,
+  deriveSessionStatusFromTurns,
   extractTitleFromEvents,
   findSubagentNotifications,
   renderConversationMarkdown,
   summarizeEventPreview,
 } from "../src/session-events.mjs";
+import { readJsonlWithDiagnostics } from "../src/jsonl-reader.mjs";
+import { readSpecialSessionFixture, specialFixturesDir } from "./helpers/special-fixtures.mjs";
 
 test("buildTurns keeps visible behavior while deduplicating response echoes", () => {
   const events = [
@@ -246,4 +251,117 @@ test("buildTurns keeps image-only messages as attachment evidence", () => {
   assert.equal(turns[0].items[0].type, "user-message");
   assert.equal(turns[0].items[0].text, "");
   assert.equal(turns[0].items[0].attachments[0].kind, "url");
+});
+
+test("compactTurnsForClient keeps message text and tool arguments complete for non-compact views", () => {
+  const longUserText = `请分析下面的长文本\n${"u".repeat(2600)}`;
+  const longArguments = JSON.stringify({ cmd: "node scripts/report.mjs", input: "a".repeat(1800) });
+  const events = [
+    {
+      type: "event_msg",
+      timestamp: "2026-06-24T10:00:00.000Z",
+      payload: { type: "task_started", turn_id: "turn-1" },
+    },
+    {
+      type: "event_msg",
+      timestamp: "2026-06-24T10:00:01.000Z",
+      payload: { type: "user_message", message: longUserText },
+    },
+    {
+      type: "response_item",
+      timestamp: "2026-06-24T10:00:02.000Z",
+      payload: { type: "function_call", name: "exec_command", call_id: "call-1", arguments: longArguments },
+    },
+  ];
+
+  const compactTurns = compactTurnsForClient(buildTurns(events));
+  const [message, tool] = compactTurns[0].items;
+
+  assert.equal(message.text, longUserText);
+  assert.equal(message.textLength, longUserText.length);
+  assert.equal(tool.arguments, longArguments);
+  assert.equal(tool.argumentsLength, longArguments.length);
+  assert.equal(message.truncated, undefined);
+  assert.equal(tool.truncated, undefined);
+});
+
+test("special session fixtures are parseable JSONL", async () => {
+  const names = (await fs.readdir(specialFixturesDir)).filter((name) => name.endsWith(".jsonl"));
+
+  for (const name of names) {
+    const events = await readJsonlWithDiagnostics(path.join(specialFixturesDir, name));
+    assert.equal(events.some((event) => event.__jsonlDiagnostic), false, name);
+  }
+});
+
+test("buildTurns suppresses fork replay prefix before the first real task", async () => {
+  const turns = buildTurns(await readSpecialSessionFixture("fork-replay.jsonl"));
+
+  assert.equal(turns.length, 1);
+  assert.equal(turns[0].status, "completed");
+  assert.deepEqual(
+    turns[0].items.map((item) => item.type),
+    ["user-message", "tool-call", "assistant-message"],
+  );
+  assert.equal(turns[0].items[0].text, "请处理新的复盘任务");
+  assert.equal(turns[0].items[1].name, "exec_command");
+  assert.equal(JSON.stringify(turns).includes("旧请求"), false);
+});
+
+test("buildTurns keeps real repeated user messages with the same text", async () => {
+  const turns = buildTurns(await readSpecialSessionFixture("repeated-user-same-text.jsonl"));
+  const users = turns[0].items.filter((item) => item.type === "user-message");
+
+  assert.equal(users.length, 2);
+  assert.deepEqual(users.map((item) => item.text), ["重复确认这句话", "重复确认这句话"]);
+});
+
+test("buildTurns marks aborted turns and hides replayed machine context", async () => {
+  const events = await readSpecialSessionFixture("interrupt-resume-machine-context.jsonl");
+  const turns = buildTurns(events);
+  const markdown = renderConversationMarkdown({ id: "interrupt", title: "中断续跑" }, turns);
+
+  assert.equal(turns.length, 2);
+  assert.equal(turns[0].status, "aborted");
+  assert.equal(turns[0].items.length, 0);
+  assert.equal(turns[1].status, "completed");
+  assert.equal(turns[1].items[0].text, "请继续整理复盘材料");
+  assert.equal(deriveSessionStatusFromTurns(turns), "completed");
+  assert.equal(markdown.includes("AGENTS.md instructions"), false);
+  assert.equal(markdown.includes("<environment_context>"), false);
+  assert.equal(markdown.includes("turn_aborted"), false);
+  assert.match(markdown, /_aborted/);
+});
+
+test("buildTurns infers waiting status for pending wait_agent calls", () => {
+  const turns = buildTurns([
+    {
+      type: "event_msg",
+      timestamp: "2026-07-07T13:00:00.000Z",
+      payload: { type: "task_started", turn_id: "turn-wait" },
+    },
+    {
+      type: "event_msg",
+      timestamp: "2026-07-07T13:00:01.000Z",
+      payload: { type: "user_message", message: "等子代理" },
+    },
+    {
+      type: "response_item",
+      timestamp: "2026-07-07T13:00:02.000Z",
+      payload: { type: "function_call", name: "wait_agent", call_id: "wait-1", arguments: "{\"agent_id\":\"child\"}" },
+    },
+  ]);
+
+  assert.equal(turns[0].status, "waiting");
+});
+
+test("special fixture redacts image data and encrypted reasoning in compact turns", async () => {
+  const compact = compactTurnsForClient(buildTurns(await readSpecialSessionFixture("image-encrypted-reasoning.jsonl")));
+  const text = JSON.stringify(compact);
+
+  assert.equal(compact[0].items[0].attachments[0].kind, "inline");
+  assert.equal(compact[0].items[0].attachments[0].redacted, true);
+  assert.equal(compact[0].items[1].encrypted, true);
+  assert.equal(text.includes("data:image/png;base64,YWJj"), false);
+  assert.equal(text.includes("SECRET_ENCRYPTED_BLOB"), false);
 });

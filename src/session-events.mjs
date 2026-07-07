@@ -18,6 +18,7 @@ import {
   toIso,
 } from "./text-utils.mjs";
 import { coalesceNormalizedEvents, normalizeSessionEvent, safeStringifyRedacted } from "./session-normalizer.mjs";
+import { cleanUserMessageText, isUsefulUserMessageText } from "./user-message-cleanup.mjs";
 import {
   isStandaloneToolEvent,
   isToolCallOutput,
@@ -48,9 +49,6 @@ export {
 };
 
 const previewLimits = {
-  message: 1800,
-  toolArguments: 800,
-  toolOutput: 800,
   payload: 700,
   traceText: 160,
   traceArguments: 160,
@@ -99,16 +97,14 @@ function compactItemForClient(item, turnIndex, itemIndex, options = {}) {
   if (options.contextUsage) base.contextUsage = options.contextUsage;
 
   if (item.text != null) {
-    const limited = limitText(item.text, previewLimits.message);
-    base.text = limited.text;
-    base.textLength = limited.originalLength;
-    if (limited.truncated) addTruncatedField(base, "text");
+    const text = String(item.text);
+    base.text = text;
+    base.textLength = text.length;
   }
   if (item.arguments != null) {
-    const limited = limitText(item.arguments, previewLimits.toolArguments);
-    base.arguments = limited.text;
-    base.argumentsLength = limited.originalLength;
-    if (limited.truncated) addTruncatedField(base, "arguments");
+    const args = String(item.arguments);
+    base.arguments = args;
+    base.argumentsLength = args.length;
   }
   if (item.output != null) {
     const output = String(item.output);
@@ -322,27 +318,11 @@ function numericValue(value) {
 }
 
 function cleanCompactUserText(text) {
-  const raw = String(text || "").trim();
-  const latestRequest = raw.match(/## My request for Codex:\s*([\s\S]*)$/i)?.[1];
-  let value = latestRequest || raw;
-  value = value
-    .replace(/^# In app browser:[\s\S]*?## My request for Codex:\s*/i, "")
-    .replace(/^# Files mentioned by the user:[\s\S]*?## My request for Codex:\s*/i, "")
-    .replace(/^#?\s*AGENTS\.md instructions[\s\S]*?(?:<\/environment_context>|$)\s*/i, "")
-    .replace(/^<environment_context>[\s\S]*?<\/environment_context>\s*/i, "")
-    .trim();
-  return value;
+  return cleanUserMessageText(text);
 }
 
 function isUsefulCompactUserText(text) {
-  const normalized = normalizeText(text);
-  if (!normalized) return false;
-  if (/^#?\s*AGENTS\.md instructions/i.test(normalized)) return false;
-  if (/^Continue working toward the active thread goal/i.test(normalized)) return false;
-  if (/^In app browser:/i.test(normalized)) return false;
-  if (/^Files mentioned by the user:/i.test(normalized)) return false;
-  if (/^<environment_context>/i.test(normalized)) return false;
-  return true;
+  return isUsefulUserMessageText(text);
 }
 
 function compactChildBase(child, context) {
@@ -933,7 +913,7 @@ function shortPathServer(value) {
 }
 
 function buildTurns(events) {
-  const normalizedEvents = coalesceNormalizedEvents(events);
+  const normalizedEvents = suppressForkReplayPrefix(coalesceNormalizedEvents(events));
   const turns = [];
   let current = null;
   let activeCall = new Map();
@@ -983,6 +963,7 @@ function buildTurns(events) {
       };
       continue;
     }
+    if (!current && payload.type === "turn_aborted") ensureTurn(event);
     if (!current && shouldStartImplicitTurn(event)) ensureTurn(event);
     if (!current) continue;
 
@@ -999,14 +980,19 @@ function buildTurns(events) {
     }
 
     if (event.kind === "user_message" || (event.semanticKind === "message" && event.role === "user")) {
-      if (!event.attachments?.length && isDuplicateUserMessage(current, event.text)) continue;
+      const text = cleanUserMessageText(event.text);
+      if (!event.attachments?.length && !isUsefulUserMessageText(text)) continue;
+      if (!event.attachments?.length && isKnownUserEcho(current, event, text)) continue;
       current.items.push({
         id: `item-${current.items.length}`,
         type: "user-message",
         sourceIndex,
         timestamp: event.timestamp,
-        text: event.text ?? "",
+        text,
         attachments: event.attachments,
+        messageId: event.messageId,
+        eventKind: event.kind,
+        rawType: event.rawType,
       });
       continue;
     }
@@ -1062,6 +1048,12 @@ function buildTurns(events) {
       continue;
     }
 
+    if (payload.type === "turn_aborted") {
+      current.completedAt = event.timestamp;
+      current.status = "aborted";
+      continue;
+    }
+
     if (event.semanticKind === "reasoning") {
       current.items.push({
         id: `item-${current.items.length}`,
@@ -1087,12 +1079,14 @@ function buildTurns(events) {
     });
   }
 
-  return turns.filter((turn) => turn.items.length > 0 || turn.context);
+  for (const turn of turns) inferOpenTurnStatus(turn);
+  dedupeAbortedResumeUserPrompts(turns);
+  return turns.filter((turn) => turn.items.length > 0 || turn.context || turn.status === "aborted");
 }
 
 function shouldStartImplicitTurn(event) {
   const payloadType = event.payload?.type;
-  return event.rawType === "event_msg" || event.rawType === "response_item" || payloadType === "user_message" || event.semanticKind === "message" || event.semanticKind === "tool_call" || event.semanticKind === "tool_result" || event.semanticKind === "diagnostic";
+  return event.rawType === "event_msg" || event.rawType === "response_item" || payloadType === "user_message" || payloadType === "turn_aborted" || event.semanticKind === "message" || event.semanticKind === "tool_call" || event.semanticKind === "tool_result" || event.semanticKind === "diagnostic";
 }
 
 function hasAssistantMessage(turn, text) {
@@ -1106,10 +1100,87 @@ function isDuplicateAssistantMessage(turn, text) {
   return turn.items.some((item) => item.type === "assistant-message" && normalizeText(item.text) === normalized);
 }
 
-function isDuplicateUserMessage(turn, text) {
+function isKnownUserEcho(turn, event, text) {
   const normalized = normalizeText(text);
   if (!normalized) return true;
-  return turn.items.some((item) => item.type === "user-message" && normalizeText(item.text) === normalized);
+  return turn.items.some((item) => item.type === "user-message" && normalizeText(item.text) === normalized && isUserEchoPair(item, event));
+}
+
+function isUserEchoPair(item, event) {
+  if (item.messageId && event.messageId && item.messageId === event.messageId) return true;
+  const eventRawType = event.rawType || "";
+  const itemRawType = item.rawType || "";
+  const eventKind = event.kind || "";
+  const itemKind = item.eventKind || "";
+  if (itemRawType === eventRawType) return false;
+  return (
+    (itemKind === "user_message" && eventRawType === "response_item") ||
+    (eventKind === "user_message" && itemRawType === "response_item") ||
+    (itemRawType === "event_msg" && eventRawType === "response_item") ||
+    (itemRawType === "response_item" && eventRawType === "event_msg")
+  );
+}
+
+function inferOpenTurnStatus(turn) {
+  if (!turn || turn.status !== "running") return;
+  if (hasPendingWaitAgent(turn)) {
+    turn.status = "waiting";
+    return;
+  }
+  const last = [...turn.items].reverse().find((item) => !["reasoning", "token-count"].includes(item.type));
+  if (last?.type === "assistant-message") turn.status = "waiting";
+}
+
+function hasPendingWaitAgent(turn) {
+  return turn.items.some(
+    (item) =>
+      item.type === "tool-call" &&
+      ["wait_agent", "handoff"].includes(item.name) &&
+      item.output == null &&
+      !["completed", "failed"].includes(item.status),
+  );
+}
+
+function dedupeAbortedResumeUserPrompts(turns) {
+  for (let index = 0; index < turns.length - 1; index += 1) {
+    const turn = turns[index];
+    if (turn.status !== "aborted") continue;
+    if (turn.items.some((item) => item.type !== "user-message")) continue;
+    const nextUser = turns[index + 1].items.find((item) => item.type === "user-message");
+    if (!nextUser) continue;
+    turn.items = turn.items.filter((item) => normalizeText(item.text) !== normalizeText(nextUser.text));
+  }
+}
+
+function suppressForkReplayPrefix(events) {
+  const firstTaskStart = events.findIndex((event) => event.payload?.type === "task_started");
+  if (firstTaskStart <= 0) return events;
+  const prefix = events.slice(0, firstTaskStart).filter((event) => event.kind !== "meta" && event.semanticKind !== "meta" && event.kind !== "context");
+  if (prefix.length === 0) return events;
+  const userCount = prefix.filter((event) => event.kind === "user_message" || (event.semanticKind === "message" && event.role === "user")).length;
+  const hasReplayTranscript = prefix.some(isReplayTranscriptEvent) || userCount > 1;
+  return hasReplayTranscript ? events.slice(firstTaskStart) : events;
+}
+
+function isReplayTranscriptEvent(event) {
+  const payloadType = event.payload?.type;
+  return (
+    event.role === "assistant" ||
+    event.semanticKind === "tool_call" ||
+    event.semanticKind === "tool_result" ||
+    event.semanticKind === "reasoning" ||
+    payloadType === "task_complete" ||
+    payloadType === "task_failed" ||
+    payloadType === "turn_aborted"
+  );
+}
+
+function deriveSessionStatusFromTurns(turns) {
+  return [...(turns || [])].reverse().find((turn) => turn.status)?.status || null;
+}
+
+function deriveSessionStatusFromEvents(events) {
+  return deriveSessionStatusFromTurns(buildTurns(events));
 }
 
 function registerToolCall(turn, activeCall, event, sourceIndex) {
@@ -1164,6 +1235,8 @@ export {
   compactCompactSession,
   compactTurnsForClient,
   compactTurnForView,
+  deriveSessionStatusFromEvents,
+  deriveSessionStatusFromTurns,
   findSpawnAgentEvents,
   findSubagentNotifications,
   limitText,

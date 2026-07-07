@@ -43,6 +43,19 @@
 
 `agent_message` 和 `role: "assistant"` 的消息会转换为 turn item 中的 `assistant-message`。精简视图模型保留 `assistantMessages` 数组以展示每一条助手消息，同时保留 `assistantMessage` 指向最后一条助手消息作为兼容字段。若同一 Turn 内的 `token_count` 可解析出 context window 或上下文百分比，助手消息会携带 `contextUsage.percent`，渲染为 1-100% 的上下文占用率；缺少上限和百分比时不显示该字段。前端会把占用率渲染为独立徽标，超过 70% 时使用高占用提示样式。Audit 执行链会把助手消息投影为 `agent_message` 父行，工具、handoff 和子代理执行节点缩进挂载在对应助手消息下；没有助手正文时使用占位父行，避免执行节点脱离 agent 消息上下文。
 
+## 默认用户消息口径
+
+Codex 有时会把机器上下文写进用户消息，例如 `AGENTS.md instructions`、`environment_context`、goal continuation、浏览器/文件包装和 subagent notification。默认阅读模型、Markdown 导出和事件搜索会先提取真实用户请求：
+
+- 如果存在 `## My request for Codex:`，只展示其后的请求正文。
+- 如果消息开头是 `AGENTS.md instructions` 并包含 `environment_context`，默认隐藏这段机器上下文，保留后续真实请求。
+- 纯机器上下文、goal continuation 和 subagent notification 不计为真实用户请求。
+- Raw event 和单事件接口仍保留原始 payload，用于诊断和审计。
+
+去重只针对明确的事件回声，例如同一条用户消息同时以 `event_msg user_message` 和 `response_item role=user` 写入；用户真实重复输入同一句话不会仅因文本相同被删除。
+
+`turn_aborted` 会终止当前 turn 并标记为 `aborted`。如果一个没有工具或助手输出的 aborted turn 后面紧跟相同首条请求的续跑 turn，默认阅读会压掉前一个空 aborted turn 里的重复请求，但保留 aborted 状态本身。
+
 ## 图片与附件
 
 图片只进入安全摘要，默认不把大体积内容放入列表、轻量详情或搜索文本：

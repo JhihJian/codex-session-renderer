@@ -31,6 +31,45 @@ $env:CODEX_HOME='C:\Users\user\.codex'
 npm start
 ```
 
+如需让局域网内其他设备访问，可把监听地址改为所有网卡：
+
+```powershell
+$env:HOST='0.0.0.0'
+$env:PORT=4789
+npm start
+```
+
+Linux systemd 部署时同样设置 `Environment=HOST=0.0.0.0`。服务会读取本机 Codex 会话数据；若开放到局域网，请确认这是有意行为。
+
+本仓库提供了当前设备可用的 systemd 单元模板：
+
+```bash
+sudo install -m 0644 deploy/systemd/codex-session-renderer.service /etc/systemd/system/codex-session-renderer.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now codex-session-renderer
+```
+
+启动后，本机访问 `http://127.0.0.1:4789/`，局域网访问使用当前设备的局域网地址，例如 `http://192.168.1.92:4789/`。
+
+## 手动更新部署
+
+当前部署直接运行仓库工作区里的 `server.mjs`，没有构建产物。手动更新新版本时，在部署机上执行：
+
+```bash
+cd /data/dev/codex-session-renderer
+git fetch origin
+git merge --ff-only origin/main
+npm ci
+npm test
+sudo install -m 0644 deploy/systemd/codex-session-renderer.service /etc/systemd/system/codex-session-renderer.service
+sudo systemctl daemon-reload
+sudo systemctl restart codex-session-renderer
+systemctl is-active codex-session-renderer
+curl -fsS http://127.0.0.1:4789/api/health
+```
+
+如果 `git merge --ff-only origin/main` 提示不能快进，说明本地有未提交改动或本地分支已经分叉。先用 `git status --short` 检查，不要直接覆盖本地改动；确认要保留本地部署补丁时，先提交或 stash，再合并远端新版本。
+
 ## 远程会话数据源
 
 远程数据源通过“实时会话刷新到本地快照，历史会话只查远端索引”的方式工作。刷新失败不会删除上一份可用快照；如果已有旧快照，页面仍可继续浏览，并在数据源状态里标注失败或旧快照。
@@ -123,6 +162,78 @@ npm start
 
 远程状态只暴露脱敏信息：是否刷新中、最近成功刷新时间、是否正在浏览旧快照、失败类别和简短原因。API 响应、状态文件和普通错误信息不会包含 token、认证头或会话正文。
 
+### 无 SSH 同步 71 设备会话
+
+如果远程 71 设备不能通过 SSH/rsync 访问，但可以通过本机 `codex-remote-run` 连接 Codex app-server，可使用仓库脚本按文件清单增量同步 `/root/.codex`。脚本会：
+
+- 通过 `codex-remote-run --exec` 读取远端 `state_5.sqlite`、`session_index.jsonl` 和 `sessions/**/*.jsonl` 清单。
+- 和本机上次同步状态比较，只拉取新增或变化的文件。
+- 把小文件按批次打包为 tar/base64，单批控制在 `codex-remote-run` 默认 1 MiB 输出上限以内。
+- 对超过单批上限的大文件使用 base64 chunk 分片拉取。
+- 先写入 staging 目录，成功后再原子发布到目标快照目录，避免页面读到半同步状态。
+
+运行前确保 token 只存在于运行时环境中，不要写进仓库文件：
+
+```bash
+export CODEX_REMOTE_TOKEN='<runtime token>'
+```
+
+当前设备上该变量通常在 login shell 中可用；如果普通非交互 shell 没继承到，脚本默认会用 `bash -ilc` 启动 `codex-remote-run`。
+
+先做一次小规模验证：
+
+```bash
+node scripts/sync-71-sessions.mjs \
+  --limit 20 \
+  --skip-state-db \
+  --target /home/jhihjian/.codex-session-renderer/source-snapshots/dev71-test/.codex \
+  --verbose
+```
+
+正式同步默认目标为：
+
+```text
+/home/jhihjian/.codex-session-renderer/source-snapshots/dev71/.codex
+```
+
+执行增量同步：
+
+```bash
+node scripts/sync-71-sessions.mjs --verbose
+```
+
+如果已在渲染器中配置 `dev71` 数据源，可同步后直接触发刷新：
+
+```bash
+node scripts/sync-71-sessions.mjs --refresh --source-id dev71 --renderer-url http://127.0.0.1:4789
+```
+
+systemd 数据源配置示例：
+
+```bash
+sudo mkdir -p /etc/systemd/system/codex-session-renderer.service.d
+sudo tee /etc/systemd/system/codex-session-renderer.service.d/remote-dev71.conf >/dev/null <<'EOF'
+[Service]
+Environment="CODEX_REMOTE_SOURCES=dev71"
+Environment="CODEX_REMOTE_DEV71_LABEL=71 远程设备"
+Environment="CODEX_REMOTE_DEV71_CODEX_HOME=/root/.codex"
+Environment="CODEX_REMOTE_DEV71_SNAPSHOT_PATH=/home/jhihjian/.codex-session-renderer/source-snapshots/dev71/.codex"
+Environment="CODEX_REMOTE_SNAPSHOT_ROOT=/home/jhihjian/.codex-session-renderer/remote-snapshots"
+EOF
+sudo systemctl daemon-reload
+sudo systemctl restart codex-session-renderer
+```
+
+验证：
+
+```bash
+curl -fsS http://127.0.0.1:4789/api/sources
+curl -fsS -X POST http://127.0.0.1:4789/api/sources/dev71/refresh
+curl -fsS 'http://127.0.0.1:4789/api/sources/dev71/query/sessions?limit=5&fields=id,title,changedAt,relativePath'
+```
+
+同步脚本会在目标目录写入 `.codex-session-renderer-71-sync.json` 作为增量状态。这个文件只记录相对路径、大小和修改时间，不包含 token。
+
 ## 项目结构
 
 - `server.mjs`：HTTP 路由、数据源分发、会话文件定位、缓存和接口编排；底层响应、SQLite、DTO 和解析逻辑已拆到 `src/`。
@@ -175,6 +286,8 @@ npm test
 - 静态文件路径不能穿越 `public/` 根目录。
 - SQLite thread 行映射、ID 转义和 spawn edge 过滤保持稳定。
 - 子代理通知匹配会同时检查事件预览和完整 payload，避免 `preview` 缺少 `agent_path` 时漏挂载。
+- 特殊会话样例覆盖 fork replay 前导重放、`turn_aborted` 续跑、真实重复用户输入、等待状态、图片附件和 encrypted reasoning 脱敏。
+- 无 SQLite 文件回退覆盖 `sessions`/`archived_sessions` 去重，避免同一 session id 同时出现在 live 和 archived 副本时重复展示。
 - 前端 HTML 高亮不会改写标签，Windows 路径缩短和下载文件名清理保持稳定。
 
 ## 设计说明
@@ -185,16 +298,18 @@ npm test
 - 远程数据源的正文只在刷新阶段访问配置好的实时快照 URL 或快照目录；普通会话列表、Review Dock 复核台和 Markdown 导出都从本地 `current` 快照读取。历史分类可按需访问远端索引接口，但索引不包含会话正文。
 - 远程实时快照刷新使用 staging 目录构建，再原子切换到 `current`。刷新失败不会覆盖上一次成功快照。
 - 远程 SQLite 中的远端 `rollout_path` 会按配置的远端 Codex Home 映射到本地快照 Codex Home。
-- 本地工作台 API 默认绑定 `127.0.0.1`，适合作为同机只读数据源；局域网同步只开放 `npm run share` 的快照接口，并要求 Bearer token。
+- 本地工作台默认绑定 `127.0.0.1`，适合作为同机只读数据源；可通过 `HOST` 覆盖监听地址，当前 systemd 模板设置 `HOST=0.0.0.0` 用于局域网访问。独立的 `npm run share` 快照接口始终要求 Bearer token。
 - 前端使用原生 HTML/CSS/JavaScript，无构建步骤；Markdown 渲染通过本地 `markdown-it` 浏览器包完成。
 - 顶栏设置入口提供“展示规则设置”，用户可在浏览器本地新增、启停或删除工具摘要规则、Audit 执行聚合规则和 Evidence 风险规则；自定义规则优先于内置规则。设置页按“摘要规则 / 执行聚合 / Evidence 风险 / 结构化展示”分类切换，顶部概览主数字展示生效数量，辅助文字展示自定义/内置数量，当前分类只展示自己的编辑区和内置参考。结构化展示分类用只读说明列出命令输出 viewer 当前覆盖的命令类型和展示内容，便于判断哪些 `exec_command` 输出会被自动整理。摘要规则只影响 Audit、Review Dock、Raw 列表标题和前端搜索；执行聚合规则只影响 Audit 执行链中连续执行节点的折叠展示，不改变服务端 `audit.nodes`、turn/item 轻量模型、`trace.root` 或 Raw event；Evidence 风险规则会随会话详情请求传给服务端，用于重新派生 `audit.nodes` 中的 evidence 风险节点和风险计数。
-- 会话列表优先读取 SQLite `threads` 表，并在 SQLite 查询层排除 `thread_spawn_edges.child_thread_id` 对应的子代理线程，避免子代理在左侧会话列表独立展示；SQLite 不可用或列表查询失败时回退扫描 JSONL 文件，并从 `session_meta.source.subagent.thread_spawn` 继续识别父子关系和子代理昵称，默认仍只展示根会话。
+- 会话列表优先读取 SQLite `threads` 表，并在 SQLite 查询层排除 `thread_spawn_edges.child_thread_id` 对应的子代理线程，避免子代理在左侧会话列表独立展示；SQLite 不可用或列表查询失败时回退扫描 JSONL 文件。文件回退会同时扫描 `sessions` 和 `archived_sessions`，按 session id 去重，live 副本优先，只有没有 live 副本时才把 archived 副本作为可打开会话；同时会从 `session_meta.source.subagent.thread_spawn` 继续识别父子关系和子代理昵称，默认仍只展示根会话。
 - JSONL 读取使用流式逐行解析；列表回退读取前若干条事件时不会把整个大文件一次性读入内存。
 - JSONL 事件会先经过规范化层形成稳定字段，兼容 `type`/`role`、多种时间字段、content parts、工具字段漂移、delta chunk、图片引用和加密 reasoning；契约见 `docs/session-event-normalization.md`。
 - 解析器把 JSONL 中的 `session_meta`、`turn_context`、`event_msg`、`response_item` 聚合为 turn 和 item。
 - 工具调用会合并 `function_call`、`function_call_output`、`custom_tool_call`、`custom_tool_call_output`、`mcp_tool_call_end`、`patch_apply_end` 等 Codex 事件。
 - 同一 `message_id` 的 streamed/delta 消息会在规范化层合并为连续可读文本，并保留来源事件索引用于 Raw 回溯。
-- 同一条用户/助手消息如果同时出现在 response item 和事件消息里，会在渲染层去重。
+- 默认阅读、Markdown 导出和事件搜索会隐藏 Codex 自动注入的用户消息包装，例如 `AGENTS.md instructions`、`environment_context`、goal continuation 和 subagent notification；Raw 视图和单事件接口仍保留完整原始 payload，方便诊断。
+- 同一条用户/助手消息如果同时出现在 response item 和事件消息里，会在渲染层去重；用户真实重复输入同一句话不会只因为文本相同被删除。
+- `turn_aborted` 会把当前 turn 标记为 `aborted`，不会作为普通用户可见事件展示；如果一个空 aborted turn 后立刻续跑同一首条请求，默认阅读会只保留续跑 turn 的请求。未结束但正在等待 `wait_agent`/`handoff` 或最后停在助手回复后的 turn 会标记为 `waiting`，其他未结束 turn 保持 `running`。
 - 页面默认进入精简视图，并提供三种主视图：
   - 精简视图：负责日常阅读，展示用户输入、每一条助手消息和子代理摘要；如果 `token_count` 提供可解析的 context window 或百分比，助手消息标签会以独立徽标显示当时的上下文占用率，超过 70% 时使用高占用提示样式。若父会话中有 `spawn_agent` 子代理，会按父子层级内嵌展示子代理自己的用户输入和每轮全部助手消息，并在目录中按“会话 -> Turn -> 子代理 -> 子代理 Turn”展示执行层级用于快速跳转；执行层级区域会尽量使用可用视口高度展示更多目录内容。
   - Audit 视图：负责复盘，以 Turn 为一级审计单元展示“目标、执行链、证据支撑、验证、风险、缺口和最终回复是否闭环”。每个 Turn 默认显示紧凑摘要，展开后分为“执行链”和“闭环判断”两块；执行链先把 `assistant-message` 投影为 `agent_message` 父行，并在可解析时用独立徽标展示该助手消息当时的上下文占用率，超过 70% 时使用高占用提示样式，再把工具、handoff、子代理和 lazy-child 执行节点挂到最近的助手消息下；没有可用助手正文时会生成“未记录正文”的助手占位父行，避免执行节点裸露。每个执行节点下内嵌行动、输出证据、验证、风险和缺口子层级；连续命中执行聚合规则的节点会折叠为可展开执行组，例如多次读取文件、列出目录会聚合为“执行组 · 收集文件与目录信息”。闭环判断区直接给出“已闭环 / 需复核 / 未闭环 / 信息不足”、闭环度、目标/结论/支撑/验证/风险指标、声明边界、证据支撑、阻断风险、判断依据和下一步建议。Audit 节点按 `traceNodeId`、`itemRef`、`turnIndex` 挂载为状态徽标或证据行，无法可靠挂载的节点进入“未关联”区域。右侧 Review Dock 负责解释当前 Turn、执行节点、Audit 节点、关联项或 Raw event 的可信度、证据、关系和来源。
@@ -204,7 +319,7 @@ npm test
 - JSONL 中的 `spawn_agent`、`wait_agent`、`subagent_notification` 用于把子代理节点锚定到父会话时间线中。
 - 精简视图会内嵌直接子代理及其下级子代理的轻量消息摘要，默认最多递归 3 层；完整子代理正文仍通过打开对应会话查看。
 - 点击子代理小卡片或精简视图中的“打开会话”会按会话 ID 切换到对应子线程。
-- 会话详情接口默认返回轻量渲染模型：工具参数、事件 payload 只返回预览和长度信息，避免 MB 级内容一次性进入浏览器 DOM；内部 turn/item 模型仍保留完整工具输出，供导出、Audit 和外部查询使用。
+- 会话详情接口的共享 `turns/items` 模型保留完整用户/助手文本、工具参数和工具输出，供 Audit、Review Dock、Markdown 导出和外部查询使用；精简视图、事件摘要、payload 预览和 Raw 来源仍按各自场景限长，避免摘要型区域被超大内容撑满。
 - 精简视图的用户/助手消息支持常用 Markdown 渲染，包括标题、列表、引用、行内代码、代码块、链接、粗体、斜体、删除线和 GFM 管道表格；会话标题在列表、顶部标题、详情和精简视图中支持行内 Markdown 链接、代码和强调；渲染层禁用原始 HTML，并缓存解析结果以减少大段消息重复渲染成本。
 - 右侧 Review Dock 是对象级复核台，默认展示 Session Brief；选中 Turn、执行节点、Audit 节点、关联项或 Raw event 后，统一切换为“摘要 / 证据 / 关系 / 来源”四页。摘要页优先展示 Audit 节点的完整 `body` 正文，长内容由复核台整体滚动，不在摘要框内截断；其中 `apply_patch` 正文会使用 patch 专用视图，而不是拆成普通摘要条目；高频命令输出会使用命令输出 viewer 展示状态、指标和关键行，而不是直接显示一整段终端文本；桌面端 Review Dock 宽度支持拖拽和键盘方向键调整；它不再展示关键事件列表，也不默认渲染完整 JSON。
 - 完整原始事件通过 `GET /api/sessions/:id/events/:index` 按需读取；Review Dock 只有在“来源”页读取完整 Raw payload 或执行复制 JSON 动作时才请求完整事件。

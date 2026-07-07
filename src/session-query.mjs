@@ -129,6 +129,7 @@ function projectSessionForApi(session, query = {}) {
     archivedAt: enriched.archivedAt || null,
     agentNickname: enriched.agentNickname || null,
     agentRole: enriched.agentRole || null,
+    status: enriched.status || null,
     relativePath: enriched.relativePath || null,
     startedAt: enriched.startedAt || null,
     updatedAt: enriched.updatedAt || null,
@@ -243,6 +244,7 @@ function sessionSearchText(session) {
     session.modelProvider,
     session.agentNickname,
     session.agentRole,
+    session.status,
   ]
     .filter(Boolean)
     .join("\n");

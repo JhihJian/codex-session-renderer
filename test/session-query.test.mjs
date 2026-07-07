@@ -169,6 +169,24 @@ test("event query search uses normalized redacted text", () => {
   assert.equal(eventMatchesQuery(projectEventForApi(event, 1, querySummary), event, querySummary), true);
 });
 
+test("event query search hides machine-injected user context by default", () => {
+  const event = {
+    type: "event_msg",
+    timestamp: "2026-07-07T11:00:01.000Z",
+    payload: {
+      type: "user_message",
+      message:
+        "# AGENTS.md instructions\n\n<INSTRUCTIONS>内部规则</INSTRUCTIONS><environment_context><cwd>/tmp/project</cwd></environment_context>\n请继续整理复盘材料",
+    },
+  };
+
+  const machineQuery = parseSessionEventQuery(new URLSearchParams("q=AGENTS.md"));
+  assert.equal(eventMatchesQuery(projectEventForApi(event, 1, machineQuery), event, machineQuery), false);
+
+  const userQuery = parseSessionEventQuery(new URLSearchParams("q=复盘材料"));
+  assert.equal(eventMatchesQuery(projectEventForApi(event, 1, userQuery), event, userQuery), true);
+});
+
 test("event query supports payload inclusion and cursor aliases", () => {
   const event = {
     type: "event_msg",

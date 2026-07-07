@@ -1,16 +1,17 @@
 import { extractContentText, firstLine } from "./text-utils.mjs";
 import { isToolCallOutput, isToolCallStart, toolNameFromPayload } from "./tool-events.mjs";
 import { normalizeSessionEvent, redactSensitiveText } from "./session-normalizer.mjs";
+import { cleanUserMessageText } from "./user-message-cleanup.mjs";
 
 function extractTitleFromEvents(events, fallback) {
   for (const [index, event] of events.entries()) {
     const normalized = normalizeSessionEvent(event, event?.index ?? index);
     if (normalized.kind === "user_message") {
-      const message = String(normalized.text ?? event.payload?.message ?? "").trim();
+      const message = cleanUserMessageText(normalized.text ?? event.payload?.message ?? "");
       if (message) return firstLine(message, 90);
     }
     if (normalized.rawType === "response_item" && normalized.role === "user") {
-      const text = extractContentText(event.payload.content).trim();
+      const text = cleanUserMessageText(extractContentText(event.payload.content));
       if (text) return firstLine(text, 90);
     }
   }
@@ -39,6 +40,7 @@ function isImportantEvent(event) {
     "task_started",
     "task_complete",
     "task_failed",
+    "turn_aborted",
     "jsonl_parse_error",
   ].includes(kind);
 }
@@ -86,6 +88,12 @@ function summarizeEventTitle(event) {
 
 function summarizeEventPreview(event) {
   const normalized = normalizeSessionEvent(event);
+  if (normalized.role === "user" || normalized.kind === "user_message") {
+    const text = cleanUserMessageText(normalized.text);
+    if (text) return firstLine(text, 180);
+    if (normalized.attachments?.length) return firstLine(normalized.attachments.map((attachment) => attachment.label).join(", "), 180);
+    return "";
+  }
   if (normalized.text) return firstLine(normalized.text, 180);
   if (normalized.toolInput) return firstLine(normalized.toolInput, 180);
   if (normalized.toolOutput) return firstLine(normalized.toolOutput, 180);

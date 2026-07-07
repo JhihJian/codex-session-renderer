@@ -1,4 +1,5 @@
 import { isToolCallOutput, isToolCallStart, mergeToolOutput, toolArgumentsFromPayload, toolNameFromPayload, toolOutputFromPayload } from "./tool-events.mjs";
+import { cleanUserMessageText } from "./user-message-cleanup.mjs";
 
 const timeKeys = ["timestamp", "time", "ts", "created", "created_at", "datetime", "date", "event_time", "when", "at"];
 const dataUriPattern = /data:([a-zA-Z0-9.+-]+\/[a-zA-Z0-9.+-]+)?(?:;[^,]*)?,[A-Za-z0-9+/=._~%-]+/g;
@@ -395,13 +396,15 @@ function safeUrlHost(value) {
 function buildSearchText(event) {
   const attachmentText = event.attachments.map((attachment) => attachment.label).join("\n");
   const reasoningText = event.reasoning?.summary || (event.reasoning?.encrypted ? "encrypted reasoning present" : "");
+  const isUserText = event.role === "user" || event.kind === "user_message";
+  const eventText = isUserText ? cleanUserMessageText(event.text) : event.text;
   return [
     event.kind,
     event.semanticKind,
     event.role,
     event.rawType,
     event.payloadType,
-    event.text,
+    eventText,
     event.toolName,
     event.toolInput,
     event.toolOutput,

@@ -17,6 +17,8 @@ import {
   compactCompactSession,
   compactTurnsForClient,
   compactTurnForView,
+  deriveSessionStatusFromEvents,
+  deriveSessionStatusFromTurns,
   eventTime,
   extractTitleFromEvents,
   fileTimeMs,
@@ -32,6 +34,7 @@ import {
   toIso,
   toMs,
 } from "./src/session-events.mjs";
+import { dedupeSessionFileRecords, sessionFileRoots } from "./src/session-catalog.mjs";
 import { normalizeSessionEvent } from "./src/session-normalizer.mjs";
 import {
   compactSessionForList,
@@ -61,6 +64,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
 const maxListSessions = Number(process.env.CODEX_SESSION_RENDERER_LIMIT || 800);
 const port = Number(process.env.PORT || 4789);
+const host = process.env.HOST || "127.0.0.1";
 const configStore = createRendererConfigStore();
 let rendererConfig = await configStore.readConfig();
 let dataSources = createDataSourceRegistry({ config: rendererConfig });
@@ -157,6 +161,27 @@ async function* walkJsonl(dir) {
   }
 }
 
+async function collectSessionFileRecords(context) {
+  const records = [];
+  for (const entry of sessionFileRoots(context.codexHome, context.sessionsRoot)) {
+    for await (const filePath of walkJsonl(entry.root)) {
+      let stat;
+      try {
+        stat = await fs.stat(filePath);
+      } catch {
+        continue;
+      }
+      records.push({
+        id: sessionIdFromFile(filePath),
+        filePath,
+        archived: entry.archived,
+        stat,
+      });
+    }
+  }
+  return dedupeSessionFileRecords(records);
+}
+
 async function readIndex(context) {
   const byId = new Map();
   try {
@@ -204,19 +229,11 @@ async function listSessions(context) {
 
 async function listFileSessions(context) {
   const index = await readIndex(context);
-  const files = [];
-  for await (const filePath of walkJsonl(context.sessionsRoot)) {
-    files.push(filePath);
-  }
+  const files = await collectSessionFileRecords(context);
 
   const sessions = [];
-  for (const filePath of files) {
-    let stat;
-    try {
-      stat = await fs.stat(filePath);
-    } catch {
-      continue;
-    }
+  for (const record of files) {
+    const { filePath, stat } = record;
     const id = sessionIdFromFile(filePath);
     const indexed = index.get(id);
     let events = [];
@@ -240,11 +257,12 @@ async function listFileSessions(context) {
         source: meta.source || null,
         threadSource: meta.thread_source || null,
         modelProvider: meta.model_provider || null,
-        archived: false,
+        archived: record.archived,
         archivedAt: null,
         agentNickname: null,
         agentRole: null,
         preview: null,
+        status: deriveSessionStatusFromEvents(events),
         path: filePath,
         relativePath: relativeCodexPath(context.codexHome, filePath),
         startedAt: toIso(meta.timestamp) || sessionStartedFromFile(filePath),
@@ -317,8 +335,8 @@ async function getSessionById(context, id) {
   const listed = sessions.find((session) => session.id === id);
   if (listed) return listed;
 
-  for await (const filePath of walkJsonl(context.sessionsRoot)) {
-    if (sessionIdFromFile(filePath) === id) return sessionFromFilePath(context, filePath);
+  for (const record of await collectSessionFileRecords(context)) {
+    if (record.id === id) return sessionFromFilePath(context, record.filePath, { archived: record.archived });
   }
   return null;
 }
@@ -409,9 +427,11 @@ async function getSessionDetail(context, id, options = {}) {
     diagnostic: event.diagnostic,
   }));
   const turns = buildTurns(rawEvents);
+  const sessionStatus = deriveSessionStatusFromTurns(turns);
+  const sessionForDetail = { ...sessionWithStat, status: sessionStatus };
   const publicTurns = compactTurnsForClient(turns);
-  const trace = buildTrace(sessionWithStat, rawEvents, analysisEvents, turns, hierarchy);
-  const compact = await buildCompactView(context, sessionWithStat, analysisEvents, turns, hierarchy, { maxDepth });
+  const trace = buildTrace(sessionForDetail, rawEvents, analysisEvents, turns, hierarchy);
+  const compact = await buildCompactView(context, sessionForDetail, analysisEvents, turns, hierarchy, { maxDepth });
   const audit = buildAuditChain({ turns, evidenceRiskRules });
   const stats = {
     ...summarizeSessionEvents(rawEvents),
@@ -431,7 +451,7 @@ async function getSessionDetail(context, id, options = {}) {
     codexHome: context.source.kind === "local" ? context.codexHome : null,
     dataPath: sessionWithStat.path,
   };
-  const detail = { session: sessionWithStat, turns: publicTurns, events: publicEvents, stats, trace, compact, audit };
+  const detail = { session: sessionForDetail, turns: publicTurns, events: publicEvents, stats, trace, compact, audit };
   context.sessionDetailCache.set(cacheKey, { mtimeMs: fileTimeMs(stat), size: stat.size, detail });
   return detail;
 }
@@ -728,7 +748,7 @@ async function buildCompactChildNode(sourceContext, child, context) {
   }
 }
 
-async function sessionFromFilePath(context, filePath) {
+async function sessionFromFilePath(context, filePath, options = {}) {
   let stat = null;
   try {
     stat = await fs.stat(filePath);
@@ -752,11 +772,12 @@ async function sessionFromFilePath(context, filePath) {
       source: meta.source || null,
       threadSource: meta.thread_source || null,
       modelProvider: meta.model_provider || null,
-      archived: false,
+      archived: options.archived ?? false,
       archivedAt: null,
       agentNickname: null,
       agentRole: null,
       preview: null,
+      status: deriveSessionStatusFromEvents(events),
       path: filePath,
       relativePath: relativeCodexPath(context.codexHome, filePath),
       startedAt: toIso(meta.timestamp) || sessionStartedFromFile(filePath),
@@ -1039,8 +1060,8 @@ function resolveRequestSource(url) {
   return getSourceContext(url.searchParams.get("sourceId") || "local");
 }
 
-createServer(route).listen(port, "127.0.0.1", () => {
-  console.log(`Codex session renderer: http://127.0.0.1:${port}/`);
+createServer(route).listen(port, host, () => {
+  console.log(`Codex session renderer: http://${host}:${port}/`);
   for (const source of dataSources.listSources()) {
     console.log(`Read-only data source [${source.id}]: ${source.kind === "local" ? source.codexHome : source.snapshotPath}`);
   }

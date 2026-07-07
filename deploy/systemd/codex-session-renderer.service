@@ -1,0 +1,20 @@
+[Unit]
+Description=Codex session renderer
+After=network.target
+
+[Service]
+Type=simple
+User=jhihjian
+WorkingDirectory=/data/dev/codex-session-renderer
+Environment=NODE_ENV=production
+Environment=HOST=0.0.0.0
+Environment=PORT=4789
+Environment=CODEX_HOME=/home/jhihjian/.codex
+ExecStart=/home/jhihjian/.nvm/versions/node/v24.13.1/bin/node /data/dev/codex-session-renderer/server.mjs
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
