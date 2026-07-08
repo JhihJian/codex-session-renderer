@@ -298,9 +298,70 @@ test("buildTurns and compact view expose context compaction events", () => {
   assert.equal(enrichedView.compactEvents[0].compact.replacementHistoryPreview[0].turnNumber, 1);
   assert.equal(enrichedView.userMessages[0].compressionRefs[0].compactTurnNumber, 1);
   assert.equal(enrichedView.userMessages[0].compressionRefs[0].eventIndex, 3);
-  assert.equal(enrichedView.assistantMessages[0].compressionRefs[0].replacementIndex, 1);
+  assert.equal(enrichedView.assistantMessages[0].compressionRefs, undefined);
   assert.match(view.compactEvents[0].compact.replacementHistoryPreview[0].preview, /被压缩替换/);
   assert.match(view.compactEvents[0].text, /下一步/);
+});
+
+test("compactTurnForView scopes compression refs to the replaced message group", () => {
+  const turns = [
+    {
+      id: "turn-group",
+      startedAt: "2026-07-08T03:23:00.000Z",
+      items: [
+        { id: "user-1", type: "user-message", timestamp: "2026-07-08T03:23:01.000Z", messageId: "msg-user", text: "请检查实现" },
+        { id: "assistant-1", type: "assistant-message", timestamp: "2026-07-08T03:23:02.000Z", messageId: "msg-assistant-1", text: "我先看代码。" },
+        { id: "call-1", type: "tool-call", timestamp: "2026-07-08T03:23:03.000Z", callId: "call-1", name: "exec_command", arguments: "rg compact", output: "found compact code" },
+        { id: "assistant-2", type: "assistant-message", timestamp: "2026-07-08T03:23:04.000Z", messageId: "msg-assistant-2", phase: "final", text: "检查完成。" },
+        {
+          id: "compact-1",
+          type: "context-compact",
+          sourceIndex: 674,
+          timestamp: "2026-07-08T03:24:00.000Z",
+          eventType: "compacted",
+          text: "压缩摘要",
+          compact: {
+            kind: "compacted",
+            windowNumber: 4,
+            replacementHistoryPreview: [
+              { index: 1, type: "message", role: "user", turnId: "turn-group", messageId: "msg-user", preview: "请检查实现" },
+              { index: 2, type: "message", role: "assistant", turnId: "turn-group", messageId: "msg-assistant-1", preview: "我先看代码" },
+              { index: 3, type: "function_call", turnId: "turn-group", callId: "call-1", preview: "rg compact" },
+              { index: 4, type: "function_call_output", turnId: "turn-group", callId: "call-1", preview: "found compact code" },
+            ],
+          },
+        },
+      ],
+    },
+  ];
+
+  const view = compactTurnForView(turns[0], 0, [], { turns });
+
+  assert.equal(view.userMessages[0].compressionRefs.length, 1);
+  assert.equal(view.userMessages[0].compressionRefs[0].replacementIndex, 1);
+  assert.equal(view.assistantMessages[0].compressionRefs.length, 3);
+  assert.deepEqual(
+    view.assistantMessages[0].compressionRefs.map((ref) => ref.replacementIndex),
+    [2, 3, 4],
+  );
+  assert.equal(view.assistantMessages[1].compressionRefs, undefined);
+  const preview = view.compactEvents[0].compact.replacementHistoryPreview;
+  assert.deepEqual(preview[0].replacementTarget, {
+    turnIndex: 0,
+    turnNumber: 1,
+    itemIndex: 0,
+    ownerItemIndex: 0,
+    itemType: "user-message",
+    ownerItemType: "user-message",
+  });
+  assert.deepEqual(preview[2].replacementTarget, {
+    turnIndex: 0,
+    turnNumber: 1,
+    itemIndex: 2,
+    ownerItemIndex: 1,
+    itemType: "tool-call",
+    ownerItemType: "assistant-message",
+  });
 });
 
 test("buildTurns uses normalized field drift and coalesces assistant deltas", () => {

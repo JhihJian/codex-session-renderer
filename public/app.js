@@ -1693,6 +1693,12 @@ function renderCompact() {
       scrollToCompactEvent(button.dataset.compactRefEventIndex);
     });
   });
+  els.compactContent.querySelectorAll("[data-compact-replacement-target]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      scrollToCompactReplacementTarget(button);
+    });
+  });
   els.compactContent.querySelectorAll("[data-compact-nav-target]").forEach((row) => {
     row.addEventListener("click", (event) => {
       if (event.target.closest("a")) return;
@@ -1719,11 +1725,11 @@ function buildCompactFallback(detail) {
 function compactTurnFallback(turn, index) {
   const items = turn.items || [];
   const userMessages = items
-    .filter((item) => item.type === "user-message" && String(item.text || "").trim())
-    .map(compactMessageFallback);
+    .map((item, itemIndex) => (item.type === "user-message" && String(item.text || "").trim() ? compactMessageFallback(item, index, itemIndex) : null))
+    .filter(Boolean);
   const assistantMessages = items
-    .filter((item) => item.type === "assistant-message" && String(item.text || "").trim())
-    .map(compactMessageFallback);
+    .map((item, itemIndex) => (item.type === "assistant-message" && String(item.text || "").trim() ? compactMessageFallback(item, index, itemIndex) : null))
+    .filter(Boolean);
   const compactEvents = items.filter((item) => item.type === "context-compact").map(compactEventFallback);
   return {
     id: turn.id || `turn-${index}`,
@@ -1739,11 +1745,17 @@ function compactTurnFallback(turn, index) {
   };
 }
 
-function compactMessageFallback(item) {
+function compactMessageFallback(item, turnIndex = null, itemIndex = null) {
   return {
+    id: item.id,
+    type: item.type,
     text: item.text || "",
     timestamp: item.timestamp,
     phase: item.phase,
+    sourceIndex: item.sourceIndex ?? null,
+    turnIndex,
+    itemIndex,
+    messageId: item.messageId || null,
     truncated: item.truncated,
     textLength: item.textLength,
     contextUsage: item.contextUsage || null,
@@ -2035,6 +2047,26 @@ function scrollToCompactEvent(sourceIndex) {
   scrollToCompactTarget(target.id);
 }
 
+function scrollToCompactReplacementTarget(source) {
+  if (!source) return;
+  const scope = source.closest(".compact-thread") || els.compactContent;
+  const turnIndex = source.dataset.compactReplacementTurnIndex;
+  const ownerItemIndex = source.dataset.compactReplacementOwnerItemIndex;
+  const itemIndex = source.dataset.compactReplacementItemIndex;
+  const turnNumber = source.dataset.compactReplacementTurnNumber;
+  const target =
+    compactReplacementTargetElement(scope, turnIndex, ownerItemIndex) ||
+    compactReplacementTargetElement(scope, turnIndex, itemIndex) ||
+    (turnNumber ? scope.querySelector(`[data-compact-turn-number="${cssEscape(turnNumber)}"]`) : null);
+  if (!target?.id) return;
+  scrollToCompactTarget(target.id);
+}
+
+function compactReplacementTargetElement(scope, turnIndex, itemIndex) {
+  if (!scope || turnIndex == null || turnIndex === "" || itemIndex == null || itemIndex === "") return null;
+  return scope.querySelector(`[data-compact-turn-index="${cssEscape(String(turnIndex))}"][data-compact-item-index="${cssEscape(String(itemIndex))}"]`);
+}
+
 function renderCompactThread(node, context) {
   const session = node.session || {};
   const depth = Math.min(context.depth ?? 0, 6);
@@ -2115,11 +2147,11 @@ function renderCompactTurn(turn, context) {
     .filter(Boolean)
     .join(" · ");
   const users = turn.userMessages?.length
-    ? turn.userMessages.map((message) => renderCompactMessage("user", "用户", message, context.query)).join("")
+    ? turn.userMessages.map((message, index) => renderCompactMessage("user", "用户", message, context.query, `${path}-user-${index}`)).join("")
     : `<div class="compact-missing">本轮没有可展示的用户输入。</div>`;
   const assistantMessages = compactAssistantMessages(turn);
   const assistant = assistantMessages.length
-    ? assistantMessages.map((message, index) => renderCompactMessage("assistant", compactAssistantMessageLabel(message, index, assistantMessages.length), message, context.query)).join("")
+    ? assistantMessages.map((message, index) => renderCompactMessage("assistant", compactAssistantMessageLabel(message, index, assistantMessages.length), message, context.query, `${path}-assistant-${index}`)).join("")
     : `<div class="compact-missing">本轮没有助手消息。</div>`;
   const compactEvents = compactEventsForTurn(turn)
     .map((event, index) => renderCompactContextEvent(event, context.query, `${path}-compact-${index}`))
@@ -2130,7 +2162,7 @@ function renderCompactTurn(turn, context) {
     )
     .join("");
   return `
-    <section class="compact-turn" id="${escapeAttr(targetId)}" tabindex="-1">
+    <section class="compact-turn" id="${escapeAttr(targetId)}" tabindex="-1" data-compact-turn-number="${escapeAttr(String(turn.turnNumber || ""))}">
       <div class="compact-turn-head">
         <strong>Turn ${escapeHtml(String(turn.turnNumber || ""))}</strong>
         <span>${escapeHtml(meta)}</span>
@@ -2191,18 +2223,17 @@ function renderCompressionRefBadge(refs = []) {
   const valid = Array.isArray(refs) ? refs.filter(Boolean) : [];
   if (!valid.length) return "";
   const first = valid[0];
-  const label =
-    valid.length > 1
-      ? `压缩 ${valid.length} 次`
-      : first.compactTurnNumber
-        ? `压缩到 T${first.compactTurnNumber}`
-        : "后续压缩";
-  const suffix = first.eventIndex != null ? ` · #${first.eventIndex}` : "";
+  const eventIndexes = [...new Set(valid.map((ref) => ref.eventIndex).filter((value) => value != null))];
+  const label = `被替换 ${valid.length} 条`;
+  const suffix = eventIndexes.length === 1 ? ` · #${eventIndexes[0]}` : eventIndexes.length > 1 ? ` · ${eventIndexes.length} 个事件` : "";
   const detail = [
+    `当前消息组被替换 ${valid.length} 条`,
     first.compactTurnNumber ? `压缩发生在 Turn ${first.compactTurnNumber}` : "",
-    first.eventIndex != null ? `event #${first.eventIndex}` : "",
+    eventIndexes.length ? `event ${eventIndexes.map((index) => `#${index}`).join(", ")}` : "",
     first.replacementIndex != null ? `replacement #${first.replacementIndex}` : "",
     first.windowNumber != null ? `window ${first.windowNumber}` : "",
+    first.replacementItemType ? `item ${first.replacementItemType}` : "",
+    first.replacementRole ? `role ${first.replacementRole}` : "",
     formatDate(first.timestamp),
     first.summaryPreview,
   ]
@@ -2215,12 +2246,21 @@ function renderCompressionRefBadge(refs = []) {
   return `<strong class="compression-ref-badge" title="${escapeAttr(detail || content)}">${escapeHtml(content)}</strong>`;
 }
 
-function renderCompactMessage(kind, label, message, query) {
+function renderCompactMessage(kind, label, message, query, path) {
   const meta = [formatDate(message.timestamp), message.phase, message.truncated ? `已截断 ${compactNumber(message.textLength || 0)} 字符` : ""]
     .filter(Boolean)
     .join(" · ");
+  const targetId = compactElementId("message", path || `${kind}-${message.turnIndex ?? "x"}-${message.itemIndex ?? message.id ?? "message"}`);
+  const targetAttrs = [
+    Number.isInteger(message.turnIndex) ? `data-compact-turn-index="${escapeAttr(String(message.turnIndex))}"` : "",
+    Number.isInteger(message.itemIndex) ? `data-compact-item-index="${escapeAttr(String(message.itemIndex))}"` : "",
+    message.sourceIndex != null ? `data-compact-message-source-index="${escapeAttr(String(message.sourceIndex))}"` : "",
+    message.messageId ? `data-compact-message-id="${escapeAttr(String(message.messageId))}"` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
   return `
-    <section class="compact-message ${kind}">
+    <section class="compact-message ${kind}" id="${escapeAttr(targetId)}" tabindex="-1" ${targetAttrs}>
       <div class="compact-message-label">
         <span class="compact-message-role">${escapeHtml(label)}</span>
         ${renderContextUsageBadge(message.contextUsage)}
@@ -2236,9 +2276,13 @@ function compactMessageSearchParts(message = {}) {
   return [
     message.text,
     ...(message.compressionRefs || []).flatMap((ref) => [
-      ref.compactTurnNumber != null ? `压缩到 Turn ${ref.compactTurnNumber}` : "",
+      ref.compactTurnNumber != null ? `被替换到 Turn ${ref.compactTurnNumber}` : "",
       ref.eventIndex != null ? `event #${ref.eventIndex}` : "",
       ref.replacementIndex != null ? `replacement #${ref.replacementIndex}` : "",
+      ref.replacementRole,
+      ref.replacementType,
+      ref.replacementItemType,
+      ref.replacementPreview,
       ref.summaryPreview,
     ]),
   ];
@@ -2394,8 +2438,10 @@ function renderCompactReplacementEntry(entry = {}, query = "") {
   const preview = entry.preview || "[无文本内容]";
   const context = [turnLabel, entry.turnStatus, formatDate(entry.turnStartedAt)].filter(Boolean).join(" · ");
   const assistantPreview = entry.assistantPreview && entry.assistantPreview !== preview ? entry.assistantPreview : "";
+  const targetAttrs = compactReplacementTargetAttrs(entry);
+  const tag = targetAttrs ? "button" : "div";
   return `
-    <div class="compact-replacement-row role-${escapeAttr(role)}">
+    <${tag} class="compact-replacement-row role-${escapeAttr(role)}${targetAttrs ? " actionable" : ""}" ${targetAttrs || ""}>
       <span class="compact-replacement-index">#${escapeHtml(String(entry.index ?? ""))}</span>
       <span class="compact-replacement-role">${escapeHtml(roleLabel)}</span>
       <span class="compact-replacement-copy">
@@ -2404,8 +2450,23 @@ function renderCompactReplacementEntry(entry = {}, query = "") {
       </span>
       <span class="compact-replacement-meta">${escapeHtml(meta)}</span>
       ${assistantPreview ? `<span class="compact-replacement-outcome"><strong>最后回复</strong>${highlight(escapeHtml(assistantPreview), query)}</span>` : ""}
-    </div>
+    </${tag}>
   `;
+}
+
+function compactReplacementTargetAttrs(entry = {}) {
+  const target = entry.replacementTarget;
+  if (!target || !Number.isInteger(target.turnIndex)) return "";
+  const attrs = [
+    `type="button"`,
+    `data-compact-replacement-target="1"`,
+    `data-compact-replacement-turn-index="${escapeAttr(String(target.turnIndex))}"`,
+    target.turnNumber != null ? `data-compact-replacement-turn-number="${escapeAttr(String(target.turnNumber))}"` : "",
+    Number.isInteger(target.itemIndex) ? `data-compact-replacement-item-index="${escapeAttr(String(target.itemIndex))}"` : "",
+    Number.isInteger(target.ownerItemIndex) ? `data-compact-replacement-owner-item-index="${escapeAttr(String(target.ownerItemIndex))}"` : "",
+    `title="定位到原始消息"`,
+  ];
+  return attrs.filter(Boolean).join(" ");
 }
 
 function compactReplacementRoleLabel(role) {

@@ -2226,11 +2226,29 @@ button.compression-ref-badge:hover {
   width: 100%;
   min-width: 0;
   border-top: 1px solid color-mix(in srgb, var(--hair) 70%, transparent);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
   padding: 8px 9px;
+  text-align: left;
 }
 
 .compact-replacement-row:first-child {
   border-top: 0;
+}
+
+button.compact-replacement-row {
+  cursor: pointer;
+}
+
+button.compact-replacement-row:hover,
+button.compact-replacement-row:focus-visible {
+  background: color-mix(in srgb, var(--blue) 7%, transparent);
+  outline: none;
+}
+
+button.compact-replacement-row:focus-visible {
+  box-shadow: inset 3px 0 0 var(--blue);
 }
 
 .compact-replacement-index,

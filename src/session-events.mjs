@@ -84,6 +84,7 @@ function compactItemForClient(item, turnIndex, itemIndex, options = {}) {
   if (item.role) base.role = item.role;
   if (item.name) base.name = item.name;
   if (item.callId) base.callId = item.callId;
+  if (item.messageId) base.messageId = item.messageId;
   if (item.status) base.status = item.status;
   if (item.eventType) base.eventType = item.eventType;
   if (item.responseType) base.responseType = item.responseType;
@@ -126,23 +127,30 @@ function compactItemForClient(item, turnIndex, itemIndex, options = {}) {
 
 function compactTurnForView(turn, turnIndex, children, context = {}) {
   const turnLookup = context.turnLookup || compactReplacementTurnLookup(context.turns);
-  const compressionRefsByTurnId = context.compressionRefsByTurnId || compactCompressionRefsByTurnId(context.turns);
-  const compressionRefs = turn?.id ? compressionRefsByTurnId.get(turn.id) || [] : [];
+  const compressionRefsByItem = context.compressionRefsByItem || compactCompressionRefsByItem(context.turns);
   const userMessages = turn.items
-    .filter((item) => item.type === "user-message" && normalizeText(item.text))
-    .map((item) => compactUserMessageForView(item, { compressionRefs }))
+    .map((item, itemIndex) =>
+      item.type === "user-message" && normalizeText(item.text)
+        ? compactUserMessageForView(item, { turnIndex, itemIndex, compressionRefs: compactCompressionRefsForItem(compressionRefsByItem, turnIndex, itemIndex) })
+        : null,
+    )
     .filter(Boolean);
   const assistantMessages = turn.items
     .map((item, itemIndex) =>
       item.type === "assistant-message" && normalizeText(item.text)
-        ? compactMessageForView(item, { contextUsage: contextUsageForAssistantMessage(turn.items, itemIndex), compressionRefs })
+        ? compactMessageForView(item, {
+            turnIndex,
+            itemIndex,
+            contextUsage: contextUsageForAssistantMessage(turn.items, itemIndex),
+            compressionRefs: compactCompressionRefsForItem(compressionRefsByItem, turnIndex, itemIndex),
+          })
         : null,
     )
     .filter(Boolean);
   const assistant = assistantMessages.at(-1) || null;
   const compactEvents = turn.items
     .filter((item) => item.type === "context-compact")
-    .map((item) => compactContextEventForView(item, { turnLookup }))
+    .map((item) => compactContextEventForView(item, { turnLookup, turns: context.turns }))
     .filter(Boolean);
   return {
     id: turn.id,
@@ -176,6 +184,10 @@ function compactMessageForView(item, options = {}) {
     textLength: limited.originalLength,
     truncated: limited.truncated,
   };
+  if (item.sourceIndex != null) message.sourceIndex = item.sourceIndex;
+  if (Number.isInteger(options.turnIndex)) message.turnIndex = options.turnIndex;
+  if (Number.isInteger(options.itemIndex)) message.itemIndex = options.itemIndex;
+  if (item.messageId) message.messageId = item.messageId;
   if (options.contextUsage) message.contextUsage = options.contextUsage;
   if (options.compressionRefs?.length) message.compressionRefs = options.compressionRefs;
   return message;
@@ -200,7 +212,7 @@ function compactContextEventForView(item, context = {}) {
 
 function compactForView(compact, context = {}) {
   const replacementHistoryPreview = Array.isArray(compact.replacementHistoryPreview)
-    ? compact.replacementHistoryPreview.map((entry) => compactReplacementEntryForView(entry, context.turnLookup))
+    ? compact.replacementHistoryPreview.map((entry) => compactReplacementEntryForView(entry, context))
     : [];
   const roleCounts = compactReplacementRoleCounts(replacementHistoryPreview);
   const turnNumbers = [
@@ -226,6 +238,7 @@ function compactReplacementTurnLookup(turns = []) {
     const user = (turn.items || []).find((item) => item.type === "user-message" && normalizeText(item.text));
     const assistant = [...(turn.items || [])].reverse().find((item) => item.type === "assistant-message" && normalizeText(item.text));
     lookup.set(turn.id, {
+      turnIndex: index,
       turnNumber: index + 1,
       turnStatus: turn.status || null,
       turnStartedAt: turn.startedAt || null,
@@ -237,13 +250,43 @@ function compactReplacementTurnLookup(turns = []) {
   return lookup;
 }
 
-function compactReplacementEntryForView(entry, turnLookup) {
+function compactReplacementEntryForView(entry, context = {}) {
+  const turnLookup = context.turnLookup;
   if (!entry || !turnLookup || !entry.turnId) return entry;
   const turn = turnLookup.get(entry.turnId);
   if (!turn) return entry;
-  return {
+  const result = {
     ...entry,
     ...turn,
+  };
+  const target = compactReplacementTargetForView(context.turns, entry, turn);
+  if (target) result.replacementTarget = target;
+  return result;
+}
+
+function compactReplacementTargetForView(turns = [], entry = {}, turn = null) {
+  const target = compactReplacementTargetItem(turns, entry);
+  if (!target) {
+    return Number.isInteger(turn?.turnIndex)
+      ? {
+          turnIndex: turn.turnIndex,
+          turnNumber: turn.turnNumber,
+          itemIndex: null,
+          ownerItemIndex: null,
+          itemType: null,
+          ownerItemType: null,
+        }
+      : null;
+  }
+  const ownerItemIndex = compactCompressionOwnerItemIndex(target.turn.items, target.itemIndex);
+  const ownerItem = Number.isInteger(ownerItemIndex) ? target.turn.items[ownerItemIndex] : null;
+  return {
+    turnIndex: target.turnIndex,
+    turnNumber: target.turnIndex + 1,
+    itemIndex: target.itemIndex,
+    ownerItemIndex: Number.isInteger(ownerItemIndex) ? ownerItemIndex : null,
+    itemType: target.item?.type || null,
+    ownerItemType: ownerItem?.type || null,
   };
 }
 
@@ -256,32 +299,130 @@ function compactReplacementRoleCounts(preview) {
   return counts;
 }
 
-function compactCompressionRefsByTurnId(turns = []) {
+function compactCompressionRefsByItem(turns = []) {
   const refs = new Map();
   for (const [compactTurnIndex, turn] of (turns || []).entries()) {
     for (const item of turn?.items || []) {
       const preview = item.compact?.replacementHistoryPreview;
       if (item.type !== "context-compact" || !Array.isArray(preview) || preview.length === 0) continue;
       for (const entry of preview) {
-        if (!entry?.turnId) continue;
+        const target = compactReplacementTargetItem(turns, entry);
+        if (!target) continue;
+        const ownerIndex = compactCompressionOwnerItemIndex(target.turn.items, target.itemIndex);
+        if (!Number.isInteger(ownerIndex)) continue;
         const ref = {
           compactTurnNumber: compactTurnIndex + 1,
           eventIndex: item.sourceIndex ?? null,
           eventType: item.eventType || item.compact?.kind || null,
           replacementIndex: entry.index ?? null,
+          replacementRole: entry.role || null,
+          replacementType: entry.type || null,
+          replacementItemType: target.item?.type || null,
           windowNumber: item.compact?.windowNumber ?? null,
           timestamp: item.timestamp || null,
           summaryPreview: firstLine(item.text || item.compact?.message || "", 140),
+          replacementPreview: firstLine(entry.preview || "", 140),
         };
-        const existing = refs.get(entry.turnId) || [];
+        const key = compactCompressionItemKey(target.turnIndex, ownerIndex);
+        const existing = refs.get(key) || [];
         if (!existing.some((candidate) => candidate.eventIndex === ref.eventIndex && candidate.replacementIndex === ref.replacementIndex)) {
           existing.push(ref);
         }
-        refs.set(entry.turnId, existing);
+        refs.set(key, existing);
       }
     }
   }
   return refs;
+}
+
+function compactCompressionRefsForItem(refsByItem, turnIndex, itemIndex) {
+  if (!refsByItem || !Number.isInteger(turnIndex) || !Number.isInteger(itemIndex)) return [];
+  return refsByItem.get(compactCompressionItemKey(turnIndex, itemIndex)) || [];
+}
+
+function compactCompressionItemKey(turnIndex, itemIndex) {
+  return `${turnIndex}:${itemIndex}`;
+}
+
+function compactReplacementTargetItem(turns = [], entry = {}) {
+  if (!entry?.turnId) return null;
+  const turnIndex = turns.findIndex((turn) => turn?.id === entry.turnId);
+  if (turnIndex < 0) return null;
+  const turn = turns[turnIndex];
+  const itemIndex = compactReplacementTargetItemIndex(turn.items || [], entry);
+  if (!Number.isInteger(itemIndex)) return null;
+  return { turn, turnIndex, itemIndex, item: turn.items[itemIndex] };
+}
+
+function compactReplacementTargetItemIndex(items = [], entry = {}) {
+  const messageId = normalizeText(entry.messageId);
+  if (messageId) {
+    const index = items.findIndex((item) => item.messageId === messageId || item.id === messageId);
+    if (index >= 0) return index;
+  }
+
+  const callId = normalizeText(entry.callId);
+  if (callId) {
+    const index = items.findIndex((item) => item.callId === callId || item.id === callId);
+    if (index >= 0) return index;
+  }
+
+  const candidates = compactReplacementCandidateIndexes(items, entry);
+  if (!candidates.length) return null;
+  const preview = normalizeText(entry.preview).toLowerCase();
+  if (preview) {
+    const matched = candidates.find((index) => compactReplacementItemSearchText(items[index]).includes(preview) || preview.includes(firstLine(compactReplacementItemSearchText(items[index]), 80)));
+    if (Number.isInteger(matched)) return matched;
+  }
+  if (candidates.length === 1) return candidates[0];
+
+  const timestamp = toMs(entry.timestamp);
+  if (timestamp != null) {
+    const before = [...candidates].reverse().find((index) => {
+      const itemTime = toMs(items[index]?.timestamp);
+      return itemTime != null && itemTime <= timestamp;
+    });
+    if (Number.isInteger(before)) return before;
+  }
+
+  const role = String(entry.role || "").toLowerCase();
+  if (role === "assistant") return candidates.at(-1);
+  return candidates[0];
+}
+
+function compactReplacementCandidateIndexes(items = [], entry = {}) {
+  const role = String(entry.role || "").toLowerCase();
+  const type = String(entry.type || "").toLowerCase();
+  const contentKinds = Array.isArray(entry.contentKinds) ? entry.contentKinds.map((kind) => String(kind).toLowerCase()) : [];
+
+  return items
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => {
+      if (role === "user") return item.type === "user-message";
+      if (role === "assistant") return item.type === "assistant-message";
+      if (role === "tool") return item.type === "tool-call";
+      if (/function|tool|call/.test(type) || contentKinds.some((kind) => /tool|function|call/.test(kind))) return item.type === "tool-call";
+      if (/reasoning/.test(type)) return item.type === "reasoning";
+      return item.type === "user-message" || item.type === "assistant-message" || item.type === "tool-call" || item.type === "reasoning";
+    })
+    .map(({ index }) => index);
+}
+
+function compactReplacementItemSearchText(item = {}) {
+  return [item.text, item.arguments, item.output, item.name, item.callId, item.messageId].filter(Boolean).join(" ").toLowerCase();
+}
+
+function compactCompressionOwnerItemIndex(items = [], itemIndex) {
+  const item = items[itemIndex];
+  if (!item) return null;
+  if (item.type === "user-message" || item.type === "assistant-message") return itemIndex;
+  const previousAssistant = items
+    .map((candidate, index) => ({ candidate, index }))
+    .filter(({ candidate, index }) => index <= itemIndex && candidate.type === "assistant-message" && normalizeText(candidate.text))
+    .at(-1);
+  if (previousAssistant) return previousAssistant.index;
+  const nextAssistant = items.findIndex((candidate, index) => index > itemIndex && candidate.type === "assistant-message" && normalizeText(candidate.text));
+  return nextAssistant >= 0 ? nextAssistant : null;
 }
 
 function contextUsageForAssistantMessage(items = [], assistantIndex) {
@@ -1281,6 +1422,7 @@ function buildTurns(events) {
         phase: payload.phase ?? null,
         text: event.text ?? "",
         attachments: event.attachments,
+        messageId: event.messageId,
       });
       continue;
     }
