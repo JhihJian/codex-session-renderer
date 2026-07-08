@@ -39,9 +39,9 @@ $env:PORT=4789
 npm start
 ```
 
-Linux 用户级 systemd 部署时同样设置 `Environment=HOST=0.0.0.0`。服务会读取本机 Codex 会话数据；若开放到局域网，请确认这是有意行为。
+Linux 用户级 systemd 部署时同样设置 `Environment=HOST=0.0.0.0`。服务会读取部署机上的 Codex 会话数据；开放到局域网前应确认访问范围。
 
-本仓库提供了当前设备可用的用户级 systemd 单元模板：
+当前开发环境是 Windows；仓库内的 systemd 单元是 Linux 部署机示例。安装前按目标机器实际路径替换模板中的 `WorkingDirectory`、`CODEX_HOME`、`ExecStart` 等绝对路径，再复制到用户级 systemd 目录：
 
 ```bash
 mkdir -p ~/.config/systemd/user
@@ -99,7 +99,7 @@ $env:CODEX_SHARE_TOKEN='<同一段随机 token>'
 npm run share
 ```
 
-默认共享端口是 `4791`，默认只把最近 3 小时内变更过的 `sessions/**/*.jsonl` 打包进实时快照。`state_5.sqlite` 和 `session_index.jsonl` 会随实时快照一起传输，用于标题、归档、子代理关系和路径映射。
+默认共享端口是 `4791`，默认只把最近 3 小时内变更过的 `sessions/**/*.jsonl` 打包进实时快照。`state_5.sqlite` 和 `session_index.jsonl` 会随实时快照一起传输，用于标题、归档、子代理关系和路径映射。共享服务和远程快照发布使用的 `copyCodexTree` 只复制 `sessions` 目录下的 JSONL 文件，不复制 `archived_sessions`。
 
 如果要改端口或实时窗口：
 
@@ -121,7 +121,7 @@ npm start
 
 - 名称：例如 `office`
 - 地址：例如 `192.168.1.20:4791`
-- Token：对端 `CODEX_SHARE_TOKEN`
+- Token：对端实际使用的共享 token。推荐在共享端设置 `CODEX_SHARE_TOKEN`；如果共享端只设置了旧变量 `CODEX_REMOTE_TOKEN`，服务会兼容回退使用该值，查看端也要填写同一段 token。
 
 保存后页面会立即刷新数据源列表，不需要重启 `npm start`。选择 `office` 后点击“刷新远程”，服务端会从 `http://192.168.1.20:4791/api/codex-snapshot.tar?scope=realtime` 下载实时快照并发布到本机缓存。
 
@@ -135,7 +135,7 @@ npm start
 
 左侧时间分类的“实时”展示已同步到本机的可打开会话；“一天”和“更早”会调用远端 `/api/codex-session-index` 做统一入口检索，只返回标题、时间、项目路径、模型等索引信息，不传历史正文。历史索引结果会标注“仅索引”，用于定位和搜索，不会被误当成已同步的可打开正文。
 
-快照共享接口只响应带有 `Authorization: Bearer <token>` 的请求。没有 `CODEX_SHARE_TOKEN` 时，`npm run share` 会拒绝启动，避免误把会话正文、命令输出、项目路径和错误栈暴露到网络。
+快照共享接口只响应带有 `Authorization: Bearer <token>` 的请求。共享端 token 读取顺序为 `CODEX_SHARE_TOKEN || CODEX_REMOTE_TOKEN`：推荐使用 `CODEX_SHARE_TOKEN`，保留 `CODEX_REMOTE_TOKEN` 作为兼容回退。两者都未设置时，`npm run share` 会拒绝启动，以保证会话正文、命令输出、项目路径和错误栈不会在无认证状态下暴露到网络。
 
 高级模式仍支持环境变量配置和两种获取方式：
 
@@ -256,6 +256,7 @@ curl -fsS 'http://127.0.0.1:4789/api/sources/dev71/query/sessions?limit=5&fields
 - `src/data-sources.mjs`：本机/远程数据源配置、远程快照刷新、原子发布和脱敏状态。
 - `src/renderer-config.mjs`：页面管理的远端设备配置读写、校验和脱敏输出。
 - `src/snapshot-share.mjs`：按需复制实时 Codex 会话文件、写入快照元数据、打包 tar，并提供历史会话索引检索。
+- `src/session-catalog.mjs`：本地文件回退的会话根目录发现和 live/archived 副本去重；文件回退会同时扫描 `sessions` 与 `archived_sessions`，并优先保留 live 副本。
 - `src/jsonl-reader.mjs`：UTF-8 JSONL 流式读取工具；支持按逻辑行数上限读取和按事件索引读取单条事件。
 - `src/http-response.mjs`：JSON/Text 响应、错误响应、静态文件类型和路径安全解析。
 - `src/sqlite-threads.mjs`：只读 SQLite 查询、线程行映射、spawn edge 读取和 SQL 字符串转义。
@@ -263,6 +264,7 @@ curl -fsS 'http://127.0.0.1:4789/api/sources/dev71/query/sessions?limit=5&fields
 - `src/text-utils.mjs`：时间、路径、首行摘要、消息正文提取和文本规范化等基础纯函数。
 - `src/tool-events.mjs`：工具调用开始/结束识别、工具名/参数/输出提取、MCP 结果渲染和输出合并。
 - `src/session-normalizer.mjs`：Codex JSONL 原始事件规范化、字段漂移兼容、delta 合并、图片/附件摘要、加密 reasoning 脱敏和搜索文本构建。
+- `src/user-message-cleanup.mjs`：Codex 自动注入用户消息的识别和清理规则，供规范化、turn 聚合、事件摘要和 Audit 意图过滤复用。
 - `src/event-summary.mjs`：事件分类、重要事件判断、标题/预览摘要和会话事件计数。
 - `src/audit-chain.mjs`：基于服务端完整 turn/item 模型生成 Audit Chain，集中维护审计节点、验证识别和非 evidence 风险启发式规则。
 - `src/evidence-risk-rules.mjs`：Evidence 风险规则模块，内置输出风险词、大型输出和读文件/文本搜索输出排除条件，并支持从前端设置传入本地覆盖规则。
@@ -273,10 +275,11 @@ curl -fsS 'http://127.0.0.1:4789/api/sources/dev71/query/sessions?limit=5&fields
 - `public/app-format.js`：前端格式化、转义、高亮、路径缩短和文件名清理工具；通过浏览器全局 `window.AppFormat` 暴露，避免引入构建步骤。
 - `public/tool-summary.js`：前端工具调用可读摘要规则，内置常见 `exec_command`、`apply_patch`、工具搜索等转换；`apply_patch` 会解析文件级增删统计，供 Audit/Review 以类 git diff stat 视图展示；高频命令输出会解析 Git 状态、搜索命中和验证结果，供 Review Dock 以结构化 viewer 展示；同时支持浏览器本地自定义规则覆盖。
 - `public/execution-grouping.js`：Audit 执行链连续节点聚合规则，内置“收集文件与目录信息、搜索与定位代码、检查 Git 状态与差异”等分组，并支持浏览器本地自定义规则覆盖。
+- `public/audit-view-model.js`：Audit 执行链前端 view model 纯函数，负责助手消息父行投影、执行行投影/身份解析、执行节点挂载、`childRowIds` 层级维护、itemRef 解析和时间回退归属逻辑；通过 `test/audit-view-model.test.mjs` 覆盖。
 - `public/evidence-risk-rules.js`：Evidence 风险规则的浏览器配置模块，负责设置页展示、localStorage 保存和会话详情请求参数序列化。
-- `test/`：Node 内置测试，覆盖 JSONL 读取、HTTP/静态文件边界、SQLite 映射、服务端 DTO、事件摘要、工具协议、事件解析、前端格式化和 Markdown 导出等回归点。
+- `test/`：Node 内置测试，覆盖 JSONL 读取、HTTP/静态文件边界、主服务入口 smoke、SQLite 映射、服务端 DTO、事件摘要、工具协议、事件解析、前端格式化和 Markdown 导出等回归点。
 
-后续维护时，优先把可纯函数化的逻辑放进对应 `src/` 小模块并补测试；`server.mjs` 只负责数据来源、缓存和接口组合。前端如新增通用格式化/转义逻辑，优先放进 `public/app-format.js` 并在 `test/app-format.test.mjs` 覆盖；如新增工具调用语义化展示规则，优先放进 `public/tool-summary.js` 并在 `test/tool-summary.test.mjs` 覆盖；如新增执行链聚合规则，优先放进 `public/execution-grouping.js` 并在 `test/execution-grouping.test.mjs` 覆盖；如新增 Evidence 风险规则，需同步 `src/evidence-risk-rules.mjs`、`public/evidence-risk-rules.js` 和 `test/evidence-risk-rules.test.mjs`。
+后续维护时，优先把可纯函数化的逻辑放进对应 `src/` 小模块并补测试；`server.mjs` 只负责数据来源、缓存和接口组合。前端如新增通用格式化/转义逻辑，优先放进 `public/app-format.js` 并在 `test/app-format.test.mjs` 覆盖；如新增工具调用语义化展示规则，优先放进 `public/tool-summary.js` 并在 `test/tool-summary.test.mjs` 覆盖；如新增执行链聚合规则，优先放进 `public/execution-grouping.js` 并在 `test/execution-grouping.test.mjs` 覆盖；如新增 Evidence 风险规则，需同步 `src/evidence-risk-rules.mjs`、`public/evidence-risk-rules.js` 和 `test/evidence-risk-rules.test.mjs`；如调整本地文件回退、`sessions`/`archived_sessions` 去重或自动注入用户消息清理规则，分别在 `test/session-catalog.test.mjs`、`test/session-events.test.mjs`、`test/session-normalizer.test.mjs` 或相关事件摘要/Audit 测试中补充回归保护。
 
 ## 页面设计
 
@@ -297,6 +300,7 @@ npm test
 
 当前重点回归保护包括：
 
+- `server.mjs` 可被测试导入而不自动监听；HTTP smoke 会用临时 `CODEX_HOME` 覆盖 `/api/health`、会话列表、详情、单事件、Markdown 和缺失 API 状态。
 - 静态文件路径不能穿越 `public/` 根目录。
 - SQLite thread 行映射、ID 转义和 spawn edge 过滤保持稳定。
 - 子代理通知匹配会同时检查事件预览和完整 payload，避免 `preview` 缺少 `agent_path` 时漏挂载。
@@ -310,7 +314,7 @@ npm test
 - 数据源是一等概念：旧接口默认读取本机 `local` 数据源，新接口可显式指定 `sourceId`；前端用 `sourceId + session id` 区分会话，避免不同数据源中相同 session id 混淆。
 - 远端设备可以通过页面管理，配置保存在本机私有 `config.json`；环境变量仍可作为高级配置来源。页面接口只返回 token 是否存在，不回显 token 原文。
 - 远程数据源的正文只在刷新阶段访问配置好的实时快照 URL 或快照目录；普通会话列表、Review Dock 复核台和 Markdown 导出都从本地 `current` 快照读取。历史分类可按需访问远端索引接口，但索引不包含会话正文。
-- 远程实时快照刷新使用 staging 目录构建，再原子切换到 `current`。刷新失败不会覆盖上一次成功快照。
+- 远程实时快照刷新使用 staging 目录构建，再原子切换到 `current`。共享服务的实时快照和 `copyCodexTree` 发布的远程快照只包含 `sessions/**/*.jsonl`、`state_5.sqlite`、`session_index.jsonl` 等允许文件，不包含 `archived_sessions`；本地文件回退扫描 `sessions` 与 `archived_sessions` 是另一条读取路径。刷新失败不会覆盖上一次成功快照。同一数据源的并发刷新会复用正在进行的刷新任务，不同数据源仍可并行，避免并发发布 `staging/current/previous` 竞态。
 - 远程 SQLite 中的远端 `rollout_path` 会按配置的远端 Codex Home 映射到本地快照 Codex Home。
 - 本地工作台默认绑定 `127.0.0.1`，适合作为同机只读数据源；可通过 `HOST` 覆盖监听地址，当前用户级 systemd 模板设置 `HOST=0.0.0.0` 用于局域网访问。独立的 `npm run share` 快照接口始终要求 Bearer token。
 - 前端使用原生 HTML/CSS/JavaScript，无构建步骤；Markdown 渲染通过本地 `markdown-it` 浏览器包完成。渲染层借鉴 `earendil-works/pi/packages/tui` 的大模型输出处理思路：进入 Markdown 前会统一 tab 宽度并修剪流式输出结尾的半截代码围栏，代码块带语言栏和复制按钮，长代码、列表和表格按容器稳定换行或滚动。
@@ -376,6 +380,8 @@ Audit 节点保留 `itemRef`、`eventIndex/sourceIndex`、`traceNodeId`、工具
 
 ## 本地 API
 
+只读 API 只接受 `GET`，错误方法统一返回 `405` JSON error。写接口保持各自声明的方法：远端设备配置使用 `GET/POST/PUT/DELETE`，设备连通性测试和数据源刷新使用 `POST`。静态文件当前只接受 `GET`，不单独支持 `HEAD`。
+
 - `GET /api/health`：查看只读数据源和服务状态。
 - `GET /api/sources`：列出本机和远程数据源、刷新状态和脱敏失败原因。
 - `GET /api/peers`：列出页面管理的远端设备配置，token 只返回 `hasToken`。
@@ -398,6 +404,8 @@ Audit 节点保留 `itemRef`、`eventIndex/sourceIndex`、`traceNodeId`、工具
 ### 外部查询 API
 
 外部项目优先使用 `/api/query/*`。这些接口返回稳定的 JSON 结构，支持字段投影、分页和增量读取；旧的 `/api/sessions/*` 继续服务本项目浏览器页面。查询 API 默认读取 `local` 数据源，也可用 `?sourceId=<id>` 指定数据源，或使用显式数据源路径 `/api/sources/:sourceId/query/*`。
+
+响应中的 `links` 会跟随查询入口保持数据源边界：默认 `/api/query/sessions` 返回兼容旧接口的 `/api/sessions...` 和 `/api/query...` 链接；显式数据源路径 `/api/sources/:sourceId/query/*` 返回 `/api/sources/:sourceId/...` 链接。旧查询入口如果用 `?sourceId=<非 local>` 明确读取远程数据源，也会返回 source-scoped links，避免外部调用者后续跳回本机 `local` 数据源。
 
 #### 查询会话列表
 
@@ -439,6 +447,14 @@ GET /api/query/sessions?changedAfter=2026-06-25T00:00:00.000Z&limit=50
   "serverTime": "2026-06-25T08:10:00.000Z"
 }
 ```
+
+显式数据源查询示例：
+
+```http
+GET /api/sources/dev71/query/sessions?limit=5&fields=id,title,changedAt,links
+```
+
+其中 `links.detail`、`links.compactView`、`links.events`、`links.markdown` 会分别指向 `/api/sources/dev71/sessions/:id`、`/api/sources/dev71/query/sessions/:id/view?view=compact`、`/api/sources/dev71/query/sessions/:id/events` 和 `/api/sources/dev71/sessions/:id/markdown`。
 
 常用参数：
 

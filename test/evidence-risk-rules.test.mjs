@@ -18,6 +18,25 @@ function execItem(command, output, options = {}) {
   };
 }
 
+function comparableRuleFields(rules) {
+  return rules.map((rule) => ({
+    id: rule.id,
+    label: rule.label,
+    enabled: rule.enabled,
+    kind: rule.kind,
+    tool: rule.tool,
+    level: rule.level,
+    failedLevel: rule.failedLevel,
+    tag: rule.tag,
+    textFields: rule.textFields,
+    maxLength: rule.maxLength,
+    riskPattern: rule.riskPattern,
+    nonZeroFailurePattern: rule.nonZeroFailurePattern,
+    ignoredCommandPattern: rule.ignoredCommandPattern,
+    summary: rule.summary,
+  }));
+}
+
 test("default evidence risk rules flag ordinary command output risk words", () => {
   const signals = riskSignalsForEvidence(execItem("node scripts/run.mjs", "failed with stderr"));
 
@@ -52,24 +71,43 @@ test("custom evidence risk rules can override builtin text rule conditions", () 
 });
 
 test("custom evidence risk rules can disable builtin text risk and change large output threshold", () => {
-  const noTextSignals = riskSignalsForEvidence(execItem("node scripts/run.mjs", "failed with stderr"), {
-    evidenceRiskRules: [{ id: "error-output", enabled: false, kind: "risk-text" }],
-  });
+  const customRules = [
+    { id: "error-output", enabled: false, kind: "risk-text" },
+    { id: "large-payload", enabled: true, kind: "large-payload", maxLength: 3 },
+  ];
+  const noTextSignals = riskSignalsForEvidence(execItem("node scripts/run.mjs", "failed with stderr"), { evidenceRiskRules: customRules });
   const largeSignals = riskSignalsForEvidence(execItem("node scripts/run.mjs", "abcd"), {
-    evidenceRiskRules: [{ id: "large-payload", enabled: true, kind: "large-payload", maxLength: 3 }],
+    evidenceRiskRules: customRules,
   });
 
-  assert.equal(noTextSignals.length, 0);
-  assert.equal(largeSignals.some((signal) => signal.tag === "large-payload"), true);
+  assert.deepEqual(noTextSignals.map((signal) => signal.tag), ["large-payload"]);
+  assert.deepEqual(largeSignals.map((signal) => signal.tag), ["large-payload"]);
 });
 
-test("browser and server evidence risk defaults expose the same builtin ids", () => {
-  const browserIds = globalThis.EvidenceRiskRules.defaultRules().map((rule) => rule.id);
-  const serverIds = defaultEvidenceRiskRules.map((rule) => rule.id);
+test("browser and server evidence risk defaults normalize to the same rule contract", () => {
+  const browserDefaults = globalThis.EvidenceRiskRules.normalizeRules(globalThis.EvidenceRiskRules.defaultRules());
+  const serverDefaults = normalizeEvidenceRiskRules(defaultEvidenceRiskRules);
 
-  assert.deepEqual(browserIds, serverIds);
+  assert.deepEqual(comparableRuleFields(browserDefaults), comparableRuleFields(serverDefaults));
+});
+
+test("browser and server active rule overrides keep large payload threshold consistent", () => {
+  const customRules = [
+    { id: "error-output", enabled: false, kind: "risk-text" },
+    { id: "large-payload", enabled: true, kind: "large-payload", maxLength: 3 },
+  ];
+  const browserActive = globalThis.EvidenceRiskRules.activeRules(customRules);
+  const serverActive = activeEvidenceRiskRules(normalizeEvidenceRiskRules(customRules));
+
+  assert.deepEqual(comparableRuleFields(browserActive), comparableRuleFields(serverActive));
   assert.deepEqual(
-    activeEvidenceRiskRules(normalizeEvidenceRiskRules([{ id: "error-output", enabled: false, kind: "risk-text" }])).map((rule) => rule.id),
+    serverActive.map((rule) => rule.id),
     ["large-payload"],
   );
+  assert.deepEqual(
+    browserActive.map((rule) => rule.id),
+    ["large-payload"],
+  );
+  assert.equal(serverActive[0].maxLength, 3);
+  assert.equal(browserActive[0].maxLength, 3);
 });

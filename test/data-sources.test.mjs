@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
+import { access, copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -132,9 +132,196 @@ test("remote snapshot refresh publishes current atomically and keeps previous sn
   }
 });
 
+test("remote snapshot refresh reuses one in-flight refresh for the same source", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "csr-sources-singleflight-"));
+  try {
+    const remoteHome = path.join(dir, "remote", ".codex");
+    const snapshotRoot = path.join(dir, "snapshots", "remote");
+    await mkdir(path.join(remoteHome, "sessions", "2026", "06", "25"), { recursive: true });
+    await writeFile(path.join(remoteHome, "session_index.jsonl"), '{"id":"same-id","thread_name":"并发远程会话"}\n', "utf8");
+    await writeFile(
+      path.join(remoteHome, "sessions", "2026", "06", "25", "concurrent-2026-06-25T01-02-03-same-id.jsonl"),
+      '{"type":"session_meta","payload":{"timestamp":"2026-06-25T01:02:03.000Z"}}\n',
+      "utf8",
+    );
+
+    let copiedFromRemote = 0;
+    let currentPublishes = 0;
+    let unblockFirstCopy;
+    const firstCopyStarted = new Promise((resolve) => {
+      unblockFirstCopy = resolve;
+    });
+    let releaseFirstCopy;
+    const firstCopyCanContinue = new Promise((resolve) => {
+      releaseFirstCopy = resolve;
+    });
+    let blockedFirstRemoteCopy = false;
+    const fsApi = {
+      access,
+      mkdir,
+      readFile,
+      readdir,
+      rm,
+      writeFile,
+      async copyFile(from, to) {
+        if (isPathInside(remoteHome, from)) {
+          copiedFromRemote += 1;
+          if (!blockedFirstRemoteCopy) {
+            blockedFirstRemoteCopy = true;
+            unblockFirstCopy();
+            await firstCopyCanContinue;
+          }
+        }
+        await copyFile(from, to);
+      },
+      async rename(from, to) {
+        if (to === path.join(snapshotRoot, "current")) {
+          currentPublishes += 1;
+        }
+        await rename(from, to);
+      },
+    };
+
+    const registry = createDataSourceRegistry({
+      env: {
+        CODEX_HOME: path.join(dir, "local", ".codex"),
+        CODEX_REMOTE_SOURCES: "remote",
+        CODEX_REMOTE_REMOTE_LABEL: "远程设备",
+        CODEX_REMOTE_REMOTE_SNAPSHOT_PATH: remoteHome,
+        CODEX_REMOTE_REMOTE_CODEX_HOME: "/root/.codex",
+        CODEX_REMOTE_SNAPSHOT_ROOT: path.join(dir, "snapshots"),
+      },
+      fsApi,
+      homeDir: dir,
+    });
+
+    const firstRefresh = registry.refreshSource("remote");
+    await firstCopyStarted;
+    const secondRefresh = registry.refreshSource("remote");
+    releaseFirstCopy();
+    const [firstResult, secondResult] = await Promise.all([firstRefresh, secondRefresh]);
+
+    assert.equal(firstResult, secondResult);
+    assert.equal(firstResult.ok, true);
+    assert.equal(secondResult.status, 200);
+    assert.equal(copiedFromRemote, 2);
+    assert.equal(currentPublishes, 1);
+    assert.match(await readFile(path.join(snapshotRoot, "current", "session_index.jsonl"), "utf8"), /并发远程会话/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("remote snapshot refresh clears failed in-flight refresh before later retry", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "csr-sources-singleflight-failure-"));
+  try {
+    const remoteHome = path.join(dir, "remote", ".codex");
+    const snapshotRoot = path.join(dir, "snapshots", "remote");
+
+    let remotePathAccesses = 0;
+    let copiedFromRemote = 0;
+    let currentPublishes = 0;
+    let unblockFirstMissingAccess;
+    const firstMissingAccessStarted = new Promise((resolve) => {
+      unblockFirstMissingAccess = resolve;
+    });
+    let releaseFirstMissingAccess;
+    const firstMissingAccessCanContinue = new Promise((resolve) => {
+      releaseFirstMissingAccess = resolve;
+    });
+    let blockedFirstMissingAccess = false;
+    const fsApi = {
+      async access(filePath) {
+        if (filePath === remoteHome) {
+          remotePathAccesses += 1;
+          if (!blockedFirstMissingAccess) {
+            blockedFirstMissingAccess = true;
+            unblockFirstMissingAccess();
+            await firstMissingAccessCanContinue;
+          }
+        }
+        await access(filePath);
+      },
+      mkdir,
+      readFile,
+      readdir,
+      rm,
+      writeFile,
+      async copyFile(from, to) {
+        if (isPathInside(remoteHome, from)) {
+          copiedFromRemote += 1;
+        }
+        await copyFile(from, to);
+      },
+      async rename(from, to) {
+        if (to === path.join(snapshotRoot, "current")) {
+          currentPublishes += 1;
+        }
+        await rename(from, to);
+      },
+    };
+
+    const registry = createDataSourceRegistry({
+      env: {
+        CODEX_HOME: path.join(dir, "local", ".codex"),
+        CODEX_REMOTE_SOURCES: "remote",
+        CODEX_REMOTE_REMOTE_LABEL: "远程设备",
+        CODEX_REMOTE_REMOTE_SNAPSHOT_PATH: remoteHome,
+        CODEX_REMOTE_REMOTE_CODEX_HOME: "/root/.codex",
+        CODEX_REMOTE_SNAPSHOT_ROOT: path.join(dir, "snapshots"),
+      },
+      fsApi,
+      homeDir: dir,
+    });
+
+    const firstRefresh = registry.refreshSource("remote");
+    await firstMissingAccessStarted;
+    const secondRefresh = registry.refreshSource("remote");
+    releaseFirstMissingAccess();
+    const [firstResult, secondResult] = await Promise.all([firstRefresh, secondRefresh]);
+
+    assert.equal(firstResult, secondResult);
+    assert.equal(firstResult.ok, false);
+    assert.equal(firstResult.status, 502);
+    assert.equal(firstResult.source.status.lastRefreshOk, false);
+    assert.equal(firstResult.source.status.snapshotAvailable, false);
+    assert.equal(firstResult.source.status.error.code, "snapshot_failed");
+    assert.equal(remotePathAccesses, 1);
+    assert.equal(copiedFromRemote, 0);
+    assert.equal(currentPublishes, 0);
+
+    await mkdir(path.join(remoteHome, "sessions", "2026", "06", "25"), { recursive: true });
+    await writeFile(path.join(remoteHome, "session_index.jsonl"), '{"id":"retry-id","thread_name":"第三次远程会话"}\n', "utf8");
+    await writeFile(
+      path.join(remoteHome, "sessions", "2026", "06", "25", "retry-2026-06-25T01-02-03-retry-id.jsonl"),
+      '{"type":"session_meta","payload":{"timestamp":"2026-06-25T01:02:03.000Z"}}\n',
+      "utf8",
+    );
+
+    const thirdResult = await registry.refreshSource("remote");
+
+    assert.notEqual(thirdResult, firstResult);
+    assert.equal(thirdResult.ok, true);
+    assert.equal(thirdResult.status, 200);
+    assert.equal(thirdResult.source.status.lastRefreshOk, true);
+    assert.equal(thirdResult.source.status.snapshotAvailable, true);
+    assert.equal(remotePathAccesses, 2);
+    assert.equal(copiedFromRemote, 2);
+    assert.equal(currentPublishes, 1);
+    assert.match(await readFile(path.join(snapshotRoot, "current", "session_index.jsonl"), "utf8"), /第三次远程会话/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("sanitizeErrorMessage redacts token and authorization fragments", () => {
   assert.equal(
     sanitizeErrorMessage("Authorization=Bearer abc.def token=secret-value\nsecond line"),
     "authorization=Bearer [redacted] token=[redacted]",
   );
 });
+
+function isPathInside(parentPath, childPath) {
+  const relative = path.relative(parentPath, childPath);
+  return relative === "" || (relative && !relative.startsWith("..") && !path.isAbsolute(relative));
+}

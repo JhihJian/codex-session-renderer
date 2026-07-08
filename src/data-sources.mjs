@@ -24,6 +24,7 @@ function createDataSourceRegistry(options = {}) {
   const remoteDefinitions = [...parseConfigRemoteDefinitions(options.config), ...parseRemoteDefinitions(env)];
 
   const sources = new Map();
+  const activeRefreshes = new Map();
   const localSource = createLocalDataSource({ codexHome: localCodexHome });
   sources.set(localSource.id, localSource);
 
@@ -65,17 +66,30 @@ function createDataSourceRegistry(options = {}) {
       };
     }
 
-    await refreshRemoteSource(source, {
-      fsApi,
-      fetchImpl,
-      spawnImpl,
-      now,
-    });
-    return {
-      ok: source.status.lastRefreshOk === true,
-      status: source.status.lastRefreshOk === true ? 200 : 502,
-      source: publicDataSource(source),
-    };
+    const existingRefresh = activeRefreshes.get(source.id);
+    if (existingRefresh) return await existingRefresh;
+
+    const refreshPromise = (async () => {
+      await refreshRemoteSource(source, {
+        fsApi,
+        fetchImpl,
+        spawnImpl,
+        now,
+      });
+      return {
+        ok: source.status.lastRefreshOk === true,
+        status: source.status.lastRefreshOk === true ? 200 : 502,
+        source: publicDataSource(source),
+      };
+    })();
+    activeRefreshes.set(source.id, refreshPromise);
+    try {
+      return await refreshPromise;
+    } finally {
+      if (activeRefreshes.get(source.id) === refreshPromise) {
+        activeRefreshes.delete(source.id);
+      }
+    }
   }
 
   return {

@@ -113,6 +113,24 @@ test("projectSessionForApi exposes subagent display name from JSONL metadata", (
   assert.equal(projected.agentRole, "explorer");
 });
 
+test("projectSessionForApi keeps legacy links by default and supports source-scoped links", () => {
+  const legacy = projectSessionForApi({ id: "thread id", title: "链接测试" });
+  assert.deepEqual(legacy.links, {
+    detail: "/api/sessions/thread%20id",
+    compactView: "/api/query/sessions/thread%20id/view?view=compact",
+    events: "/api/query/sessions/thread%20id/events",
+    markdown: "/api/sessions/thread%20id/markdown",
+  });
+
+  const scoped = projectSessionForApi({ id: "thread id", title: "链接测试" }, {}, { sourceId: "remote-a" });
+  assert.deepEqual(scoped.links, {
+    detail: "/api/sources/remote-a/sessions/thread%20id",
+    compactView: "/api/sources/remote-a/query/sessions/thread%20id/view?view=compact",
+    events: "/api/sources/remote-a/query/sessions/thread%20id/events",
+    markdown: "/api/sources/remote-a/sessions/thread%20id/markdown",
+  });
+});
+
 test("session query sorts, paginates and projects fields", () => {
   const query = parseSessionListQuery(new URLSearchParams("limit=1&sort=updatedAt&order=desc&fields=title,changedAt"));
   const sessions = sortSessions(

@@ -375,14 +375,14 @@ async function sessionFileExists(session) {
   }
 }
 
-async function querySessions(context, params) {
+async function querySessions(context, params, projectionOptions = {}) {
   const query = parseSessionListQuery(params);
   const [sessions, spawnEdges] = await Promise.all([listAllSessionsForQuery(context), context.threadStore.readSpawnEdges()]);
   const filtered = filterSessions(sessions, query, spawnEdges);
   const sorted = sortSessions(filtered, query);
   const page = paginateSessions(sorted, query);
   return {
-    sessions: page.items.map((session) => projectSessionForApi(session, query)),
+    sessions: page.items.map((session) => projectSessionForApi(session, query, projectionOptions)),
     page: {
       offset: page.offset,
       limit: page.limit,
@@ -460,7 +460,7 @@ async function getSessionDetail(context, id, options = {}) {
   return detail;
 }
 
-async function querySessionEvents(context, id, params) {
+async function querySessionEvents(context, id, params, projectionOptions = {}) {
   const session = await getSessionById(context, id);
   if (!session?.path) return null;
   const query = parseSessionEventQuery(params);
@@ -477,7 +477,7 @@ async function querySessionEvents(context, id, params) {
   const stat = await fs.stat(session.path).catch(() => null);
   const sessionWithStat = withFileStat(session, stat);
   return {
-    session: projectSessionForApi(sessionWithStat, {}),
+    session: projectSessionForApi(sessionWithStat, {}, projectionOptions),
     events: range.items.map(({ event, index }) => projectEventForApi(event, index, query)),
     page: {
       cursor: query.cursor,
@@ -492,12 +492,12 @@ async function querySessionEvents(context, id, params) {
   };
 }
 
-async function querySessionView(context, id, params) {
+async function querySessionView(context, id, params, projectionOptions = {}) {
   const query = parseSessionViewQuery(params);
   const detail = await getSessionDetail(context, id, { maxDepth: query.maxDepth, evidenceRiskRules: parseEvidenceRiskRulesParam(params) });
   if (!detail) return null;
   const base = {
-    session: projectSessionForApi(detail.session, {}),
+    session: projectSessionForApi(detail.session, {}, projectionOptions),
     view: query.view,
     stats: detail.stats,
     serverTime: new Date().toISOString(),
@@ -836,6 +836,7 @@ async function getThreadHierarchy(context, threadId) {
 }
 
 async function serveStatic(req, res, pathname) {
+  if (req.method !== "GET") return sendError(res, 405, "Method not allowed");
   return serveStaticFile(res, publicDir, pathname);
 }
 
@@ -861,10 +862,31 @@ async function readJsonBody(req, maxBytes = 64 * 1024) {
   }
 }
 
+function allowMethod(req, res, methods) {
+  if (methods.includes(req.method)) return true;
+  sendError(res, 405, "Method not allowed");
+  return false;
+}
+
+function isReadOnlyApiPath(pathname) {
+  return (
+    pathname === "/api/health" ||
+    pathname === "/api/sources" ||
+    pathname === "/api/sessions" ||
+    pathname.startsWith("/api/sessions/") ||
+    pathname.startsWith("/api/query/") ||
+    /^\/api\/sources\/[^/]+\/index$/.test(pathname) ||
+    /^\/api\/sources\/[^/]+\/sessions(?:\/.*)?$/.test(pathname) ||
+    /^\/api\/sources\/[^/]+\/query\/.*$/.test(pathname)
+  );
+}
+
 async function route(req, res) {
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
   const pathname = url.pathname;
   try {
+    if (isReadOnlyApiPath(pathname) && !allowMethod(req, res, ["GET"])) return;
+
     if (pathname === "/api/health") {
       const localContext = getSourceContext("local");
       return sendJson(res, 200, {
@@ -983,13 +1005,13 @@ async function route(req, res) {
     if (pathname === "/api/query/sessions") {
       const context = resolveRequestSource(url);
       if (!context) return sendError(res, 404, "Data source not found");
-      return sendJson(res, 200, await querySessions(context, url.searchParams));
+      return sendJson(res, 200, await querySessions(context, url.searchParams, queryProjectionOptions(context, url)));
     }
     const queryViewMatch = pathname.match(/^\/api\/query\/sessions\/([^/]+)\/view$/);
     if (queryViewMatch) {
       const context = resolveRequestSource(url);
       if (!context) return sendError(res, 404, "Data source not found");
-      const view = await querySessionView(context, decodeURIComponent(queryViewMatch[1]), url.searchParams);
+      const view = await querySessionView(context, decodeURIComponent(queryViewMatch[1]), url.searchParams, queryProjectionOptions(context, url));
       if (!view) return sendError(res, 404, "Session not found");
       return sendJson(res, 200, view);
     }
@@ -997,7 +1019,7 @@ async function route(req, res) {
     if (queryEventsMatch) {
       const context = resolveRequestSource(url);
       if (!context) return sendError(res, 404, "Data source not found");
-      const events = await querySessionEvents(context, decodeURIComponent(queryEventsMatch[1]), url.searchParams);
+      const events = await querySessionEvents(context, decodeURIComponent(queryEventsMatch[1]), url.searchParams, queryProjectionOptions(context, url));
       if (!events) return sendError(res, 404, "Session not found");
       return sendJson(res, 200, events);
     }
@@ -1005,13 +1027,13 @@ async function route(req, res) {
     if (sourceQuerySessionsMatch) {
       const context = getSourceContext(decodeURIComponent(sourceQuerySessionsMatch[1]));
       if (!context) return sendError(res, 404, "Data source not found");
-      return sendJson(res, 200, await querySessions(context, url.searchParams));
+      return sendJson(res, 200, await querySessions(context, url.searchParams, { sourceId: context.source.id }));
     }
     const sourceQueryViewMatch = pathname.match(/^\/api\/sources\/([^/]+)\/query\/sessions\/([^/]+)\/view$/);
     if (sourceQueryViewMatch) {
       const context = getSourceContext(decodeURIComponent(sourceQueryViewMatch[1]));
       if (!context) return sendError(res, 404, "Data source not found");
-      const view = await querySessionView(context, decodeURIComponent(sourceQueryViewMatch[2]), url.searchParams);
+      const view = await querySessionView(context, decodeURIComponent(sourceQueryViewMatch[2]), url.searchParams, { sourceId: context.source.id });
       if (!view) return sendError(res, 404, "Session not found");
       return sendJson(res, 200, view);
     }
@@ -1019,7 +1041,7 @@ async function route(req, res) {
     if (sourceQueryEventsMatch) {
       const context = getSourceContext(decodeURIComponent(sourceQueryEventsMatch[1]));
       if (!context) return sendError(res, 404, "Data source not found");
-      const events = await querySessionEvents(context, decodeURIComponent(sourceQueryEventsMatch[2]), url.searchParams);
+      const events = await querySessionEvents(context, decodeURIComponent(sourceQueryEventsMatch[2]), url.searchParams, { sourceId: context.source.id });
       if (!events) return sendError(res, 404, "Session not found");
       return sendJson(res, 200, events);
     }
@@ -1064,9 +1086,42 @@ function resolveRequestSource(url) {
   return getSourceContext(url.searchParams.get("sourceId") || "local");
 }
 
-createServer(route).listen(port, host, () => {
-  console.log(`Codex session renderer: http://${host}:${port}/`);
-  for (const source of dataSources.listSources()) {
-    console.log(`Read-only data source [${source.id}]: ${source.kind === "local" ? source.codexHome : source.snapshotPath}`);
+function queryProjectionOptions(context, url) {
+  if (url.searchParams.has("sourceId") && context.source.id !== "local") {
+    return { sourceId: context.source.id };
   }
-});
+  return {};
+}
+
+function createRendererServer(options = {}) {
+  return createServer(options.route || route);
+}
+
+function startServer(options = {}) {
+  const listenPort = options.port ?? port;
+  const listenHost = options.host ?? host;
+  const server = createRendererServer(options);
+  return server.listen(listenPort, listenHost, () => {
+    console.log(`Codex session renderer: http://${listenHost}:${listenPort}/`);
+    for (const source of dataSources.listSources()) {
+      console.log(`Read-only data source [${source.id}]: ${source.kind === "local" ? source.codexHome : source.snapshotPath}`);
+    }
+  });
+}
+
+function isDirectRun() {
+  if (!process.argv[1]) return false;
+  const currentPath = path.resolve(fileURLToPath(import.meta.url));
+  const entryPath = path.resolve(process.argv[1]);
+  return process.platform === "win32" ? currentPath.toLowerCase() === entryPath.toLowerCase() : currentPath === entryPath;
+}
+
+if (isDirectRun()) {
+  startServer();
+}
+
+export {
+  createRendererServer,
+  route,
+  startServer,
+};

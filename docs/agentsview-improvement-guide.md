@@ -338,7 +338,7 @@ Codex 会把一部分工作派给子任务。用户复盘时，不只想知道�
 这类改进的核心价值是提升信任感：用户相信页面显示的是一次 Codex 工作的真
 实过程，并且能用它回看、解释和交接。
 
-## 负责人评审结论（2026-07-07）
+## 历史评审与当前状态（2026-07-07 评审，2026-07-08 校准）
 
 ### 核验范围
 
@@ -346,24 +346,21 @@ Codex 会把一部分工作派给子任务。用户复盘时，不只想知道�
 `4a5cca97b0b22a8b98a96899aa19390858f5fc01`。核验重点是 Codex 解析器、会
 话列表、工具展示、子代理展示、导出和测试样例。
 
-总体判断：这份指南的大方向成立，但不能理解成“agentsview 的能力全部都要迁
-入”。`agentsview` 是多 AI agent、SQLite/DuckDB/PostgreSQL、成本统计和同步
-平台；本项目仍应保持 Codex 专用、只读、轻量会话工作台。真正值得吸收的是它
-处理 Codex 边界数据的规则和回归样例。
+总体判断：这份指南的大方向成立。`agentsview` 是多 AI agent、SQLite/DuckDB/PostgreSQL、成本统计和同步平台；本项目保持 Codex 专用、只读、轻量会话工作台。真正值得吸收的是它处理 Codex 边界数据的规则和回归样例。
+
+当前状态校准：2026-07-07 评审中的若干 P0/P1 条目已经落地并加入回归保护。后续维护者阅读本节时，以“历史评审意见及当前实现状态”作为解释口径。
 
 ### 逐项判断
 
-1. 去除重复显示的旧内容：确实存在，值得做。
+1. 去除重复显示的旧内容：历史上列为 P0，当前已实现。
    `agentsview` 的 Codex 解析器有 `forkGate`，专门压掉 fork 会话开头重放的
-   父会话历史，避免消息和 token 被重复计算。本项目当前没有等价的 fork
-   replay gate，只做了同一 turn 内的普通重复消息去重。建议列为 P0。
+   父会话历史，使消息和 token 统计保持单次计数。本项目现已覆盖 fork replay 前导重放识别和去重，并保留真实重复用户输入。
 
-2. 正确展示中断、继续和未完成：确实存在，值得做。
+2. 正确展示中断、继续和未完成：历史上列为 P0，当前已实现。
    `agentsview` 读取 `task_started`、`task_complete`、`turn_aborted` 来判断
    termination status，并且对 `turn_aborted` 后 Codex 重新写入首条用户请求
-   的情况做了去重。本项目当前能处理 `task_started`、`task_complete` 和
-   `task_failed`，但没有把 `turn_aborted` 作为中断状态，也没有完整的续跑首
-   prompt 去重。建议列为 P0。
+   的情况做了去重。本项目现已把 `turn_aborted` 标记为中断状态，并处理空
+   aborted turn 后续跑同一首条请求的去重；等待用户输入、运行中和已完成状态也有对应展示。
 
 3. 标题改名及时生效：存在，但本项目已经大体具备。
    `agentsview` 读取 `session_index.jsonl` 的 `thread_name`，并把
@@ -372,12 +369,10 @@ Codex 会把一部分工作派给子任务。用户复盘时，不只想知道�
    读取 `session_index.jsonl`。后续只需要补“远程快照标题更新”和缓存失效测
    试，不应作为大功能重做。
 
-4. 会话文件位置识别更稳定：确实存在，值得补齐。
+4. 会话文件位置识别更稳定：历史上列为 P1，当前已实现。
    `agentsview` 同时识别日期目录和 `archived_sessions` 平铺目录，并按 UUID
-   对 live 和 archived 副本去重。本项目在 SQLite 可用时依赖
-   `threads.rollout_path`，但无 SQLite 回退扫描只扫 `.codex/sessions`，没有
-   覆盖 `.codex/archived_sessions`。建议列为 P1；如果远程快照经常缺
-   `state_5.sqlite`，则提升到 P0。
+   对 live 和 archived 副本去重。本项目现已在本地文件回退中同时扫描
+   `.codex/sessions` 和 `.codex/archived_sessions`，按 session id 去重，并优先保留 live 副本。
 
 5. 工具操作变成用户看得懂的动作：存在，但本项目已有较多实现。
    `agentsview` 有结构化 tool summary，覆盖 Bash、Read、Edit、Write、Grep、
@@ -387,14 +382,14 @@ Codex 会把一部分工作派给子任务。用户复盘时，不只想知道�
 
 6. 工具输出突出结果：存在，但本项目不弱于对方。
    `agentsview` 的工具输出主要是折叠、预览和结果历史；本项目已经有
-   `git status`、搜索命中、验证输出和 `apply_patch` 的结构化 viewer。建议继
-   续沿当前实现扩展，不作为 agentsview 迁入项。
+   `git status`、搜索命中、验证输出和 `apply_patch` 的结构化 viewer。后续沿
+   当前实现扩展即可。
 
-7. 隐藏机器自动塞入的上下文：确实存在，值得继续做。
+7. 隐藏机器自动塞入的上下文：历史上列为 P0.5，当前已实现核心路径。
    `agentsview` 会把 `AGENTS.md`、`environment_context`、`turn_aborted`、
    goal context、subagent notification 等识别为系统内容，不计入用户消息。
-   本项目精简视图已经清理部分 AGENTS/环境上下文，但 `buildTurns`、Markdown
-   导出和部分搜索路径仍可能保留这些内容。建议列为 P0.5。
+   本项目现已通过共享清理规则处理 `AGENTS.md instructions`、`environment_context`、
+   goal continuation、subagent notification 等自动注入内容；精简视图、Markdown 导出和事件搜索沿用该口径，Raw 视图和单事件接口保留原始 payload 供诊断。
 
 8. 思考摘要和图片附件显示得更安全：存在，本项目已经具备核心能力。
    `agentsview` 有 ThinkingBlock 和多 provider thinking 解析；本项目已经对
@@ -402,51 +397,44 @@ Codex 会把一部分工作派给子任务。用户复盘时，不只想知道�
    中移除原始大数据。后续更值得做的是在精简视图里把图片附件和加密 reasoning
    的存在感展示得更清楚，优先级 P2。
 
-9. 主任务和子任务能串起来：确实存在，本项目也已有基础。
+9. 主任务和子任务能串起来：历史评审指出差距，当前主路径已成型。
    `agentsview` 在 tool call 上挂 `subagent_session_id`，前端可 inline 展开子
    会话。本项目通过 `thread_spawn_edges`、`spawn_agent` 和
-   `subagent_notification` 构建 Trace/Compact/Audit，并支持打开子会话。差距
-   主要是 SQLite 不可用时的 fallback、子代理状态文案和导出深度，建议 P2。
+   `subagent_notification` 构建内部 Trace、精简视图和 Audit，并支持打开子会话。SQLite 不可用时的 fallback 已补齐一部分；子代理导出深度和状态文案仍可继续增强。
 
-10. 时间线能表达工作推进：存在，但不是当前最大短板。
+10. 时间线能表达工作推进：存在，当前优先级低于证据链复核。
     `agentsview` 有 call timing、running duration、SignalPanel 等。本项目已
     经有 Trace、Audit、Review Dock 和执行聚合，复盘表达比单纯时间线更贴合
     Codex 工作台。建议只做关键节点跳转和失败/验证锚点增强，P2。
 
 11. 导出记录保留关键证据：部分存在，需要校正理解。
     `agentsview session export` 是 raw source 导出；HTTP Markdown/HTML 导出
-    支持 `depth=1|all` 带子代理；但 `agentsview export sessions` 是内容外的
-    session 摘要和成本数据，不是完整复盘包。本项目已有 Markdown 导出，但还
-    缺子代理深度、证据视图口径和导出口径选择。建议 P2。
+    支持 `depth=1|all` 带子代理；`agentsview export sessions` 输出内容外的
+    session 摘要和成本数据。当前本项目已有 Markdown 导出，后续可补充子代理深度、证据视图口径和导出口径选择。
 
-12. 提供两种导出口径：产品上值得做，但不能说是 agentsview 的直接现成模式。
+12. 提供两种导出口径：产品上值得做，需按本项目视图模型设计。
     `agentsview` 有 raw source、Markdown/HTML、session summary 多种出口，但
-    不是“简洁/完整”两档复盘导出。对本项目而言，两档导出符合用户交接场景，
-    但应按本项目视图模型设计，优先级 P2。
+    它的出口分类与“简洁/完整”两档复盘口径不同。对本项目而言，两档导出符合用户交接场景，优先级 P2。
 
-13. 建立特殊场景样例库：确实值得做，且应提前做。
+13. 建立特殊场景样例库：历史上列为 P0 支撑项，当前已有回归保护。
     `agentsview` 价值很大一部分体现在大量 parser、frontend 和 e2e 回归样例。
-    本项目已有不少单元测试，但缺少覆盖 fork replay、`turn_aborted` 续跑、
-    archived 副本、无 SQLite 回退、真实子代理完成/失败/运行中的样例库。建议
-    作为 P0 支撑项，先建样例再改解析规则。
+    本项目现有特殊会话样例和单元测试覆盖 fork replay、`turn_aborted` 续跑、
+    archived 副本、无 SQLite 回退、真实重复用户输入、等待状态、图片附件和 encrypted reasoning 脱敏。后续新增解析规则时继续按“先样例、再规则、再回归”的节奏维护。
 
-### 调整后的优先级
+### 当前优先级
 
-P0 先做三件事：
+已完成并进入回归保护：
 
 - Codex fork replay / 旧内容重放识别和去重。
 - `turn_aborted`、运行中、等待用户输入的状态识别和列表展示。
 - 特殊场景样例库，至少覆盖 fork、interrupt/resume、archived、subagent、图
   片和 encrypted reasoning。
-
-P1 做稳定性补齐：
-
 - 无 SQLite 回退时扫描 `archived_sessions`，并对 live/archived 副本去重。
-- 默认阅读、Markdown 和搜索路径继续隐藏机器上下文。
-- 给现有工具摘要补缺口测试，而不是替换实现。
+- 默认阅读、Markdown 和搜索路径隐藏机器上下文。
 
-P2 做复盘体验增强：
+仍可作为维护项持续补强：
 
+- 给现有工具摘要补缺口测试，沿用当前实现。
 - 子代理导出深度和状态展示。
 - 关键节点跳转、失败/验证锚点。
 - 简洁导出和完整导出两种口径。
@@ -461,4 +449,4 @@ P2 做复盘体验增强：
 - 大型前端框架迁移。
 
 这些确实是 `agentsview` 的能力，但它们服务的是“跨 agent 归档和分析平台”，
-不是当前项目的核心目标。
+当前项目的核心目标保持为 Codex 专用、只读、轻量会话工作台。

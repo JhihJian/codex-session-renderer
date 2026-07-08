@@ -3176,7 +3176,7 @@ function buildAuditExecutionRows(detail, turn, turnIndex) {
   const seen = new Set();
   const traceTurn = traceTurnNodeForIndex(detail.trace?.root, turnIndex);
   if (traceTurn) {
-    for (const row of flattenAuditExecutionRows(traceTurn.children || [], 0)) {
+    for (const row of window.AuditViewModel.flattenAuditExecutionRows(traceTurn.children || [], 0)) {
       const key = row.traceNodeId || row.itemRef || row.id;
       if (!key || seen.has(key)) continue;
       seen.add(key);
@@ -3196,181 +3196,12 @@ function buildAuditExecutionRows(detail, turn, turnIndex) {
   return attachAuditRowsToAgentMessages(rows, turn, turnIndex);
 }
 
-function flattenAuditExecutionRows(nodes, depth) {
-  const rows = [];
-  for (const node of nodes || []) {
-    const isExecution = auditTraceNodeIsExecution(node);
-    if (isExecution) rows.push(auditExecutionRowFromTraceNode(node, depth));
-    rows.push(...flattenAuditExecutionRows(node.children || [], isExecution ? depth + 1 : depth));
-  }
-  return rows;
-}
-
-function auditTraceNodeIsExecution(node) {
-  return ["tool", "handoff", "subagent", "lazy-child"].includes(node?.type);
-}
-
-function auditExecutionRowFromTraceNode(node, depth = 0) {
-  const item = node.detail?.item || {};
-  const ref = itemRefFromTraceNode(node);
-  const itemIndex = itemIndexFromItemRef(ref);
-  return {
-    id: node.id,
-    traceNodeId: node.id,
-    itemRef: ref,
-    itemIndex,
-    type: node.type,
-    icon: node.icon || node.type,
-    label: node.label,
-    title: node.title || item.name || node.label || node.id,
-    subtitle: node.subtitle || "",
-    status: node.status || item.status || "",
-    timestamp: node.timestamp || item.timestamp || null,
-    completedAt: node.completedAt || item.completedAt || null,
-    durationMs: node.durationMs,
-    durationEstimated: node.durationEstimated,
-    depth,
-    auditNodes: [],
-  };
-}
-
 function auditExecutionRowFromItem(item, turnIndex) {
-  const itemIndex = item.itemIndex ?? 0;
-  const isHandoff = ["spawn_agent", "wait_agent", "handoff"].includes(item.name);
-  return {
-    id: `item:${turnIndex}:${itemIndex}:${item.id || item.type}`,
-    traceNodeId: `item:${turnIndex}:${itemIndex}:${item.id || item.type}`,
-    itemRef: itemRef(item),
-    itemIndex,
-    type: isHandoff ? "handoff" : "tool",
-    icon: isHandoff ? "handoff" : "tool",
-    label: isHandoff ? "Handoff" : "Tool call",
-    title: item.name || item.callId || "tool",
-    subtitle: [item.status, formatDate(item.timestamp)].filter(Boolean).join(" · "),
-    status: item.status || "",
-    timestamp: item.timestamp || null,
-    completedAt: item.completedAt || null,
-    durationMs: durationBetween(item.timestamp, item.completedAt),
-    durationEstimated: !item.completedAt,
-    depth: 0,
-    auditNodes: [],
-  };
+  return window.AuditViewModel.auditExecutionRowFromItem(item, turnIndex, { itemRef, formatDate, durationBetween });
 }
 
 function attachAuditRowsToAgentMessages(rows, turn, turnIndex) {
-  const sourceRows = Array.isArray(rows) ? rows : [];
-  const agentRows = (turn.items || [])
-    .map((item, itemIndex) => (item.type === "assistant-message" && String(item.text || "").trim() ? auditAgentMessageRowFromItem(item, turnIndex, itemIndex) : null))
-    .filter(Boolean);
-
-  if (!agentRows.length) {
-    if (!sourceRows.length) return [];
-    const parent = auditImplicitAgentMessageRow(turn, turnIndex);
-    return linkAuditExecutionHierarchy([parent, ...sourceRows.map((row) => auditExecutionChildRow(row, parent))]);
-  }
-
-  if (!sourceRows.length) return linkAuditExecutionHierarchy(agentRows);
-
-  const childrenByAgentId = new Map(agentRows.map((row) => [row.id, []]));
-  for (const row of sourceRows) {
-    const parent = auditAgentParentForExecutionRow(row, agentRows);
-    if (parent) {
-      childrenByAgentId.get(parent.id)?.push(auditExecutionChildRow(row, parent));
-    }
-  }
-
-  const result = agentRows.flatMap((row) => [row, ...(childrenByAgentId.get(row.id) || [])]);
-
-  return linkAuditExecutionHierarchy(result);
-}
-
-function auditAgentMessageRowFromItem(item, turnIndex, itemIndex) {
-  const phase = item.phase || null;
-  const title = phase === "final" ? "助手最终回复" : "助手消息";
-  return {
-    id: `agent-message:${turnIndex}:${itemIndex}:${item.id || "assistant"}`,
-    traceNodeId: null,
-    itemRef: itemRef({ ...item, turnIndex, itemIndex }),
-    itemIndex,
-    type: "agent_message",
-    icon: "assistant",
-    label: "Agent message",
-    title,
-    subtitle: firstLine(item.text || "", 180),
-    status: phase || "observed",
-    timestamp: item.timestamp || null,
-    completedAt: item.completedAt || null,
-    durationMs: null,
-    durationEstimated: false,
-    depth: 0,
-    auditNodes: [],
-    childRowIds: [],
-    contextUsage: item.contextUsage || null,
-  };
-}
-
-function auditImplicitAgentMessageRow(turn, turnIndex) {
-  return {
-    id: `agent-message:${turnIndex}:implicit`,
-    traceNodeId: null,
-    itemRef: null,
-    itemIndex: -1,
-    type: "agent_message",
-    icon: "assistant",
-    label: "Agent message",
-    title: "助手消息 · 未记录正文",
-    subtitle: "此 Turn 有执行动作，但原始日志没有对应的 agent_message 文本。",
-    status: turn.status || "observed",
-    timestamp: turn.startedAt || null,
-    completedAt: turn.completedAt || null,
-    durationMs: null,
-    durationEstimated: false,
-    depth: 0,
-    auditNodes: [],
-    childRowIds: [],
-    synthetic: true,
-  };
-}
-
-function auditExecutionChildRow(row, parent) {
-  return {
-    ...row,
-    parentRowId: parent.id,
-    agentMessageItemRef: parent.itemRef || null,
-    depth: (parent.depth || 0) + 1 + (row.depth || 0),
-  };
-}
-
-function auditAgentParentForExecutionRow(row, agentRows) {
-  if (!agentRows.length) return null;
-  const itemIndex = Number.isInteger(row.itemIndex) ? row.itemIndex : itemIndexFromItemRef(row.itemRef);
-  if (Number.isInteger(itemIndex)) {
-    const previous = [...agentRows].reverse().find((agent) => agent.itemIndex <= itemIndex);
-    return previous || agentRows.find((agent) => agent.itemIndex > itemIndex) || agentRows[0];
-  }
-  const rowTime = dateValue(row.timestamp);
-  if (rowTime != null) {
-    const previous = [...agentRows].reverse().find((agent) => {
-      const agentTime = dateValue(agent.timestamp);
-      return agentTime != null && agentTime <= rowTime;
-    });
-    return previous || agentRows.find((agent) => {
-      const agentTime = dateValue(agent.timestamp);
-      return agentTime != null && agentTime > rowTime;
-    }) || agentRows[0];
-  }
-  return agentRows[0];
-}
-
-function linkAuditExecutionHierarchy(rows) {
-  const linked = rows.map((row) => ({ ...row, childRowIds: [...(row.childRowIds || [])] }));
-  const byId = new Map(linked.map((row) => [row.id, row]));
-  for (const row of linked) {
-    if (!row.parentRowId) continue;
-    const parent = byId.get(row.parentRowId);
-    if (parent && !parent.childRowIds.includes(row.id)) parent.childRowIds.push(row.id);
-  }
-  return linked;
+  return window.AuditViewModel.attachAuditRowsToAgentMessages(rows, turn, turnIndex, { itemRef, firstLine });
 }
 
 function traceTurnNodeForIndex(root, turnIndex) {
@@ -3380,17 +3211,7 @@ function traceTurnNodeForIndex(root, turnIndex) {
 }
 
 function itemRefFromTraceNode(node) {
-  const match = String(node?.id || "").match(/^item:(\d+):(\d+):/);
-  const type = node?.detail?.item?.type;
-  if (!match || !type) return null;
-  return `${match[1]}:${match[2]}:${type}`;
-}
-
-function itemIndexFromItemRef(ref) {
-  const match = String(ref || "").match(/^\d+:(\d+):/);
-  if (!match) return null;
-  const value = Number(match[1]);
-  return Number.isInteger(value) ? value : null;
+  return window.AuditViewModel.itemRefFromTraceNode(node);
 }
 
 function auditTurnKey(turn, index) {

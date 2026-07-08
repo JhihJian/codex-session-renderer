@@ -112,8 +112,9 @@ function paginateSessions(sessions, query) {
   };
 }
 
-function projectSessionForApi(session, query = {}) {
+function projectSessionForApi(session, query = {}, options = {}) {
   const enriched = withSubagentMeta(session);
+  const links = sessionLinks(enriched.id, options);
   const projected = {
     id: enriched.id,
     title: enriched.title || "未命名会话",
@@ -136,15 +137,30 @@ function projectSessionForApi(session, query = {}) {
     fileModifiedAt: enriched.fileModifiedAt || null,
     changedAt: sessionChangedAt(enriched),
     sizeBytes: enriched.sizeBytes ?? null,
-    links: {
-      detail: `/api/sessions/${encodeURIComponent(enriched.id)}`,
-      compactView: `/api/query/sessions/${encodeURIComponent(enriched.id)}/view?view=compact`,
-      events: `/api/query/sessions/${encodeURIComponent(enriched.id)}/events`,
-      markdown: `/api/sessions/${encodeURIComponent(enriched.id)}/markdown`,
-    },
+    links,
   };
   if (query.includePath) projected.path = enriched.path || null;
   return pickFields(projected, query.fields);
+}
+
+function sessionLinks(sessionId, options = {}) {
+  const encodedId = encodeURIComponent(sessionId);
+  const sourceId = stringValue(options.sourceId);
+  if (sourceId) {
+    const sourcePrefix = `/api/sources/${encodeURIComponent(sourceId)}`;
+    return {
+      detail: `${sourcePrefix}/sessions/${encodedId}`,
+      compactView: `${sourcePrefix}/query/sessions/${encodedId}/view?view=compact`,
+      events: `${sourcePrefix}/query/sessions/${encodedId}/events`,
+      markdown: `${sourcePrefix}/sessions/${encodedId}/markdown`,
+    };
+  }
+  return {
+    detail: `/api/sessions/${encodedId}`,
+    compactView: `/api/query/sessions/${encodedId}/view?view=compact`,
+    events: `/api/query/sessions/${encodedId}/events`,
+    markdown: `/api/sessions/${encodedId}/markdown`,
+  };
 }
 
 function projectEventForApi(event, index, query = {}) {
@@ -300,6 +316,11 @@ function dateParam(params, ...names) {
 function stringParam(params, name) {
   const value = params.get(name);
   return value == null || value === "" ? null : value;
+}
+
+function stringValue(value) {
+  const text = String(value || "").trim();
+  return text || null;
 }
 
 function listParam(params, ...names) {
