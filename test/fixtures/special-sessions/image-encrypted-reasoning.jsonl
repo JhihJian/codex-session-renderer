@@ -1,0 +1,4 @@
+{"timestamp":"2026-07-07T13:00:00.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-image"}}
+{"timestamp":"2026-07-07T13:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"请看这张图"},{"type":"input_image","image_url":{"url":"data:image/png;base64,YWJj"}}]}}
+{"timestamp":"2026-07-07T13:00:02.000Z","type":"response_item","payload":{"type":"reasoning","encrypted_content":"SECRET_ENCRYPTED_BLOB","summary":[]}}
+{"timestamp":"2026-07-07T13:00:03.000Z","type":"event_msg","payload":{"type":"task_complete","last_agent_message":"图片已检查。"}}

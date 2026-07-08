@@ -1,0 +1,4 @@
+{"timestamp":"2026-07-07T11:00:00.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-repeat"}}
+{"timestamp":"2026-07-07T11:00:01.000Z","type":"event_msg","payload":{"type":"user_message","message":"重复确认这句话"}}
+{"timestamp":"2026-07-07T11:00:02.000Z","type":"event_msg","payload":{"type":"user_message","message":"重复确认这句话"}}
+{"timestamp":"2026-07-07T11:00:03.000Z","type":"event_msg","payload":{"type":"task_complete","last_agent_message":"已记录两次确认。"}}

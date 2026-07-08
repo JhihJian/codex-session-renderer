@@ -179,6 +179,7 @@ const standardItemTypeOptions = [
   ["tool", "工具与命令"],
   ["output", "工具输出"],
   ["reasoning", "推理摘要"],
+  ["compact", "Compact / 压缩"],
   ["system", "系统事件"],
   ["error", "错误事件"],
 ];
@@ -200,6 +201,7 @@ const standardToAuditType = {
   tool: "action",
   output: "evidence",
   reasoning: "reasoning",
+  compact: "evidence",
   system: "verification",
   error: "risk",
 };
@@ -1551,6 +1553,7 @@ function renderStats() {
     ["Events", stats.eventCount, "事件流"],
     ["Important", stats.importantEventCount, "关键事件"],
     ["Tools", countItems("tool-call"), "工具调用"],
+    ["Compact", stats.compactEventCount ?? countItems("context-compact"), "上下文压缩"],
     ["Agents", stats.childThreadCount || 0, "子代理"],
     ["Tokens", tokenUsage ? compactNumber(tokenUsage.total_tokens || tokenUsage.totalTokens || 0) : "n/a", "最近统计"],
   ];
@@ -1684,6 +1687,12 @@ function renderCompact() {
       await openRawEventFromAudit(index);
     });
   });
+  els.compactContent.querySelectorAll("[data-compact-ref-event-index]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      scrollToCompactEvent(button.dataset.compactRefEventIndex);
+    });
+  });
   els.compactContent.querySelectorAll("[data-compact-nav-target]").forEach((row) => {
     row.addEventListener("click", (event) => {
       if (event.target.closest("a")) return;
@@ -1715,6 +1724,7 @@ function compactTurnFallback(turn, index) {
   const assistantMessages = items
     .filter((item) => item.type === "assistant-message" && String(item.text || "").trim())
     .map(compactMessageFallback);
+  const compactEvents = items.filter((item) => item.type === "context-compact").map(compactEventFallback);
   return {
     id: turn.id || `turn-${index}`,
     turnNumber: turn.turnNumber ?? index + 1,
@@ -1724,6 +1734,7 @@ function compactTurnFallback(turn, index) {
     userMessages,
     assistantMessages,
     assistantMessage: assistantMessages.at(-1) || null,
+    compactEvents,
     children: [],
   };
 }
@@ -1736,6 +1747,22 @@ function compactMessageFallback(item) {
     truncated: item.truncated,
     textLength: item.textLength,
     contextUsage: item.contextUsage || null,
+    compressionRefs: item.compressionRefs || [],
+  };
+}
+
+function compactEventFallback(item) {
+  const text = item.text || item.compact?.message || "";
+  return {
+    id: item.id,
+    type: item.type,
+    timestamp: item.timestamp,
+    eventType: item.eventType || item.compact?.kind || "",
+    sourceIndex: item.sourceIndex ?? null,
+    text,
+    textLength: item.textLength ?? text.length,
+    truncated: item.truncated,
+    compact: item.compact || null,
   };
 }
 
@@ -1765,7 +1792,10 @@ function filterCompactTurn(turn, query, typeFilter) {
 function compactTurnMatches(turn, query, typeFilter) {
   const hasMessage = turn.userMessages?.length || compactAssistantMessages(turn).length;
   const hasChild = turn.children?.length;
+  const hasCompact = compactEventsForTurn(turn).length > 0;
   if (typeFilter === "tool") return Boolean(hasChild);
+  if (typeFilter === "compact") return hasCompact && (!query || compactTurnSearchText(turn).includes(query));
+  if (typeFilter === "system") return hasCompact && (!query || compactTurnSearchText(turn).includes(query));
   if (!["all", "message", "error"].includes(typeFilter)) return false;
   if (typeFilter === "message" && !hasMessage) return false;
   const haystack = compactTurnSearchText(turn);
@@ -1777,6 +1807,8 @@ function compactNodeMatchesType(node, typeFilter) {
   if (typeFilter === "all") return true;
   if (typeFilter === "message") return Boolean(node.turns?.some((turn) => turn.userMessages?.length || compactAssistantMessages(turn).length));
   if (typeFilter === "tool") return !node.session || Boolean(node.edgeStatus || node.spawnEvent || node.notificationEvent);
+  if (typeFilter === "compact") return Boolean(node.turns?.some((turn) => compactEventsForTurn(turn).length > 0));
+  if (typeFilter === "system") return Boolean(node.turns?.some((turn) => compactEventsForTurn(turn).length > 0));
   if (typeFilter === "error") return /error|failed|失败|错误/i.test(compactSearchText(node));
   return false;
 }
@@ -1805,8 +1837,26 @@ function compactTurnSearchText(turn) {
   const parts = [
     turn.id,
     turn.status,
-    ...(turn.userMessages || []).map((message) => message.text),
-    ...compactAssistantMessages(turn).map((message) => message.text),
+    ...(turn.userMessages || []).flatMap((message) => compactMessageSearchParts(message)),
+    ...compactAssistantMessages(turn).flatMap((message) => compactMessageSearchParts(message)),
+    ...compactEventsForTurn(turn).flatMap((event) => [
+      event.eventType,
+      event.text,
+      event.compact?.kind,
+      event.compact?.phase,
+      event.compact?.windowNumber,
+      event.compact?.windowId,
+      event.compact?.previousWindowId,
+      event.compact?.firstWindowId,
+      ...(event.compact?.replacementHistoryPreview || []).flatMap((entry) => [
+        entry.type,
+        entry.role,
+        entry.name,
+        entry.turnId,
+        entry.messageId,
+        entry.preview,
+      ]),
+    ]),
     ...(turn.children || []).map(compactSearchText),
   ];
   return parts.filter(Boolean).join(" ").toLowerCase();
@@ -1978,6 +2028,13 @@ function scrollToCompactTarget(targetId) {
   }, 80);
 }
 
+function scrollToCompactEvent(sourceIndex) {
+  if (sourceIndex == null || sourceIndex === "") return;
+  const target = els.compactContent.querySelector(`[data-compact-source-index="${cssEscape(String(sourceIndex))}"]`);
+  if (!target) return;
+  scrollToCompactTarget(target.id);
+}
+
 function renderCompactThread(node, context) {
   const session = node.session || {};
   const depth = Math.min(context.depth ?? 0, 6);
@@ -2064,6 +2121,9 @@ function renderCompactTurn(turn, context) {
   const assistant = assistantMessages.length
     ? assistantMessages.map((message, index) => renderCompactMessage("assistant", compactAssistantMessageLabel(message, index, assistantMessages.length), message, context.query)).join("")
     : `<div class="compact-missing">本轮没有助手消息。</div>`;
+  const compactEvents = compactEventsForTurn(turn)
+    .map((event, index) => renderCompactContextEvent(event, context.query, `${path}-compact-${index}`))
+    .join("");
   const children = (turn.children || [])
     .map((child, index) =>
       renderCompactThread(child, { depth: context.depth + 1, path: `${path}-child-${index}`, query: context.query }),
@@ -2079,9 +2139,14 @@ function renderCompactTurn(turn, context) {
         ${users}
         ${assistant}
       </div>
+      ${compactEvents ? `<div class="compact-system-group">${compactEvents}</div>` : ""}
       ${children ? `<div class="compact-child-group">${children}</div>` : ""}
     </section>
   `;
+}
+
+function compactEventsForTurn(turn) {
+  return Array.isArray(turn?.compactEvents) ? turn.compactEvents : (turn?.items || []).filter((item) => item.type === "context-compact");
 }
 
 function compactAssistantMessages(turn) {
@@ -2122,6 +2187,34 @@ function renderContextUsageBadge(usage) {
   return `<strong class="context-usage-badge level-${escapeAttr(level)}" title="${escapeAttr(detail || label)}">${escapeHtml(label)}</strong>`;
 }
 
+function renderCompressionRefBadge(refs = []) {
+  const valid = Array.isArray(refs) ? refs.filter(Boolean) : [];
+  if (!valid.length) return "";
+  const first = valid[0];
+  const label =
+    valid.length > 1
+      ? `压缩 ${valid.length} 次`
+      : first.compactTurnNumber
+        ? `压缩到 T${first.compactTurnNumber}`
+        : "后续压缩";
+  const suffix = first.eventIndex != null ? ` · #${first.eventIndex}` : "";
+  const detail = [
+    first.compactTurnNumber ? `压缩发生在 Turn ${first.compactTurnNumber}` : "",
+    first.eventIndex != null ? `event #${first.eventIndex}` : "",
+    first.replacementIndex != null ? `replacement #${first.replacementIndex}` : "",
+    first.windowNumber != null ? `window ${first.windowNumber}` : "",
+    formatDate(first.timestamp),
+    first.summaryPreview,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const content = `${label}${suffix}`;
+  if (first.eventIndex != null) {
+    return `<button class="compression-ref-badge" type="button" title="${escapeAttr(detail || content)}" data-compact-ref-event-index="${escapeAttr(String(first.eventIndex))}">${escapeHtml(content)}</button>`;
+  }
+  return `<strong class="compression-ref-badge" title="${escapeAttr(detail || content)}">${escapeHtml(content)}</strong>`;
+}
+
 function renderCompactMessage(kind, label, message, query) {
   const meta = [formatDate(message.timestamp), message.phase, message.truncated ? `已截断 ${compactNumber(message.textLength || 0)} 字符` : ""]
     .filter(Boolean)
@@ -2131,11 +2224,204 @@ function renderCompactMessage(kind, label, message, query) {
       <div class="compact-message-label">
         <span class="compact-message-role">${escapeHtml(label)}</span>
         ${renderContextUsageBadge(message.contextUsage)}
+        ${renderCompressionRefBadge(message.compressionRefs)}
         <em>${escapeHtml(meta)}</em>
       </div>
       ${renderMarkdownMessage(message.text || "", query)}
     </section>
   `;
+}
+
+function compactMessageSearchParts(message = {}) {
+  return [
+    message.text,
+    ...(message.compressionRefs || []).flatMap((ref) => [
+      ref.compactTurnNumber != null ? `压缩到 Turn ${ref.compactTurnNumber}` : "",
+      ref.eventIndex != null ? `event #${ref.eventIndex}` : "",
+      ref.replacementIndex != null ? `replacement #${ref.replacementIndex}` : "",
+      ref.summaryPreview,
+    ]),
+  ];
+}
+
+function renderCompactContextEvent(event, query, path) {
+  const compact = event.compact || {};
+  const eventPath = path || `event-${event.sourceIndex ?? event.id ?? "compact"}`;
+  const targetId = compactElementId("event", eventPath);
+  const sourceAttr = event.sourceIndex != null ? ` data-compact-source-index="${escapeAttr(String(event.sourceIndex))}"` : "";
+  const isSummary = compact.kind === "compacted" || event.eventType === "compacted";
+  const label = isSummary ? "上下文压缩摘要" : "上下文压缩完成";
+  const meta = [
+    formatDate(event.timestamp),
+    compact.windowNumber != null ? `window ${compact.windowNumber}` : "",
+    compact.replacementHistoryCount ? `替换历史 ${compact.replacementHistoryCount}` : "",
+    event.truncated ? `已截断 ${compactNumber(event.textLength || 0)} 字符` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const rawButton =
+    event.sourceIndex != null
+      ? `<button class="ghost-button small" type="button" data-compact-event-index="${escapeAttr(String(event.sourceIndex))}">查看 Raw</button>`
+      : "";
+  const body = event.text
+    ? renderMarkdownMessage(event.text, query)
+    : `<div class="compact-missing">压缩完成事件没有携带摘要正文；摘要正文通常在相邻的 compacted 事件里。</div>`;
+  return `
+    <section class="compact-context-event phase-${escapeAttr(compact.phase || "event")}" id="${escapeAttr(targetId)}" tabindex="-1"${sourceAttr}>
+      <div class="compact-context-head">
+        <span class="compact-context-icon" aria-hidden="true">C</span>
+        <span class="compact-context-title">
+          <strong>${escapeHtml(label)}</strong>
+          <em>${escapeHtml(meta)}</em>
+        </span>
+        ${rawButton}
+      </div>
+      ${renderCompactContextMeta(compact)}
+      <div class="compact-context-body">${body}</div>
+      ${renderCompactReplacementHistory(compact, query, "compact")}
+    </section>
+  `;
+}
+
+function renderCompactContextMeta(compact = {}) {
+  const rows = [
+    ["当前窗口", compact.windowId],
+    ["上一窗口", compact.previousWindowId],
+    ["首个窗口", compact.firstWindowId],
+  ].filter(([, value]) => value);
+  if (!rows.length) return "";
+  return `<div class="compact-context-meta">${rows
+    .map(([label, value]) => `<span><strong>${escapeHtml(label)}</strong>${escapeHtml(String(value))}</span>`)
+    .join("")}</div>`;
+}
+
+function renderCompactReplacementHistory(compact = {}, query = "", variant = "compact") {
+  const preview = Array.isArray(compact.replacementHistoryPreview) ? compact.replacementHistoryPreview : [];
+  const total = Number.isFinite(Number(compact.replacementHistoryCount)) ? Number(compact.replacementHistoryCount) : preview.length;
+  if (!preview.length) {
+    return total
+      ? `<div class="compact-replacement-empty ${escapeAttr(variant)}">替换历史包含 ${escapeHtml(String(total))} 条记录；当前接口未提供可展示预览，可在 Raw JSON 中查看完整 payload。</div>`
+      : "";
+  }
+  const more = Math.max(0, total - preview.length);
+  const countLabel = `${preview.length}${more ? ` / ${total}` : ""}`;
+  const coverage = compactReplacementCoverageSummary(compact, preview, total);
+  return `
+    <details class="compact-replacement ${escapeAttr(variant)}" open>
+      <summary>
+        <span>被替换的对话</span>
+        <strong>${escapeHtml(countLabel)}</strong>
+        ${compact.replacementHistoryPreviewTruncated || more ? `<em>还有 ${escapeHtml(String(more))} 条在 Raw JSON</em>` : ""}
+      </summary>
+      ${coverage ? `<div class="compact-replacement-coverage">${coverage.map((item) => `<span><strong>${escapeHtml(item.value)}</strong>${escapeHtml(item.label)}</span>`).join("")}</div>` : ""}
+      <div class="compact-replacement-list">
+        ${preview.map((entry) => renderCompactReplacementEntry(entry, query)).join("")}
+      </div>
+    </details>
+  `;
+}
+
+function compactReplacementCoverageSummary(compact = {}, preview = [], total = preview.length) {
+  if (!preview.length) return [];
+  const roles = compact.replacementRoleCounts || roleCountsFromReplacementPreview(preview);
+  const roleLabel = Object.entries(roles)
+    .sort((left, right) => right[1] - left[1])
+    .map(([role, count]) => `${compactReplacementRoleLabel(role)} ${count}`)
+    .join(" / ");
+  const turnNumbers = Array.isArray(compact.replacementTurnNumbers)
+    ? compact.replacementTurnNumbers
+    : [
+        ...new Set(
+          preview
+            .map((entry) => entry.turnNumber)
+            .filter((value) => Number.isInteger(value)),
+        ),
+      ].sort((left, right) => left - right);
+  const turnLabel = compactReplacementTurnRangeLabel(turnNumbers);
+  const longest = preview.reduce((current, entry) => (Number(entry.textLength || 0) > Number(current?.textLength || 0) ? entry : current), preview[0]);
+  const rows = [
+    turnLabel ? { label: "覆盖范围", value: turnLabel } : null,
+    roleLabel ? { label: "角色构成", value: roleLabel } : null,
+    total ? { label: "替换条目", value: String(total) } : null,
+    longest?.textLength ? { label: "最长条目", value: `#${longest.index ?? "?"} · ${compactNumber(longest.textLength)} 字符` } : null,
+  ].filter(Boolean);
+  return rows;
+}
+
+function roleCountsFromReplacementPreview(preview = []) {
+  const counts = {};
+  for (const entry of preview) {
+    const key = entry.role || entry.type || "item";
+    counts[key] = (counts[key] || 0) + 1;
+  }
+  return counts;
+}
+
+function compactReplacementTurnRangeLabel(turnNumbers = []) {
+  if (!turnNumbers.length) return "";
+  if (turnNumbers.length === 1) return `Turn ${turnNumbers[0]}`;
+  const ranges = [];
+  let start = turnNumbers[0];
+  let previous = turnNumbers[0];
+  for (const value of turnNumbers.slice(1)) {
+    if (value === previous + 1) {
+      previous = value;
+      continue;
+    }
+    ranges.push(start === previous ? `Turn ${start}` : `Turn ${start}-${previous}`);
+    start = value;
+    previous = value;
+  }
+  ranges.push(start === previous ? `Turn ${start}` : `Turn ${start}-${previous}`);
+  return ranges.join(", ");
+}
+
+function renderCompactReplacementEntry(entry = {}, query = "") {
+  const role = String(entry.role || "unknown").toLowerCase();
+  const roleLabel = compactReplacementRoleLabel(entry.role);
+  const turnLabel = Number.isInteger(entry.turnNumber) ? `Turn ${entry.turnNumber}` : "";
+  const typeLabel = [entry.type, ...(entry.contentKinds || [])].filter(Boolean).join(" / ");
+  const meta = [
+    entry.textLength != null ? `${compactNumber(entry.textLength)} 字符` : "",
+    typeLabel,
+    entry.truncated ? "已截断" : "",
+    entry.turnId ? `turn ${compactReplacementShortId(entry.turnId)}` : "",
+    entry.messageId ? `msg ${compactReplacementShortId(entry.messageId)}` : "",
+    formatDate(entry.timestamp),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const preview = entry.preview || "[无文本内容]";
+  const context = [turnLabel, entry.turnStatus, formatDate(entry.turnStartedAt)].filter(Boolean).join(" · ");
+  const assistantPreview = entry.assistantPreview && entry.assistantPreview !== preview ? entry.assistantPreview : "";
+  return `
+    <div class="compact-replacement-row role-${escapeAttr(role)}">
+      <span class="compact-replacement-index">#${escapeHtml(String(entry.index ?? ""))}</span>
+      <span class="compact-replacement-role">${escapeHtml(roleLabel)}</span>
+      <span class="compact-replacement-copy">
+        ${context ? `<strong>${escapeHtml(context)}</strong>` : ""}
+        <em>${highlight(escapeHtml(preview), query)}</em>
+      </span>
+      <span class="compact-replacement-meta">${escapeHtml(meta)}</span>
+      ${assistantPreview ? `<span class="compact-replacement-outcome"><strong>最后回复</strong>${highlight(escapeHtml(assistantPreview), query)}</span>` : ""}
+    </div>
+  `;
+}
+
+function compactReplacementRoleLabel(role) {
+  const value = String(role || "").toLowerCase();
+  if (value === "user") return "User";
+  if (value === "assistant") return "Assistant";
+  if (value === "system") return "System";
+  if (value === "developer") return "Developer";
+  if (value === "tool") return "Tool";
+  return role ? String(role) : "Item";
+}
+
+function compactReplacementShortId(value) {
+  const text = String(value || "");
+  if (text.length <= 18) return text;
+  return `${text.slice(0, 8)}…${text.slice(-6)}`;
 }
 
 function renderTerminal() {
@@ -2261,6 +2547,7 @@ function terminalRoleForItem(item) {
 function terminalTextForItem(item) {
   if (item.type === "user-message" || item.type === "assistant-message") return item.text || "";
   if (item.type === "reasoning") return item.text || (item.encrypted ? "推理内容已加密存储，当前没有可展示的明文摘要。" : "");
+  if (item.type === "context-compact") return item.text || item.compact?.message || item.payloadPreview || "";
   if (item.type === "token-count") return JSON.stringify(item.info || {}, null, 2);
   if (item.type === "tool-call") {
     const args = item.arguments == null ? "" : prettyMaybeJson(item.arguments);
@@ -2282,6 +2569,7 @@ function terminalBlockMatches(block, query, typeFilter) {
   if (typeFilter === "tool") return block.role === "tool" || block.role === "output";
   if (typeFilter === "output") return block.role === "output" || (block.role === "tool" && block.item?.output);
   if (typeFilter === "reasoning") return block.item?.type === "reasoning";
+  if (typeFilter === "compact") return block.item?.type === "context-compact";
   if (typeFilter === "system") return block.role === "meta";
   if (typeFilter === "error") return block.role === "error";
   return true;
@@ -3901,11 +4189,12 @@ function renderRawView() {
               : ""
           }
         </div>
-        <div class="raw-view-preview">
+        <div class="raw-view-preview${selected && isCompactEvent(selected) ? " has-insight" : ""}">
           <div class="raw-preview-title">
             <strong>${escapeHtml(selected ? `#${selected.index} ${humanEventTitle(selected)}` : "事件摘要")}</strong>
             <span>${escapeHtml(selected ? selected.kind || "" : "Pretty JSON")}</span>
           </div>
+          ${selected ? renderRawEventInsight(selected, query) : ""}
           <pre class="raw-preview">${escapeHtml(JSON.stringify(selected || detailSummaryForRaw(detail), null, 2))}</pre>
         </div>
       </div>
@@ -3930,7 +4219,8 @@ function rawEventMatches(event, query, typeFilter) {
   if (typeFilter === "tool") return /tool|call|function|mcp|patch/i.test([event.kind, event.type, event.payloadType].filter(Boolean).join(" "));
   if (typeFilter === "output") return /output|result/i.test([event.kind, event.type, event.payloadType, event.title].filter(Boolean).join(" "));
   if (typeFilter === "reasoning") return /reasoning/i.test([event.kind, event.type, event.payloadType].filter(Boolean).join(" "));
-  if (typeFilter === "system") return event.kind === "system" || event.kind === "token_count" || event.kind === "session_meta";
+  if (typeFilter === "compact") return isCompactEvent(event);
+  if (typeFilter === "system") return event.kind === "system" || event.kind === "token_count" || event.kind === "session_meta" || isCompactEvent(event);
   if (typeFilter === "error") return /error|failed|失败|错误/i.test(JSON.stringify(event));
   return true;
 }
@@ -3944,13 +4234,51 @@ function selectedRawViewEvent(shown, events) {
 
 function renderRawViewEventRow(event) {
   const active = event.index === state.selectedEventIndex ? " active" : "";
+  const compact = isCompactEvent(event) ? " compact-event" : "";
   return `
-    <button class="raw-view-row${active}" type="button" data-raw-event-index="${event.index}">
+    <button class="raw-view-row${active}${compact}" type="button" data-raw-event-index="${event.index}">
       <span class="raw-view-kind">${escapeHtml(event.kind || event.type || "event")}</span>
       <strong>${escapeHtml(`event #${event.index} ${humanEventTitle(event)}`)}</strong>
       <em>${escapeHtml(formatDate(event.timestamp) || event.payloadType || "")}</em>
       <span>${escapeHtml(firstLine(event.preview || "", 140))}</span>
     </button>
+  `;
+}
+
+function isCompactEvent(event) {
+  return Boolean(event?.compact || event?.kind === "compacted" || event?.kind === "context_compacted" || event?.type === "compacted" || event?.payloadType === "context_compacted");
+}
+
+function renderRawEventInsight(event, query = "") {
+  if (!isCompactEvent(event)) return "";
+  const compact = event.compact || {};
+  const isSummary = compact.kind === "compacted" || event.kind === "compacted";
+  const title = isSummary ? "写入下一窗口的替换摘要" : "压缩完成标记";
+  const metrics = [
+    compact.windowNumber != null ? ["Window", compact.windowNumber] : null,
+    compact.messageLength ? ["摘要字符", compactNumber(compact.messageLength)] : null,
+    compact.replacementHistoryCount ? ["替换历史", compact.replacementHistoryCount] : null,
+  ].filter(Boolean);
+  const ids = [
+    ["当前", compact.windowId],
+    ["上一窗口", compact.previousWindowId],
+    ["首个窗口", compact.firstWindowId],
+  ].filter(([, value]) => value);
+  const body = compact.message || event.preview || "";
+  return `
+    <section class="raw-compact-insight">
+      <div class="raw-compact-head">
+        <span class="raw-compact-icon">C</span>
+        <div>
+          <strong>${escapeHtml(title)}</strong>
+          <em>${escapeHtml([formatDate(event.timestamp), compact.phase].filter(Boolean).join(" · "))}</em>
+        </div>
+      </div>
+      ${metrics.length ? `<div class="raw-compact-metrics">${metrics.map(([label, value]) => `<span><strong>${escapeHtml(String(value))}</strong>${escapeHtml(label)}</span>`).join("")}</div>` : ""}
+      ${ids.length ? `<div class="raw-compact-ids">${ids.map(([label, value]) => `<span><strong>${escapeHtml(label)}</strong>${escapeHtml(String(value))}</span>`).join("")}</div>` : ""}
+      <div class="raw-compact-body">${body ? renderMarkdownMessage(body, query) : `<p>该事件没有携带摘要正文；相邻 compacted 事件通常保存压缩结果。</p>`}</div>
+      ${renderCompactReplacementHistory(compact, query, "raw")}
+    </section>
   `;
 }
 
@@ -4108,7 +4436,8 @@ function itemMatches(item, query, typeFilter) {
   if (typeFilter === "tool") return item.type === "tool-call" || item.type === "response-item";
   if (typeFilter === "output") return item.type === "tool-output" || (item.type === "tool-call" && item.output);
   if (typeFilter === "reasoning") return item.type === "reasoning";
-  if (typeFilter === "system") return item.type === "event" || item.type === "token-count";
+  if (typeFilter === "compact") return item.type === "context-compact";
+  if (typeFilter === "system") return item.type === "event" || item.type === "token-count" || item.type === "context-compact";
   if (typeFilter === "error") return /error|failed|失败|错误/i.test(haystack);
   return true;
 }
@@ -4153,6 +4482,13 @@ function renderItem(item, query) {
 function renderItemContent(item, query) {
   if (item.type === "user-message" || item.type === "assistant-message") {
     return renderMarkdownMessage(item.text, query);
+  }
+  if (item.type === "context-compact") {
+    return `
+      ${renderCompactContextMeta(item.compact || {})}
+      ${item.text ? renderMarkdownMessage(item.text, query) : `<div class="compact-missing">压缩完成事件没有携带摘要正文。</div>`}
+      ${renderTruncationNotice(item, ["text", "payload"])}
+    `;
   }
   if (item.type === "reasoning") {
     const text = item.text || (item.encrypted ? "推理内容已加密存储，当前没有可展示的明文摘要。" : "无摘要。");
@@ -4861,28 +5197,74 @@ function buildRawEventReviewContext(event) {
   const linkedItems = itemsForEventIndex(event.index);
   const linkedAuditNodes = auditNodesForEventIndex(event.index);
   const readable = readableRawEvent(event);
+  const compactEvidence = compactReplacementReviewEvidence(event);
+  const rows = [
+    ["事件", `event #${event.index}`],
+    ["分类", event.kind || "n/a"],
+    ["类型", [event.type, event.payloadType, event.role].filter(Boolean).join(" / ") || "n/a"],
+    ["时间", formatDate(event.timestamp) || "n/a"],
+    ["Payload", event.payloadSize ? formatBytes(event.payloadSize) : "n/a"],
+    ...compactReviewRows(event),
+  ];
+  const summary = isCompactEvent(event) ? readable.body || readable.summary || event.preview : readable.summary || event.preview || "Raw 事件没有预览正文。";
   return reviewContextBase({
     kind: "raw_event",
     kindLabel: "Raw event",
     title: `#${event.index} ${readable.title || humanEventTitle(event)}`,
     riskLevel: rawEventRiskLevel(event, linkedAuditNodes),
     badges: [event.kind || event.type || "event", formatDate(event.timestamp) || "", event.payloadSize ? formatBytes(event.payloadSize) : ""].filter(Boolean),
-    summary: readable.summary || event.preview || "Raw 事件没有预览正文。",
+    summary,
     changeSet: readable.changeSet,
-    rows: [
-      ["事件", `event #${event.index}`],
-      ["分类", event.kind || "n/a"],
-      ["类型", [event.type, event.payloadType, event.role].filter(Boolean).join(" / ") || "n/a"],
-      ["时间", formatDate(event.timestamp) || "n/a"],
-      ["Payload", event.payloadSize ? formatBytes(event.payloadSize) : "n/a"],
-    ],
-    metrics: { events: 1, evidence: linkedAuditNodes.length, relations: linkedItems.length + linkedAuditNodes.length },
-    evidence: [reviewEvidenceFromEvent(event, "事件预览"), ...linkedAuditNodes.slice(0, 8).map(reviewEvidenceFromAuditNode)],
+    rows,
+    metrics: { events: 1, evidence: linkedAuditNodes.length + compactEvidence.length, relations: linkedItems.length + linkedAuditNodes.length },
+    evidence: [reviewEvidenceFromEvent(event, "事件预览"), ...compactEvidence, ...linkedAuditNodes.slice(0, 8).map(reviewEvidenceFromAuditNode)],
     relations: [...linkedItems.slice(0, 10).map((item) => reviewRelationFromItem(item, "关联项")), ...linkedAuditNodes.slice(0, 10).map((node) => reviewRelationFromAuditNode(node, "Audit"))],
     sources: [{ label: "完整 Raw event", value: `event #${event.index}`, eventIndex: event.index, data: event, lazy: true }],
     actions: rawEventSelectionActions(event),
     debugData: event,
   });
+}
+
+function compactReviewRows(event) {
+  const compact = event?.compact;
+  if (!compact) return [];
+  return [
+    ["Compact 阶段", compact.phase || "n/a"],
+    ["Window", compact.windowNumber == null ? "n/a" : String(compact.windowNumber)],
+    ["替换历史", compact.replacementHistoryCount == null ? "n/a" : String(compact.replacementHistoryCount)],
+    ["当前窗口", compact.windowId || "n/a"],
+    ["上一窗口", compact.previousWindowId || "n/a"],
+  ];
+}
+
+function compactReplacementReviewEvidence(event) {
+  const compact = event?.compact;
+  const preview = Array.isArray(compact?.replacementHistoryPreview) ? compact.replacementHistoryPreview : [];
+  if (!preview.length) return [];
+  const total = compact.replacementHistoryCount ?? preview.length;
+  const more = Math.max(0, total - preview.length);
+  return [
+    {
+      kind: "Compact",
+      title: `被替换的对话 (${preview.length}${more ? ` / ${total}` : ""})`,
+      meta: [compact.windowNumber != null ? `window ${compact.windowNumber}` : "", more ? `还有 ${more} 条在 Raw JSON` : ""].filter(Boolean).join(" · "),
+      body: preview.map(compactReplacementReviewLine).join("\n"),
+      action: "open-raw-event",
+      index: event.index,
+      actionLabel: "打开 Raw",
+    },
+  ];
+}
+
+function compactReplacementReviewLine(entry = {}) {
+  const meta = [
+    entry.textLength != null ? `${compactNumber(entry.textLength)} 字符` : "",
+    entry.turnId ? `turn ${compactReplacementShortId(entry.turnId)}` : "",
+    entry.type,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return `#${entry.index ?? ""} ${compactReplacementRoleLabel(entry.role)}${meta ? ` · ${meta}` : ""}\n${entry.preview || "[无文本内容]"}`;
 }
 
 function renderReviewHeader(context) {
@@ -5800,10 +6182,32 @@ function readableAuditNode(node, item = node?.itemRef ? findItemByRef(node.itemR
 }
 
 function readableRawEvent(event) {
+  if (isCompactEvent(event)) return readableCompactEvent(event);
   if (!event || !window.ToolSummary) {
     return { matched: false, title: humanEventTitle(event), summary: event?.preview || "", body: event?.preview || "", command: "" };
   }
   return window.ToolSummary.summarizeRawEvent(event, summaryRuleOptions());
+}
+
+function readableCompactEvent(event) {
+  const compact = event?.compact || {};
+  const isSummary = compact.kind === "compacted" || event?.kind === "compacted";
+  const title = isSummary ? "上下文压缩摘要" : "上下文压缩完成";
+  const meta = [
+    compact.windowNumber != null ? `window ${compact.windowNumber}` : "",
+    compact.replacementHistoryCount ? `替换历史 ${compact.replacementHistoryCount}` : "",
+    compact.messageLength ? `${compactNumber(compact.messageLength)} 字符` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const summary = compact.message || event?.preview || (isSummary ? "已生成上下文替换摘要。" : "上下文压缩完成。");
+  return {
+    matched: true,
+    title,
+    summary: firstLine([meta, summary].filter(Boolean).join("："), 300),
+    body: summary,
+    command: "",
+  };
 }
 
 function readableExecutionRow(row) {
@@ -5836,6 +6240,7 @@ function itemTitle(item) {
   }
   if (item.type === "reasoning") return "推理摘要";
   if (item.type === "token-count") return "Token 统计";
+  if (item.type === "context-compact") return item.compact?.kind === "context_compacted" ? "上下文压缩完成" : "上下文压缩摘要";
   return item.eventType || item.responseType || item.type;
 }
 
@@ -5871,6 +6276,7 @@ function itemIcon(item) {
   if (item.type === "tool-output") return "$";
   if (item.type === "reasoning") return "R";
   if (item.type === "token-count") return "#";
+  if (item.type === "context-compact") return "C";
   return "i";
 }
 
@@ -5912,6 +6318,7 @@ function eventForItem(item, byIndex) {
 
 function isHighValueInspectorItem(item) {
   if (!item) return false;
+  if (item.type === "context-compact") return true;
   if (item.status && /error|fail|failed|失败|错误/i.test(item.status)) return true;
   if (item.type !== "tool-call") {
     return /error|fail|failed|失败|错误/i.test([item.eventType, item.responseType, item.phase, item.status].filter(Boolean).join(" "));
@@ -5922,6 +6329,7 @@ function isHighValueInspectorItem(item) {
 
 function isHighValueRawEvent(event) {
   const label = `${event.kind || ""}\n${event.title || ""}\n${event.payloadType || ""}`;
+  if (isCompactEvent(event)) return true;
   if (/error|fail|failed|失败|错误/i.test(label)) return true;
   if (/spawn_agent|wait_agent|subagent/i.test(label)) return true;
   return false;
@@ -5983,6 +6391,7 @@ function humanEventTitle(event) {
   if (kind === "function_call" || kind === "custom_tool_call") return event.title || "工具调用";
   if (kind === "tool_output") return "工具输出";
   if (kind === "token_count" || event.payloadType === "token_count") return "Token 统计";
+  if (isCompactEvent(event)) return event.compact?.kind === "context_compacted" ? "上下文压缩完成" : "上下文压缩摘要";
   if (/spawn_agent/i.test(event.preview || event.title || "")) return "启动子代理";
   if (/wait_agent/i.test(event.preview || event.title || "")) return "等待子代理";
   return event.title || kind;

@@ -92,6 +92,7 @@ function compactItemForClient(item, turnIndex, itemIndex, options = {}) {
     base.reasoning = item.reasoning;
     if (item.reasoning.encrypted) base.encrypted = true;
   }
+  if (item.compact) base.compact = item.compact;
   if (item.attachments?.length) base.attachments = item.attachments;
   const info = compactTraceInfo(item.info);
   if (info) base.info = info;
@@ -123,19 +124,26 @@ function compactItemForClient(item, turnIndex, itemIndex, options = {}) {
   return base;
 }
 
-function compactTurnForView(turn, turnIndex, children) {
+function compactTurnForView(turn, turnIndex, children, context = {}) {
+  const turnLookup = context.turnLookup || compactReplacementTurnLookup(context.turns);
+  const compressionRefsByTurnId = context.compressionRefsByTurnId || compactCompressionRefsByTurnId(context.turns);
+  const compressionRefs = turn?.id ? compressionRefsByTurnId.get(turn.id) || [] : [];
   const userMessages = turn.items
     .filter((item) => item.type === "user-message" && normalizeText(item.text))
-    .map(compactUserMessageForView)
+    .map((item) => compactUserMessageForView(item, { compressionRefs }))
     .filter(Boolean);
   const assistantMessages = turn.items
     .map((item, itemIndex) =>
       item.type === "assistant-message" && normalizeText(item.text)
-        ? compactMessageForView(item, { contextUsage: contextUsageForAssistantMessage(turn.items, itemIndex) })
+        ? compactMessageForView(item, { contextUsage: contextUsageForAssistantMessage(turn.items, itemIndex), compressionRefs })
         : null,
     )
     .filter(Boolean);
   const assistant = assistantMessages.at(-1) || null;
+  const compactEvents = turn.items
+    .filter((item) => item.type === "context-compact")
+    .map((item) => compactContextEventForView(item, { turnLookup }))
+    .filter(Boolean);
   return {
     id: turn.id,
     turnNumber: turnIndex + 1,
@@ -145,14 +153,15 @@ function compactTurnForView(turn, turnIndex, children) {
     userMessages,
     assistantMessages,
     assistantMessage: assistant,
+    compactEvents,
     children,
   };
 }
 
-function compactUserMessageForView(item) {
+function compactUserMessageForView(item, options = {}) {
   const text = cleanCompactUserText(item.text);
   if (!isUsefulCompactUserText(text)) return null;
-  return compactMessageForView({ ...item, text });
+  return compactMessageForView({ ...item, text }, options);
 }
 
 function compactMessageForView(item, options = {}) {
@@ -168,7 +177,111 @@ function compactMessageForView(item, options = {}) {
     truncated: limited.truncated,
   };
   if (options.contextUsage) message.contextUsage = options.contextUsage;
+  if (options.compressionRefs?.length) message.compressionRefs = options.compressionRefs;
   return message;
+}
+
+function compactContextEventForView(item, context = {}) {
+  const compact = item.compact || {};
+  const text = item.text || compact.message || "";
+  const limited = limitText(text, previewLimits.subagentNotification);
+  return {
+    id: item.id,
+    type: item.type,
+    timestamp: item.timestamp || null,
+    eventType: item.eventType || compact.kind || null,
+    sourceIndex: item.sourceIndex ?? null,
+    text: limited.text,
+    textLength: limited.originalLength,
+    truncated: limited.truncated,
+    compact: compactForView(compact, context),
+  };
+}
+
+function compactForView(compact, context = {}) {
+  const replacementHistoryPreview = Array.isArray(compact.replacementHistoryPreview)
+    ? compact.replacementHistoryPreview.map((entry) => compactReplacementEntryForView(entry, context.turnLookup))
+    : [];
+  const roleCounts = compactReplacementRoleCounts(replacementHistoryPreview);
+  const turnNumbers = [
+    ...new Set(
+      replacementHistoryPreview
+        .map((entry) => entry.turnNumber)
+        .filter((value) => Number.isInteger(value)),
+    ),
+  ].sort((left, right) => left - right);
+  return {
+    ...compact,
+    message: undefined,
+    replacementHistoryPreview,
+    replacementRoleCounts: roleCounts,
+    replacementTurnNumbers: turnNumbers,
+  };
+}
+
+function compactReplacementTurnLookup(turns = []) {
+  const lookup = new Map();
+  for (const [index, turn] of (turns || []).entries()) {
+    if (!turn?.id) continue;
+    const user = (turn.items || []).find((item) => item.type === "user-message" && normalizeText(item.text));
+    const assistant = [...(turn.items || [])].reverse().find((item) => item.type === "assistant-message" && normalizeText(item.text));
+    lookup.set(turn.id, {
+      turnNumber: index + 1,
+      turnStatus: turn.status || null,
+      turnStartedAt: turn.startedAt || null,
+      turnCompletedAt: turn.completedAt || null,
+      userPreview: user ? firstLine(cleanCompactUserText(user.text || ""), 160) : "",
+      assistantPreview: assistant ? firstLine(assistant.text || "", 160) : "",
+    });
+  }
+  return lookup;
+}
+
+function compactReplacementEntryForView(entry, turnLookup) {
+  if (!entry || !turnLookup || !entry.turnId) return entry;
+  const turn = turnLookup.get(entry.turnId);
+  if (!turn) return entry;
+  return {
+    ...entry,
+    ...turn,
+  };
+}
+
+function compactReplacementRoleCounts(preview) {
+  const counts = {};
+  for (const entry of preview || []) {
+    const key = entry?.role || entry?.type || "item";
+    counts[key] = (counts[key] || 0) + 1;
+  }
+  return counts;
+}
+
+function compactCompressionRefsByTurnId(turns = []) {
+  const refs = new Map();
+  for (const [compactTurnIndex, turn] of (turns || []).entries()) {
+    for (const item of turn?.items || []) {
+      const preview = item.compact?.replacementHistoryPreview;
+      if (item.type !== "context-compact" || !Array.isArray(preview) || preview.length === 0) continue;
+      for (const entry of preview) {
+        if (!entry?.turnId) continue;
+        const ref = {
+          compactTurnNumber: compactTurnIndex + 1,
+          eventIndex: item.sourceIndex ?? null,
+          eventType: item.eventType || item.compact?.kind || null,
+          replacementIndex: entry.index ?? null,
+          windowNumber: item.compact?.windowNumber ?? null,
+          timestamp: item.timestamp || null,
+          summaryPreview: firstLine(item.text || item.compact?.message || "", 140),
+        };
+        const existing = refs.get(entry.turnId) || [];
+        if (!existing.some((candidate) => candidate.eventIndex === ref.eventIndex && candidate.replacementIndex === ref.replacementIndex)) {
+          existing.push(ref);
+        }
+        refs.set(entry.turnId, existing);
+      }
+    }
+  }
+  return refs;
 }
 
 function contextUsageForAssistantMessage(items = [], assistantIndex) {
@@ -1124,6 +1237,7 @@ function buildTurns(events) {
       continue;
     }
     if (!current && payload.type === "turn_aborted") ensureTurn(event);
+    if (!current && event.compact) ensureTurn(event);
     if (!current && shouldStartImplicitTurn(event)) ensureTurn(event);
     if (!current) continue;
 
@@ -1227,6 +1341,20 @@ function buildTurns(events) {
       continue;
     }
 
+    if (event.compact) {
+      current.items.push({
+        id: `item-${current.items.length}`,
+        type: "context-compact",
+        sourceIndex,
+        timestamp: event.timestamp,
+        eventType: event.kind,
+        text: event.compact.message || event.text || "",
+        compact: event.compact,
+        payload,
+      });
+      continue;
+    }
+
     current.items.push({
       id: `item-${current.items.length}`,
       type: event.rawType === "response_item" ? "response-item" : "event",
@@ -1246,7 +1374,7 @@ function buildTurns(events) {
 
 function shouldStartImplicitTurn(event) {
   const payloadType = event.payload?.type;
-  return event.rawType === "event_msg" || event.rawType === "response_item" || payloadType === "user_message" || payloadType === "turn_aborted" || event.semanticKind === "message" || event.semanticKind === "tool_call" || event.semanticKind === "tool_result" || event.semanticKind === "diagnostic";
+  return event.rawType === "event_msg" || event.rawType === "response_item" || payloadType === "user_message" || payloadType === "turn_aborted" || event.compact || event.semanticKind === "message" || event.semanticKind === "tool_call" || event.semanticKind === "tool_result" || event.semanticKind === "diagnostic";
 }
 
 function hasAssistantMessage(turn, text) {

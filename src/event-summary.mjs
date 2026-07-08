@@ -41,6 +41,8 @@ function isImportantEvent(event) {
     "task_complete",
     "task_failed",
     "turn_aborted",
+    "compacted",
+    "context_compacted",
     "jsonl_parse_error",
   ].includes(kind);
 }
@@ -61,6 +63,8 @@ function summarizeSessionEvents(events) {
 function summarizeEventTitle(event) {
   const normalized = normalizeSessionEvent(event);
   if (normalized.semanticKind === "diagnostic") return "JSONL parse error";
+  if (normalized.compact?.kind === "compacted") return "Context compacted";
+  if (normalized.compact?.kind === "context_compacted") return "Context compact complete";
   if (normalized.semanticKind === "tool_call") return `Call ${normalized.toolName || "tool"}`;
   if (normalized.semanticKind === "tool_result") return `Output ${normalized.toolName || normalized.callId || "tool"}`.trim();
   if (normalized.rawType !== "event_msg" && normalized.rawType !== "response_item") {
@@ -88,6 +92,17 @@ function summarizeEventTitle(event) {
 
 function summarizeEventPreview(event) {
   const normalized = normalizeSessionEvent(event);
+  if (normalized.compact?.kind === "compacted") {
+    const prefix = [
+      "压缩摘要",
+      normalized.compact.windowNumber != null ? `window ${normalized.compact.windowNumber}` : "",
+      normalized.compact.replacementHistoryCount ? `${normalized.compact.replacementHistoryCount} 条替换历史` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    return firstLine([prefix, normalized.compact.message].filter(Boolean).join("："), 180);
+  }
+  if (normalized.compact?.kind === "context_compacted") return "上下文压缩完成，后续 turn 将使用 compacted 事件写入的替换摘要。";
   if (normalized.role === "user" || normalized.kind === "user_message") {
     const text = cleanUserMessageText(normalized.text);
     if (text) return firstLine(text, 180);

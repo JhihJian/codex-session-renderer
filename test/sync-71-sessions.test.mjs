@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import { test } from "node:test";
 import {
   makeBatches,
@@ -81,7 +82,7 @@ test("stateFromManifest stores normalized file metadata", () => {
 
 test("parseArgs applies defaults and validates output chunk sizing", () => {
   const options = parseArgs(["--target", "/tmp/dev71", "--limit", "10", "--skip-state-db", "--no-delete"]);
-  assert.equal(options.target, "/tmp/dev71");
+  assert.equal(options.target, path.resolve("/tmp/dev71"));
   assert.equal(options.limit, 10);
   assert.equal(options.includeStateDb, false);
   assert.equal(options.deleteMissing, false);

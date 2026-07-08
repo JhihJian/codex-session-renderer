@@ -187,6 +187,34 @@ test("event query search hides machine-injected user context by default", () => 
   assert.equal(eventMatchesQuery(projectEventForApi(event, 1, userQuery), event, userQuery), true);
 });
 
+test("event query exposes and searches compact metadata", () => {
+  const event = {
+    type: "compacted",
+    timestamp: "2026-07-08T03:24:06.920Z",
+    payload: {
+      message: "压缩摘要：保留关键结论",
+      replacement_history: [
+        {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "原始请求：页面显示被替换对话" }],
+          internal_chat_message_metadata_passthrough: { turn_id: "turn-compact-source" },
+        },
+      ],
+      window_id: "w-2",
+    },
+  };
+  const query = parseSessionEventQuery(new URLSearchParams("kind=compacted&q=被替换对话"));
+  const projected = projectEventForApi(event, 9, query);
+
+  assert.equal(eventMatchesQuery(projected, event, query), true);
+  assert.equal(projected.important, true);
+  assert.equal(projected.compact.windowId, "w-2");
+  assert.equal(projected.compact.replacementHistoryCount, 1);
+  assert.equal(projected.compact.replacementHistoryPreview[0].turnId, "turn-compact-source");
+  assert.match(projected.compact.replacementHistoryPreview[0].preview, /页面显示/);
+});
+
 test("event query supports payload inclusion and cursor aliases", () => {
   const event = {
     type: "event_msg",

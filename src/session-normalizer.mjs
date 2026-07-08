@@ -3,6 +3,8 @@ import { cleanUserMessageText } from "./user-message-cleanup.mjs";
 
 const timeKeys = ["timestamp", "time", "ts", "created", "created_at", "datetime", "date", "event_time", "when", "at"];
 const dataUriPattern = /data:([a-zA-Z0-9.+-]+\/[a-zA-Z0-9.+-]+)?(?:;[^,]*)?,[A-Za-z0-9+/=._~%-]+/g;
+const compactReplacementPreviewLimit = 320;
+const compactReplacementPreviewMaxItems = 30;
 
 function normalizeSessionEvent(rawEvent, index = null) {
   if (rawEvent?.__normalized) return rawEvent;
@@ -18,6 +20,7 @@ function normalizeSessionEvent(rawEvent, index = null) {
   const textParts = extractTextParts(payload, raw);
   const attachments = extractAttachments(payload, raw);
   const reasoning = extractReasoning(payload, raw, semanticKind);
+  const compact = extractCompact(payload, raw, kind);
   const toolName = semanticKind === "tool_call" || semanticKind === "tool_result" ? toolNameFromPayload(payload) : null;
   const toolInput = semanticKind === "tool_call" ? stringifyMaybe(toolArgumentsFromPayload(payload)) : null;
   const toolOutput = semanticKind === "tool_result" ? stringifyMaybe(toolOutputFromPayload(payload)) : null;
@@ -51,6 +54,7 @@ function normalizeSessionEvent(rawEvent, index = null) {
     toolOutput,
     attachments,
     reasoning,
+    compact,
     encrypted: Boolean(reasoning?.encrypted),
     payloadSize: safeJsonLength(raw.payload ?? null),
     rawSize: safeJsonLength(raw),
@@ -86,6 +90,7 @@ function normalizeDiagnosticEvent(rawEvent, index = null) {
     toolOutput: null,
     attachments: [],
     reasoning: null,
+    compact: null,
     encrypted: false,
     payloadSize: safeJsonLength(payload),
     rawSize: safeJsonLength(rawEvent),
@@ -260,6 +265,116 @@ function extractReasoning(payload, raw, semanticKind) {
   };
 }
 
+function extractCompact(payload, raw, kind) {
+  if (kind !== "compacted" && kind !== "context_compacted") return null;
+  const source = isObject(payload) ? payload : {};
+  const fallback = isObject(raw) ? raw : {};
+  const replacementHistory = Array.isArray(source.replacement_history)
+    ? source.replacement_history
+    : Array.isArray(fallback.replacement_history)
+      ? fallback.replacement_history
+      : [];
+  const message = stringOrNull(source.message ?? fallback.message);
+  const replacementHistoryPreview = replacementHistory
+    .slice(0, compactReplacementPreviewMaxItems)
+    .map((entry, index) => compactReplacementHistoryPreview(entry, index))
+    .filter(Boolean);
+  return {
+    kind,
+    phase: kind === "context_compacted" ? "completed" : "summary",
+    message,
+    messageLength: message ? message.length : 0,
+    replacementHistoryCount: replacementHistory.length,
+    replacementHistoryPreview,
+    replacementHistoryPreviewTruncated: replacementHistory.length > replacementHistoryPreview.length,
+    windowNumber: numberOrNull(source.window_number ?? source.windowNumber ?? fallback.window_number ?? fallback.windowNumber),
+    firstWindowId: stringOrNull(source.first_window_id ?? source.firstWindowId ?? fallback.first_window_id ?? fallback.firstWindowId),
+    previousWindowId: stringOrNull(source.previous_window_id ?? source.previousWindowId ?? fallback.previous_window_id ?? fallback.previousWindowId),
+    windowId: stringOrNull(source.window_id ?? source.windowId ?? fallback.window_id ?? fallback.windowId),
+  };
+}
+
+function compactReplacementHistoryPreview(entry, index) {
+  const source = isObject(entry) ? entry : {};
+  const metadata = isObject(source.internal_chat_message_metadata_passthrough) ? source.internal_chat_message_metadata_passthrough : {};
+  const text = redactSensitiveText(replacementHistoryText(entry)).trim();
+  const limited = limitPreviewText(text, compactReplacementPreviewLimit);
+  return compactObject({
+    index: index + 1,
+    type: stringOrNull(source.type) || (entry == null ? null : typeof entry),
+    role: stringOrNull(source.role),
+    name: stringOrNull(source.name),
+    callId: stringOrNull(source.call_id ?? source.callId),
+    messageId: stringOrNull(source.message_id ?? source.messageId ?? source.id),
+    turnId: stringOrNull(source.turn_id ?? source.turnId ?? metadata.turn_id ?? metadata.turnId),
+    timestamp: stringOrNull(source.timestamp ?? source.created_at ?? source.createdAt ?? metadata.timestamp),
+    contentKinds: replacementContentKinds(source.content),
+    contentParts: Array.isArray(source.content) ? source.content.length : null,
+    preview: limited.text,
+    textLength: limited.originalLength,
+    truncated: limited.truncated,
+  });
+}
+
+function replacementContentKinds(content) {
+  if (!Array.isArray(content)) return [];
+  return [
+    ...new Set(
+      content
+        .map((part) => (isObject(part) ? stringOrNull(part.type) : typeof part))
+        .filter(Boolean),
+    ),
+  ];
+}
+
+function replacementHistoryText(entry) {
+  if (!isObject(entry)) return replacementTextFromValue(entry);
+  return [entry.content, entry.message, entry.text, entry.value, entry.output, entry.arguments]
+    .map((value) => replacementTextFromValue(value))
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function replacementTextFromValue(value, depth = 0) {
+  if (value == null || depth > 4) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.map((item) => replacementTextFromValue(item, depth + 1)).filter(Boolean).join("\n");
+  if (!isObject(value)) return "";
+  if (value.encrypted_content != null) return "[encrypted_content redacted]";
+  if (value.image_url || value.image_file || value.type === "input_image") return "[image]";
+
+  const parts = [];
+  for (const key of ["text", "value", "message", "content", "summary", "output", "input", "arguments"]) {
+    if (key === "summary" && Array.isArray(value[key])) {
+      parts.push(replacementTextFromValue(value[key], depth + 1));
+      continue;
+    }
+    if (value[key] != null) parts.push(replacementTextFromValue(value[key], depth + 1));
+  }
+  return [...new Set(parts.filter(Boolean))].join("\n");
+}
+
+function limitPreviewText(value, max) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (text.length <= max) return { text, originalLength: text.length, truncated: false };
+  return {
+    text: `${text.slice(0, Math.max(0, max - 1))}…`,
+    originalLength: text.length,
+    truncated: true,
+  };
+}
+
+function compactObject(value) {
+  const result = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (child == null || child === "") continue;
+    if (Array.isArray(child) && child.length === 0) continue;
+    result[key] = child;
+  }
+  return result;
+}
+
 function extractAttachments(payload, raw) {
   const attachments = [];
   const pushImage = (value, source) => {
@@ -410,6 +525,21 @@ function buildSearchText(event) {
     event.toolOutput,
     attachmentText,
     reasoningText,
+    event.compact?.kind,
+    event.compact?.phase,
+    event.compact?.message,
+    event.compact?.windowNumber,
+    event.compact?.windowId,
+    event.compact?.previousWindowId,
+    event.compact?.firstWindowId,
+    ...(event.compact?.replacementHistoryPreview || []).flatMap((entry) => [
+      entry.type,
+      entry.role,
+      entry.name,
+      entry.turnId,
+      entry.messageId,
+      entry.preview,
+    ]),
   ]
     .filter(Boolean)
     .map(redactSensitiveText)

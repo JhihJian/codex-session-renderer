@@ -1,0 +1,8 @@
+{"timestamp":"2026-07-07T09:59:55.000Z","type":"event_msg","payload":{"type":"user_message","message":"旧请求：请复盘之前的任务"}}
+{"timestamp":"2026-07-07T09:59:55.500Z","type":"event_msg","payload":{"type":"user_message","message":"旧请求：追加一条旧输入"}}
+{"timestamp":"2026-07-07T09:59:56.000Z","type":"event_msg","payload":{"type":"agent_message","message":"旧请求已处理。"}}
+{"timestamp":"2026-07-07T10:00:00.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-new"}}
+{"timestamp":"2026-07-07T10:00:01.000Z","type":"event_msg","payload":{"type":"user_message","message":"请处理新的复盘任务"}}
+{"timestamp":"2026-07-07T10:00:02.000Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","call_id":"call-1","arguments":"{\"cmd\":\"echo ok\"}"}}
+{"timestamp":"2026-07-07T10:00:03.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call-1","output":"ok"}}
+{"timestamp":"2026-07-07T10:00:04.000Z","type":"event_msg","payload":{"type":"task_complete","last_agent_message":"新的复盘任务已处理。"}}

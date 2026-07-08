@@ -169,6 +169,7 @@ function projectEventForApi(event, index, query = {}) {
   };
   if (normalized.attachments?.length) projected.attachments = normalized.attachments;
   if (normalized.reasoning) projected.reasoning = normalized.reasoning;
+  if (normalized.compact) projected.compact = normalized.compact;
   if (normalized.diagnostic) projected.diagnostic = normalized.diagnostic;
   if (query.includePayload) projected.payload = payload;
   if (query.includeRaw) projected.raw = event;

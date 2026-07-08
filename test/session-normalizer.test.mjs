@@ -105,6 +105,52 @@ test("encrypted reasoning is opaque and redacted from search-oriented text", () 
   assert.match(safeStringifyRedacted(event), /\[encrypted_content redacted length=16\]/);
 });
 
+test("normalizer exposes Codex context compact metadata", () => {
+  const normalized = normalizeSessionEvent(
+    {
+      timestamp: "2026-07-08T03:24:06.920Z",
+      type: "compacted",
+      payload: {
+        message: "Another language model started...\n**当前进展**\n- 已完成分析",
+        replacement_history: [
+          {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "原始用户问题：解释 compact 替换范围" }],
+            internal_chat_message_metadata_passthrough: { turn_id: "turn-1" },
+          },
+          {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: `助手长回复 ${"x".repeat(420)}` }],
+          },
+        ],
+        window_number: 3,
+        first_window_id: "w-1",
+        previous_window_id: "w-2",
+        window_id: "w-3",
+      },
+    },
+    12,
+  );
+
+  assert.equal(normalized.kind, "compacted");
+  assert.equal(normalized.semanticKind, "event");
+  assert.equal(normalized.compact.phase, "summary");
+  assert.equal(normalized.compact.messageLength, normalized.compact.message.length);
+  assert.equal(normalized.compact.replacementHistoryCount, 2);
+  assert.equal(normalized.compact.replacementHistoryPreview.length, 2);
+  assert.equal(normalized.compact.replacementHistoryPreview[0].role, "user");
+  assert.equal(normalized.compact.replacementHistoryPreview[0].turnId, "turn-1");
+  assert.match(normalized.compact.replacementHistoryPreview[0].preview, /原始用户问题/);
+  assert.equal(normalized.compact.replacementHistoryPreview[1].truncated, true);
+  assert.ok(normalized.compact.replacementHistoryPreview[1].preview.length <= 320);
+  assert.equal(normalized.compact.windowNumber, 3);
+  assert.equal(normalized.compact.windowId, "w-3");
+  assert.match(normalized.searchText, /当前进展/);
+  assert.match(normalized.searchText, /替换范围/);
+});
+
 test("redactSensitiveText replaces data URIs with bounded markers", () => {
   const text = redactSensitiveText("prefix data:image/png;base64,QUJDRA== suffix");
 

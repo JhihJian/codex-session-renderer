@@ -14,6 +14,7 @@
 - `toolName`、`toolInput`、`toolOutput`：从 `tool`、`name`、`function.name`、`arguments`、`input`、`stdout`、`stderr`、`result`、`output` 等字段归一化。
 - `attachments`：图片和附件的安全摘要。
 - `reasoning`：reasoning 摘要和加密状态。
+- `compact`：Codex 上下文压缩事件的摘要、窗口 ID、替换历史数量、被替换对话短预览和阶段。
 - `raw`、`payload`、`rawSize`、`payloadSize`：原始事件引用和体积信息。
 - `diagnostic`：JSONL 解析失败行的行号、错误类别和安全预览。
 
@@ -42,6 +43,15 @@
 ## 助手消息保留
 
 `agent_message` 和 `role: "assistant"` 的消息会转换为 turn item 中的 `assistant-message`。精简视图模型保留 `assistantMessages` 数组以展示每一条助手消息，同时保留 `assistantMessage` 指向最后一条助手消息作为兼容字段。若同一 Turn 内的 `token_count` 可解析出 context window 或上下文百分比，助手消息会携带 `contextUsage.percent`，渲染为 1-100% 的上下文占用率；缺少上限和百分比时不显示该字段。前端会把占用率渲染为独立徽标，超过 70% 时使用高占用提示样式。Audit 执行链会把助手消息投影为 `agent_message` 父行，工具、handoff 和子代理执行节点缩进挂载在对应助手消息下；没有助手正文时使用占位父行，避免执行节点脱离 agent 消息上下文。
+
+## 上下文压缩事件
+
+Codex 在上下文压缩时会写入两类事件：
+
+- 顶层 `type: "compacted"`：保存写入下一窗口的替换摘要，可能包含 `message`、`replacement_history`、`window_number`、`first_window_id`、`previous_window_id` 和 `window_id`。
+- `event_msg.payload.type: "context_compacted"`：标记压缩流程完成，通常不包含摘要正文。
+
+规范化层会把这两类事件标记为重要事件，并生成 `compact` 字段。`replacementHistoryCount` 表示 `replacement_history` 的总条数；`replacementHistoryPreview` 只保留最多 30 条可扫描短预览，每条包含序号、role、type、turn/message 定位字段、内容类型、预览文本、原始字符数和截断标记，不把完整正文塞进轻量模型。精简视图会再用 `turn_id` 关联当前会话的 Turn，补充 `turnNumber`、Turn 时间、用户问题和最后回复摘要，让“被替换的对话”优先回答 compact 摘要覆盖了哪些 Turn 和原始问题；字符数与短 ID 只作为辅助定位信息。精简视图还会为被 `replacement_history` 命中的原始 Turn 生成 `compressionRefs`，在该 Turn 的用户/助手消息标签旁显示“压缩到 Tn / event #”；点击该回标会保持在精简视图并定位到对应 `context-compact` 系统块，Raw 来源通过该系统块里的“查看 Raw”进入。Turn 聚合会把 compact 事件保留为 `context-compact` item；Raw 视图和 Review Dock 会显示摘要正文、窗口字段、替换历史数量和同一份短预览。完整原始 payload 仍通过单事件接口按需读取。
 
 ## 默认用户消息口径
 
@@ -103,4 +113,5 @@ Raw event 仍可按需查看完整原始 JSON。默认视图、事件预览和�
 - 同一 `messageId` 的 delta 合并。
 - data URI 图片摘要和默认脱敏。
 - `encrypted_content` 不进入搜索文本。
+- Codex `compacted` / `context_compacted` 事件能进入重要事件、搜索、Turn item 和精简视图摘要，暴露可截断的被替换对话预览，并能把后续压缩引用回标到原始消息。
 - JSONL 解析失败行的诊断事件。

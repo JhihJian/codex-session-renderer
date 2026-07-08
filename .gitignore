@@ -16,6 +16,9 @@ Thumbs.db
 *.sqlite3
 *.db
 *.jsonl
+!test/fixtures/
+!test/fixtures/special-sessions/
+!test/fixtures/special-sessions/*.jsonl
 *.log
 
 coverage/

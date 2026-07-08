@@ -239,6 +239,70 @@ test("compactTurnsForClient exposes assistant context usage", () => {
   assert.equal(compact[0].items[1].info.context_usage.percent, 18);
 });
 
+test("buildTurns and compact view expose context compaction events", () => {
+  const events = [
+    {
+      type: "event_msg",
+      timestamp: "2026-07-08T03:23:00.000Z",
+      payload: { type: "task_started", turn_id: "turn-compact" },
+    },
+    {
+      type: "event_msg",
+      timestamp: "2026-07-08T03:23:01.000Z",
+      payload: { type: "user_message", message: "继续分析" },
+    },
+    {
+      type: "event_msg",
+      timestamp: "2026-07-08T03:23:02.000Z",
+      payload: { type: "task_complete", last_agent_message: "已完成一轮分析" },
+    },
+    {
+      type: "compacted",
+      timestamp: "2026-07-08T03:24:06.920Z",
+      payload: {
+        message: "压缩摘要：保留关键结论和下一步",
+        replacement_history: [
+          {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "被压缩替换的用户问题" }],
+            internal_chat_message_metadata_passthrough: { turn_id: "turn-compact" },
+          },
+        ],
+        window_number: 2,
+        previous_window_id: "w-1",
+        window_id: "w-2",
+      },
+    },
+    {
+      type: "event_msg",
+      timestamp: "2026-07-08T03:24:06.926Z",
+      payload: { type: "context_compacted" },
+    },
+  ];
+
+  const turns = buildTurns(events);
+  const compactItems = turns[0].items.filter((item) => item.type === "context-compact");
+  const clientTurns = compactTurnsForClient(turns);
+  const view = compactTurnForView(turns[0], 0, []);
+
+  assert.equal(compactItems.length, 2);
+  assert.equal(compactItems[0].compact.windowNumber, 2);
+  assert.equal(compactItems[0].compact.replacementHistoryPreview[0].turnId, "turn-compact");
+  assert.match(compactItems[0].text, /关键结论/);
+  assert.equal(clientTurns[0].items.at(-2).type, "context-compact");
+  assert.match(clientTurns[0].items.at(-2).compact.replacementHistoryPreview[0].preview, /用户问题/);
+  assert.equal(view.compactEvents.length, 2);
+  assert.equal(view.compactEvents[0].compact.windowId, "w-2");
+  const enrichedView = compactTurnForView(turns[0], 0, [], { turns });
+  assert.equal(enrichedView.compactEvents[0].compact.replacementHistoryPreview[0].turnNumber, 1);
+  assert.equal(enrichedView.userMessages[0].compressionRefs[0].compactTurnNumber, 1);
+  assert.equal(enrichedView.userMessages[0].compressionRefs[0].eventIndex, 3);
+  assert.equal(enrichedView.assistantMessages[0].compressionRefs[0].replacementIndex, 1);
+  assert.match(view.compactEvents[0].compact.replacementHistoryPreview[0].preview, /被压缩替换/);
+  assert.match(view.compactEvents[0].text, /下一步/);
+});
+
 test("buildTurns uses normalized field drift and coalesces assistant deltas", () => {
   const events = [
     { type: "user", time: 1782790557, content: "请总结" },

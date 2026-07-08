@@ -128,6 +128,7 @@ function analysisEventFromRaw(event, index) {
     rawSize: normalized.rawSize,
     attachments: normalized.attachments,
     reasoning: normalized.reasoning,
+    compact: normalized.compact,
     diagnostic: normalized.diagnostic || null,
     payload: normalized.payload,
   };
@@ -415,6 +416,7 @@ async function getSessionDetail(context, id, options = {}) {
     kind: event.kind,
     semanticKind: event.semanticKind,
     important: event.important,
+    type: event.type,
     role: event.role,
     messageId: event.messageId,
     parentId: event.parentId,
@@ -424,6 +426,7 @@ async function getSessionDetail(context, id, options = {}) {
     rawSize: event.rawSize,
     attachments: event.attachments,
     reasoning: event.reasoning,
+    compact: event.compact,
     diagnostic: event.diagnostic,
   }));
   const turns = buildTurns(rawEvents);
@@ -437,6 +440,7 @@ async function getSessionDetail(context, id, options = {}) {
     ...summarizeSessionEvents(rawEvents),
     eventCount: rawEvents.length,
     diagnosticEventCount: analysisEvents.filter((event) => event.kind === "jsonl_parse_error").length,
+    compactEventCount: analysisEvents.filter((event) => event.compact).length,
     turnCount: turns.length,
     importantEventCount: analysisEvents.filter((event) => event.important).length,
     childThreadCount: hierarchy.children.length,
@@ -679,7 +683,7 @@ async function buildCompactView(context, session, normalizedEvents, turns, hiera
       }
     }
 
-    return compactTurnForView(turn, turnIndex, children);
+    return compactTurnForView(turn, turnIndex, children, { turns });
   });
 
   const unplacedChildren = hierarchy.children

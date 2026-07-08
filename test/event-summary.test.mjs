@@ -43,3 +43,23 @@ test("event summary helpers extract readable text from mixed payloads", () => {
   assert.equal(summarizeEventPreview(events[0]), "第一行 第二行");
   assert.equal(summarizeEventTitle(events[1]), "Output fs.read");
 });
+
+test("event summary helpers mark context compaction as important", () => {
+  const compacted = {
+    type: "compacted",
+    timestamp: "2026-07-08T03:24:06.920Z",
+    payload: {
+      message: "压缩后的关键结论",
+      replacement_history: [{ type: "message" }],
+      window_number: 2,
+    },
+  };
+  const complete = { type: "event_msg", payload: { type: "context_compacted" } };
+
+  assert.equal(classifyEvent(compacted), "compacted");
+  assert.equal(isImportantEvent(compacted), true);
+  assert.equal(summarizeEventTitle(compacted), "Context compacted");
+  assert.match(summarizeEventPreview(compacted), /压缩摘要/);
+  assert.equal(isImportantEvent(complete), true);
+  assert.equal(summarizeEventTitle(complete), "Context compact complete");
+});
