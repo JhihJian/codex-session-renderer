@@ -1676,6 +1676,14 @@ function renderCompact() {
   els.compactContent.querySelectorAll("[data-compact-session-id]").forEach((button) => {
     button.addEventListener("click", () => selectSession(button.dataset.compactSessionId));
   });
+  els.compactContent.querySelectorAll("[data-compact-event-index]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      const index = Number(button.dataset.compactEventIndex);
+      if (!Number.isFinite(index)) return;
+      await openRawEventFromAudit(index);
+    });
+  });
   els.compactContent.querySelectorAll("[data-compact-nav-target]").forEach((row) => {
     row.addEventListener("click", (event) => {
       if (event.target.closest("a")) return;
@@ -1785,6 +1793,8 @@ function compactSearchText(node) {
     node.unavailableReason,
     node.spawnEvent?.preview,
     node.notificationEvent?.preview,
+    node.notificationSummary?.label,
+    node.notificationSummary?.body,
     ...(node.turns || []).map(compactTurnSearchText),
     ...(node.children || []).map(compactSearchText),
   ];
@@ -1864,7 +1874,7 @@ function renderCompactExecutionDirectory(node, context) {
         <span class="compact-outline-icon">${context.root ? "R" : "A"}</span>
         <span class="compact-outline-copy">
           <strong class="markdown-inline-title">${renderMarkdownTitle(name, context.query)}</strong>
-          <em>${escapeHtml([session.agentRole, `${(node.turns || []).length} turns`].filter(Boolean).join(" · "))}</em>
+          <em>${escapeHtml([session.agentRole, node.notificationSummary?.label, `${(node.turns || []).length} turns`].filter(Boolean).join(" · "))}</em>
         </span>
       </div>
       ${repeatedNotice}
@@ -1975,7 +1985,7 @@ function renderCompactThread(node, context) {
   const targetId = compactElementId("thread", path);
   const name = session.agentNickname || session.title || session.id || "当前会话";
   const role = [session.agentRole, session.model].filter(Boolean).join(" · ");
-  const meta = [role, formatDate(session.updatedAt), node.edgeStatus].filter(Boolean).join(" · ");
+  const meta = [role, formatDate(session.updatedAt), node.notificationSummary?.label || node.edgeStatus].filter(Boolean).join(" · ");
   const openButton =
     !context.root && session.id
       ? `<button class="ghost-button small" type="button" data-compact-session-id="${escapeAttr(session.id)}">打开会话</button>`
@@ -1983,6 +1993,7 @@ function renderCompactThread(node, context) {
   const unavailable = node.unavailable
     ? `<div class="compact-unavailable">子代理详情未载入：${escapeHtml(node.unavailableReason || "未知原因")}</div>`
     : "";
+  const report = renderCompactSubagentReport(node.notificationSummary, context.query);
   const turnHtml = (node.turns || [])
     .map((turn, index) => renderCompactTurn(turn, { depth, path: `${path}-turn-${index}`, query: context.query }))
     .join("");
@@ -2003,10 +2014,40 @@ function renderCompactThread(node, context) {
       </header>
       <div class="compact-thread-body">
         ${unavailable}
+        ${report}
         ${turnHtml || (!childHtml ? `<div class="compact-empty">没有可展示的用户/助手消息。</div>` : "")}
         ${childHtml ? `<div class="compact-orphans">${childHtml}</div>` : ""}
       </div>
     </article>
+  `;
+}
+
+function renderCompactSubagentReport(summary, query) {
+  if (!summary) return "";
+  const meta = [summary.label, formatDate(summary.timestamp), summary.truncated ? `已截断 ${compactNumber(summary.bodyLength || 0)} 字符` : ""]
+    .filter(Boolean)
+    .join(" · ");
+  const rawButton =
+    summary.eventIndex != null
+      ? `<button class="ghost-button small" type="button" data-compact-event-index="${escapeAttr(String(summary.eventIndex))}">查看 Raw</button>`
+      : "";
+  const body = summary.body
+    ? renderMarkdownMessage(summary.body, query)
+    : `<div class="compact-subagent-empty">收到子代理状态通知，未包含可展示正文。</div>`;
+  return `
+    <section class="compact-subagent-report status-${escapeAttr(summary.state || "unknown")}">
+      <div class="compact-subagent-report-head">
+        <span class="compact-subagent-report-icon" aria-hidden="true">A</span>
+        <span class="compact-subagent-report-title">
+          <strong>子代理回报</strong>
+          <em>${escapeHtml(meta)}</em>
+        </span>
+        ${rawButton}
+      </div>
+      <div class="compact-subagent-report-body">
+        ${body}
+      </div>
+    </section>
   `;
 }
 

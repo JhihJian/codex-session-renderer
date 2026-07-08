@@ -49,12 +49,18 @@ Codex 有时会把机器上下文写进用户消息，例如 `AGENTS.md instruct
 
 - 如果存在 `## My request for Codex:`，只展示其后的请求正文。
 - 如果消息开头是 `AGENTS.md instructions` 并包含 `environment_context`，默认隐藏这段机器上下文，保留后续真实请求。
-- 纯机器上下文、goal continuation 和 subagent notification 不计为真实用户请求。
+- 纯机器上下文、goal continuation、JSON 形式的 subagent notification，以及完整的 `<subagent_notification>...</subagent_notification>` 包裹通知不计为真实用户请求。
 - Raw event 和单事件接口仍保留原始 payload，用于诊断和审计。
 
 去重只针对明确的事件回声，例如同一条用户消息同时以 `event_msg user_message` 和 `response_item role=user` 写入；用户真实重复输入同一句话不会仅因文本相同被删除。
 
 `turn_aborted` 会终止当前 turn 并标记为 `aborted`。如果一个没有工具或助手输出的 aborted turn 后面紧跟相同首条请求的续跑 turn，默认阅读会压掉前一个空 aborted turn 里的重复请求，但保留 aborted 状态本身。
+
+## 子代理回执
+
+`subagent_notification` 用于把子代理完成状态回传给父会话。服务端会优先从结构化 payload 或 `<subagent_notification>...</subagent_notification>` 包裹文本中读取 `agent_path`、`status.completed`、`status.failed`、`status.error` 等字段，并把它们挂到精简视图的子代理节点上。
+
+精简视图展示子代理时会把这类通知渲染成“子代理回报”摘要块：状态显示为已完成、失败、运行中或状态通知；正文按 Markdown 展示，长正文会有长度上限和滚动区域；Raw event 仍可从来源事件查看完整原始记录。这样子代理回报不会混入用户输入，也不会以原始 JSON 占据阅读视图。
 
 ## 图片与附件
 

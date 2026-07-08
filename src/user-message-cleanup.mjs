@@ -67,9 +67,12 @@ function isMachineOnlyUserMessageText(value) {
 
 function isSubagentNotificationText(value) {
   const text = String(value || "").trim();
-  if (!text || !/^\{[\s\S]*\}$/.test(text)) return false;
+  if (!text) return false;
+  const wrapped = text.match(/^<subagent_notification>\s*([\s\S]*?)\s*<\/subagent_notification>$/i);
+  const jsonText = wrapped ? wrapped[1].trim() : text;
+  if (!/^\{[\s\S]*\}$/.test(jsonText)) return false;
   try {
-    const parsed = JSON.parse(text);
+    const parsed = JSON.parse(jsonText);
     return Boolean(parsed?.type === "subagent_notification" || parsed?.agent_path || parsed?.agent_id);
   } catch {
     return false;

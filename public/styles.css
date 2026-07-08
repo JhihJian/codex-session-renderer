@@ -1993,6 +1993,90 @@ button:disabled {
   padding: 9px;
 }
 
+.compact-subagent-report {
+  --report-accent: var(--teal);
+  --report-soft: var(--teal-soft);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--report-accent) 30%, var(--hair));
+  border-radius: var(--radius-tool);
+  background: color-mix(in srgb, var(--report-soft) 42%, var(--bg-elev));
+}
+
+.compact-subagent-report.status-completed {
+  --report-accent: var(--green);
+  --report-soft: var(--green-soft);
+}
+
+.compact-subagent-report.status-failed {
+  --report-accent: var(--red);
+  --report-soft: var(--red-soft);
+}
+
+.compact-subagent-report.status-running {
+  --report-accent: var(--orange);
+  --report-soft: var(--orange-soft);
+}
+
+.compact-subagent-report-head {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 9px;
+}
+
+.compact-subagent-report-icon {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-small);
+  background: var(--report-soft);
+  color: var(--report-accent);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 820;
+}
+
+.compact-subagent-report-title {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.compact-subagent-report-title strong,
+.compact-subagent-report-title em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact-subagent-report-title em {
+  color: var(--text-3);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.compact-subagent-report-body {
+  max-height: min(48vh, 520px);
+  overflow: auto;
+  border-top: 1px solid color-mix(in srgb, var(--report-accent) 18%, var(--hair));
+  background: color-mix(in srgb, var(--bg-elev) 82%, transparent);
+  padding: 10px;
+}
+
+.compact-subagent-report-body .message-text {
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.compact-subagent-empty {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
 .compact-orphans {
   border-top: 0;
   padding: 0;
@@ -5048,6 +5132,10 @@ mark {
   .compact-message {
     grid-template-columns: minmax(0, 1fr);
     gap: 6px;
+  }
+
+  .compact-subagent-report-body {
+    max-height: min(52vh, 420px);
   }
 
   .audit-shell,

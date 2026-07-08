@@ -4,6 +4,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import {
   buildTurns,
+  compactChildBase,
   compactTurnForView,
   compactTurnsForClient,
   deriveSessionStatusFromTurns,
@@ -112,6 +113,52 @@ test("findSubagentNotifications inspects payload even when preview omits child i
   const notifications = findSubagentNotifications(events, new Map([[childId, { childThreadId: childId }]]));
 
   assert.equal(notifications.get(childId), events[0]);
+});
+
+test("subagent notifications wrapped as user text are hidden from turns and linked to children", () => {
+  const childId = "019efa76-515d-7ef3-a544-8b13547c0ddb";
+  const message = `<subagent_notification> {"agent_path":"${childId}","status":{"completed":"1. 关键判断\\n\\n可采纳。"}} </subagent_notification>`;
+  const event = {
+    type: "event_msg",
+    timestamp: "2026-06-24T10:00:00.000Z",
+    preview: "subagent_notification finished",
+    payload: {
+      type: "user_message",
+      message,
+    },
+  };
+
+  assert.deepEqual(buildTurns([event]), []);
+
+  const notifications = findSubagentNotifications([event], new Map([[childId, { childThreadId: childId }]]));
+  assert.equal(notifications.get(childId), event);
+});
+
+test("compact child nodes expose subagent notification summaries", () => {
+  const childId = "019efa76-515d-7ef3-a544-8b13547c0ddb";
+  const notificationEvent = {
+    index: 42,
+    timestamp: "2026-06-24T10:00:00.000Z",
+    payload: {
+      type: "subagent_notification",
+      agent_path: childId,
+      status: { completed: "1. 关键判断\n\n可采纳。" },
+    },
+  };
+
+  const child = compactChildBase(
+    {
+      childThreadId: childId,
+      status: "done",
+      thread: { id: childId, title: "审查子代理" },
+    },
+    { depth: 0, notificationEvent },
+  );
+
+  assert.equal(child.notificationSummary.state, "completed");
+  assert.equal(child.notificationSummary.label, "已完成");
+  assert.equal(child.notificationSummary.eventIndex, 42);
+  assert.match(child.notificationSummary.body, /关键判断/);
 });
 
 test("compactTurnsForClient keeps tool output complete for reading view", () => {

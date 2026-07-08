@@ -54,6 +54,7 @@ const previewLimits = {
   traceArguments: 160,
   traceOutput: 160,
   compactMessage: 2400,
+  subagentNotification: 5200,
 };
 
 function compactTurnsForClient(turns) {
@@ -333,6 +334,7 @@ function compactChildBase(child, context) {
     depth: context.depth + 1,
     spawnEvent: compactCompactEvent(context.spawnEvent),
     notificationEvent: compactCompactEvent(context.notificationEvent),
+    notificationSummary: compactSubagentNotification(context.notificationEvent),
     session: compactCompactSession(thread),
   };
 }
@@ -372,6 +374,153 @@ function compactCompactEvent(event) {
     title: event.title,
     preview: firstLine(event.preview || "", 220),
   };
+}
+
+function compactSubagentNotification(event) {
+  const payload = subagentNotificationPayload(event);
+  if (!payload) return null;
+  const status = notificationStatusObject(payload);
+  const state = subagentNotificationState(payload, status);
+  const body = subagentNotificationBody(payload, status);
+  const limited = limitText(body, previewLimits.subagentNotification);
+  const summary = {
+    state,
+    label: subagentNotificationStateLabel(state),
+    timestamp: event?.timestamp || null,
+    eventIndex: event?.index ?? null,
+    agentId: subagentNotificationAgentIds(payload)[0] || null,
+    body: limited.text,
+    bodyLength: limited.originalLength,
+    truncated: limited.truncated,
+  };
+  return summary;
+}
+
+function subagentNotificationPayload(event) {
+  if (!event) return null;
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
+  if (isSubagentNotificationPayload(payload)) return payload;
+  const candidates = [
+    event.text,
+    event.preview,
+    payload?.message,
+    payload?.text,
+    payload?.value,
+    typeof payload?.content === "string" ? payload.content : null,
+  ];
+  for (const candidate of candidates) {
+    const parsed = parseSubagentNotificationText(candidate);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+function parseSubagentNotificationText(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const direct = parseJsonObject(text);
+  if (isSubagentNotificationPayload(direct)) return direct;
+  const wrapped = text.match(/<subagent_notification>\s*([\s\S]*?)\s*<\/subagent_notification>/i);
+  if (!wrapped) return null;
+  const parsed = parseJsonObject(wrapped[1].trim());
+  return isSubagentNotificationPayload(parsed) ? parsed : null;
+}
+
+function isSubagentNotificationPayload(payload) {
+  return Boolean(
+    payload &&
+      typeof payload === "object" &&
+      (payload.type === "subagent_notification" ||
+        payload.agent_path ||
+        payload.agentPath ||
+        payload.agent_id ||
+        payload.agentId ||
+        payload.thread_id ||
+        payload.threadId),
+  );
+}
+
+function notificationStatusObject(payload) {
+  const status = payload?.status;
+  return status && typeof status === "object" && !Array.isArray(status) ? status : {};
+}
+
+function subagentNotificationAgentIds(payload) {
+  return [
+    payload?.agent_path,
+    payload?.agentPath,
+    payload?.agent_id,
+    payload?.agentId,
+    payload?.thread_id,
+    payload?.threadId,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+}
+
+function subagentNotificationState(payload, status) {
+  const statusText = [
+    payload?.status,
+    payload?.state,
+    payload?.phase,
+    status.state,
+    status.status,
+    status.phase,
+  ]
+    .filter((value) => value != null && typeof value !== "object")
+    .join(" ");
+  if (status.completed != null || payload?.completed != null || /completed|done|success|succeeded|完成|成功/i.test(statusText)) return "completed";
+  if (
+    status.failed != null ||
+    status.error != null ||
+    payload?.failed != null ||
+    payload?.error != null ||
+    /failed|failure|error|cancelled|canceled|aborted|失败|错误|取消|中断/i.test(statusText)
+  ) {
+    return "failed";
+  }
+  if (/running|pending|started|in[-_ ]?progress|waiting|运行|等待|处理中/i.test(statusText)) return "running";
+  return "unknown";
+}
+
+function subagentNotificationStateLabel(state) {
+  if (state === "completed") return "已完成";
+  if (state === "failed") return "失败";
+  if (state === "running") return "运行中";
+  return "状态通知";
+}
+
+function subagentNotificationBody(payload, status) {
+  return firstNotificationText(
+    status.completed,
+    status.failed,
+    status.error,
+    status.message,
+    status.summary,
+    payload?.completed,
+    payload?.failed,
+    payload?.error,
+    payload?.message,
+    payload?.summary,
+    payload?.output,
+    payload?.result,
+  );
+}
+
+function firstNotificationText(...values) {
+  for (const value of values) {
+    const text = notificationValueText(value);
+    if (text) return text;
+  }
+  return "";
+}
+
+function notificationValueText(value) {
+  if (value == null || value === false) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "object") return safeStringifyRedacted(value, 2);
+  return "";
 }
 
 function addTruncatedField(target, field) {
@@ -852,6 +1001,17 @@ function findSpawnAgentEvents(events, childById) {
 function findSubagentNotifications(events, childById) {
   const byChild = new Map();
   for (const event of events) {
+    const payload = subagentNotificationPayload(event);
+    if (payload) {
+      let matched = false;
+      for (const childId of subagentNotificationAgentIds(payload)) {
+        if (childById.has(childId)) {
+          byChild.set(childId, event);
+          matched = true;
+        }
+      }
+      if (matched) continue;
+    }
     const preview = String(event.preview || "");
     const payloadText = JSON.stringify(event.payload || {});
     const text = `${preview}\n${payloadText}`;
