@@ -39,14 +39,29 @@ $env:PORT=4789
 npm start
 ```
 
-Linux systemd 部署时同样设置 `Environment=HOST=0.0.0.0`。服务会读取本机 Codex 会话数据；若开放到局域网，请确认这是有意行为。
+Linux 用户级 systemd 部署时同样设置 `Environment=HOST=0.0.0.0`。服务会读取本机 Codex 会话数据；若开放到局域网，请确认这是有意行为。
 
-本仓库提供了当前设备可用的 systemd 单元模板：
+本仓库提供了当前设备可用的用户级 systemd 单元模板：
 
 ```bash
-sudo install -m 0644 deploy/systemd/codex-session-renderer.service /etc/systemd/system/codex-session-renderer.service
+mkdir -p ~/.config/systemd/user
+install -m 0644 deploy/systemd/codex-session-renderer.service ~/.config/systemd/user/codex-session-renderer.service
+systemctl --user daemon-reload
+systemctl --user enable --now codex-session-renderer
+```
+
+如需开机后不登录也启动用户级服务，确认已启用 linger：
+
+```bash
+loginctl show-user "$USER" -p Linger
+sudo loginctl enable-linger "$USER"
+```
+
+如果机器上已有旧的系统级 `/etc/systemd/system/codex-session-renderer.service`，迁移到用户级服务前先停用旧服务，避免两个服务争用 `4789`：
+
+```bash
+sudo systemctl disable --now codex-session-renderer
 sudo systemctl daemon-reload
-sudo systemctl enable --now codex-session-renderer
 ```
 
 启动后，本机访问 `http://127.0.0.1:4789/`，局域网访问使用当前设备的局域网地址，例如 `http://192.168.1.92:4789/`。
@@ -61,10 +76,10 @@ git fetch origin
 git merge --ff-only origin/main
 npm ci
 npm test
-sudo install -m 0644 deploy/systemd/codex-session-renderer.service /etc/systemd/system/codex-session-renderer.service
-sudo systemctl daemon-reload
-sudo systemctl restart codex-session-renderer
-systemctl is-active codex-session-renderer
+install -m 0644 deploy/systemd/codex-session-renderer.service ~/.config/systemd/user/codex-session-renderer.service
+systemctl --user daemon-reload
+systemctl --user restart codex-session-renderer
+systemctl --user is-active codex-session-renderer
 curl -fsS http://127.0.0.1:4789/api/health
 ```
 
@@ -208,11 +223,11 @@ node scripts/sync-71-sessions.mjs --verbose
 node scripts/sync-71-sessions.mjs --refresh --source-id dev71 --renderer-url http://127.0.0.1:4789
 ```
 
-systemd 数据源配置示例：
+用户级 systemd 数据源配置示例：
 
 ```bash
-sudo mkdir -p /etc/systemd/system/codex-session-renderer.service.d
-sudo tee /etc/systemd/system/codex-session-renderer.service.d/remote-dev71.conf >/dev/null <<'EOF'
+mkdir -p ~/.config/systemd/user/codex-session-renderer.service.d
+tee ~/.config/systemd/user/codex-session-renderer.service.d/remote-dev71.conf >/dev/null <<'EOF'
 [Service]
 Environment="CODEX_REMOTE_SOURCES=dev71"
 Environment="CODEX_REMOTE_DEV71_LABEL=71 远程设备"
@@ -220,8 +235,8 @@ Environment="CODEX_REMOTE_DEV71_CODEX_HOME=/root/.codex"
 Environment="CODEX_REMOTE_DEV71_SNAPSHOT_PATH=/home/jhihjian/.codex-session-renderer/source-snapshots/dev71/.codex"
 Environment="CODEX_REMOTE_SNAPSHOT_ROOT=/home/jhihjian/.codex-session-renderer/remote-snapshots"
 EOF
-sudo systemctl daemon-reload
-sudo systemctl restart codex-session-renderer
+systemctl --user daemon-reload
+systemctl --user restart codex-session-renderer
 ```
 
 验证：
@@ -298,7 +313,7 @@ npm test
 - 远程数据源的正文只在刷新阶段访问配置好的实时快照 URL 或快照目录；普通会话列表、Review Dock 复核台和 Markdown 导出都从本地 `current` 快照读取。历史分类可按需访问远端索引接口，但索引不包含会话正文。
 - 远程实时快照刷新使用 staging 目录构建，再原子切换到 `current`。刷新失败不会覆盖上一次成功快照。
 - 远程 SQLite 中的远端 `rollout_path` 会按配置的远端 Codex Home 映射到本地快照 Codex Home。
-- 本地工作台默认绑定 `127.0.0.1`，适合作为同机只读数据源；可通过 `HOST` 覆盖监听地址，当前 systemd 模板设置 `HOST=0.0.0.0` 用于局域网访问。独立的 `npm run share` 快照接口始终要求 Bearer token。
+- 本地工作台默认绑定 `127.0.0.1`，适合作为同机只读数据源；可通过 `HOST` 覆盖监听地址，当前用户级 systemd 模板设置 `HOST=0.0.0.0` 用于局域网访问。独立的 `npm run share` 快照接口始终要求 Bearer token。
 - 前端使用原生 HTML/CSS/JavaScript，无构建步骤；Markdown 渲染通过本地 `markdown-it` 浏览器包完成。渲染层借鉴 `earendil-works/pi/packages/tui` 的大模型输出处理思路：进入 Markdown 前会统一 tab 宽度并修剪流式输出结尾的半截代码围栏，代码块带语言栏和复制按钮，长代码、列表和表格按容器稳定换行或滚动。
 - 顶栏设置入口提供“展示规则设置”，用户可在浏览器本地新增、启停或删除工具摘要规则、Audit 执行聚合规则和 Evidence 风险规则；自定义规则优先于内置规则。设置页按“摘要规则 / 执行聚合 / Evidence 风险 / 结构化展示”分类切换，顶部概览主数字展示生效数量，辅助文字展示自定义/内置数量，当前分类只展示自己的编辑区和内置参考。结构化展示分类用只读说明列出命令输出 viewer 当前覆盖的命令类型和展示内容，便于判断哪些 `exec_command` 输出会被自动整理。摘要规则只影响 Audit、Review Dock、Raw 列表标题和前端搜索；执行聚合规则只影响 Audit 执行链中连续执行节点的折叠展示，不改变服务端 `audit.nodes`、turn/item 轻量模型、`trace.root` 或 Raw event；Evidence 风险规则会随会话详情请求传给服务端，用于重新派生 `audit.nodes` 中的 evidence 风险节点和风险计数。
 - 会话列表优先读取 SQLite `threads` 表，并在 SQLite 查询层排除 `thread_spawn_edges.child_thread_id` 对应的子代理线程，避免子代理在左侧会话列表独立展示；SQLite 不可用或列表查询失败时回退扫描 JSONL 文件。文件回退会同时扫描 `sessions` 和 `archived_sessions`，按 session id 去重，live 副本优先，只有没有 live 副本时才把 archived 副本作为可打开会话；同时会从 `session_meta.source.subagent.thread_spawn` 继续识别父子关系和子代理昵称，默认仍只展示根会话。

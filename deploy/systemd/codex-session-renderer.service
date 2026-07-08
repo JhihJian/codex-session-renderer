@@ -1,10 +1,8 @@
 [Unit]
 Description=Codex session renderer
-After=network.target
 
 [Service]
 Type=simple
-User=jhihjian
 WorkingDirectory=/data/dev/codex-session-renderer
 Environment=NODE_ENV=production
 Environment=HOST=0.0.0.0
@@ -17,4 +15,4 @@ NoNewPrivileges=true
 PrivateTmp=true
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
