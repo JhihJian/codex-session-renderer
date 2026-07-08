@@ -2845,7 +2845,6 @@ function renderAuditTurn(turn, context = {}) {
         expanded
           ? `<div class="audit-turn-expanded">
               ${renderAuditExecutionSection(turn, context)}
-              ${renderAuditEvidenceSection(turn, context)}
               ${turn.visibleUnlinkedAuditNodes.length ? renderAuditUnlinkedSection(turn.visibleUnlinkedAuditNodes, context.query) : ""}
             </div>`
           : ""
@@ -2878,133 +2877,6 @@ function renderAuditExecutionSection(turn, context = {}) {
           : `<div class="audit-section-empty">${escapeHtml(emptyText)}</div>`
       }
     </section>
-  `;
-}
-
-function renderAuditEvidenceSection(turn, context = {}) {
-  const nodes = turn.visibleAuditPhaseNodes || turn.visibleAuditEvidenceNodes;
-  const review = window.AuditClosure?.buildClosureReview(turn, {
-    visibleNodes: nodes,
-    visibleExecutionRows: turn.visibleExecutionRows,
-    filtersActive: context.filtersActive,
-  });
-  if (!review) {
-    return `
-      <section class="audit-turn-section evidence">
-        <div class="audit-section-title">
-          <strong>闭环判断</strong>
-          <span>缺少闭环判断模块</span>
-        </div>
-        <div class="audit-section-empty">闭环判断模块未加载，无法展示证据支撑和风险缺口。</div>
-      </section>
-    `;
-  }
-  return `
-    <section class="audit-turn-section evidence">
-      <div class="audit-section-title">
-        <strong>闭环判断</strong>
-        <span>${escapeHtml(review.countLabel)}</span>
-      </div>
-      ${renderAuditClosureReview(review, context.query)}
-    </section>
-  `;
-}
-
-function renderAuditClosureReview(review, query) {
-  return `
-    <div class="audit-closure-panel state-${escapeAttr(review.status)}">
-      <div class="audit-closure-verdict state-${escapeAttr(review.status)}">
-        <div class="audit-closure-verdict-main">
-          <span class="audit-closure-status">${escapeHtml(review.label)}</span>
-          <strong>${escapeHtml(review.headline)}</strong>
-          <p>${escapeHtml(review.summary)}</p>
-        </div>
-        <div class="audit-closure-score" title="${escapeAttr("闭环度按目标、结论、风险、执行、证据和验证计算")}">
-          <span>闭环度</span>
-          <strong>${escapeHtml(review.score.label)}</strong>
-        </div>
-      </div>
-      <div class="audit-closure-metrics">
-        ${review.metrics.map(renderAuditClosureMetric).join("")}
-      </div>
-      <div class="audit-closure-lanes">
-        ${review.lanes.map((lane) => renderAuditClosureLane(lane, query)).join("")}
-        ${renderAuditClosureActionLane(review.actions)}
-      </div>
-    </div>
-  `;
-}
-
-function renderAuditClosureMetric(metric) {
-  return `
-    <div class="audit-closure-metric state-${escapeAttr(metric.state)}">
-      <span>${escapeHtml(metric.label)}</span>
-      <strong>${escapeHtml(metric.value)}</strong>
-      <em>${escapeHtml(metric.detail)}</em>
-    </div>
-  `;
-}
-
-function renderAuditClosureLane(lane, query) {
-  const shown = lane.nodes.slice(0, 5);
-  const more = lane.nodes.length - shown.length;
-  return `
-    <div class="audit-closure-lane state-${escapeAttr(lane.state)} lane-${escapeAttr(lane.key)}">
-      <div class="audit-closure-lane-head">
-        <strong>${escapeHtml(lane.label)}</strong>
-        <span>${escapeHtml(lane.caption)}</span>
-      </div>
-      <div class="audit-closure-lane-body">
-        ${
-          shown.length
-            ? shown.map((node) => renderAuditClosureNode(node, query)).join("")
-            : `<span class="audit-closure-empty">${escapeHtml(lane.emptyText)}</span>`
-        }
-        ${more > 0 ? `<span class="audit-more-node">+${escapeHtml(String(more))}</span>` : ""}
-      </div>
-    </div>
-  `;
-}
-
-function renderAuditClosureActionLane(actions = []) {
-  return `
-    <div class="audit-closure-lane state-action lane-next">
-      <div class="audit-closure-lane-head">
-        <strong>下一步</strong>
-        <span>${escapeHtml(`${actions.length} 条建议`)}</span>
-      </div>
-      <div class="audit-closure-lane-body">
-        ${actions.map(renderAuditClosureAction).join("")}
-      </div>
-    </div>
-  `;
-}
-
-function renderAuditClosureAction(action) {
-  return `
-    <div class="audit-closure-action tone-${escapeAttr(action.tone || "neutral")}">
-      <strong>${escapeHtml(action.title || "复核")}</strong>
-      <span>${escapeHtml(action.body || "")}</span>
-    </div>
-  `;
-}
-
-function renderAuditClosureNode(node, query) {
-  const selected = state.selectedAuditNodeId === node.id ? " selected" : "";
-  const readable = readableAuditNode(node);
-  const summary = firstLine(readable.summary || "", 150);
-  const label = [auditTypeLabel(node.type), node.status, node.riskLevel && node.riskLevel !== "none" ? auditRiskLabel(node.riskLevel) : ""]
-    .filter(Boolean)
-    .join(" · ");
-  return `
-    <button class="audit-closure-node type-${escapeAttr(node.type)} risk-${escapeAttr(node.riskLevel || "none")}${selected}" type="button" data-audit-node-id="${escapeAttr(node.id)}">
-      <span class="audit-closure-node-kind">${escapeHtml(auditNodeGlyph(node.type))}</span>
-      <span class="audit-closure-node-main">
-        <strong>${highlight(escapeHtml(firstLine(readable.title || auditTypeLabel(node.type), 54)), query)}</strong>
-        ${summary ? `<small>${highlight(escapeHtml(summary), query)}</small>` : ""}
-      </span>
-      <em>${escapeHtml(label)}</em>
-    </button>
   `;
 }
 
@@ -3278,11 +3150,6 @@ function buildAuditTurnProjection(detail, turn, turnIndex, auditNodes) {
     }
   }
 
-  const auditEvidenceNodes = turnAuditNodes.filter((node) => {
-    if (node.type === "action") return false;
-    if (unlinkedAuditNodes.some((candidate) => candidate.id === node.id)) return false;
-    return true;
-  });
   const intentSummary = auditTurnIntentSummary(turn, turnAuditNodes);
   const finalSummary = auditTurnFinalSummary(turn, turnAuditNodes);
   const stats = auditTurnStats(turn, executionRows, turnAuditNodes, unlinkedAuditNodes);
@@ -3295,14 +3162,11 @@ function buildAuditTurnProjection(detail, turn, turnIndex, auditNodes) {
     intentSummary,
     finalSummary,
     auditNodes: turnAuditNodes,
-    auditEvidenceNodes,
     unlinkedAuditNodes,
     executionRows,
     linkedNodeIds,
     stats,
     visibleExecutionRows: executionRows,
-    visibleAuditEvidenceNodes: auditEvidenceNodes,
-    visibleAuditPhaseNodes: turnAuditNodes,
     visibleUnlinkedAuditNodes: unlinkedAuditNodes,
   };
 }
@@ -3657,20 +3521,13 @@ function filterAuditTurnModel(turn, filters = {}) {
   const query = filters.query || "";
   const typeFilter = filters.typeFilter || "all";
   const matchingRows = turn.executionRows.filter((row) => auditExecutionRowMatches(row, query, typeFilter));
-  const matchingPhaseNodes = turn.auditNodes.filter((node) => auditNodeMatches(node, query, typeFilter));
-  const matchingNodes = turn.auditEvidenceNodes.filter((node) => auditNodeMatches(node, query, typeFilter));
+  const matchingNodes = turn.auditNodes.filter((node) => auditNodeMatches(node, query, typeFilter));
   const matchingUnlinked = turn.unlinkedAuditNodes.filter((node) => auditNodeMatches(node, query, typeFilter));
   const rowContextIds = new Set(matchingRows.map((row) => row.id));
   const rowById = new Map(turn.executionRows.map((row) => [row.id, row]));
-  const nodeContextIds = new Set(matchingNodes.map((node) => node.id));
   for (const row of matchingRows) {
     addAuditExecutionAncestors(row, rowById, rowContextIds);
     addAuditExecutionDescendants(row, rowById, rowContextIds);
-  }
-  for (const row of matchingRows) {
-    for (const node of row.auditNodes || []) {
-      if (node.type !== "action") nodeContextIds.add(node.id);
-    }
   }
   for (const node of [...matchingNodes, ...matchingUnlinked]) {
     const row = turn.executionRows.find((candidate) => candidate.auditNodes.some((auditNode) => auditNode.id === node.id));
@@ -3681,20 +3538,11 @@ function filterAuditTurnModel(turn, filters = {}) {
     }
   }
   const visibleExecutionRows = turn.executionRows.filter((row) => rowContextIds.has(row.id));
-  const visibleEvidenceNodes = turn.auditEvidenceNodes.filter((node) => nodeContextIds.has(node.id));
-  const visiblePhaseNodeIds = new Set([...matchingPhaseNodes.map((node) => node.id), ...visibleEvidenceNodes.map((node) => node.id)]);
-  for (const row of visibleExecutionRows) {
-    for (const node of row.auditNodes || []) visiblePhaseNodeIds.add(node.id);
-  }
-  for (const node of matchingUnlinked) visiblePhaseNodeIds.add(node.id);
-  const visiblePhaseNodes = turn.auditNodes.filter((node) => visiblePhaseNodeIds.has(node.id));
   const summaryMatches = auditTurnSearchText(turn).includes(query) && auditTurnMatchesType(turn, typeFilter);
   if (!summaryMatches && !visibleExecutionRows.length && !matchingNodes.length && !matchingUnlinked.length) return null;
   return {
     ...turn,
     visibleExecutionRows: summaryMatches && typeFilter === "all" ? turn.executionRows : visibleExecutionRows,
-    visibleAuditEvidenceNodes: summaryMatches && !matchingNodes.length && typeFilter === "all" ? turn.auditEvidenceNodes : visibleEvidenceNodes,
-    visibleAuditPhaseNodes: summaryMatches && typeFilter === "all" ? turn.auditNodes : visiblePhaseNodes,
     visibleUnlinkedAuditNodes: matchingUnlinked,
   };
 }
@@ -3929,9 +3777,7 @@ function markAuditSelection() {
   els.auditContent.querySelectorAll(".audit-turn.selected").forEach((row) => row.classList.remove("selected"));
   els.auditContent.querySelectorAll(".audit-exec-group.selected").forEach((row) => row.classList.remove("selected"));
   els.auditContent.querySelectorAll(".audit-exec-row.selected").forEach((row) => row.classList.remove("selected"));
-  els.auditContent
-    .querySelectorAll(".audit-evidence-node.selected, .audit-node-chip.selected, .audit-closure-node.selected")
-    .forEach((row) => row.classList.remove("selected"));
+  els.auditContent.querySelectorAll(".audit-evidence-node.selected, .audit-node-chip.selected").forEach((row) => row.classList.remove("selected"));
   if (state.selectedAuditTurnKey) {
     els.auditContent.querySelector(`[data-audit-turn-root="${cssEscape(state.selectedAuditTurnKey)}"]`)?.classList.add("selected");
   }
