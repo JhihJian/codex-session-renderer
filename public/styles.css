@@ -1444,6 +1444,10 @@ button:disabled {
   white-space: normal;
 }
 
+.markdown-body :where(p, li, blockquote, td, th) {
+  overflow-wrap: anywhere;
+}
+
 .message-text p {
   margin: 0 0 9px;
 }
@@ -1555,6 +1559,58 @@ button:disabled {
   padding: 1px 4px;
 }
 
+.markdown-code-frame {
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--code-bg) 42%, var(--hair));
+  border-radius: var(--radius-tool);
+  background: var(--code-bg);
+  margin: 0 0 9px;
+}
+
+.markdown-code-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--code-text) 12%, transparent);
+  background: color-mix(in srgb, var(--code-bg) 88%, var(--bg-elev));
+  color: color-mix(in srgb, var(--code-text) 82%, var(--text-3));
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.2;
+  padding: 7px 8px;
+}
+
+.markdown-code-head span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-code-copy {
+  min-height: 24px;
+  border: 1px solid color-mix(in srgb, var(--code-text) 18%, transparent);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--code-text) 8%, transparent);
+  color: var(--code-text);
+  cursor: pointer;
+  font: inherit;
+  padding: 4px 7px;
+}
+
+.markdown-code-copy:hover,
+.markdown-code-copy:focus-visible {
+  background: color-mix(in srgb, var(--blue) 28%, transparent);
+  outline: none;
+}
+
+.markdown-code-copy:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
 .markdown-body pre,
 .code-block,
 .raw-preview,
@@ -1572,7 +1628,14 @@ button:disabled {
 
 .markdown-body pre {
   margin: 0 0 9px;
+  tab-size: 3;
   white-space: pre;
+}
+
+.markdown-code-frame pre {
+  margin: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .markdown-body pre code {

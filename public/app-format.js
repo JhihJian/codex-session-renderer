@@ -29,6 +29,47 @@
     }
   }
 
+  function normalizeMarkdownForRendering(value) {
+    return trimPartialClosingMarkdownFence(String(value || "").replace(/\t/g, "   "));
+  }
+
+  function trimPartialClosingMarkdownFence(value) {
+    const text = String(value || "");
+    if (!text) return text;
+    const lastLineStart = text.lastIndexOf("\n") + 1;
+    if (lastLineStart <= 0) return text;
+    const lastLine = text.slice(lastLineStart).replace(/\r$/, "");
+    const partialMarker = /^( {0,3})([`~]+)$/.exec(lastLine);
+    if (!partialMarker) return text;
+
+    const openFence = lastOpenMarkdownFence(text.slice(0, lastLineStart));
+    if (!openFence || openFence.char !== partialMarker[2][0] || partialMarker[2].length >= openFence.length) {
+      return text;
+    }
+
+    return text.slice(0, lastLineStart).replace(/\r?\n$/, "");
+  }
+
+  function lastOpenMarkdownFence(text) {
+    const lines = String(text || "").split(/\n/);
+    let openFence = null;
+    for (const rawLine of lines) {
+      const line = rawLine.replace(/\r$/, "");
+      const opening = /^( {0,3})(`{3,}|~{3,})(.*)$/.exec(line);
+      if (!opening) continue;
+      const marker = opening[2];
+      const char = marker[0];
+      if (!openFence) {
+        openFence = { char, length: marker.length };
+        continue;
+      }
+      if (char === openFence.char && marker.length >= openFence.length && new RegExp(`^ {0,3}\\${char}{${openFence.length},}\\s*$`).test(line)) {
+        openFence = null;
+      }
+    }
+    return openFence;
+  }
+
   function formatDate(value) {
     if (!value) return "";
     const date = new Date(value);
@@ -129,11 +170,13 @@
     formatShortDate,
     highlight,
     highlightHtmlText,
+    normalizeMarkdownForRendering,
     prettyMaybeJson,
     sanitizeFileName,
     sessionTimeBucket,
     sessionTimeMs,
     shortPath,
+    trimPartialClosingMarkdownFence,
   };
 
   globalThis.AppFormat = api;

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import MarkdownIt from "markdown-it";
 import "../public/app-format.js";
 
 const {
@@ -11,11 +12,13 @@ const {
   formatBytes,
   highlight,
   highlightHtmlText,
+  normalizeMarkdownForRendering,
   prettyMaybeJson,
   sanitizeFileName,
   sessionTimeBucket,
   sessionTimeMs,
   shortPath,
+  trimPartialClosingMarkdownFence,
 } = globalThis.AppFormat;
 
 test("format helpers keep compact display text stable", () => {
@@ -45,6 +48,19 @@ test("path, filename and JSON helpers handle local diagnostics", () => {
   assert.equal(prettyMaybeJson('{"a":1}'), '{\n  "a": 1\n}');
   assert.equal(prettyMaybeJson("not json"), "not json");
   assert.equal(cssEscape('a"b\\c', null), 'a\\"b\\\\c');
+});
+
+test("markdown normalization trims streamed partial closing fences", () => {
+  assert.equal(normalizeMarkdownForRendering("A\tB"), "A   B");
+  assert.equal(trimPartialClosingMarkdownFence("```js\nconsole.log(1)\n``"), "```js\nconsole.log(1)");
+  assert.equal(trimPartialClosingMarkdownFence("````js\nconsole.log(1)\n```"), "````js\nconsole.log(1)");
+  assert.equal(trimPartialClosingMarkdownFence("```js\nconsole.log(1)\n```"), "```js\nconsole.log(1)\n```");
+  assert.equal(trimPartialClosingMarkdownFence("not a code block\n``"), "not a code block\n``");
+
+  const markdown = new MarkdownIt({ html: false, linkify: true, breaks: false });
+  const html = markdown.render(normalizeMarkdownForRendering("```js\nconsole.log(1)\n``"));
+  assert.equal(html.includes("``</code>"), false);
+  assert.match(html, /console\.log\(1\)/);
 });
 
 test("session time helpers classify list buckets by recency", () => {

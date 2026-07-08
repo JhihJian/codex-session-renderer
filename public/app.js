@@ -47,6 +47,7 @@ const {
   formatShortDate,
   highlight,
   highlightHtmlText,
+  normalizeMarkdownForRendering,
   prettyMaybeJson,
   sanitizeFileName,
   sessionTimeBucket,
@@ -82,6 +83,7 @@ if (markdownRenderer) {
     }
     return defaultLinkOpen(tokens, index, options, env, self);
   };
+  markdownRenderer.renderer.rules.fence = renderMarkdownFence;
 }
 
 const els = {
@@ -235,6 +237,7 @@ function init() {
 
 function bindEvents() {
   els.refreshButton.addEventListener("click", () => loadSessions({ keepSelection: true }));
+  document.addEventListener("click", handleMarkdownCodeCopy);
   els.refreshRemoteButton.addEventListener("click", refreshSelectedSource);
   els.sourceSelect.addEventListener("change", () => selectSource(els.sourceSelect.value));
   els.managePeersButton.addEventListener("click", openPeerDialog);
@@ -5995,6 +5998,27 @@ async function copyInspectorText(text, message) {
   showToast(message);
 }
 
+async function handleMarkdownCodeCopy(event) {
+  const button = event.target.closest("[data-markdown-code-copy]");
+  if (!button) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const code = button.closest(".markdown-code-frame")?.querySelector("pre code")?.textContent || "";
+  if (!code) {
+    showToast("没有可复制代码");
+    return;
+  }
+  await copyText(code);
+  const originalText = button.textContent;
+  button.textContent = "已复制";
+  button.disabled = true;
+  showToast("已复制代码");
+  setTimeout(() => {
+    button.textContent = originalText || "复制";
+    button.disabled = false;
+  }, 1200);
+}
+
 function selectedSource() {
   return state.sources.find((source) => source.id === state.selectedSourceId) || null;
 }
@@ -6099,6 +6123,28 @@ function emptyState(title, subtitle) {
   return `<div class="empty-state"><div><strong>${escapeHtml(title)}</strong><br /><span>${escapeHtml(subtitle)}</span></div></div>`;
 }
 
+function renderMarkdownFence(tokens, index, options) {
+  const token = tokens[index];
+  const info = String(token.info || "").trim();
+  const language = markdownFenceLanguage(info);
+  const languageClass = language ? ` class="${escapeAttr(`${options?.langPrefix || "language-"}${language}`)}"` : "";
+  const label = language || "代码";
+  return `
+    <div class="markdown-code-frame">
+      <div class="markdown-code-head">
+        <span>${escapeHtml(label)}</span>
+        <button class="markdown-code-copy" type="button" data-markdown-code-copy title="复制代码">复制</button>
+      </div>
+      <pre><code${languageClass}>${escapeHtml(token.content || "")}</code></pre>
+    </div>
+  `;
+}
+
+function markdownFenceLanguage(info) {
+  const firstWord = String(info || "").split(/\s+/)[0] || "";
+  return firstWord.replace(/[^\w.+#-]/g, "").slice(0, 40);
+}
+
 function renderMarkdownMessage(text, query) {
   const html = markdownToHtml(text);
   return `<div class="message-text markdown-body">${highlightHtmlText(html, query)}</div>`;
@@ -6123,7 +6169,7 @@ function renderSubagentMiniTitle(thread) {
 }
 
 function markdownToHtml(value) {
-  const text = String(value || "");
+  const text = normalizeMarkdownForRendering(value);
   const key = `block:${text}`;
   const cached = markdownCache.get(key);
   if (cached != null) return cached;
@@ -6133,7 +6179,7 @@ function markdownToHtml(value) {
 }
 
 function markdownInlineToHtml(value) {
-  const text = String(value || "");
+  const text = normalizeMarkdownForRendering(value);
   const key = `inline:${text}`;
   const cached = markdownCache.get(key);
   if (cached != null) return cached;
