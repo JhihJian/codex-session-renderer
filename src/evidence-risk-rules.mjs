@@ -36,6 +36,7 @@ const defaultEvidenceRiskRules = [
 
 const ruleKinds = new Set(["risk-text", "large-payload"]);
 const riskLevels = new Set(["low", "medium", "high"]);
+const allowedTextFields = new Set(["status", "output", "payloadPreview"]);
 
 function riskSignalsForEvidence(item, options = {}) {
   const rules = options.rules || activeEvidenceRiskRules(options.customRules || options.evidenceRiskRules);
@@ -78,7 +79,7 @@ function normalizeEvidenceRiskRules(rules) {
       const kind = ruleKinds.has(String(rule?.kind || "")) ? String(rule.kind) : "risk-text";
       const normalized = {
         id: String(rule?.id || `custom-evidence-risk-${Date.now()}-${index}`),
-        label: String(rule?.label || rule?.summary || "Evidence 风险规则").trim() || "Evidence 风险规则",
+        label: String(rule?.label || rule?.summary || "证据风险规则").trim() || "证据风险规则",
         enabled: rule?.enabled !== false,
         kind,
         tool: String(rule?.tool || "*").trim() || "*",
@@ -101,6 +102,80 @@ function evidenceRiskRulesFingerprint(rules) {
   const normalized = normalizeEvidenceRiskRules(rules);
   if (!normalized.length) return "default";
   return JSON.stringify(normalized);
+}
+
+function validateEvidenceRiskRules(rules) {
+  if (!Array.isArray(rules)) {
+    return [{ index: -1, field: "rules", message: "证据风险规则必须是数组。" }];
+  }
+  return rules.flatMap((rule, index) => validateEvidenceRiskRule(rule, index));
+}
+
+function validateEvidenceRiskRule(rule, index) {
+  const errors = [];
+  const kind = ruleKinds.has(String(rule?.kind || "")) ? String(rule.kind) : "risk-text";
+  const toolError = validateSlashRegExp(rule?.tool);
+  if (toolError) errors.push({ index, field: "tool", message: `工具正则不合法：${toolError}` });
+  const textFieldsError = rule?.textFields == null ? "" : validateTextFields(rule.textFields);
+  if (textFieldsError) errors.push({ index, field: "textFields", message: textFieldsError });
+  const maxLengthError = rule?.maxLength == null && kind !== "large-payload" ? "" : validateMaxLength(rule?.maxLength);
+  if (maxLengthError) errors.push({ index, field: "maxLength", message: maxLengthError });
+  for (const field of evidencePatternFields(rule)) {
+    const value = String(rule?.[field] || "").trim();
+    if (!value) continue;
+    const patternError = validatePatternRegExp(value);
+    if (patternError) errors.push({ index, field, message: `${field} 不合法：${patternError}` });
+  }
+  return errors;
+}
+
+function validateTextFields(value) {
+  const fields = textFieldValues(value);
+  if (!fields.length) return "字段至少选择 status、output、payloadPreview 中的一个。";
+  const invalid = fields.filter((field) => !allowedTextFields.has(field));
+  return invalid.length ? `字段只支持 status、output、payloadPreview；不支持：${invalid.join(", ")}。` : "";
+}
+
+function textFieldValues(value) {
+  const fields = Array.isArray(value) ? value : String(value || "").split(",");
+  return fields.map((field) => String(field || "").trim()).filter(Boolean);
+}
+
+function validateMaxLength(value) {
+  const text = String(value ?? "").trim();
+  const number = Number(text);
+  if (!text || !Number.isFinite(number) || number < 1 || Math.floor(number) !== number) return "大型输出阈值必须是大于 0 的整数。";
+  return "";
+}
+
+function evidencePatternFields(rule) {
+  const fields = ["riskPattern", "nonZeroFailurePattern", "ignoredCommandPattern"];
+  for (const field of Object.keys(rule || {})) {
+    if (/Pattern$/.test(field) && !fields.includes(field)) fields.push(field);
+  }
+  return fields;
+}
+
+function validateSlashRegExp(value) {
+  const text = String(value || "").trim();
+  if (!text || text === "*" || !text.startsWith("/")) return "";
+  const slash = text.match(/^\/([\s\S]*)\/([a-z]*)$/i);
+  if (!slash) return "请使用 /pattern/flags 完整格式";
+  try {
+    new RegExp(slash[1], slash[2]);
+    return "";
+  } catch (error) {
+    return error?.message || "不是合法的 JavaScript RegExp";
+  }
+}
+
+function validatePatternRegExp(pattern) {
+  try {
+    compilePatternOrThrow(pattern);
+    return "";
+  } catch (error) {
+    return error?.message || "不是合法的 JavaScript RegExp";
+  }
 }
 
 function evidenceHasRiskText(item, rule) {
@@ -138,12 +213,17 @@ function compilePattern(pattern) {
   const text = String(pattern || "");
   if (!text) return null;
   try {
-    const slash = text.match(/^\/([\s\S]+)\/([a-z]*)$/i);
-    if (slash) return new RegExp(slash[1], slash[2].includes("i") ? slash[2] : `${slash[2]}i`);
-    return new RegExp(text, "is");
+    return compilePatternOrThrow(text);
   } catch {
     return null;
   }
+}
+
+function compilePatternOrThrow(pattern) {
+  const text = String(pattern || "");
+  const slash = text.match(/^\/([\s\S]+)\/([a-z]*)$/i);
+  if (slash) return new RegExp(slash[1], slash[2].includes("i") ? slash[2] : `${slash[2]}i`);
+  return new RegExp(text, "is");
 }
 
 function toolMatches(ruleTool, toolName) {
@@ -269,5 +349,6 @@ export {
   defaultEvidenceRiskRules,
   evidenceRiskRulesFingerprint,
   normalizeEvidenceRiskRules,
+  validateEvidenceRiskRules,
   riskSignalsForEvidence,
 };

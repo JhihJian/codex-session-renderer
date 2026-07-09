@@ -246,6 +246,6 @@ test("event query supports payload inclusion and cursor aliases", () => {
   assert.deepEqual(projected, {
     index: 5,
     payload: { type: "agent_message", message: "完成" },
-    title: "agent_message",
+    title: "助手消息",
   });
 });

@@ -1,7 +1,12 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { normalizeSourceId } from "./data-sources.mjs";
+import {
+  normalizePeerUrl as normalizeRemotePeerUrl,
+  normalizeSourceId,
+  remoteUrlQueryMessage,
+  remoteUrlUserinfoMessage,
+} from "./data-sources.mjs";
 
 const configFileName = "config.json";
 const defaultConfigDirName = ".codex-session-renderer";
@@ -32,9 +37,10 @@ function createRendererConfigStore(options = {}) {
 
   async function upsertPeer(input) {
     const config = await readConfig();
-    const requestedId = normalizeSourceId(input.id || input.label || input.url);
+    const normalizedUrl = normalizePeerUrl(input.url);
+    const requestedId = normalizeSourceId(input.id || input.label || normalizedUrl);
     const index = config.peers.findIndex((item) => item.id === requestedId);
-    const peer = normalizePeerInput({ ...input, requireToken: index < 0 });
+    const peer = normalizePeerInput({ ...input, url: normalizedUrl, requireToken: index < 0 });
     if (index >= 0) {
       const previous = config.peers[index];
       config.peers[index] = {
@@ -86,11 +92,12 @@ function normalizeConfig(config = {}) {
 
 function normalizeStoredPeer(peer) {
   try {
-    const id = normalizeSourceId(peer.id || peer.label || peer.url);
+    const url = normalizePeerUrl(peer.url);
+    const id = normalizeSourceId(peer.id || peer.label || url);
     return {
       id,
       label: String(peer.label || id).trim() || id,
-      url: normalizePeerUrl(peer.url),
+      url,
       token: String(peer.token || ""),
       enabled: peer.enabled !== false,
       createdAt: peer.createdAt || new Date().toISOString(),
@@ -102,42 +109,52 @@ function normalizeStoredPeer(peer) {
 }
 
 function normalizePeerInput(input = {}) {
-  const id = normalizeSourceId(input.id || input.label || input.url);
+  const url = normalizePeerUrl(input.url);
+  const id = normalizeSourceId(input.id || input.label || url);
   const now = new Date().toISOString();
   const peer = {
     id,
     label: String(input.label || id).trim() || id,
-    url: normalizePeerUrl(input.url),
+    url,
     token: String(input.token || ""),
     enabled: input.enabled !== false,
     updatedAt: now,
   };
   if (!peer.url) throw validationError("url", "远端地址不能为空。");
-  if (!peer.token && input.requireToken !== false) throw validationError("token", "Token 不能为空。");
+  if (!peer.token && input.requireToken !== false) throw validationError("token", "访问令牌不能为空。");
   return peer;
 }
 
 function normalizePeerUrl(value) {
-  const text = String(value || "").trim();
-  if (!text) return "";
-  const withProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `http://${text}`;
-  const url = new URL(withProtocol);
-  url.pathname = url.pathname.replace(/\/+$/, "");
-  url.search = "";
-  url.hash = "";
-  return url.toString().replace(/\/$/, "");
+  try {
+    const normalized = normalizeRemotePeerUrl(value);
+    if (!normalized) return "";
+    return normalized;
+  } catch (error) {
+    if (error?.code === "remote_url_userinfo") throw validationError("url", remoteUrlUserinfoMessage);
+    if (error?.code === "remote_url_query") throw validationError("url", remoteUrlQueryMessage);
+    throw validationError("url", "远端地址格式无效。");
+  }
 }
 
 function publicPeer(peer) {
   return {
     id: peer.id,
     label: peer.label,
-    url: peer.url,
+    url: publicPeerUrl(peer.url),
     enabled: peer.enabled !== false,
     hasToken: Boolean(peer.token),
     createdAt: peer.createdAt || null,
     updatedAt: peer.updatedAt || null,
   };
+}
+
+function publicPeerUrl(value) {
+  try {
+    return normalizePeerUrl(value);
+  } catch {
+    return "";
+  }
 }
 
 function validationError(field, message) {

@@ -10,7 +10,7 @@
     <div class="app-shell" id="appShell" data-left="open" data-right="open" data-panel="thread">
       <header class="topbar">
         <div class="topbar-left">
-          <button class="icon-button" id="toggleLeft" type="button" title="切换会话列表" aria-label="切换会话列表">☰</button>
+          <button class="icon-button" id="toggleLeft" type="button" title="隐藏会话列表" aria-label="隐藏会话列表" aria-controls="sessionsPanel" aria-expanded="true">☰</button>
           <div class="brand">
             <span class="brand-mark" aria-hidden="true">C</span>
             <div class="brand-copy">
@@ -23,23 +23,23 @@
         <nav class="mobile-tabs" aria-label="移动端视图切换">
           <button class="mobile-tab" data-panel-target="sessions" type="button">会话</button>
           <button class="mobile-tab" data-panel-target="thread" type="button">内容</button>
-          <button class="mobile-tab" data-panel-target="inspector" type="button">检查</button>
+          <button class="mobile-tab" data-panel-target="inspector" type="button">复核</button>
         </nav>
 
         <div class="topbar-actions">
-          <button class="ghost-button" id="refreshButton" type="button" title="刷新会话列表">刷新</button>
-          <button class="ghost-button" id="refreshRemoteButton" type="button" hidden>刷新远程</button>
+          <button class="ghost-button" id="refreshButton" type="button" title="刷新会话列表">刷新列表</button>
+          <button class="ghost-button" id="refreshRemoteButton" type="button" title="拉取远端实时快照到本机缓存，不修改远端" hidden>拉取远端快照</button>
           <button class="ghost-button" id="copyMarkdownButton" type="button" disabled>复制 Markdown</button>
           <button class="primary-button" id="downloadMarkdownButton" type="button" disabled>下载 Markdown</button>
           <button class="icon-button" id="settingsButton" type="button" title="展示规则设置" aria-label="展示规则设置">⚙</button>
-          <button class="icon-button" id="toggleRight" type="button" title="切换检查器" aria-label="切换检查器">◫</button>
+          <button class="icon-button" id="toggleRight" type="button" title="隐藏复核台" aria-label="隐藏复核台" aria-controls="inspectorPanel" aria-expanded="true">◫</button>
         </div>
       </header>
 
       <aside class="sidebar panel" id="sessionsPanel" aria-label="会话列表">
         <div class="panel-header">
           <div>
-            <p class="eyebrow">Sessions</p>
+            <p class="eyebrow">会话</p>
             <h1>会话列表</h1>
           </div>
           <span class="count-pill" id="sessionCount">0</span>
@@ -49,7 +49,7 @@
           <label class="field-label" for="sourceSelect">数据源</label>
           <div class="source-row">
             <select class="select-input" id="sourceSelect"></select>
-            <button class="ghost-button small" id="managePeersButton" type="button">设备</button>
+            <button class="ghost-button small" id="managePeersButton" type="button">远端数据源</button>
           </div>
           <div class="source-status" id="sourceStatus">读取数据源状态中</div>
 
@@ -58,9 +58,9 @@
 
           <label class="field-label" for="sessionTimeFilter">时间分类</label>
           <div class="segmented-control" id="sessionTimeFilter" role="tablist" aria-label="时间分类">
-            <button class="segment-button active" type="button" data-session-time="realtime">实时</button>
-            <button class="segment-button" type="button" data-session-time="day">一天</button>
-            <button class="segment-button" type="button" data-session-time="earlier">更早</button>
+            <button class="segment-button active" type="button" role="tab" aria-selected="true" data-session-time="realtime" title="实时：最近 3 小时内已同步到本机快照的会话" aria-label="实时，小于 3 小时">实时 &lt;3h</button>
+            <button class="segment-button" type="button" role="tab" aria-selected="false" tabindex="-1" data-session-time="day" title="近一天：远端数据源显示历史索引，不含正文" aria-label="近一天，历史索引">近一天</button>
+            <button class="segment-button" type="button" role="tab" aria-selected="false" tabindex="-1" data-session-time="earlier" title="更早：远端数据源显示历史索引，不含正文" aria-label="更早，历史索引">更早</button>
           </div>
 
           <label class="field-label" for="sessionTypeFilter">会话类型</label>
@@ -68,8 +68,8 @@
             <option value="all">全部会话</option>
             <option value="project">项目会话</option>
             <option value="projectless">无项目会话</option>
-            <option value="error">包含错误</option>
-            <option value="tool">包含工具调用</option>
+            <option value="error">标题/路径含错误词</option>
+            <option value="tool">标题/路径含工具词</option>
           </select>
         </div>
 
@@ -81,22 +81,32 @@
           <div class="thread-title-block">
             <p class="eyebrow" id="sessionMetaLabel">未选择</p>
             <h2 id="sessionTitle">选择一个会话</h2>
+            <div class="thread-filter-notice" id="sessionFilterNotice" role="status" aria-live="polite" hidden>
+              <div>
+                <strong>当前会话已被筛选隐藏</strong>
+                <span id="sessionFilterNoticeText">左侧列表不再包含当前正文，清除筛选或返回实时可重新对齐。</span>
+              </div>
+              <div class="thread-filter-notice-actions">
+                <button class="ghost-button small" id="clearSessionFiltersButton" type="button">清除筛选</button>
+                <button class="ghost-button small" id="returnRealtimeButton" type="button">返回实时</button>
+              </div>
+            </div>
           </div>
 
           <div class="thread-controls">
             <div class="view-switch" role="tablist" aria-label="视图切换">
-              <button class="view-tab active" id="compactViewButton" type="button" data-view-mode="compact">精简</button>
-              <button class="view-tab" id="auditViewButton" type="button" data-view-mode="audit">Audit</button>
-              <button class="view-tab" id="rawViewButton" type="button" data-view-mode="raw">Raw</button>
+              <button class="view-tab active" id="compactViewButton" type="button" role="tab" aria-selected="true" aria-controls="compactContent" data-view-mode="compact" title="阅读视图：整理后的会话正文" aria-label="阅读视图：整理后的会话正文">阅读</button>
+              <button class="view-tab" id="auditViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="auditContent" data-view-mode="audit" title="审计链视图：按轮次复核目标、证据和风险" aria-label="审计链视图：按轮次复核目标、证据和风险">审计链</button>
+              <button class="view-tab" id="rawViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="rawContent" data-view-mode="raw" title="原始事件视图：诊断 JSONL 事件流" aria-label="原始事件视图：诊断 JSONL 事件流">原始事件</button>
             </div>
             <input class="text-input compact" id="itemSearch" type="search" autocomplete="off" placeholder="搜索内容、命令、输出..." />
             <select class="select-input compact" id="itemTypeFilter">
-              <option value="all">全部类型</option>
+              <option value="all">全部内容</option>
               <option value="message">用户/助手消息</option>
               <option value="tool">工具与命令</option>
               <option value="output">工具输出</option>
               <option value="reasoning">推理摘要</option>
-              <option value="compact">Compact / 压缩</option>
+              <option value="compact">上下文压缩</option>
               <option value="system">系统事件</option>
               <option value="error">错误事件</option>
             </select>
@@ -121,7 +131,7 @@
         class="inspector-resizer"
         id="inspectorResizer"
         role="separator"
-        aria-label="调整 Review Dock 宽度"
+        aria-label="调整复核台宽度"
         aria-controls="inspectorPanel"
         aria-orientation="vertical"
         aria-valuemin="310"
@@ -130,22 +140,22 @@
         tabindex="0"
       ></div>
 
-      <aside class="inspector panel" id="inspectorPanel" aria-label="Review Dock 复核台">
+      <aside class="inspector panel" id="inspectorPanel" aria-label="复核台">
         <div class="panel-header">
           <div>
-            <p class="eyebrow">Review Dock</p>
-            <h2>复核台</h2>
+            <p class="eyebrow">复核台</p>
+            <h2>复核对象</h2>
           </div>
-          <button class="ghost-button small" id="copyRawButton" type="button" disabled>复制引用</button>
+          <button class="ghost-button small" id="copyRawButton" type="button" disabled>复制会话引用</button>
         </div>
 
         <section class="review-context" id="sessionDetails"></section>
 
         <div class="review-tabs" id="reviewTabs" role="tablist" aria-label="复核模式">
-          <button class="review-tab active" type="button" data-review-tab="summary">摘要</button>
-          <button class="review-tab" type="button" data-review-tab="evidence">证据</button>
-          <button class="review-tab" type="button" data-review-tab="relations">关系</button>
-          <button class="review-tab" type="button" data-review-tab="source">来源</button>
+          <button class="review-tab active" type="button" role="tab" aria-selected="true" data-review-tab="summary">摘要</button>
+          <button class="review-tab" type="button" role="tab" aria-selected="false" tabindex="-1" data-review-tab="evidence">证据</button>
+          <button class="review-tab" type="button" role="tab" aria-selected="false" tabindex="-1" data-review-tab="relations">关系</button>
+          <button class="review-tab" type="button" role="tab" aria-selected="false" tabindex="-1" data-review-tab="source">来源</button>
         </div>
 
         <section class="review-body" id="selectionDetails"></section>
@@ -153,7 +163,7 @@
         <div class="review-actionbar" id="inspectorActions"></div>
 
         <div class="review-hidden" hidden>
-          <span id="keyEventsTitle">Review Dock</span>
+          <span id="keyEventsTitle">复核台</span>
           <span id="eventCount">0</span>
           <div id="rawEventList"></div>
           <button id="showMoreEventsButton" type="button"></button>
@@ -162,10 +172,10 @@
         </div>
       </aside>
 
-      <footer class="statusbar" aria-label="工作台状态">
+      <footer class="statusbar" id="statusbar" aria-label="工作台状态">
         <span id="statusSource">数据源：读取中</span>
         <span id="statusSession">未选择会话</span>
-        <span id="statusEvents">0 sessions</span>
+        <span id="statusEvents">0 个会话</span>
         <span id="statusUpdated">只读浏览</span>
       </footer>
     </div>
@@ -176,8 +186,8 @@
       <form class="peer-panel" id="peerForm" method="dialog">
         <div class="peer-panel-header">
           <div>
-            <p class="eyebrow">Devices</p>
-            <h2>远端设备</h2>
+            <p class="eyebrow">数据源</p>
+            <h2>远端数据源</h2>
           </div>
           <button class="icon-button" id="closePeerDialogButton" type="button" title="关闭" aria-label="关闭">×</button>
         </div>
@@ -193,31 +203,31 @@
             <label class="field-label" for="peerUrl">地址</label>
             <input class="text-input" id="peerUrl" type="text" autocomplete="off" placeholder="192.168.1.20:4791" />
 
-            <label class="field-label" for="peerToken">Token</label>
+            <label class="field-label" for="peerToken">访问令牌</label>
             <input class="text-input" id="peerToken" type="password" autocomplete="new-password" placeholder="保存后不会回显" />
 
             <label class="toggle-control peer-toggle">
               <input id="peerEnabled" type="checkbox" checked />
-              <span>启用设备</span>
+              <span>启用数据源</span>
             </label>
 
             <div class="peer-actions">
               <button class="primary-button" id="savePeerButton" type="submit">保存</button>
               <button class="ghost-button" id="newPeerButton" type="button">新建</button>
-              <button class="ghost-button" id="testPeerButton" type="button">测试</button>
-              <button class="ghost-button danger" id="deletePeerButton" type="button">删除</button>
+              <button class="ghost-button" id="testPeerButton" type="button" title="使用已保存配置和访问令牌向远端发起只读健康检查；当前表单草稿不会被测试，不保存配置，不拉取快照">测试已保存连接</button>
+              <button class="ghost-button danger" id="deletePeerButton" type="button">移除本机配置</button>
             </div>
-            <div class="source-status" id="peerEditorStatus">本机保存配置；Token 只保存在本机配置文件。</div>
+            <div class="source-status" id="peerEditorStatus">本机保存配置；访问令牌只保存在本机配置文件。</div>
           </div>
         </div>
       </form>
     </dialog>
 
     <dialog class="peer-dialog settings-dialog" id="settingsDialog">
-      <form class="peer-panel settings-panel" id="settingsForm" method="dialog">
+      <form class="peer-panel settings-panel" id="settingsForm" method="dialog" novalidate>
         <div class="peer-panel-header">
           <div>
-            <p class="eyebrow">Display Rules</p>
+            <p class="eyebrow">展示规则</p>
             <h2>展示规则设置</h2>
           </div>
           <button class="icon-button" id="closeSettingsDialogButton" type="button" title="关闭" aria-label="关闭">×</button>
@@ -233,7 +243,7 @@
             <span>执行聚合</span>
           </button>
           <button class="settings-tab" id="settingsTabEvidence" type="button" role="tab" aria-selected="false" aria-controls="settingsSectionEvidence" data-settings-view="evidence">
-            <span>Evidence 风险</span>
+            <span>证据风险</span>
           </button>
           <button class="settings-tab" id="settingsTabStructured" type="button" role="tab" aria-selected="false" aria-controls="settingsSectionStructured" data-settings-view="structured">
             <span>结构化展示</span>
@@ -256,7 +266,7 @@
           <section class="settings-section" id="settingsSectionStructured" role="tabpanel" aria-labelledby="settingsTabStructured" data-settings-panel="structured" hidden>
             <div class="section-title-row">
               <h3>命令输出结构化展示</h3>
-              <span class="muted">Review Dock 自动识别</span>
+              <span class="muted">复核台自动识别</span>
             </div>
             <div class="command-capability-list" aria-label="命令输出结构化展示能力">
               <div class="command-capability-row">
@@ -275,7 +285,7 @@
                 <span>展示通过/失败状态、退出码、测试/通过/失败/错误计数、耗时，以及关键输出或失败线索。</span>
               </div>
             </div>
-            <div class="rule-empty compact">命中这些模式时，摘要页和证据卡会使用结构化 viewer；未命中时仍按普通摘要或原始文本展示。自定义摘要规则影响标题和短摘要，不改变这里的输出解析。</div>
+            <div class="rule-empty compact">命中这些模式时，摘要页和证据卡会使用结构化视图；未命中时仍按普通摘要或原始文本展示。自定义摘要规则影响标题和短摘要，不改变这里的输出解析。</div>
           </section>
 
           <section class="settings-section" id="settingsSectionExecution" role="tabpanel" aria-labelledby="settingsTabExecution" data-settings-panel="execution" hidden>
@@ -292,8 +302,8 @@
 
           <section class="settings-section" id="settingsSectionEvidence" role="tabpanel" aria-labelledby="settingsTabEvidence" data-settings-panel="evidence" hidden>
             <div class="section-title-row">
-              <h3>Evidence 风险规则</h3>
-              <span class="muted">影响服务端 Audit 风险节点</span>
+              <h3>证据风险规则</h3>
+              <span class="muted">影响服务端审计风险节点</span>
             </div>
             <div class="summary-rule-list" id="evidenceRiskRuleList"></div>
             <div class="settings-actions">
@@ -320,8 +330,8 @@
 
           <section class="settings-section" data-settings-panel="evidence" hidden>
             <div class="section-title-row">
-              <h3>内置 Evidence 风险规则</h3>
-              <span class="muted">只读参考</span>
+              <h3>内置证据风险规则</h3>
+              <span class="muted">参考；上方保存后覆盖同名内置规则</span>
             </div>
             <div class="default-rule-list" id="defaultEvidenceRiskRuleList"></div>
           </section>
@@ -329,6 +339,7 @@
 
         <div class="settings-footer">
           <div class="source-status" id="settingsStatus">配置保存在当前浏览器本地。</div>
+          <button class="ghost-button" id="cancelSettingsButton" type="button">取消</button>
           <button class="primary-button" id="saveSettingsButton" type="submit">保存</button>
         </div>
       </form>

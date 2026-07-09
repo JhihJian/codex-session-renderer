@@ -167,7 +167,7 @@ test("server module can be imported and serves core HTTP session APIs", async (t
 
   const appPost = await requestJson(baseUrl, "/app.js", { method: "POST" });
   assert.equal(appPost.response.status, 405);
-  assert.equal(appPost.body.error, "Method not allowed");
+  assert.equal(appPost.body.error, "请求方法不允许");
 
   const health = await requestJson(baseUrl, "/api/health");
   assert.equal(health.response.status, 200);
@@ -178,7 +178,7 @@ test("server module can be imported and serves core HTTP session APIs", async (t
 
   const healthPost = await requestJson(baseUrl, "/api/health", { method: "POST" });
   assert.equal(healthPost.response.status, 405);
-  assert.equal(healthPost.body.error, "Method not allowed");
+  assert.equal(healthPost.body.error, "请求方法不允许");
 
   const list = await requestJson(baseUrl, "/api/sessions");
   assert.equal(list.response.status, 200);
@@ -188,7 +188,7 @@ test("server module can be imported and serves core HTTP session APIs", async (t
 
   const sessionsPost = await requestJson(baseUrl, "/api/sessions", { method: "POST" });
   assert.equal(sessionsPost.response.status, 405);
-  assert.equal(sessionsPost.body.error, "Method not allowed");
+  assert.equal(sessionsPost.body.error, "请求方法不允许");
 
   const expectedRemoteLinks = {
     detail: `/api/sources/remote-a/sessions/${sessionId}`,
@@ -204,7 +204,7 @@ test("server module can be imported and serves core HTTP session APIs", async (t
 
   const sourceQueryPost = await requestJson(baseUrl, "/api/sources/remote-a/query/sessions", { method: "POST" });
   assert.equal(sourceQueryPost.response.status, 405);
-  assert.equal(sourceQueryPost.body.error, "Method not allowed");
+  assert.equal(sourceQueryPost.body.error, "请求方法不允许");
 
   const sourceCompactView = await requestJson(baseUrl, `/api/sources/remote-a/query/sessions/${sessionId}/view?view=compact`);
   assert.equal(sourceCompactView.response.status, 200);
@@ -216,7 +216,7 @@ test("server module can be imported and serves core HTTP session APIs", async (t
 
   const sourceMarkdownPost = await requestJson(baseUrl, `/api/sources/remote-a/sessions/${sessionId}/markdown`, { method: "POST" });
   assert.equal(sourceMarkdownPost.response.status, 405);
-  assert.equal(sourceMarkdownPost.body.error, "Method not allowed");
+  assert.equal(sourceMarkdownPost.body.error, "请求方法不允许");
 
   const legacyRemoteQuery = await requestJson(baseUrl, "/api/query/sessions?sourceId=remote-a&limit=1&fields=id,links");
   assert.equal(legacyRemoteQuery.response.status, 200);
@@ -224,7 +224,7 @@ test("server module can be imported and serves core HTTP session APIs", async (t
 
   const queryPost = await requestJson(baseUrl, "/api/query/sessions", { method: "POST" });
   assert.equal(queryPost.response.status, 405);
-  assert.equal(queryPost.body.error, "Method not allowed");
+  assert.equal(queryPost.body.error, "请求方法不允许");
 
   const explicitLocalQuery = await requestJson(baseUrl, "/api/sources/local/query/sessions?limit=1&fields=id,links");
   assert.equal(explicitLocalQuery.response.status, 200);
@@ -234,6 +234,10 @@ test("server module can be imported and serves core HTTP session APIs", async (t
     events: `/api/sources/local/query/sessions/${sessionId}/events`,
     markdown: `/api/sources/local/sessions/${sessionId}/markdown`,
   });
+
+  const missingSource = await requestJson(baseUrl, "/api/sources/missing-source/sessions");
+  assert.equal(missingSource.response.status, 404);
+  assert.equal(missingSource.body.error, "数据源不存在");
 
   const detail = await requestJson(baseUrl, `/api/sessions/${sessionId}`);
   assert.equal(detail.response.status, 200);
@@ -263,7 +267,15 @@ test("server module can be imported and serves core HTTP session APIs", async (t
     `/api/sources/local/sessions/${sessionId}?evidenceRiskRules=%7Bbad-json`,
   );
   assert.equal(localSourceDetailWithInvalidRiskRules.response.status, 400);
-  assert.equal(localSourceDetailWithInvalidRiskRules.body.error, "Invalid evidenceRiskRules parameter");
+  assert.equal(localSourceDetailWithInvalidRiskRules.body.error, "evidenceRiskRules 参数无效");
+
+  const invalidRiskPatternRules = encodeURIComponent(JSON.stringify([{ id: "error-output", enabled: true, kind: "risk-text", riskPattern: "(" }]));
+  const localSourceDetailWithInvalidRiskPattern = await requestJson(
+    baseUrl,
+    `/api/sources/local/sessions/${sessionId}?evidenceRiskRules=${invalidRiskPatternRules}`,
+  );
+  assert.equal(localSourceDetailWithInvalidRiskPattern.response.status, 400);
+  assert.equal(localSourceDetailWithInvalidRiskPattern.body.error, "evidenceRiskRules 参数无效");
 
   const localSourceDetailAfterCustomRules = await requestJson(baseUrl, `/api/sources/local/sessions/${sessionId}`);
   assert.equal(localSourceDetailAfterCustomRules.response.status, 200);
@@ -275,6 +287,14 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   assert.equal(event.body.index, 0);
   assert.equal(event.body.payload.type, undefined);
   assert.equal(event.body.raw.type, "session_meta");
+
+  const missingSession = await requestJson(baseUrl, "/api/sources/local/sessions/missing-session");
+  assert.equal(missingSession.response.status, 404);
+  assert.equal(missingSession.body.error, "会话不存在");
+
+  const missingEvent = await requestJson(baseUrl, `/api/sessions/${sessionId}/events/99`);
+  assert.equal(missingEvent.response.status, 404);
+  assert.equal(missingEvent.body.error, "事件不存在");
 
   const markdown = await fetch(`${baseUrl}/api/sessions/${sessionId}/markdown`);
   assert.equal(markdown.status, 200);
@@ -290,5 +310,5 @@ test("server module can be imported and serves core HTTP session APIs", async (t
 
   const missing = await requestJson(baseUrl, "/api/__missing_smoke_endpoint__");
   assert.equal(missing.response.status, 404);
-  assert.equal(missing.body.error, "Not found");
+  assert.equal(missing.body.error, "未找到资源");
 });

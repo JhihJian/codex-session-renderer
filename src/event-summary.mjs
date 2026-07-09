@@ -60,34 +60,111 @@ function summarizeSessionEvents(events) {
   return { counts, roles };
 }
 
+function withTitleDetail(title, detail) {
+  const text = String(detail ?? "").trim();
+  return text ? `${title}：${text}` : title;
+}
+
+function summarizeToolCallTitle(toolName) {
+  return withTitleDetail("调用工具", toolName || "未知工具");
+}
+
+function summarizeToolOutputTitle(toolName) {
+  return withTitleDetail("工具输出", toolName || "未知工具");
+}
+
+function messageRoleTitle(role) {
+  switch (role) {
+    case "user":
+      return "用户消息";
+    case "assistant":
+      return "助手消息";
+    case "system":
+      return "系统消息";
+    case "tool":
+      return "工具消息";
+    default:
+      return "消息";
+  }
+}
+
+function knownKindTitle(kind) {
+  switch (kind) {
+    case "meta":
+    case "session_meta":
+      return "会话元信息";
+    case "turn_context":
+      return "轮次上下文";
+    case "user_message":
+      return "用户消息";
+    case "agent_message":
+      return "助手消息";
+    case "message":
+      return "消息";
+    case "token_count":
+      return "上下文占用统计";
+    case "task_started":
+      return "任务开始";
+    case "task_complete":
+      return "任务完成";
+    case "task_failed":
+      return "任务失败";
+    case "turn_aborted":
+      return "轮次已中断";
+    case "subagent_notification":
+      return "子代理回执";
+    case "compacted":
+      return "上下文已压缩";
+    case "context_compacted":
+      return "上下文压缩完成";
+    case "jsonl_parse_error":
+      return "事件解析失败";
+    default:
+      return "";
+  }
+}
+
+function eventMessageTitle(type) {
+  return knownKindTitle(type) || withTitleDetail("事件", type);
+}
+
+function responseItemTitle(type) {
+  switch (type) {
+    case "reasoning":
+      return "推理项";
+    default:
+      return withTitleDetail("响应项", type);
+  }
+}
+
 function summarizeEventTitle(event) {
   const normalized = normalizeSessionEvent(event);
-  if (normalized.semanticKind === "diagnostic") return "JSONL parse error";
-  if (normalized.compact?.kind === "compacted") return "Context compacted";
-  if (normalized.compact?.kind === "context_compacted") return "Context compact complete";
-  if (normalized.semanticKind === "tool_call") return `Call ${normalized.toolName || "tool"}`;
-  if (normalized.semanticKind === "tool_result") return `Output ${normalized.toolName || normalized.callId || "tool"}`.trim();
+  if (normalized.semanticKind === "diagnostic") return "事件解析失败";
+  if (normalized.compact?.kind === "compacted") return "上下文已压缩";
+  if (normalized.compact?.kind === "context_compacted") return "上下文压缩完成";
+  if (normalized.semanticKind === "tool_call") return summarizeToolCallTitle(normalized.toolName);
+  if (normalized.semanticKind === "tool_result") return summarizeToolOutputTitle(normalized.toolName || normalized.callId);
   if (normalized.rawType !== "event_msg" && normalized.rawType !== "response_item") {
-    if (normalized.kind === "user_message") return "user_message";
-    if (normalized.kind === "agent_message") return "agent_message";
+    const kindTitle = knownKindTitle(normalized.kind);
+    if (kindTitle) return kindTitle;
   }
   const payload = event.payload ?? {};
-  if (event.type === "session_meta") return "Session metadata";
-  if (event.type === "turn_context") return `Turn context ${payload.turn_id ?? ""}`.trim();
+  if (event.type === "session_meta") return "会话元信息";
+  if (event.type === "turn_context") return withTitleDetail("轮次上下文", payload.turn_id);
   if (event.type === "event_msg") {
-    if (isToolCallStart(payload.type)) return `Call ${toolNameFromPayload(payload)}`;
-    if (isToolCallOutput(payload.type)) return `Output ${toolNameFromPayload(payload) || payload.call_id || ""}`.trim();
-    return payload.type ?? "Event";
+    if (isToolCallStart(payload.type)) return summarizeToolCallTitle(toolNameFromPayload(payload));
+    if (isToolCallOutput(payload.type)) return summarizeToolOutputTitle(toolNameFromPayload(payload) || payload.call_id);
+    return eventMessageTitle(payload.type);
   }
   if (event.type === "response_item") {
-    if (payload.type === "message") return `${payload.role || "message"} message`;
-    if (isToolCallStart(payload.type)) return `Call ${toolNameFromPayload(payload)}`;
-    if (isToolCallOutput(payload.type)) return `Output ${payload.call_id || ""}`.trim();
-    return payload.type || "Response item";
+    if (payload.type === "message") return messageRoleTitle(payload.role);
+    if (isToolCallStart(payload.type)) return summarizeToolCallTitle(toolNameFromPayload(payload));
+    if (isToolCallOutput(payload.type)) return summarizeToolOutputTitle(payload.call_id);
+    return responseItemTitle(payload.type);
   }
-  if (isToolCallStart(event.type)) return `Call ${toolNameFromPayload(payload)}`;
-  if (isToolCallOutput(event.type)) return `Output ${toolNameFromPayload(payload) || payload.call_id || ""}`.trim();
-  return event.type || "Event";
+  if (isToolCallStart(event.type)) return summarizeToolCallTitle(toolNameFromPayload(payload));
+  if (isToolCallOutput(event.type)) return summarizeToolOutputTitle(toolNameFromPayload(payload) || payload.call_id);
+  return withTitleDetail("事件", event.type);
 }
 
 function summarizeEventPreview(event) {
@@ -95,14 +172,14 @@ function summarizeEventPreview(event) {
   if (normalized.compact?.kind === "compacted") {
     const prefix = [
       "压缩摘要",
-      normalized.compact.windowNumber != null ? `window ${normalized.compact.windowNumber}` : "",
+      normalized.compact.windowNumber != null ? `窗口 ${normalized.compact.windowNumber}` : "",
       normalized.compact.replacementHistoryCount ? `${normalized.compact.replacementHistoryCount} 条替换历史` : "",
     ]
       .filter(Boolean)
       .join(" · ");
     return firstLine([prefix, normalized.compact.message].filter(Boolean).join("："), 180);
   }
-  if (normalized.compact?.kind === "context_compacted") return "上下文压缩完成，后续 turn 将使用 compacted 事件写入的替换摘要。";
+  if (normalized.compact?.kind === "context_compacted") return "上下文压缩完成，后续轮次将使用已压缩事件写入的替换摘要。";
   if (normalized.role === "user" || normalized.kind === "user_message") {
     const text = cleanUserMessageText(normalized.text);
     if (text) return firstLine(text, 180);
@@ -113,7 +190,7 @@ function summarizeEventPreview(event) {
   if (normalized.toolInput) return firstLine(normalized.toolInput, 180);
   if (normalized.toolOutput) return firstLine(normalized.toolOutput, 180);
   if (normalized.attachments?.length) return firstLine(normalized.attachments.map((attachment) => attachment.label).join(", "), 180);
-  if (normalized.reasoning?.encrypted) return `加密 reasoning (${normalized.reasoning.encryptedLength} chars)`;
+  if (normalized.reasoning?.encrypted) return `加密推理内容（${normalized.reasoning.encryptedLength} 字符）`;
   if (normalized.diagnostic?.preview) return firstLine(normalized.diagnostic.preview, 180);
   const payload = event.payload ?? {};
   if (payload.message) return firstLine(redactSensitiveText(payload.message), 180);

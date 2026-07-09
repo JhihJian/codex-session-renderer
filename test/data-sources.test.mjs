@@ -5,7 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import {
   createDataSourceRegistry,
+  parseConfigRemoteDefinitions,
   parseRemoteDefinitions,
+  publicDataSource,
   sanitizeErrorMessage,
 } from "../src/data-sources.mjs";
 
@@ -55,6 +57,144 @@ test("parseRemoteDefinitions accepts compact peer URLs", () => {
   assert.equal(definitions[0].token, "shared-token");
   assert.equal(definitions[1].id, "lab");
   assert.equal(definitions[1].snapshotUrl, "https://lab.example.test/share.tar.gz");
+});
+
+test("remote peer URL parsing rejects embedded userinfo", () => {
+  assert.throws(
+    () =>
+      parseRemoteDefinitions({
+        CODEX_REMOTE_PEERS: "office=http://user:secret@192.168.1.20:4791",
+        CODEX_REMOTE_TOKEN: "shared-token",
+      }),
+    (error) => {
+      assert.equal(error.code, "remote_url_userinfo");
+      assert.match(error.message, /账号或密码/);
+      assert.doesNotMatch(error.message, /secret|user:secret/);
+      return true;
+    },
+  );
+
+  assert.throws(
+    () =>
+      parseConfigRemoteDefinitions({
+        peers: [
+          {
+            id: "office",
+            label: "Office",
+            url: "http://user:secret@192.168.1.20:4791",
+            token: "peer-token",
+          },
+        ],
+      }),
+    (error) => {
+      assert.equal(error.code, "remote_url_userinfo");
+      assert.doesNotMatch(error.message, /secret|user:secret/);
+      return true;
+    },
+  );
+
+  assert.throws(
+    () =>
+      parseRemoteDefinitions({
+        CODEX_REMOTE_SOURCES: "office",
+        CODEX_REMOTE_OFFICE_SNAPSHOT_URL: "https://user:secret@example.invalid/codex-snapshot.tar.gz",
+        CODEX_REMOTE_OFFICE_TOKEN: "peer-token",
+      }),
+    (error) => {
+      assert.equal(error.code, "remote_url_userinfo");
+      assert.doesNotMatch(error.message, /secret|user:secret/);
+      return true;
+    },
+  );
+});
+
+test("remote peer URL parsing rejects query credentials", () => {
+  assert.throws(
+    () =>
+      parseRemoteDefinitions({
+        CODEX_REMOTE_PEERS: "office=http://192.168.1.20:4791?token=secret#frag",
+        CODEX_REMOTE_TOKEN: "shared-token",
+      }),
+    (error) => {
+      assert.equal(error.code, "remote_url_query");
+      assert.match(error.message, /查询参数|访问令牌/);
+      assert.doesNotMatch(error.message, /secret|token=secret/);
+      return true;
+    },
+  );
+
+  assert.throws(
+    () =>
+      parseConfigRemoteDefinitions({
+        peers: [
+          {
+            id: "office",
+            label: "Office",
+            url: "http://192.168.1.20:4791?access_token=secret",
+            token: "peer-token",
+          },
+        ],
+      }),
+    (error) => {
+      assert.equal(error.code, "remote_url_query");
+      assert.doesNotMatch(error.message, /secret|access_token/);
+      return true;
+    },
+  );
+});
+
+test("publicDataSource never exposes URL userinfo from remote origins", () => {
+  const source = publicDataSource({
+    id: "office",
+    label: "Office",
+    kind: "remote",
+    origin: {
+      type: "remote",
+      peerUrl: "http://user:secret@192.168.1.20:4791",
+      managed: true,
+    },
+    currentPath: "D:\\snapshots\\office\\current",
+    status: {
+      configured: true,
+      refreshable: true,
+      refreshing: false,
+      lastRefreshOk: null,
+      lastSuccessfulRefreshAt: null,
+      stale: false,
+      snapshotAvailable: false,
+      error: null,
+    },
+  });
+
+  assert.equal(source.origin.peerUrl, null);
+  assert.doesNotMatch(JSON.stringify(source), /secret|user:secret/);
+});
+
+test("publicDataSource never exposes peer URL query credentials", () => {
+  const source = publicDataSource({
+    id: "office",
+    label: "Office",
+    kind: "remote",
+    origin: {
+      type: "remote",
+      peerUrl: "http://192.168.1.20:4791?token=secret",
+      managed: true,
+    },
+    currentPath: "D:\\snapshots\\office\\current",
+    status: {
+      configured: true,
+      refreshable: true,
+      refreshing: false,
+      lastRefreshOk: null,
+      lastSuccessfulRefreshAt: null,
+      stale: false,
+      snapshotAvailable: false,
+      error: null,
+    },
+  });
+
+  assert.equal(source.origin.peerUrl, null);
+  assert.doesNotMatch(JSON.stringify(source), /secret|token=secret/);
 });
 
 test("createDataSourceRegistry includes peers from persisted renderer config", () => {
@@ -318,6 +458,10 @@ test("sanitizeErrorMessage redacts token and authorization fragments", () => {
   assert.equal(
     sanitizeErrorMessage("Authorization=Bearer abc.def token=secret-value\nsecond line"),
     "authorization=Bearer [redacted] token=[redacted]",
+  );
+  assert.equal(
+    sanitizeErrorMessage("failed to fetch http://user:secret@example.invalid/snapshot.tar"),
+    "failed to fetch http://[redacted]@example.invalid/snapshot.tar",
   );
 });
 

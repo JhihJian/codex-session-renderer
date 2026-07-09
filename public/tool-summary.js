@@ -129,6 +129,61 @@
       .filter((rule) => rule.pattern && rule.title);
   }
 
+  function validateRulesForSave(rules) {
+    if (!Array.isArray(rules)) return [];
+    return rules.flatMap((rule, index) => validateRuleForSave(rule, index));
+  }
+
+  function validateRuleForSave(rule, index) {
+    const errors = [];
+    const title = String(rule?.title || "").trim();
+    const pattern = String(rule?.pattern || "").trim();
+    const tool = String(rule?.tool || "").trim();
+    if (!title) errors.push(ruleValidationError(index, "title", "标题模板必填，保存后才会生成可读摘要。"));
+    const toolError = validateSlashRegExp(tool);
+    if (toolError) errors.push(ruleValidationError(index, "tool", `工具正则不合法：${toolError}`));
+    if (!pattern) {
+      errors.push(ruleValidationError(index, "pattern", "匹配正则必填，保存后才会参与展示规则匹配。"));
+    } else {
+      const patternError = validateRuleRegExp(pattern);
+      if (patternError) errors.push(ruleValidationError(index, "pattern", `匹配正则不合法：${patternError}`));
+    }
+    return errors;
+  }
+
+  function ruleValidationError(index, field, message) {
+    return { index, field, message };
+  }
+
+  function validateRuleRegExp(pattern) {
+    try {
+      compilePatternForValidation(pattern);
+      return "";
+    } catch (error) {
+      return error?.message || "不是合法的 JavaScript RegExp";
+    }
+  }
+
+  function validateSlashRegExp(value) {
+    const text = String(value || "").trim();
+    if (!text || text === "*" || !text.startsWith("/")) return "";
+    const slash = text.match(/^\/([\s\S]*)\/([a-z]*)$/i);
+    if (!slash) return "请使用 /pattern/flags 完整格式";
+    try {
+      new RegExp(slash[1], slash[2]);
+      return "";
+    } catch (error) {
+      return error?.message || "不是合法的 JavaScript RegExp";
+    }
+  }
+
+  function compilePatternForValidation(pattern) {
+    const text = String(pattern || "");
+    const slash = text.match(/^\/([\s\S]+)\/([a-z]*)$/i);
+    if (slash) return new RegExp(slash[1], slash[2].includes("i") ? slash[2] : `${slash[2]}i`);
+    return new RegExp(text, "is");
+  }
+
   function loadCustomRules(storage = globalThis.localStorage) {
     if (!storage) return [];
     try {
@@ -241,7 +296,7 @@
       },
       {
         ...options,
-        fallbackTitle: event?.title || event?.kind || event?.type || "Raw event",
+        fallbackTitle: event?.title || event?.kind || event?.type || "原始事件",
       },
     );
   }
@@ -1252,6 +1307,7 @@
     summarizeRawEvent,
     summarizeToolContext,
     summarizeToolItem,
+    validateRulesForSave,
   };
 
   globalThis.ToolSummary = api;

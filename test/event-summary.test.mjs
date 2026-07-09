@@ -19,7 +19,9 @@ test("event summary helpers classify and title common Codex events", () => {
   assert.equal(classifyEvent(events[0]), "meta");
   assert.equal(classifyEvent(events[1]), "user_message");
   assert.equal(isImportantEvent(events[2]), true);
-  assert.equal(summarizeEventTitle(events[2]), "Call list_sessions");
+  assert.equal(summarizeEventTitle(events[0]), "会话元信息");
+  assert.equal(summarizeEventTitle(events[1]), "用户消息");
+  assert.equal(summarizeEventTitle(events[2]), "调用工具：list_sessions");
   assert.deepEqual(summarizeSessionEvents(events), {
     counts: { meta: 1, user_message: 1, function_call: 1 },
     roles: { system: 1 },
@@ -41,7 +43,8 @@ test("event summary helpers extract readable text from mixed payloads", () => {
 
   assert.equal(extractTitleFromEvents(events, "fallback"), "第一行 第二行");
   assert.equal(summarizeEventPreview(events[0]), "第一行 第二行");
-  assert.equal(summarizeEventTitle(events[1]), "Output fs.read");
+  assert.equal(summarizeEventTitle(events[0]), "用户消息");
+  assert.equal(summarizeEventTitle(events[1]), "工具输出：fs.read");
 });
 
 test("event summary helpers mark context compaction as important", () => {
@@ -58,8 +61,21 @@ test("event summary helpers mark context compaction as important", () => {
 
   assert.equal(classifyEvent(compacted), "compacted");
   assert.equal(isImportantEvent(compacted), true);
-  assert.equal(summarizeEventTitle(compacted), "Context compacted");
+  assert.equal(summarizeEventTitle(compacted), "上下文已压缩");
   assert.match(summarizeEventPreview(compacted), /压缩摘要/);
   assert.equal(isImportantEvent(complete), true);
-  assert.equal(summarizeEventTitle(complete), "Context compact complete");
+  assert.equal(summarizeEventTitle(complete), "上下文压缩完成");
+});
+
+test("event summary titles localize raw fallback labels without changing source fields", () => {
+  assert.equal(
+    summarizeEventTitle({
+      type: "jsonl_parse_error",
+      __jsonlDiagnostic: true,
+      payload: { type: "jsonl_parse_error", lineNumber: 7, preview: "{bad json" },
+    }),
+    "事件解析失败",
+  );
+  assert.equal(summarizeEventTitle({ type: "turn_context", payload: { turn_id: "turn-1" } }), "轮次上下文：turn-1");
+  assert.equal(summarizeEventTitle({ type: "response_item", payload: { type: "opaque_item" } }), "响应项：opaque_item");
 });

@@ -1,5 +1,5 @@
 function renderConversationMarkdown(session, turns) {
-  const lines = [`# ${escapeMd(session.title || "Codex session")}`, ""];
+  const lines = [`# ${escapeMd(session.title || "未命名会话")}`, ""];
   lines.push(`- 会话 ID: \`${session.id}\``);
   if (session.cwd) lines.push(`- 工作目录: \`${session.cwd}\``);
   if (session.startedAt) lines.push(`- 开始时间: ${session.startedAt}`);
@@ -7,7 +7,7 @@ function renderConversationMarkdown(session, turns) {
   lines.push("");
 
   for (const [index, turn] of turns.entries()) {
-    lines.push(`## Turn ${index + 1}`);
+    lines.push(`## 第 ${index + 1} 轮`);
     if (turn.startedAt || turn.completedAt || turn.status) {
       const meta = [turn.status, turn.startedAt, turn.completedAt].filter(Boolean).join(" · ");
       lines.push("");
@@ -29,15 +29,15 @@ function markdownItemTitle(item) {
     case "user-message":
       return "用户";
     case "assistant-message":
-      return item.phase === "final" ? "助手最终回复" : "助手";
+      return item.phase === "final" || item.phase === "final_answer" ? "助手最终回复" : "助手";
     case "reasoning":
       return "推理摘要";
     case "tool-call":
-      return `工具调用: ${item.name || item.callId || "tool"}`;
+      return `工具调用：${item.name || item.callId || "未知工具"}`;
     case "tool-output":
       return "工具输出";
     case "token-count":
-      return "Token 统计";
+      return "上下文占用统计";
     default:
       return item.eventType || item.responseType || item.type;
   }

@@ -19,6 +19,22 @@ const staticTypes = new Map([
   [".json", "application/json; charset=utf-8"],
 ]);
 
+const publicErrorMessages = new Map([
+  ["Bad request", "请求无效"],
+  ["Data source not found", "数据源不存在"],
+  ["Event not found", "事件不存在"],
+  ["Forbidden", "禁止访问该资源"],
+  ["Internal server error", "服务内部错误"],
+  ["Invalid evidenceRiskRules parameter", "evidenceRiskRules 参数无效"],
+  ["Invalid JSON body", "请求体不是有效 JSON"],
+  ["Method not allowed", "请求方法不允许"],
+  ["Not found", "未找到资源"],
+  ["Peer not found", "远端数据源不存在"],
+  ["Request body too large", "请求体过大"],
+  ["Session not found", "会话不存在"],
+  ["Unauthorized", "未授权访问"],
+]);
+
 function send(res, status, headers, body) {
   res.writeHead(status, headers);
   res.end(body);
@@ -32,8 +48,13 @@ function sendText(res, status, body) {
   send(res, status, textHeaders, body);
 }
 
+function publicErrorMessage(message) {
+  const text = typeof message === "string" ? message : String(message || "");
+  return publicErrorMessages.get(text) || text || "请求失败";
+}
+
 function sendError(res, status, message, details = null) {
-  sendJson(res, status, { error: message, details });
+  sendJson(res, status, { error: publicErrorMessage(message), details });
 }
 
 function contentTypeForPath(filePath, types = staticTypes) {
@@ -75,6 +96,7 @@ async function serveStaticFile(res, publicDir, pathname, options = {}) {
 export {
   contentTypeForPath,
   jsonHeaders,
+  publicErrorMessage,
   resolveStaticFilePath,
   send,
   sendError,

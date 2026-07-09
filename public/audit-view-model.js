@@ -33,7 +33,7 @@
   function auditAgentMessageRowFromItem(item, turnIndex, itemIndex, helpers) {
     const resolvedHelpers = auditViewModelHelpers(helpers);
     const phase = item.phase || null;
-    const title = phase === "final" ? "助手最终回复" : "助手消息";
+    const title = phase === "final" || phase === "final_answer" ? "助手最终回复" : "助手消息";
     return {
       id: `agent-message:${turnIndex}:${itemIndex}:${item.id || "assistant"}`,
       traceNodeId: null,
@@ -41,7 +41,7 @@
       itemIndex,
       type: "agent_message",
       icon: "assistant",
-      label: "Agent message",
+      label: "助手消息",
       title,
       subtitle: resolvedHelpers.firstLine(item.text || "", 180),
       status: phase || "observed",
@@ -64,9 +64,9 @@
       itemIndex: -1,
       type: "agent_message",
       icon: "assistant",
-      label: "Agent message",
+      label: "助手消息",
       title: "助手消息 · 未记录正文",
-      subtitle: "此 Turn 有执行动作，但原始日志没有对应的 agent_message 文本。",
+      subtitle: "此轮次有执行动作，但原始日志没有对应的助手消息正文。",
       status: turn?.status || "observed",
       timestamp: turn?.startedAt || null,
       completedAt: turn?.completedAt || null,
@@ -181,8 +181,8 @@
       itemIndex,
       type: isHandoff ? "handoff" : "tool",
       icon: isHandoff ? "handoff" : "tool",
-      label: isHandoff ? "Handoff" : "Tool call",
-      title: source.name || source.callId || "tool",
+      label: isHandoff ? "委派" : "工具调用",
+      title: source.name || source.callId || "未知工具",
       subtitle: [source.status, resolvedHelpers.formatDate(source.timestamp)].filter(Boolean).join(" · "),
       status: source.status || "",
       timestamp: source.timestamp || null,

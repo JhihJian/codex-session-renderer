@@ -1,13 +1,13 @@
 # Codex 会话工作台
 
-这个小工具只读扫描 Codex 会话文件，并在浏览器里渲染成本地会话工作台。默认数据源仍是当前用户的本机 Codex Home；也可以把远程设备的 Codex Home 先刷新成本地快照，再作为独立数据源查看。
+这个小工具只读扫描 Codex 会话文件，并在浏览器里渲染成本地会话工作台。默认数据源仍是当前用户的本机 Codex Home；也可以把远端数据源的 Codex Home 先拉取到本机缓存快照，再作为独立数据源查看。正文渲染始终只读本地快照；历史分类仅按需访问远端索引，不取历史正文。
 
 ## 数据来源
 
 - 会话元数据：`%USERPROFILE%\.codex\state_5.sqlite`，用于读取标题、工作目录、模型、推理强度和归档状态。
 - 正文事件流：`%USERPROFILE%\.codex\sessions\**\*.jsonl`
 - 轻量索引回退：`%USERPROFILE%\.codex\session_index.jsonl`
-- 远程设备：通过环境变量配置成数据源后，刷新到本机快照目录；渲染层只读取发布后的本地快照，不直接绑定实时远程请求。
+- 远端数据源：通过页面或环境变量配置后，拉取到本机快照缓存目录；正文渲染只读取发布后的本地快照，不直接绑定实时远端请求，也不会修改远端；历史分类仅按需访问远端索引，不取历史正文。
 - 参考实现：Codex App 的打包前端位于 `resources\app.asar`，本项目只参考模块边界和事件分组思路，不复制原始专有源码。
 
 ## 启动
@@ -85,11 +85,11 @@ curl -fsS http://127.0.0.1:4789/api/health
 
 如果 `git merge --ff-only origin/main` 提示不能快进，说明本地有未提交改动或本地分支已经分叉。先用 `git status --short` 检查，不要直接覆盖本地改动；确认要保留本地部署补丁时，先提交或 stash，再合并远端新版本。
 
-## 远程会话数据源
+## 远端会话数据源
 
-远程数据源通过“实时会话刷新到本地快照，历史会话只查远端索引”的方式工作。刷新失败不会删除上一份可用快照；如果已有旧快照，页面仍可继续浏览，并在数据源状态里标注失败或旧快照。
+远端数据源通过“实时会话拉取到本机缓存快照，历史会话仅按需查远端索引且不取正文”的方式工作。拉取失败不会删除上一份可用快照；如果已有旧快照，页面仍可继续浏览，并在数据源状态里标注失败或旧快照。
 
-推荐的最简方式是：每台需要被查看的设备启动快照共享服务，然后在任意一台已打开页面的设备里通过“设备”面板添加对端。实例之间不区分主次；谁添加了对端，谁就能从页面刷新对端实时会话并检索对端历史索引。
+推荐的最简方式是：每台需要被查看的设备启动快照共享服务，然后在任意一台已打开页面的设备里通过“远端数据源”面板添加对端。实例之间不区分主次；谁添加了对端，谁就能从页面拉取对端实时会话快照并检索对端历史索引。
 
 被查看设备：
 
@@ -99,7 +99,7 @@ $env:CODEX_SHARE_TOKEN='<同一段随机 token>'
 npm run share
 ```
 
-默认共享端口是 `4791`，默认只把最近 3 小时内变更过的 `sessions/**/*.jsonl` 打包进实时快照。`state_5.sqlite` 和 `session_index.jsonl` 会随实时快照一起传输，用于标题、归档、子代理关系和路径映射。共享服务和远程快照发布使用的 `copyCodexTree` 只复制 `sessions` 目录下的 JSONL 文件，不复制 `archived_sessions`。
+默认共享端口是 `4791`，默认只把最近 3 小时内变更过的 `sessions/**/*.jsonl` 打包进实时快照。`state_5.sqlite` 和 `session_index.jsonl` 会随实时快照一起传输，用于标题、归档、子代理关系和路径映射。共享服务和远端快照发布使用的 `copyCodexTree` 只复制 `sessions` 目录下的 JSONL 文件，不复制 `archived_sessions`。
 
 如果要改端口或实时窗口：
 
@@ -117,49 +117,49 @@ cd D:\github\codex-session-renderer
 npm start
 ```
 
-启动后点击左侧数据源旁的“设备”，添加：
+启动后点击左侧数据源旁的“远端数据源”，添加：
 
 - 名称：例如 `office`
 - 地址：例如 `192.168.1.20:4791`
-- Token：对端实际使用的共享 token。推荐在共享端设置 `CODEX_SHARE_TOKEN`；如果共享端只设置了旧变量 `CODEX_REMOTE_TOKEN`，服务会兼容回退使用该值，查看端也要填写同一段 token。
+- 访问令牌：对端实际使用的共享访问令牌。推荐在共享端设置 `CODEX_SHARE_TOKEN`；如果共享端只设置了旧变量 `CODEX_REMOTE_TOKEN`，服务会兼容回退使用该值，查看端也要填写同一段访问令牌。
 
-保存后页面会立即刷新数据源列表，不需要重启 `npm start`。选择 `office` 后点击“刷新远程”，服务端会从 `http://192.168.1.20:4791/api/codex-snapshot.tar?scope=realtime` 下载实时快照并发布到本机缓存。
+保存后页面会立即刷新数据源列表，不需要重启 `npm start`。选择 `office` 后点击“拉取远端快照”，服务端会从 `http://192.168.1.20:4791/api/codex-snapshot.tar?scope=realtime` 下载实时快照并发布到本机缓存；该操作会写入本机缓存，不修改远端。
 
-页面保存的远端设备配置位于：
+页面保存的远端数据源配置位于：
 
 ```text
 %USERPROFILE%\.codex-session-renderer\config.json
 ```
 
-该文件包含远端 token，应按本机私密配置处理。页面 API 只返回 `hasToken`，不会把 token 回显给浏览器表单；编辑设备时 Token 留空表示保留原 token。
+该文件包含页面管理的数据源访问令牌，应按本机私密配置处理。页面 API 只返回 `hasToken`，不会把访问令牌回显给浏览器表单；编辑远端数据源时访问令牌留空表示保留原访问令牌，关闭或切换数据源前会提示未保存更改。远端地址不要把账号、密码、token 或其他认证信息写进地址里，也不要包含查询参数或片段，认证统一使用访问令牌（Bearer token）；程序会拒绝这类地址。远端数据源面板打开时会先显示“读取远端数据源中”，读取失败会在列表和状态区保留错误，不会伪装成“暂无远端数据源”。面板里的“测试已保存连接”只使用已保存配置和访问令牌向远端发起只读健康检查，当前表单草稿不会被测试，也不会保存配置或拉取快照；“移除本机配置”只删除本机保存的配置和访问令牌，不删除远端会话、远端快照或本机已拉取的缓存快照。
 
-左侧时间分类的“实时”展示已同步到本机的可打开会话；“一天”和“更早”会调用远端 `/api/codex-session-index` 做统一入口检索，只返回标题、时间、项目路径、模型等索引信息，不传历史正文。历史索引结果会标注“仅索引”，用于定位和搜索，不会被误当成已同步的可打开正文。
+左侧时间分类的“实时 <3h”展示已同步到本机的可打开会话；拉取远端实时快照默认只补最近 3 小时。“近一天”和“更早”会调用远端 `/api/codex-session-index` 做统一入口检索，只返回标题、时间、项目路径、模型等索引信息，不传历史正文。历史索引结果会在会话行标注“仅索引/未同步正文”，用于定位和搜索，不会被误当成已同步的可打开正文；点击这类行时页面会提示：历史正文需要远端扩大共享窗口或额外同步后再拉取，或者切回已有本地快照查看已同步会话。
 
-快照共享接口只响应带有 `Authorization: Bearer <token>` 的请求。共享端 token 读取顺序为 `CODEX_SHARE_TOKEN || CODEX_REMOTE_TOKEN`：推荐使用 `CODEX_SHARE_TOKEN`，保留 `CODEX_REMOTE_TOKEN` 作为兼容回退。两者都未设置时，`npm run share` 会拒绝启动，以保证会话正文、命令输出、项目路径和错误栈不会在无认证状态下暴露到网络。
+快照共享接口只响应带有 `Authorization: Bearer <token>` 的请求。共享端访问令牌读取顺序为 `CODEX_SHARE_TOKEN || CODEX_REMOTE_TOKEN`：推荐使用 `CODEX_SHARE_TOKEN`，保留 `CODEX_REMOTE_TOKEN` 作为兼容回退。两者都未设置时，`npm run share` 会拒绝启动，以保证会话正文、命令输出、项目路径和错误栈不会在无认证状态下暴露到网络。
 
-高级模式仍支持环境变量配置和两种获取方式：
+高级模式仍支持环境变量配置和两种获取方式。该模式下访问令牌从运行时环境变量读取，不写入页面管理的 `config.json`：
 
 - `CODEX_REMOTE_PEERS`：用 `id=host:port` 或 `id=http://host:port` 配置对端，适合无人值守部署或临时启动。
 
-- `CODEX_REMOTE_<ID>_SNAPSHOT_PATH`：从一个本机可读目录复制 Codex Home，适合先用 rsync、scp、挂载盘或其他脚本把远程 `/root/.codex` 同步到本机。
-- `CODEX_REMOTE_<ID>_SNAPSHOT_URL`：从远端 HTTP(S) 下载 `.tar`、`.tar.gz` 或 `.tgz` 快照包。服务端会用 `Authorization: Bearer ...` 请求，token 只从环境变量读取。
+- `CODEX_REMOTE_<ID>_SNAPSHOT_PATH`：从一个本机可读目录复制 Codex Home，适合先用 rsync、scp、挂载盘或其他脚本把远端 `/root/.codex` 同步到本机。
+- `CODEX_REMOTE_<ID>_SNAPSHOT_URL`：从远端 HTTP(S) 下载 `.tar`、`.tar.gz` 或 `.tgz` 快照包。服务端会用 `Authorization: Bearer ...` 请求，访问令牌只从环境变量读取。
 
-示例：配置一个名为 `office` 的远程设备，快照来源是本机已同步目录。
+示例：配置一个名为 `office` 的远端数据源，快照来源是本机已同步目录。
 
 ```powershell
 $env:CODEX_REMOTE_SOURCES='office'
-$env:CODEX_REMOTE_OFFICE_LABEL='Office 远程设备'
+$env:CODEX_REMOTE_OFFICE_LABEL='Office 远端数据源'
 $env:CODEX_REMOTE_OFFICE_CODEX_HOME='/root/.codex'
 $env:CODEX_REMOTE_OFFICE_SNAPSHOT_PATH='D:\codex-remote\office\.codex'
 $env:CODEX_REMOTE_SNAPSHOT_ROOT='D:\codex-session-renderer-snapshots'
 npm start
 ```
 
-示例：配置 HTTP 快照下载。不要把 token 写入仓库文件；这里只展示变量名和占位符。
+示例：配置 HTTP 快照下载。不要把访问令牌写入仓库文件；这里只展示变量名和占位符。
 
 ```powershell
 $env:CODEX_REMOTE_SOURCES='office'
-$env:CODEX_REMOTE_OFFICE_LABEL='Office 远程设备'
+$env:CODEX_REMOTE_OFFICE_LABEL='Office 远端数据源'
 $env:CODEX_REMOTE_OFFICE_CODEX_HOME='/root/.codex'
 $env:CODEX_REMOTE_OFFICE_SNAPSHOT_URL='https://example.invalid/codex-snapshot.tar.gz'
 $env:CODEX_REMOTE_OFFICE_TOKEN_ENV='CODEX_REMOTE_OFFICE_TOKEN'
@@ -167,7 +167,7 @@ $env:CODEX_REMOTE_OFFICE_TOKEN='<runtime token>'
 npm start
 ```
 
-远程内容会原子发布到：
+远端快照内容会原子发布到：
 
 ```text
 %USERPROFILE%\.codex-session-renderer\remote-snapshots\<source-id>\current
@@ -175,11 +175,11 @@ npm start
 
 可通过 `CODEX_REMOTE_SNAPSHOT_ROOT` 修改快照根目录。快照目录包含会话正文、命令输出、项目路径和错误栈等敏感信息，应按本机私密数据处理，不要提交到 git 或上传到公开位置。当前 `.gitignore` 已默认忽略 `*.sqlite`、`*.jsonl`、`*.log`、`.env*`、`tmp/` 等常见运行时文件；如果把快照根目录放进仓库工作区，需要额外把该目录加入忽略规则。
 
-远程状态只暴露脱敏信息：是否刷新中、最近成功刷新时间、是否正在浏览旧快照、失败类别和简短原因。API 响应、状态文件和普通错误信息不会包含 token、认证头或会话正文。
+远端状态只暴露脱敏信息：是否正在拉取、最近成功拉取时间、是否正在浏览旧快照、失败类别和简短原因。API 响应、状态文件和普通错误信息不会包含访问令牌、认证头或会话正文。
 
 ### 无 SSH 同步 71 设备会话
 
-如果远程 71 设备不能通过 SSH/rsync 访问，但可以通过本机 `codex-remote-run` 连接 Codex app-server，可使用仓库脚本按文件清单增量同步 `/root/.codex`。脚本会：
+如果远端 71 设备不能通过 SSH/rsync 访问，但可以通过本机 `codex-remote-run` 连接 Codex app-server，可使用仓库脚本按文件清单增量同步 `/root/.codex`。脚本会：
 
 - 通过 `codex-remote-run --exec` 读取远端 `state_5.sqlite`、`session_index.jsonl` 和 `sessions/**/*.jsonl` 清单。
 - 和本机上次同步状态比较，只拉取新增或变化的文件。
@@ -187,7 +187,7 @@ npm start
 - 对超过单批上限的大文件使用 base64 chunk 分片拉取。
 - 先写入 staging 目录，成功后再原子发布到目标快照目录，避免页面读到半同步状态。
 
-运行前确保 token 只存在于运行时环境中，不要写进仓库文件：
+运行前确保访问令牌只存在于运行时环境中，不要写进仓库文件：
 
 ```bash
 export CODEX_REMOTE_TOKEN='<runtime token>'
@@ -230,7 +230,7 @@ mkdir -p ~/.config/systemd/user/codex-session-renderer.service.d
 tee ~/.config/systemd/user/codex-session-renderer.service.d/remote-dev71.conf >/dev/null <<'EOF'
 [Service]
 Environment="CODEX_REMOTE_SOURCES=dev71"
-Environment="CODEX_REMOTE_DEV71_LABEL=71 远程设备"
+Environment="CODEX_REMOTE_DEV71_LABEL=71 远端数据源"
 Environment="CODEX_REMOTE_DEV71_CODEX_HOME=/root/.codex"
 Environment="CODEX_REMOTE_DEV71_SNAPSHOT_PATH=/home/jhihjian/.codex-session-renderer/source-snapshots/dev71/.codex"
 Environment="CODEX_REMOTE_SNAPSHOT_ROOT=/home/jhihjian/.codex-session-renderer/remote-snapshots"
@@ -247,14 +247,14 @@ curl -fsS -X POST http://127.0.0.1:4789/api/sources/dev71/refresh
 curl -fsS 'http://127.0.0.1:4789/api/sources/dev71/query/sessions?limit=5&fields=id,title,changedAt,relativePath'
 ```
 
-同步脚本会在目标目录写入 `.codex-session-renderer-71-sync.json` 作为增量状态。这个文件只记录相对路径、大小和修改时间，不包含 token。
+同步脚本会在目标目录写入 `.codex-session-renderer-71-sync.json` 作为增量状态。这个文件只记录相对路径、大小和修改时间，不包含访问令牌。
 
 ## 项目结构
 
 - `server.mjs`：HTTP 路由、数据源分发、会话文件定位、缓存和接口编排；底层响应、SQLite、DTO 和解析逻辑已拆到 `src/`。
 - `share-server.mjs`：远端快照共享服务入口；只暴露受 Bearer token 保护的 Codex 快照下载接口。
-- `src/data-sources.mjs`：本机/远程数据源配置、远程快照刷新、原子发布和脱敏状态。
-- `src/renderer-config.mjs`：页面管理的远端设备配置读写、校验和脱敏输出。
+- `src/data-sources.mjs`：本机/远端数据源配置、远端快照拉取、原子发布和脱敏状态。
+- `src/renderer-config.mjs`：页面管理的远端数据源配置读写、校验和脱敏输出。
 - `src/snapshot-share.mjs`：按需复制实时 Codex 会话文件、写入快照元数据、打包 tar，并提供历史会话索引检索。
 - `src/session-catalog.mjs`：本地文件回退的会话根目录发现和 live/archived 副本去重；文件回退会同时扫描 `sessions` 与 `archived_sessions`，并优先保留 live 副本。
 - `src/jsonl-reader.mjs`：UTF-8 JSONL 流式读取工具；支持按逻辑行数上限读取和按事件索引读取单条事件。
@@ -267,27 +267,29 @@ curl -fsS 'http://127.0.0.1:4789/api/sources/dev71/query/sessions?limit=5&fields
 - `src/user-message-cleanup.mjs`：Codex 自动注入用户消息的识别和清理规则，供规范化、turn 聚合、事件摘要和 Audit 意图过滤复用。
 - `src/event-summary.mjs`：事件分类、重要事件判断、标题/预览摘要和会话事件计数。
 - `src/audit-chain.mjs`：基于服务端完整 turn/item 模型生成 Audit Chain，集中维护审计节点、验证识别和非 evidence 风险启发式规则。
-- `src/evidence-risk-rules.mjs`：Evidence 风险规则模块，内置输出风险词、大型输出和读文件/文本搜索输出排除条件，并支持从前端设置传入本地覆盖规则。
+- `src/evidence-risk-rules.mjs`：证据风险规则模块，内置输出风险词、大型输出和读文件/文本搜索输出排除条件，并支持从前端设置传入本地覆盖规则。
 - `src/session-query.mjs`：面向外部项目的会话查询、筛选、分页游标、字段投影和事件增量查询参数处理。
 - `src/markdown-export.mjs`：会话 Markdown 导出。
 - `src/session-events.mjs`：会话事件核心解析逻辑，包括 turn 聚合、Trace 模型、精简视图模型和子代理锚定；同时重新导出旧的常用解析 API 以保持调用兼容。
 - `public/`：无构建前端，包含页面、样式、交互脚本和本地 `markdown-it` 浏览器包。
 - `public/app-format.js`：前端格式化、转义、高亮、路径缩短和文件名清理工具；通过浏览器全局 `window.AppFormat` 暴露，避免引入构建步骤。
-- `public/tool-summary.js`：前端工具调用可读摘要规则，内置常见 `exec_command`、`apply_patch`、工具搜索等转换；`apply_patch` 会解析文件级增删统计，供 Audit/Review 以类 git diff stat 视图展示；高频命令输出会解析 Git 状态、搜索命中和验证结果，供 Review Dock 以结构化 viewer 展示；同时支持浏览器本地自定义规则覆盖。
+- `public/tool-summary.js`：前端工具调用可读摘要规则，内置常见 `exec_command`、`apply_patch`、工具搜索等转换；`apply_patch` 会解析文件级增删统计，供审计链和复核台以类 git diff stat 视图展示；高频命令输出会解析 Git 状态、搜索命中和验证结果，供复核台以结构化视图展示；同时支持浏览器本地自定义规则覆盖。
 - `public/execution-grouping.js`：Audit 执行链连续节点聚合规则，内置“收集文件与目录信息、搜索与定位代码、检查 Git 状态与差异”等分组，并支持浏览器本地自定义规则覆盖。
 - `public/audit-view-model.js`：Audit 执行链前端 view model 纯函数，负责助手消息父行投影、执行行投影/身份解析、执行节点挂载、`childRowIds` 层级维护、itemRef 解析和时间回退归属逻辑；通过 `test/audit-view-model.test.mjs` 覆盖。
-- `public/evidence-risk-rules.js`：Evidence 风险规则的浏览器配置模块，负责设置页展示、localStorage 保存和会话详情请求参数序列化。
+- `public/evidence-risk-rules.js`：证据风险规则的浏览器配置模块，负责设置页展示、localStorage 保存和会话详情请求参数序列化。
 - `test/`：Node 内置测试，覆盖 JSONL 读取、HTTP/静态文件边界、主服务入口 smoke、SQLite 映射、服务端 DTO、事件摘要、工具协议、事件解析、前端格式化和 Markdown 导出等回归点。
 
-后续维护时，优先把可纯函数化的逻辑放进对应 `src/` 小模块并补测试；`server.mjs` 只负责数据来源、缓存和接口组合。前端如新增通用格式化/转义逻辑，优先放进 `public/app-format.js` 并在 `test/app-format.test.mjs` 覆盖；如新增工具调用语义化展示规则，优先放进 `public/tool-summary.js` 并在 `test/tool-summary.test.mjs` 覆盖；如新增执行链聚合规则，优先放进 `public/execution-grouping.js` 并在 `test/execution-grouping.test.mjs` 覆盖；如新增 Evidence 风险规则，需同步 `src/evidence-risk-rules.mjs`、`public/evidence-risk-rules.js` 和 `test/evidence-risk-rules.test.mjs`；如调整本地文件回退、`sessions`/`archived_sessions` 去重或自动注入用户消息清理规则，分别在 `test/session-catalog.test.mjs`、`test/session-events.test.mjs`、`test/session-normalizer.test.mjs` 或相关事件摘要/Audit 测试中补充回归保护。
+后续维护时，优先把可纯函数化的逻辑放进对应 `src/` 小模块并补测试；`server.mjs` 只负责数据来源、缓存和接口组合。前端如新增通用格式化/转义逻辑，优先放进 `public/app-format.js` 并在 `test/app-format.test.mjs` 覆盖；如新增工具调用语义化展示规则，优先放进 `public/tool-summary.js` 并在 `test/tool-summary.test.mjs` 覆盖；如新增执行链聚合规则，优先放进 `public/execution-grouping.js` 并在 `test/execution-grouping.test.mjs` 覆盖；如新增证据风险规则，需同步 `src/evidence-risk-rules.mjs`、`public/evidence-risk-rules.js` 和 `test/evidence-risk-rules.test.mjs`；如调整本地文件回退、`sessions`/`archived_sessions` 去重或自动注入用户消息清理规则，分别在 `test/session-catalog.test.mjs`、`test/session-events.test.mjs`、`test/session-normalizer.test.mjs` 或相关事件摘要/Audit 测试中补充回归保护。
 
 ## 页面设计
 
-浏览器页面按本地优先的 agent 会话工作台设计，第一屏就是可操作的三栏 split view：左侧会话列表，中间精简/Audit/Raw 三个主视图，右侧 Review Dock 复核台；桌面端可拖动 Review Dock 左侧分隔条调整宽度，宽度会保存在浏览器本地。界面使用系统字体、中性色背景、0.5 到 1px 轻边框、8px 工具圆角和紧凑行高，避免把工具界面做成营销卡片页。
+浏览器页面按本地优先的会话工作台设计，第一屏就是可操作的三栏布局：左侧会话列表，中间“阅读 / 审计链 / 原始事件”三个主视图，右侧是复核台；1281px 及以上桌面宽度保留侧向复核台，桌面端可拖动复核台左侧分隔条调整宽度，宽度会保存在浏览器本地。1280px 以下会把复核台收进正文下方的流式复核区，避免 1180px 和 1024px 窄桌面继续三列挤压正文；821px 到 1280px 且高度不超过 800px 的窗口会进一步压低底部复核区，给主内容保留可读高度；820px 以下继续使用移动端面板切换。用户通过顶栏隐藏左侧会话列表或右侧复核台时，隐藏区域会同步退出键盘焦点序列；主视图、时间分类、复核页和设置页分类支持方向键与 Home/End 切换，设置弹窗关闭后焦点回到打开入口。界面使用系统字体、中性色背景、0.5 到 1px 轻边框、8px 工具圆角和紧凑行高，避免把工具界面做成营销卡片页。
 
-左侧会话列表按时间分类和工作目录聚合，每行展示 agent 色点、标题、更新时间、模型和项目路径；顶部保留数据源、搜索、时间段和会话类型过滤。中间内容区只保留精简、Audit、Raw 三个主视图和内容搜索，统计条展示 Turns、Events、Important、Tools、Agents、Tokens。右侧 Review Dock 不再承担关键事件列表或会话概览职责，而是围绕当前选中对象展示“摘要 / 证据 / 关系 / 来源”四个复核页；默认状态是 Session Brief，优先暴露风险、验证、缺口和子代理入口。工具调用、工具输出和 Raw event 会先经过前端可读摘要规则转换，例如把 `Get-Content -Raw -Encoding UTF8` 显示为“读取文件内容”，把 `apply_patch` 显示为文件数、增删行和文件状态组成的类 `git diff --stat` 摘要；当 Review Dock 摘要页展示 `apply_patch` 正文时，会进一步按文件、hunk、添加行和删除行渲染 patch。常见 `exec_command` 输出会进入命令输出 viewer：`git status` 展示文件状态，`rg`/`grep`/`findstr` 展示搜索命中，`npm test`、`node --test` 等验证命令展示通过/失败、计数和关键输出。Raw 视图负责会话级事件浏览，完整 Raw payload 只在 Review Dock 的“来源”页或 Raw 主视图中按需读取。
+左侧会话列表按时间分类和工作目录聚合，每行展示代理标识、标题、更新时间、模型和项目路径；没有工作目录的会话显示为“无项目”。顶部保留数据源、远端数据源管理、搜索、时间段和会话类型过滤；其中“标题/路径含错误词”和“标题/路径含工具词”只基于轻量列表里的标题、工作目录和相对路径做文本匹配，不代表已经读取正文统计。已读取正文且没有正在读取时，重复点击当前会话行只聚焦当前行，不会清空详情并重新请求大体量会话。中间内容区只保留阅读、审计链、原始事件三个主视图和内容搜索，内容类型筛选首项随视图分别显示为“全部内容 / 全部节点 / 全部事件”；阅读视图左侧执行层级大纲采用单一 Tab 入口，进入后用方向键在大纲项之间移动、Enter/Space 跳转，避免大体量会话把键盘路径撑成长列表。统计条以紧凑状态标签展示轮次、事件、重点、工具调用、上下文压缩、子代理、上下文占用，避免形成过高的指标卡片墙。右侧复核台不再承担关键事件列表或会话概览职责，而是围绕当前选中对象展示“摘要 / 证据 / 关系 / 来源”四个复核页；默认状态是会话概览，优先暴露风险、验证、缺口和子代理入口。复核台顶栏用“复核台 / 复核对象”区分区域身份和当前对象，避免重复标题；复制引用在会话概览下提示“已复制会话引用”，对象态提示“已复制对象引用”。工具调用、工具输出和原始事件会先经过前端可读摘要规则转换，例如把 `Get-Content -Raw -Encoding UTF8` 显示为“读取文件内容”，把 `apply_patch` 显示为文件数、增删行和文件状态组成的类 `git diff --stat` 摘要；当复核台摘要页展示 `apply_patch` 正文时，会进一步按文件、hunk、添加行和删除行渲染 patch。常见 `exec_command` 输出会进入命令输出结构化视图：`git status` 展示文件状态，`rg`/`grep`/`findstr` 展示搜索命中，`npm test`、`node --test` 等验证命令展示通过/失败、计数和关键输出。原始事件视图负责会话级事件浏览，完整原始内容只在复核台的“来源”页或原始事件主视图中按需读取。
 
-页面底部有状态条，显示当前数据源、选中会话、过滤后的 session 数和事件/turn 统计。样式支持系统浅色/深色模式，并建立统一角色色 token：蓝色用于用户输入和选中，深蓝用于助手叙述，紫色用于工具调用，绿色用于工具输出，红色用于错误风险，灰色用于元信息。为减少切换负担，主界面最多只保留三个视图：精简用于阅读，Audit 用于证据链复核，Raw 用于原始事件诊断。
+页面底部有状态条，显示当前数据源、选中会话、过滤后的会话数和事件/轮次统计；状态条会同步本机、远端、旧快照、加载和错误数据状态。列表刷新和详情读取是分离状态：会话列表接口返回后，顶部刷新按钮会恢复可用；详情读取期间由主内容占位和状态条显示“正在读取”。列表加载失败不会伪装成某个会话读取失败，主内容会显示“会话列表加载失败”，导出按钮显示未选择可导出会话。启动或刷新时如果健康检查失败，顶部、数据源状态、会话列表、主内容占位和状态条会统一显示“接口不可用 / 无法连接本机服务”，顶部“刷新列表”按钮会作为重试入口。远端历史分类加载时列表空态显示“正在检索远端历史索引”，失败时显示“历史索引失败：...”并提供重试历史索引或返回实时入口；状态条在远端历史模式下显示“历史索引 N 条 · 正文未同步”，不再用本机快照总数作为分母。当当前会话被搜索或筛选隐藏时，主内容标题下方会显示“当前会话已被筛选隐藏”提示，并提供清除筛选、返回实时入口；状态条同步提示并禁用完整 Markdown 复制/下载。样式支持系统浅色/深色模式，并建立统一角色色标记：蓝色用于用户输入和选中，深蓝用于助手叙述，紫色用于工具调用，绿色用于工具输出，红色用于错误风险，灰色用于元信息。为减少切换负担，主界面最多只保留三个视图：阅读用于日常浏览，审计链用于证据链复核，原始事件用于事件流诊断。
+
+复制到剪贴板失败时，toast 只显示中文操作建议，例如“请允许浏览器访问剪贴板，或手动选中文本复制”；具体浏览器通道或降级链路只写入控制台警告，避免把技术细节暴露为用户提示。
 
 ## 检查与测试
 
@@ -303,7 +305,7 @@ npm test
 - `server.mjs` 可被测试导入而不自动监听；HTTP smoke 会用临时 `CODEX_HOME` 覆盖 `/api/health`、会话列表、详情、单事件、Markdown 和缺失 API 状态。
 - 静态文件路径不能穿越 `public/` 根目录。
 - SQLite thread 行映射、ID 转义和 spawn edge 过滤保持稳定。
-- 子代理通知匹配会同时检查事件预览和完整 payload，避免 `preview` 缺少 `agent_path` 时漏挂载。
+- 子代理通知匹配会同时检查事件预览和完整原始内容，避免 `preview` 缺少 `agent_path` 时漏挂载。
 - 特殊会话样例覆盖 fork replay 前导重放、`turn_aborted` 续跑、真实重复用户输入、等待状态、图片附件和 encrypted reasoning 脱敏。
 - 无 SQLite 文件回退覆盖 `sessions`/`archived_sessions` 去重，避免同一 session id 同时出现在 live 和 archived 副本时重复展示。
 - 前端 HTML 高亮不会改写标签，Windows 路径缩短和下载文件名清理保持稳定。
@@ -312,49 +314,49 @@ npm test
 
 - 服务端只读访问本地文件，不写入 `.codex`。
 - 数据源是一等概念：旧接口默认读取本机 `local` 数据源，新接口可显式指定 `sourceId`；前端用 `sourceId + session id` 区分会话，避免不同数据源中相同 session id 混淆。
-- 远端设备可以通过页面管理，配置保存在本机私有 `config.json`；环境变量仍可作为高级配置来源。页面接口只返回 token 是否存在，不回显 token 原文。
-- 远程数据源的正文只在刷新阶段访问配置好的实时快照 URL 或快照目录；普通会话列表、Review Dock 复核台和 Markdown 导出都从本地 `current` 快照读取。历史分类可按需访问远端索引接口，但索引不包含会话正文。
-- 远程实时快照刷新使用 staging 目录构建，再原子切换到 `current`。共享服务的实时快照和 `copyCodexTree` 发布的远程快照只包含 `sessions/**/*.jsonl`、`state_5.sqlite`、`session_index.jsonl` 等允许文件，不包含 `archived_sessions`；本地文件回退扫描 `sessions` 与 `archived_sessions` 是另一条读取路径。刷新失败不会覆盖上一次成功快照。同一数据源的并发刷新会复用正在进行的刷新任务，不同数据源仍可并行，避免并发发布 `staging/current/previous` 竞态。
-- 远程 SQLite 中的远端 `rollout_path` 会按配置的远端 Codex Home 映射到本地快照 Codex Home。
+- 远端数据源可以通过页面管理，配置保存在本机私有 `config.json`；环境变量仍可作为高级配置来源。页面接口只返回访问令牌是否存在，不回显访问令牌原文。“移除本机配置”只移除本机保存的远端配置和访问令牌，不删除远端会话、远端快照或本机已拉取的缓存快照。
+- 远端数据源的正文只在拉取阶段访问配置好的实时快照 URL 或快照目录；普通会话列表、复核台、Markdown 导出和正文渲染都从本地 `current` 快照读取。拉取实时快照默认只补最近 3 小时。历史分类仅按需访问远端索引接口，索引只返回元数据，不包含会话正文；历史正文需要远端扩大共享窗口或额外同步后再拉取，或切回已有本地快照查看已同步会话。
+- 远端实时快照拉取使用 staging 目录构建，再原子切换到 `current`。共享服务的实时快照和 `copyCodexTree` 发布的远端快照只包含 `sessions/**/*.jsonl`、`state_5.sqlite`、`session_index.jsonl` 等允许文件，不包含 `archived_sessions`；本地文件回退扫描 `sessions` 与 `archived_sessions` 是另一条读取路径。拉取失败不会覆盖上一次成功快照。同一数据源的并发拉取会复用正在进行的任务，不同数据源仍可并行，避免并发发布 `staging/current/previous` 竞态。
+- 远端 SQLite 中的 `rollout_path` 会按配置的远端 Codex Home 映射到本地快照 Codex Home。
 - 本地工作台默认绑定 `127.0.0.1`，适合作为同机只读数据源；可通过 `HOST` 覆盖监听地址，当前用户级 systemd 模板设置 `HOST=0.0.0.0` 用于局域网访问。独立的 `npm run share` 快照接口始终要求 Bearer token。
 - 前端使用原生 HTML/CSS/JavaScript，无构建步骤；Markdown 渲染通过本地 `markdown-it` 浏览器包完成。渲染层借鉴 `earendil-works/pi/packages/tui` 的大模型输出处理思路：进入 Markdown 前会统一 tab 宽度并修剪流式输出结尾的半截代码围栏，代码块带语言栏和复制按钮，长代码、列表和表格按容器稳定换行或滚动。
-- 顶栏设置入口提供“展示规则设置”，用户可在浏览器本地新增、启停或删除工具摘要规则、Audit 执行聚合规则和 Evidence 风险规则；自定义规则优先于内置规则。设置页按“摘要规则 / 执行聚合 / Evidence 风险 / 结构化展示”分类切换，顶部概览主数字展示生效数量，辅助文字展示自定义/内置数量，当前分类只展示自己的编辑区和内置参考。结构化展示分类用只读说明列出命令输出 viewer 当前覆盖的命令类型和展示内容，便于判断哪些 `exec_command` 输出会被自动整理。摘要规则只影响 Audit、Review Dock、Raw 列表标题和前端搜索；执行聚合规则只影响 Audit 执行链中连续执行节点的折叠展示，不改变服务端 `audit.nodes`、turn/item 轻量模型、`trace.root` 或 Raw event；Evidence 风险规则会随会话详情请求传给服务端，用于重新派生 `audit.nodes` 中的 evidence 风险节点和风险计数。
+- 顶栏设置入口提供“展示规则设置”，用户可在浏览器本地新增、启停或删除工具摘要规则、审计链执行聚合规则和证据风险规则；自定义规则优先于内置规则。设置页按“摘要规则 / 执行聚合 / 证据风险 / 结构化展示”分类切换，顶部概览主数字展示生效数量，辅助文字展示自定义/内置数量，当前分类只展示自己的编辑区和内置参考；证据风险页内容较长时只滚动编辑区，取消/保存 footer 固定在弹窗可见区域。结构化展示分类用只读说明列出命令输出结构化视图当前覆盖的命令类型和展示内容，便于判断哪些 `exec_command` 输出会被自动整理。摘要规则只影响审计链、复核台、原始事件列表标题和前端搜索，摘要规则名称仅用于本地管理；执行聚合规则只影响审计链执行链中连续执行节点的折叠展示，不改变服务端 `audit.nodes`、turn/item 轻量模型、`trace.root` 或原始事件；证据风险规则会随会话详情请求传给服务端，用于重新派生 `audit.nodes` 中的证据风险节点和风险计数。若浏览器 localStorage 里存在旧版本留下的非法证据风险规则，普通打开会话时前端会跳过这些非法覆盖，不再把它们序列化到详情请求；用户仍可在设置页看到并修正规则后保存。
 - 会话列表优先读取 SQLite `threads` 表，并在 SQLite 查询层排除 `thread_spawn_edges.child_thread_id` 对应的子代理线程，避免子代理在左侧会话列表独立展示；SQLite 不可用或列表查询失败时回退扫描 JSONL 文件。文件回退会同时扫描 `sessions` 和 `archived_sessions`，按 session id 去重，live 副本优先，只有没有 live 副本时才把 archived 副本作为可打开会话；同时会从 `session_meta.source.subagent.thread_spawn` 继续识别父子关系和子代理昵称，默认仍只展示根会话。
 - JSONL 读取使用流式逐行解析；列表回退读取前若干条事件时不会把整个大文件一次性读入内存。
 - JSONL 事件会先经过规范化层形成稳定字段，兼容 `type`/`role`、多种时间字段、content parts、工具字段漂移、delta chunk、图片引用、加密 reasoning 和 Codex 上下文压缩事件；契约见 `docs/session-event-normalization.md`。
 - 解析器把 JSONL 中的 `session_meta`、`turn_context`、`event_msg`、`response_item` 聚合为 turn 和 item。
 - 工具调用会合并 `function_call`、`function_call_output`、`custom_tool_call`、`custom_tool_call_output`、`mcp_tool_call_end`、`patch_apply_end` 等 Codex 事件。
-- 同一 `message_id` 的 streamed/delta 消息会在规范化层合并为连续可读文本，并保留来源事件索引用于 Raw 回溯。
-- 默认阅读、Markdown 导出和事件搜索会隐藏 Codex 自动注入的用户消息包装，例如 `AGENTS.md instructions`、`environment_context`、goal continuation 和 subagent notification；Raw 视图和单事件接口仍保留完整原始 payload，方便诊断。
+- 同一 `message_id` 的 streamed/delta 消息会在规范化层合并为连续可读文本，并保留来源事件索引用于原始事件回溯。
+- 默认阅读、Markdown 导出和事件搜索会隐藏 Codex 自动注入的用户消息包装，例如 `AGENTS.md instructions`、`environment_context`、goal continuation 和 subagent notification；原始事件视图和单事件接口仍保留完整原始内容，方便诊断。
 - 同一条用户/助手消息如果同时出现在 response item 和事件消息里，会在渲染层去重；用户真实重复输入同一句话不会只因为文本相同被删除。
 - `turn_aborted` 会把当前 turn 标记为 `aborted`，不会作为普通用户可见事件展示；如果一个空 aborted turn 后立刻续跑同一首条请求，默认阅读会只保留续跑 turn 的请求。未结束但正在等待 `wait_agent`/`handoff` 或最后停在助手回复后的 turn 会标记为 `waiting`，其他未结束 turn 保持 `running`。
-- 页面默认进入精简视图，并提供三种主视图：
-  - 精简视图：负责日常阅读，展示用户输入、每一条助手消息、Codex 上下文压缩摘要和子代理摘要；如果 `token_count` 提供可解析的 context window 或百分比，助手消息标签会以独立徽标显示当时的上下文占用率，超过 70% 时使用高占用提示样式。`compacted` / `context_compacted` 会以系统块显示压缩生成的替换摘要、窗口 ID 和“被替换的对话”范围，替换范围会优先展示覆盖 Turn、角色构成、原始问题预览和最后回复摘要，字符数与 turn id 仅作为辅助定位信息；原始消息标签旁会回标“被替换 N 条 / event #”，用户消息只统计自身替换条目，助手消息统计自身以及按 Audit 执行层级挂到该助手消息下的工具/执行条目，点击后会保持在精简视图并定位到对应压缩系统块；“被替换的对话”里的具体条目也可点击跳回原始消息或对应助手消息组。完整来源仍可通过系统块里的“查看 Raw”打开。若父会话中有 `spawn_agent` 子代理，会按父子层级内嵌展示子代理自己的用户输入和每轮全部助手消息，并在目录中按“会话 -> Turn -> 子代理 -> 子代理 Turn”展示执行层级用于快速跳转；执行层级区域会尽量使用可用视口高度展示更多目录内容。
-  - Audit 视图：负责复盘，以 Turn 为一级审计单元展示“目标、执行链、证据、验证、风险、缺口和最终回复”。每个 Turn 默认显示紧凑摘要，展开后显示“执行链”，并在需要时显示“未关联 / Raw 复核”节点；执行链先把 `assistant-message` 投影为 `agent_message` 父行，并在可解析时用独立徽标展示该助手消息当时的上下文占用率，超过 70% 时使用高占用提示样式，再把工具、handoff、子代理和 lazy-child 执行节点挂到最近的助手消息下；没有可用助手正文时会生成“未记录正文”的助手占位父行，避免执行节点裸露。每个执行节点下内嵌行动、输出证据、验证、风险和缺口子层级；连续命中执行聚合规则的节点会折叠为可展开执行组，例如多次读取文件、列出目录会聚合为“执行组 · 收集文件与目录信息”。Audit 节点按 `traceNodeId`、`itemRef`、`turnIndex` 挂载为状态徽标或证据行，无法可靠挂载的节点进入“未关联”区域。右侧 Review Dock 负责解释当前 Turn、执行节点、Audit 节点、关联项或 Raw event 的可信度、证据、关系和来源。
-  - Raw 视图：负责诊断，保留原始事件查看能力；它把会话事件摘要提升为主视图，左侧按事件索引和分类浏览，右侧显示选中事件的结构化摘要和 Pretty JSON，事件列表与预览区各自独立滚动；当选中 compact 事件时，会优先展示压缩摘要正文、窗口信息、替换历史数量和被替换对话预览。完整 payload 仍通过单事件接口按需读取。
-- 左栏始终保持为会话列表，默认展示“实时”分类；会话列表可按实时（3 小时内）、一天（3 小时到 1 天）和更早（1 天以上或未知时间）切换，每个时间分类下再按工作目录聚合。精简视图目录会体现每个子代理是在哪个 Turn 下启动的，子代理下继续递归展示自己的 Turn。若未来出现子代理再 spawn 子代理，也会继续展开；若数据形成循环，会在目录中截断已出现过的线程以避免无限展开。
-- 执行树模型优先使用 `thread_spawn_edges` 作为父子线程强关系，使用 `threads.agent_nickname`、`threads.agent_role`、`threads.rollout_path` 展示子代理元数据；当线程行缺少昵称/角色时，会从子会话 JSONL 的 `session_meta.source.subagent.thread_spawn.agent_nickname` 和 `agent_role` 补齐。主界面不再单独暴露 Trace 视图，Audit 和 Review Dock 按需展示执行节点。
+- 页面默认进入阅读视图，并提供三种主视图：
+  - 阅读视图：负责日常阅读，展示用户输入、每一条助手消息、Codex 上下文压缩摘要和子代理摘要；如果 `token_count` 提供可解析的 context window 或百分比，助手消息标签会以独立徽标显示当时的上下文占用率，超过 70% 时使用高占用提示样式。`compacted` / `context_compacted` 会以系统块显示压缩生成的替换摘要、窗口 ID 和“被替换的对话”范围，替换范围会优先展示覆盖的轮次、角色构成、原始问题预览和最后回复摘要，字符数与 turn id 仅作为辅助定位信息；原始消息标签旁会回标“被替换 N 条 / 事件编号”，用户消息只统计自身替换条目，助手消息统计自身以及按审计链执行层级挂到该助手消息下的工具/执行条目，点击后会保持在阅读视图并定位到对应压缩系统块；“被替换的对话”里的具体条目也可点击跳回原始消息或对应助手消息组。完整来源仍可通过系统块里的“查看原始事件”打开。若父会话中有 `spawn_agent` 子代理，会按父子层级内嵌展示子代理自己的用户输入和每轮全部助手消息，并在目录中按“会话 -> 轮次 -> 子代理 -> 子代理轮次”展示执行层级用于快速跳转；执行层级区域会尽量使用可用视口高度展示更多目录内容。
+  - 审计链视图：负责复盘，以轮次为一级审计单元展示“目标、执行链、证据、验证、风险、缺口和最终回复”。每个轮次默认显示紧凑摘要，展开后显示“执行链”，并在需要时显示“未关联 / 原始事件复核”节点；执行链先把 `assistant-message` 投影为 `agent_message` 父行，并在可解析时用独立徽标展示该助手消息当时的上下文占用率，超过 70% 时使用高占用提示样式，再把工具、handoff、子代理和 lazy-child 执行节点挂到最近的助手消息下；没有可用助手正文时会生成“未记录正文”的助手占位父行，避免执行节点裸露。每个执行节点下内嵌行动、输出证据、验证、风险和缺口子层级；连续命中执行聚合规则的节点会折叠为可展开执行组，例如多次读取文件、列出目录会聚合为“执行组 · 收集文件与目录信息”。审计链节点按 `traceNodeId`、`itemRef`、`turnIndex` 挂载为状态徽标或证据行，无法可靠挂载的节点进入“未关联”区域。右侧复核台负责解释当前轮次、执行节点、审计链节点、关联项或原始事件的可信度、证据、关系和来源。
+  - 原始事件视图：负责诊断，保留原始事件查看能力；它把会话事件摘要提升为主视图，左侧按事件索引和分类浏览，右侧显示选中事件的结构化摘要和 Pretty JSON，事件列表与预览区各自独立滚动；当选中上下文压缩事件时，会优先展示压缩摘要正文、窗口信息、替换历史数量和被替换对话预览。完整原始内容仍通过单事件接口按需读取。
+- 左栏始终保持为会话列表，默认展示“实时 <3h”分类；会话列表可按实时（3 小时内）、近一天（3 小时到 1 天）和更早（1 天以上或未知时间）切换，每个时间分类下再按工作目录聚合。本机数据源各时间分类都可直接打开正文；远端数据源的“近一天/更早”为历史索引入口，只显示元数据，不包含正文，会话行会标注“仅索引/未同步正文”。阅读视图目录会体现每个子代理是在哪个轮次下启动的，子代理下继续递归展示自己的轮次。若未来出现子代理再 spawn 子代理，也会继续展开；若数据形成循环，会在目录中截断已出现过的线程以避免无限展开。
+- 执行树模型优先使用 `thread_spawn_edges` 作为父子线程强关系，使用 `threads.agent_nickname`、`threads.agent_role`、`threads.rollout_path` 展示子代理元数据；当线程行缺少昵称/角色时，会从子会话 JSONL 的 `session_meta.source.subagent.thread_spawn.agent_nickname` 和 `agent_role` 补齐。主界面不再单独暴露执行树视图，审计链和复核台按需展示执行节点。
 - JSONL 中的 `spawn_agent`、`wait_agent`、`subagent_notification` 用于把子代理节点锚定到父会话时间线中。
-- 精简视图会内嵌直接子代理及其下级子代理的轻量消息摘要，默认最多递归 3 层；完整子代理正文仍通过打开对应会话查看。
-- 类型过滤提供“Compact / 压缩”，可一键查看所有 `compacted` 和 `context_compacted` 事件；统计条同步显示 compact 事件数量。
-- 点击子代理小卡片或精简视图中的“打开会话”会按会话 ID 切换到对应子线程。
-- 会话详情接口的共享 `turns/items` 模型保留完整用户/助手文本、工具参数和工具输出，供 Audit、Review Dock、Markdown 导出和外部查询使用；精简视图、事件摘要、payload 预览和 Raw 来源仍按各自场景限长，避免摘要型区域被超大内容撑满。
-- 精简视图的用户/助手消息支持常用 Markdown 渲染，包括标题、列表、引用、行内代码、代码块、链接、粗体、斜体、删除线和 GFM 管道表格；会话标题在列表、顶部标题、详情和精简视图中支持行内 Markdown 链接、代码和强调；渲染层禁用原始 HTML，并缓存解析结果以减少大段消息重复渲染成本。
-- 右侧 Review Dock 是对象级复核台，默认展示 Session Brief；选中 Turn、执行节点、Audit 节点、关联项或 Raw event 后，统一切换为“摘要 / 证据 / 关系 / 来源”四页。摘要页优先展示 Audit 节点的完整 `body` 正文，长内容由复核台整体滚动，不在摘要框内截断；其中 `apply_patch` 正文会使用 patch 专用视图，而不是拆成普通摘要条目；高频命令输出会使用命令输出 viewer 展示状态、指标和关键行，而不是直接显示一整段终端文本；桌面端 Review Dock 宽度支持拖拽和键盘方向键调整；它不再展示关键事件列表，也不默认渲染完整 JSON。
-- 完整原始事件通过 `GET /api/sessions/:id/events/:index` 按需读取；Review Dock 只有在“来源”页读取完整 Raw payload 或执行复制 JSON 动作时才请求完整事件。
+- 阅读视图会内嵌直接子代理及其下级子代理的轻量消息摘要，默认最多递归 3 层；完整子代理正文仍通过打开对应会话查看。
+- 类型过滤提供“上下文压缩”，可一键查看所有 `compacted` 和 `context_compacted` 事件；统计条同步显示上下文压缩事件数量。
+- 点击子代理小卡片或阅读视图中的“打开会话”会按会话 ID 切换到对应子线程。
+- 会话详情接口的共享 `turns/items` 模型保留完整用户/助手文本、工具参数和工具输出，供审计链、复核台、Markdown 导出和外部查询使用；阅读视图、事件摘要、原始内容预览和原始来源仍按各自场景限长，避免摘要型区域被超大内容撑满。
+- 阅读视图的用户/助手消息支持常用 Markdown 渲染，包括标题、列表、引用、行内代码、代码块、链接、粗体、斜体、删除线和 GFM 管道表格；会话标题在列表、顶部标题、详情和阅读视图中支持行内 Markdown 链接、代码和强调；渲染层禁用原始 HTML，并缓存解析结果以减少大段消息重复渲染成本。
+- 右侧复核台是对象级复核台，默认展示会话概览；选中轮次、执行节点、审计链节点、关联项或原始事件后，统一切换为“摘要 / 证据 / 关系 / 来源”四页。摘要页优先展示审计链节点的完整 `body` 正文，长内容由复核台整体滚动，不在摘要框内截断；其中 `apply_patch` 正文会使用 patch 专用视图，而不是拆成普通摘要条目；高频命令输出会使用命令输出结构化视图展示状态、指标和关键行，而不是直接显示一整段终端文本；桌面端复核台宽度支持拖拽和键盘方向键调整；它不再展示关键事件列表，也不默认渲染完整 JSON。
+- 完整原始事件通过 `GET /api/sessions/:id/events/:index` 按需读取；复核台只有在“来源”页读取完整原始内容或执行复制 JSON 动作时才请求完整事件。
 - 图片和附件默认只以安全摘要进入轻量模型：data URI 会记录媒体类型和估算大小但不进入列表、搜索索引或默认 DOM；URL/文件引用只显示占位，不自动远程拉取。
 - Markdown 导出通过 `GET /api/sessions/:id/markdown` 按需生成，不内嵌在详情响应中。
-- 页面支持会话搜索、Session Brief、对象级复核、证据包复制、按需 Raw 来源读取和 Markdown 导出。
+- 页面支持会话搜索、会话概览、对象级复核、证据包复制、按需原始来源读取和 Markdown 导出。复制入口只有在浏览器剪贴板或 fallback 复制成功后才提示“已复制”，失败时统一提示“复制失败：...”；复制或下载完整 Markdown 成功时会提示其中包含会话正文、路径和命令输出。选择新会话时会先显示加载状态并禁用导出，读取失败不会保留上一会话内容误导用户。
 
 ### Audit Chain
 
-Audit Chain 是只读派生模型，不修改原始会话数据。服务端在会话详情里基于内部完整 `turns/items` 生成 `audit.nodes` 和 `audit.counts`；返回给普通视图的 `turns/items` 仍是轻量渲染模型。Audit 节点的 `summary` 保持短摘要用于主列表和搜索，`body`、`argumentsBody`、`outputBody` 保留完整正文供 Review Dock 摘要页展示。Evidence 风险规则保存在浏览器 localStorage，前端请求会话详情时会把规则序列化到查询参数，服务端按规则指纹区分缓存并重新派生 Audit。前端不再把节点平铺成时间线，而是按 Turn 聚合展示。Turn 摘要展示意图、最终结果、验证状态、最高风险和工具/子代理/证据/缺口计数；展开后，“执行链”回答这个 Turn 怎么做的，助手消息作为执行上下文父行，所有工具、命令、handoff 和子代理执行节点缩进挂载在对应 `agent_message` 下，并在每个执行节点下展示相关行动、证据、验证、风险和缺口；修改文件类行动会在执行链和 Review Dock 中显示文件状态、路径、增删行和 stat bar，减少用户打开 Raw patch 才能判断改动范围的成本。前端展示 Audit 节点时会应用可读摘要规则，把高频工具调用压缩成人类可扫描的动作短语；执行链还会按可配置聚合规则把连续的同类执行节点折叠为执行组，组内节点可展开查看并继续支持 Review Dock 选择；“来源”页和复制 JSON 仍保留原始节点结构。
+Audit Chain 是只读派生模型，不修改原始会话数据。服务端在会话详情里基于内部完整 `turns/items` 生成 `audit.nodes` 和 `audit.counts`；返回给普通视图的 `turns/items` 仍是轻量渲染模型。审计链节点的 `summary` 保持短摘要用于主列表和搜索，`body`、`argumentsBody`、`outputBody` 保留完整正文供复核台摘要页展示。证据风险规则保存在浏览器 localStorage，前端请求会话详情时会把规则序列化到查询参数，服务端按规则指纹区分缓存并重新派生 Audit。前端不再把节点平铺成时间线，而是按轮次聚合展示。轮次摘要展示意图、最终结果、验证状态、最高风险和工具/子代理/证据/缺口计数；展开后，“执行链”回答这个轮次怎么做的，助手消息作为执行上下文父行，所有工具、命令、handoff 和子代理执行节点缩进挂载在对应 `agent_message` 下，并在每个执行节点下展示相关行动、证据、验证、风险和缺口；修改文件类行动会在执行链和复核台中显示文件状态、路径、增删行和 stat bar，减少用户打开原始 patch 才能判断改动范围的成本。前端展示审计链节点时会应用可读摘要规则，把高频工具调用压缩成人类可扫描的动作短语；执行链还会按可配置聚合规则把连续的同类执行节点折叠为执行组，组内节点可展开查看并继续支持复核台选择；“来源”页和复制 JSON 仍保留原始节点结构。设置页保存自定义摘要规则、执行聚合规则和证据风险规则前会校验必填字段和 JavaScript 正则；校验失败时不会保存到 localStorage，不会关闭弹窗，错误会显示在对应字段旁。
 
-执行聚合规则是前端展示规则，默认至少 2 个连续命中节点才会成组，内置规则覆盖文件/目录信息收集、代码搜索定位和 Git 状态/差异检查。规则包含名称、工具匹配、最少连续节点数、匹配正则、组标题模板和组摘要模板，保存在当前浏览器 localStorage；清空自定义后回退到内置规则。聚合只改变 Audit 执行链的视觉层级，不改变搜索到的原始执行节点、Audit 节点、Review Dock 来源或 Raw event。
+执行聚合规则是前端展示规则，默认至少 2 个连续命中节点才会成组，内置规则覆盖文件/目录信息收集、代码搜索定位和 Git 状态/差异检查。规则包含名称、工具匹配、最少连续节点数、匹配正则、组标题模板和组摘要模板，保存前会校验名称、匹配正则和 `/.../flags` 工具正则，校验通过后保存在当前浏览器 localStorage；清空自定义后回退到内置规则。聚合只改变审计链执行链的视觉层级，不改变搜索到的原始执行节点、审计链节点、复核台来源或原始事件。
 
-Evidence 风险规则是服务端 Audit 派生规则，默认内置“工具输出风险词”和“工具输出过大”两项。风险词规则可配置工具匹配、风险等级、状态失败等级、风险词正则、非零失败正则、参与扫描的字段，以及“忽略输出正文的命令正则”；默认忽略 `cat`、`Get-Content`、`rg`、`grep`、`findstr`、`Select-String` 等文件读取和文本搜索命令的输出正文，但仍保留状态字段失败信号。大型输出规则可配置扫描字段和字符阈值。设置页在 Evidence 风险分类中展示当前生效规则和内置规则参考，保存后当前会话详情会重新请求，Audit 风险节点即时按新规则重算。
+证据风险规则是服务端 Audit 派生规则，默认内置“工具输出风险词”和“工具输出过大”两项。风险词规则可配置工具匹配、风险等级、状态失败等级、风险词正则、非零失败正则、参与扫描的字段，以及“忽略输出正文的命令正则”；默认忽略 `cat`、`Get-Content`、`rg`、`grep`、`findstr`、`Select-String` 等文件读取和文本搜索命令的输出正文，但仍保留状态字段失败信号。大型输出规则可配置扫描字段和字符阈值。设置页在证据风险分类中展示当前生效规则和内置规则参考；内置规则编辑项是本地覆盖，保存后会覆盖同名内置规则。未保存更改判定只比较会写入 localStorage 的自定义规则或内置规则覆盖，单纯为了编辑器展示而注入的内置证据风险规则不会启用保存按钮。保存前会校验名称、参与扫描字段、字符阈值、风险词正则和非零失败/忽略命令等可选正则，错误配置不会保存，也不会被 normalize 静默替换成默认值；保存成功后当前会话详情会重新请求，Audit 风险节点即时按新规则重算；如果规则已保存但当前会话按新规则重新读取失败，设置页会提示“展示规则已保存，但当前会话重新读取失败：...”，不会误报为保存失败。
 
-前端按内容搜索和 Audit 专用节点类型过滤展示（全部、意图、推理、行动、证据、验证、风险、最终回复），不复用普通事件分类或 Raw 事件类型语义。搜索或筛选命中风险、证据、验证或工具节点时，会保留所在 Turn 摘要和必要执行链上下文，避免显示孤立风险列表。节点类型包括：
+前端按内容搜索和审计链专用节点类型过滤展示（全部、意图、推理、行动、证据、验证、风险、最终回复），不复用普通事件分类或原始事件类型语义。搜索或筛选命中风险、证据、验证或工具节点时，会保留所在轮次摘要和必要执行链上下文，避免显示孤立风险列表。节点类型包括：
 
 - `intent`：有效用户消息，代表用户意图。
 - `reasoning`：reasoning 摘要或助手中间说明；加密 reasoning 只标注状态，不伪造内容。
@@ -364,30 +366,30 @@ Evidence 风险规则是服务端 Audit 派生规则，默认内置“工具输�
 - `risk`：由启发式规则生成的风险信号节点，关联原始行动/证据/最终回复。
 - `final`：每轮最后一条助手回复，作为最终声明入口。
 
-风险规则保持可解释和可扩展，其中 Evidence 风险规则集中在 `src/evidence-risk-rules.mjs`：
+风险规则保持可解释和可扩展，其中证据风险规则集中在 `src/evidence-risk-rules.mjs`：
 
 - 普通工具输出或状态包含 `error`、`failed`、`fail`、`exception`、`stderr`、`失败`、`错误` 等风险词会生成风险；文件读取命令和文本搜索命令的输出正文不参与这条风险词扫描，避免把代码或搜索命中的文本误判为执行风险。
 - 可执行 shell/terminal/command 类工具的真实命令段疑似执行 `rm`、`del`、`Remove-Item`、`git reset`、`git clean`、`drop`、`delete`、`format`、`Format-Volume` 等危险动作时标记为中高风险；`rg/grep/findstr` 搜索文本和 `Format-Table/Format-List` 展示格式化不算危险命令；补丁或文本编辑类工具里出现这些词只标记为低风险复核信号，不代表实际执行了危险命令。
 - 最终回复包含“已测试、测试通过、验证通过、完成、已修复”等声明，但本会话没有检测到 `verification` 节点时，标记“声明缺少验证证据”。
 - 有工具调用但没有对应输出时，标记低到中风险。
-- 工具参数、输出或 payload 被轻量模型截断时，只保留截断标记和原始事件索引，供 Review Dock 来源页或 Raw 视图按需复核；不会单独生成 Audit 节点，也不会计入风险或缺口。
+- 工具参数、输出或原始内容被轻量模型截断时，只保留截断标记和原始事件索引，供复核台来源页或原始事件视图按需复核；不会单独生成审计链节点，也不会计入风险或缺口。
 
 风险节点只是复核信号，用来提示需要回看原始事件、工具输出或声明依据，不代表安全证明，也不等同于失败判定。
 
-证据映射采用尽力而为策略：执行结构以 `trace.root` 为骨架，Audit 节点通过 `traceNodeId`、`itemRef` 和 `turnIndex` 投影到对应 Turn 或执行节点；`relatedNodeId` 只用于 Review Dock 中的关联跳转，不用于反推树父子关系。无法可靠挂载到执行链的 Audit 节点会显示在“未关联”区域，不会静默丢失。
+证据映射采用尽力而为策略：执行结构以 `trace.root` 为骨架，审计链节点通过 `traceNodeId`、`itemRef` 和 `turnIndex` 投影到对应轮次或执行节点；`relatedNodeId` 只用于复核台中的关联跳转，不用于反推树父子关系。无法可靠挂载到执行链的审计链节点会显示在“未关联”区域，不会静默丢失。
 
-Audit 节点保留 `itemRef`、`eventIndex/sourceIndex`、`traceNodeId`、工具名和完整正文 `body`；右侧 Review Dock 可复制引用、摘要、证据包或 JSON，并在存在事件索引时跳到 Raw event。完整 Raw JSON 仍通过单事件接口按需读取，不会把整条 JSONL 原文嵌入会话详情。
+审计链节点保留 `itemRef`、`eventIndex/sourceIndex`、`traceNodeId`、工具名和完整正文 `body`；右侧复核台可复制会话引用或对象引用、摘要、证据包或 JSON，并在存在事件索引时跳到原始事件。完整原始 JSON 仍通过单事件接口按需读取，不会把整条 JSONL 原文嵌入会话详情。
 
 ## 本地 API
 
-只读 API 只接受 `GET`，错误方法统一返回 `405` JSON error。写接口保持各自声明的方法：远端设备配置使用 `GET/POST/PUT/DELETE`，设备连通性测试和数据源刷新使用 `POST`。静态文件当前只接受 `GET`，不单独支持 `HEAD`。
+只读 API 只接受 `GET`，错误方法统一返回 `405` JSON error。写接口保持各自声明的方法：远端数据源配置使用 `GET/POST/PUT/DELETE`，连通性测试和远端快照拉取使用 `POST`。静态文件当前只接受 `GET`，不单独支持 `HEAD`。通用错误响应保持 `{ "error": "<中文提示>", "details": ... }` 结构，前端优先展示中文 `error` 文案；例如 `405` 返回“请求方法不允许”，数据源、会话、事件不存在分别返回“数据源不存在”“会话不存在”“事件不存在”，无效 `evidenceRiskRules` 返回“evidenceRiskRules 参数无效”，静态 404 返回“未找到资源”。`details` 可保留调试字段，但不作为普通用户提示来源。
 
 - `GET /api/health`：查看只读数据源和服务状态。
-- `GET /api/sources`：列出本机和远程数据源、刷新状态和脱敏失败原因。
-- `GET /api/peers`：列出页面管理的远端设备配置，token 只返回 `hasToken`。
-- `POST /api/peers` / `PUT /api/peers/:id` / `DELETE /api/peers/:id`：新增、更新、删除远端设备配置，并热重载数据源。
-- `POST /api/peers/:id/test`：用已保存 token 调用对端健康检查。
-- `POST /api/sources/:sourceId/refresh`：刷新远程数据源快照；本机数据源不可刷新。
+- `GET /api/sources`：列出本机和远端数据源、快照拉取状态和脱敏失败原因。
+- `GET /api/peers`：列出页面管理的远端数据源配置，token 只返回 `hasToken`。
+- `POST /api/peers` / `PUT /api/peers/:id` / `DELETE /api/peers/:id`：新增、更新、移除本机保存的远端数据源配置，并热重载数据源；删除接口只移除本机配置和 token，不删除远端会话、远端快照或本机已拉取的缓存快照。
+- `POST /api/peers/:id/test`：用已保存 token 调用对端只读健康检查；当前表单草稿不会参与测试，不保存配置，不拉取快照。
+- `POST /api/sources/:sourceId/refresh`：拉取远端数据源快照到本机缓存；本机数据源不可拉取。
 - `GET /api/sessions`：读取轻量会话列表，优先来自 SQLite。
 - `GET /api/sessions/:id`：读取单个会话的轻量渲染模型、Trace 和事件摘要。
 - `GET /api/sessions/:id/events/:index`：读取单个完整 JSONL 事件。
@@ -405,7 +407,7 @@ Audit 节点保留 `itemRef`、`eventIndex/sourceIndex`、`traceNodeId`、工具
 
 外部项目优先使用 `/api/query/*`。这些接口返回稳定的 JSON 结构，支持字段投影、分页和增量读取；旧的 `/api/sessions/*` 继续服务本项目浏览器页面。查询 API 默认读取 `local` 数据源，也可用 `?sourceId=<id>` 指定数据源，或使用显式数据源路径 `/api/sources/:sourceId/query/*`。
 
-响应中的 `links` 会跟随查询入口保持数据源边界：默认 `/api/query/sessions` 返回兼容旧接口的 `/api/sessions...` 和 `/api/query...` 链接；显式数据源路径 `/api/sources/:sourceId/query/*` 返回 `/api/sources/:sourceId/...` 链接。旧查询入口如果用 `?sourceId=<非 local>` 明确读取远程数据源，也会返回 source-scoped links，避免外部调用者后续跳回本机 `local` 数据源。
+响应中的 `links` 会跟随查询入口保持数据源边界：默认 `/api/query/sessions` 返回兼容旧接口的 `/api/sessions...` 和 `/api/query...` 链接；显式数据源路径 `/api/sources/:sourceId/query/*` 返回 `/api/sources/:sourceId/...` 链接。旧查询入口如果用 `?sourceId=<非 local>` 明确读取远端数据源，也会返回 source-scoped links，避免外部调用者后续跳回本机 `local` 数据源。
 
 #### 查询会话列表
 
@@ -560,6 +562,6 @@ GET /api/query/sessions/:id/events?cursor=0&limit=100
 - 当前本机样本中的 `reasoning.summary` 为空，真实推理内容在 `encrypted_content` 中，因此页面不会伪造“推理摘要”；默认搜索和轻量预览不会包含 `encrypted_content` 原文。
 - Trace duration 并非所有节点都有明确开始/结束时间；缺失结束时间时会标注为估算。
 - Codex App 原始 `.map` 未随包发布，因此本项目不会尝试还原官方 TSX 源码。
-- 不同 Codex 版本的事件字段可能变化；Raw 主视图和 Review Dock 的来源页保留按需 JSON 诊断入口。
-- HTTP 快照下载要求远端提供 Codex Home 快照包，本项目不会把远程设备暴露成通用文件浏览器。
-- 远程 token 只能从运行时环境变量读取；不要写入 README、`.env.example` 之外的仓库文件、Issue 评论、日志或 API 响应。
+- 不同 Codex 版本的事件字段可能变化；原始事件主视图和复核台的来源页保留按需 JSON 诊断入口。
+- HTTP 快照下载要求远端提供 Codex Home 快照包，本项目不会把远端设备暴露成通用文件浏览器。
+- 页面管理的数据源访问令牌保存在本机私有 `%USERPROFILE%\.codex-session-renderer\config.json`；高级环境变量模式从运行时环境读取 token。两种模式都不要把真实 token 写入 README、`.env.example` 之外的仓库文件、Issue 评论、日志或 API 响应。

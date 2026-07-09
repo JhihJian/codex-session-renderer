@@ -36,6 +36,7 @@
 
   const ruleKinds = new Set(["risk-text", "large-payload"]);
   const riskLevels = new Set(["low", "medium", "high"]);
+  const allowedTextFields = new Set(["status", "output", "payloadPreview"]);
 
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
@@ -48,7 +49,7 @@
         const kind = ruleKinds.has(String(rule?.kind || "")) ? String(rule.kind) : "risk-text";
         return {
           id: String(rule?.id || `custom-evidence-risk-${Date.now()}-${index}`),
-          label: String(rule?.label || rule?.summary || "Evidence 风险规则").trim() || "Evidence 风险规则",
+          label: String(rule?.label || rule?.summary || "证据风险规则").trim() || "证据风险规则",
           enabled: rule?.enabled !== false,
           kind,
           tool: String(rule?.tool || "*").trim() || "*",
@@ -64,6 +65,105 @@
         };
       })
       .filter((rule) => rule.id && rule.label && (rule.kind !== "large-payload" || rule.maxLength > 0));
+  }
+
+  function validateRulesForSave(rules) {
+    if (!Array.isArray(rules)) return [];
+    return rules.flatMap((rule, index) => validateRuleForSave(rule, index));
+  }
+
+  function validateRuleForSave(rule, index) {
+    const errors = [];
+    const kind = ruleKinds.has(String(rule?.kind || "")) ? String(rule.kind) : "risk-text";
+    const label = String(rule?.label || rule?.title || "").trim();
+    const tool = String(rule?.tool || "").trim();
+    if (!label) errors.push(ruleValidationError(index, "label", "名称必填，保存后才会生成证据风险规则。"));
+    const toolError = validateSlashRegExp(tool);
+    if (toolError) errors.push(ruleValidationError(index, "tool", `工具正则不合法：${toolError}`));
+    const textFieldsError = rule?.textFields == null ? "" : validateTextFields(rule.textFields);
+    if (textFieldsError) errors.push(ruleValidationError(index, "textFields", textFieldsError));
+    const maxLengthError = rule?.maxLength == null && kind !== "large-payload" ? "" : validateMaxLength(rule?.maxLength);
+    if (maxLengthError) errors.push(ruleValidationError(index, "maxLength", maxLengthError));
+    for (const field of evidencePatternFields(rule)) {
+      const value = String(rule?.[field] || "").trim();
+      if (field === "riskPattern" && kind === "risk-text" && !value) {
+        errors.push(ruleValidationError(index, field, "风险词正则必填，保存后才会参与风险识别。"));
+        continue;
+      }
+      if (!value) continue;
+      const patternError = validateRuleRegExp(value);
+      if (patternError) errors.push(ruleValidationError(index, field, `${evidencePatternFieldLabel(field)}不合法：${patternError}`));
+    }
+    return errors;
+  }
+
+  function evidencePatternFields(rule) {
+    const fields = ["riskPattern", "nonZeroFailurePattern", "ignoredCommandPattern"];
+    for (const field of Object.keys(rule || {})) {
+      if (/Pattern$/.test(field) && !fields.includes(field)) fields.push(field);
+    }
+    return fields;
+  }
+
+  function evidencePatternFieldLabel(field) {
+    const labels = {
+      riskPattern: "风险词正则",
+      nonZeroFailurePattern: "非零失败正则",
+      ignoredCommandPattern: "忽略输出正文的命令正则",
+    };
+    return labels[field] || field;
+  }
+
+  function ruleValidationError(index, field, message) {
+    return { index, field, message };
+  }
+
+  function validateTextFields(value) {
+    const fields = textFieldValues(value);
+    if (!fields.length) return "字段至少选择 status、output、payloadPreview 中的一个。";
+    const invalid = fields.filter((field) => !allowedTextFields.has(field));
+    return invalid.length ? `字段只支持 status、output、payloadPreview；不支持：${invalid.join(", ")}。` : "";
+  }
+
+  function textFieldValues(value) {
+    const fields = Array.isArray(value) ? value : String(value || "").split(",");
+    return fields.map((field) => String(field || "").trim()).filter(Boolean);
+  }
+
+  function validateMaxLength(value) {
+    const text = String(value ?? "").trim();
+    const number = Number(text);
+    if (!text || !Number.isFinite(number) || number < 1 || Math.floor(number) !== number) return "大型输出阈值必须是大于 0 的整数。";
+    return "";
+  }
+
+  function validateRuleRegExp(pattern) {
+    try {
+      compilePatternForValidation(pattern);
+      return "";
+    } catch (error) {
+      return error?.message || "不是合法的 JavaScript RegExp";
+    }
+  }
+
+  function validateSlashRegExp(value) {
+    const text = String(value || "").trim();
+    if (!text || text === "*" || !text.startsWith("/")) return "";
+    const slash = text.match(/^\/([\s\S]*)\/([a-z]*)$/i);
+    if (!slash) return "请使用 /pattern/flags 完整格式";
+    try {
+      new RegExp(slash[1], slash[2]);
+      return "";
+    } catch (error) {
+      return error?.message || "不是合法的 JavaScript RegExp";
+    }
+  }
+
+  function compilePatternForValidation(pattern) {
+    const text = String(pattern || "");
+    const slash = text.match(/^\/([\s\S]+)\/([a-z]*)$/i);
+    if (slash) return new RegExp(slash[1], slash[2].includes("i") ? slash[2] : `${slash[2]}i`);
+    return new RegExp(text, "is");
   }
 
   function mergedRules(customRules) {
@@ -98,8 +198,12 @@
   }
 
   function serializeForQuery(rules) {
-    const normalized = customRulesFromMerged(rules);
+    const normalized = serializableCustomRulesFromMerged(rules);
     return normalized.length ? JSON.stringify(normalized) : "";
+  }
+
+  function serializableCustomRulesFromMerged(rules) {
+    return customRulesFromMerged(rules).filter((rule, index) => validateRuleForSave(rule, index).length === 0);
   }
 
   function customRulesFromMerged(rules) {
@@ -144,6 +248,7 @@
     saveCustomRules,
     serializeForQuery,
     storageKey,
+    validateRulesForSave,
   };
 
   globalThis.EvidenceRiskRules = api;

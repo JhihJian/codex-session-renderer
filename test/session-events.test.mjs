@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import {
+  buildTrace,
   buildTurns,
   compactChildBase,
   compactTurnForView,
@@ -92,8 +93,57 @@ test("event summaries and markdown export keep diagnostics readable", () => {
   assert.equal(extractTitleFromEvents(events, "fallback"), "第一行 第二行");
   assert.equal(summarizeEventPreview(events[0]), "第一行 第二行");
   assert.match(markdown, /^# 测试会话/m);
+  assert.match(markdown, /^## 第 1 轮/m);
   assert.match(markdown, /### 用户/);
   assert.match(markdown, /### 助手/);
+});
+
+test("buildTrace localizes thread, turn, and execution fallback labels", () => {
+  const trace = buildTrace(
+    { id: "thread-1", title: "" },
+    [],
+    [],
+    [
+      {
+        id: "turn-1",
+        startedAt: "2026-07-08T10:00:00.000Z",
+        completedAt: "2026-07-08T10:00:05.000Z",
+        status: "completed",
+        items: [
+          {
+            id: "call-1",
+            type: "tool-call",
+            name: "exec_command",
+            status: "completed",
+            timestamp: "2026-07-08T10:00:01.000Z",
+            completedAt: "2026-07-08T10:00:02.000Z",
+          },
+          {
+            id: "handoff-1",
+            type: "tool-call",
+            name: "spawn_agent",
+            status: "completed",
+            timestamp: "2026-07-08T10:00:03.000Z",
+            completedAt: "2026-07-08T10:00:04.000Z",
+          },
+        ],
+      },
+    ],
+    { children: [], siblings: [] },
+  );
+
+  const turn = trace.root.children[0];
+
+  assert.equal(trace.root.label, "根会话");
+  assert.equal(trace.root.title, "未命名会话");
+  assert.equal(turn.label, "第 1 轮");
+  assert.deepEqual(
+    turn.children.map((node) => [node.type, node.label, node.title]),
+    [
+      ["tool", "工具调用", "exec_command"],
+      ["handoff", "委派", "spawn_agent"],
+    ],
+  );
 });
 
 test("findSubagentNotifications inspects payload even when preview omits child id", () => {

@@ -3,8 +3,8 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildAuditChain } from "./src/audit-chain.mjs";
-import { createDataSourceRegistry } from "./src/data-sources.mjs";
-import { evidenceRiskRulesFingerprint, normalizeEvidenceRiskRules } from "./src/evidence-risk-rules.mjs";
+import { createDataSourceRegistry, sanitizeErrorMessage } from "./src/data-sources.mjs";
+import { evidenceRiskRulesFingerprint, normalizeEvidenceRiskRules, validateEvidenceRiskRules } from "./src/evidence-risk-rules.mjs";
 import { sendError, sendJson, sendText, serveStaticFile } from "./src/http-response.mjs";
 import { createRendererConfigStore } from "./src/renderer-config.mjs";
 import { readJsonl, readJsonlLineWithDiagnostics, readJsonlRange, readJsonlWithDiagnostics } from "./src/jsonl-reader.mjs";
@@ -522,7 +522,10 @@ function parseEvidenceRiskRulesParam(params) {
   const text = params.get("evidenceRiskRules");
   if (!text) return [];
   try {
-    return JSON.parse(text);
+    const rules = JSON.parse(text);
+    const errors = validateEvidenceRiskRules(rules);
+    if (errors.length) throw new Error(errors[0].message);
+    return rules;
   } catch {
     const error = new Error("Invalid evidenceRiskRules parameter");
     error.status = 400;
@@ -530,45 +533,82 @@ function parseEvidenceRiskRulesParam(params) {
   }
 }
 
+function createRemoteServiceError(code, message, status = 502, cause = null) {
+  const error = new Error(sanitizeRemoteMessage(message));
+  error.name = "RemoteServiceError";
+  error.status = status;
+  error.code = code;
+  error.expose = true;
+  if (cause) error.cause = cause;
+  return error;
+}
+
+function sanitizeRemoteMessage(message) {
+  return sanitizeErrorMessage(message || "远端请求失败。");
+}
+
+function isRemoteServiceError(error) {
+  return error?.expose === true && typeof error?.code === "string";
+}
+
+function remoteFailurePayload(error) {
+  const message = sanitizeRemoteMessage(error?.message || "远端请求失败。");
+  return {
+    ok: false,
+    status: error?.status || 502,
+    code: error?.code || "remote_request_failed",
+    error: message,
+    message,
+  };
+}
+
+function remoteHttpFailureStatus(status) {
+  return status === 401 || status === 403 ? status : 502;
+}
+
+async function readRemoteJson(response, { code, message, status = 502 }) {
+  try {
+    return await response.json();
+  } catch (error) {
+    throw createRemoteServiceError(code, message, status, error);
+  }
+}
+
 async function queryRemoteSessionIndex(source, params) {
   if (source.kind !== "remote" || !source.definition?.indexUrl) {
-    return {
-      ok: false,
-      status: 404,
-      error: "Remote index is not available",
-    };
+    throw createRemoteServiceError("remote_index_not_configured", "远端索引不可用。", 404);
   }
   if (!source.definition.token) {
-    return {
-      ok: false,
-      status: 400,
-      error: `缺少 ${source.definition.tokenEnv}。`,
-    };
+    throw createRemoteServiceError("remote_index_missing_token", `缺少 ${source.definition.tokenEnv}。`, 400);
   }
-  const indexUrl = new URL(source.definition.indexUrl);
+  let indexUrl;
+  try {
+    indexUrl = new URL(source.definition.indexUrl);
+  } catch (error) {
+    throw createRemoteServiceError("remote_index_invalid_url", "远端索引地址无效。", 400, error);
+  }
   for (const [key, value] of params) indexUrl.searchParams.set(key, value);
   const response = await fetch(indexUrl, {
     headers: {
       authorization: `Bearer ${source.definition.token}`,
     },
   }).catch((error) => {
-    throw new Error(`远端索引不可达：${error?.message || "连接失败"}`);
+    throw createRemoteServiceError("remote_index_unreachable", `远端索引不可达：${error?.message || "连接失败"}`, 502, error);
   });
   if (response.status === 401 || response.status === 403) {
-    return {
-      ok: false,
-      status: response.status,
-      error: "远端索引认证失败。",
-    };
+    throw createRemoteServiceError("remote_index_auth_failed", "远端索引认证失败。", response.status);
   }
   if (!response.ok) {
-    return {
-      ok: false,
-      status: response.status,
-      error: `远端索引请求失败：HTTP ${response.status}`,
-    };
+    throw createRemoteServiceError(
+      "remote_index_http_failed",
+      `远端索引请求失败：HTTP ${response.status}`,
+      remoteHttpFailureStatus(response.status),
+    );
   }
-  const data = await response.json();
+  const data = await readRemoteJson(response, {
+    code: "remote_index_non_json",
+    message: "远端索引返回非 JSON。",
+  });
   return {
     ok: true,
     status: 200,
@@ -585,42 +625,49 @@ async function queryRemoteSessionIndex(source, params) {
 }
 
 async function testRemotePeer(source) {
+  try {
+    return await testRemotePeerOrThrow(source);
+  } catch (error) {
+    if (isRemoteServiceError(error)) return remoteFailurePayload(error);
+    throw error;
+  }
+}
+
+async function testRemotePeerOrThrow(source) {
   if (source.kind !== "remote" || !source.definition?.indexUrl) {
-    return {
-      ok: false,
-      error: "远端索引不可用。",
-    };
+    throw createRemoteServiceError("remote_health_not_configured", "远端索引不可用。", 404);
   }
   if (!source.definition.token) {
-    return {
-      ok: false,
-      error: "缺少远端 token。",
-    };
+    throw createRemoteServiceError("remote_health_missing_token", "缺少远端访问令牌。", 400);
   }
-  const healthUrl = new URL(source.definition.indexUrl);
+  let healthUrl;
+  try {
+    healthUrl = new URL(source.definition.indexUrl);
+  } catch (error) {
+    throw createRemoteServiceError("remote_health_invalid_url", "远端健康检查地址无效。", 400, error);
+  }
   healthUrl.pathname = healthUrl.pathname.replace(/\/api\/codex-session-index$/, "/api/share-health");
   const response = await fetch(healthUrl, {
     headers: {
       authorization: `Bearer ${source.definition.token}`,
     },
   }).catch((error) => {
-    throw new Error(`远端不可达：${error?.message || "连接失败"}`);
+    throw createRemoteServiceError("remote_health_unreachable", `远端健康检查不可达：${error?.message || "连接失败"}`, 502, error);
   });
   if (response.status === 401 || response.status === 403) {
-    return {
-      ok: false,
-      status: response.status,
-      error: "远端认证失败。",
-    };
+    throw createRemoteServiceError("remote_health_auth_failed", "远端认证失败。", response.status);
   }
   if (!response.ok) {
-    return {
-      ok: false,
-      status: response.status,
-      error: `远端健康检查失败：HTTP ${response.status}`,
-    };
+    throw createRemoteServiceError(
+      "remote_health_http_failed",
+      `远端健康检查失败：HTTP ${response.status}`,
+      remoteHttpFailureStatus(response.status),
+    );
   }
-  const data = await response.json();
+  const data = await readRemoteJson(response, {
+    code: "remote_health_non_json",
+    message: "远端健康检查返回非 JSON。",
+  });
   return {
     ok: true,
     status: response.status,
@@ -1074,9 +1121,12 @@ async function route(req, res) {
     return serveStatic(req, res, pathname);
   } catch (error) {
     const status = error?.status || 500;
-    return sendError(res, status, status >= 500 ? "Internal server error" : error?.message || "Bad request", {
+    const publicMessage = status >= 500 && !isRemoteServiceError(error) ? "Internal server error" : error?.message || "Bad request";
+    return sendError(res, status, publicMessage, {
       name: error?.name,
-      message: error?.message,
+      code: error?.code,
+      status,
+      message: publicMessage,
       stack: process.env.NODE_ENV === "development" ? error?.stack : undefined,
     });
   }

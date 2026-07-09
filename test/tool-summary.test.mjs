@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import "../public/tool-summary.js";
 
-const { commandOutputModel, patchBodyModel, summarizeAuditNode, summarizeToolItem } = globalThis.ToolSummary;
+const { commandOutputModel, patchBodyModel, summarizeAuditNode, summarizeToolItem, validateRulesForSave } = globalThis.ToolSummary;
 
 test("default rules translate PowerShell UTF-8 raw reads", () => {
   const summary = summarizeToolItem({
@@ -63,6 +63,38 @@ test("custom rules override defaults", () => {
 
   assert.equal(summary.title, "读取项目说明");
   assert.equal(summary.summary, "README.md");
+});
+
+test("custom summary rules validate required fields and regexp syntax before saving", () => {
+  const errors = validateRulesForSave([
+    {
+      id: "bad",
+      enabled: true,
+      tool: "/exec(command/",
+      pattern: "(",
+      title: "",
+      summary: "{cmd}",
+    },
+  ]);
+
+  assert.equal(errors.some((error) => error.field === "title"), true);
+  assert.equal(errors.some((error) => error.field === "tool"), true);
+  assert.equal(errors.some((error) => error.field === "pattern"), true);
+});
+
+test("custom summary rules accept slash regexp syntax with flags", () => {
+  const errors = validateRulesForSave([
+    {
+      id: "good",
+      enabled: true,
+      tool: "/exec_.+/i",
+      pattern: "/README\\.md/m",
+      title: "读取项目说明",
+      summary: "{path}",
+    },
+  ]);
+
+  assert.deepEqual(errors, []);
 });
 
 test("apply_patch summaries include file-level diff stats", () => {

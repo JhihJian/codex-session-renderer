@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import "../public/execution-grouping.js";
 
-const { groupExecutionRows, normalizeRules } = globalThis.ExecutionGrouping;
+const { groupExecutionRows, normalizeRules, validateRulesForSave } = globalThis.ExecutionGrouping;
 
 function execRow(id, readable, options = {}) {
   return {
@@ -67,4 +67,22 @@ test("custom group rules normalize minimum consecutive item count", () => {
   ]);
 
   assert.equal(rules[0].minItems, 2);
+});
+
+test("custom group rules validate required fields and regexp syntax before saving", () => {
+  const errors = validateRulesForSave([
+    {
+      id: "bad-group",
+      label: "",
+      tool: "/exec(command/",
+      minItems: 2,
+      pattern: "[",
+      title: "执行组",
+      summary: "{count}",
+    },
+  ]);
+
+  assert.equal(errors.some((error) => error.field === "label"), true);
+  assert.equal(errors.some((error) => error.field === "tool"), true);
+  assert.equal(errors.some((error) => error.field === "pattern"), true);
 });

@@ -804,7 +804,7 @@ function buildTrace(session, rawEvents, normalizedEvents, turns, hierarchy) {
   const root = {
     id: `thread:${session.id}`,
     type: "thread",
-    label: session.agentNickname ? `${session.agentNickname} / ${session.agentRole || "agent"}` : "Root Thread",
+    label: session.agentNickname ? `${session.agentNickname} / ${session.agentRole || "代理"}` : "根会话",
     title: session.title || "未命名会话",
     subtitle: session.id,
     timestamp: rootStartedAt,
@@ -827,7 +827,7 @@ function buildTrace(session, rawEvents, normalizedEvents, turns, hierarchy) {
     const turnNode = {
       id: `turn:${turn.id}:${turnIndex}`,
       type: "turn",
-      label: `Turn ${turnIndex + 1}`,
+      label: `第 ${turnIndex + 1} 轮`,
       title: turnSummary.title,
       subtitle: [turnSummary.subtitle, formatIsoForTrace(turn.startedAt), turn.cwd ? shortPathServer(turn.cwd) : ""]
         .filter(Boolean)
@@ -890,6 +890,20 @@ function isDefaultTraceNodeForPayload(node) {
   return ["tool", "handoff", "subagent", "lazy-child"].includes(node.type);
 }
 
+function assistantPhaseLabel(phase) {
+  switch (phase) {
+    case "final":
+    case "final_answer":
+      return "最终回复";
+    case "delta":
+      return "增量回复";
+    case "message":
+      return "消息";
+    default:
+      return phase ? `阶段：${phase}` : "";
+  }
+}
+
 function traceNodeFromItem(item, turnIndex, itemIndex) {
   const base = {
     id: `item:${turnIndex}:${itemIndex}:${item.id || item.type}`,
@@ -910,7 +924,7 @@ function traceNodeFromItem(item, turnIndex, itemIndex) {
       ...base,
       type: "message",
       icon: "user",
-      label: "User message",
+      label: "用户消息",
       title: firstLine(item.text || "用户消息", 80),
       subtitle: formatIsoForTrace(item.timestamp),
     };
@@ -920,9 +934,9 @@ function traceNodeFromItem(item, turnIndex, itemIndex) {
       ...base,
       type: "message",
       icon: "assistant",
-      label: item.phase === "final" || item.phase === "final_answer" ? "Final answer" : "Assistant response",
+      label: item.phase === "final" || item.phase === "final_answer" ? "最终回复" : "助手回复",
       title: firstLine(item.text || "助手消息", 80),
-      subtitle: [item.phase, formatIsoForTrace(item.timestamp)].filter(Boolean).join(" · "),
+      subtitle: [assistantPhaseLabel(item.phase), formatIsoForTrace(item.timestamp)].filter(Boolean).join(" · "),
     };
   }
   if (item.type === "tool-call") {
@@ -931,8 +945,8 @@ function traceNodeFromItem(item, turnIndex, itemIndex) {
       ...base,
       type: isHandoff ? "handoff" : "tool",
       icon: isHandoff ? "handoff" : "tool",
-      label: isHandoff ? "Handoff" : `Tool call`,
-      title: item.name || item.callId || "tool",
+      label: isHandoff ? "委派" : "工具调用",
+      title: item.name || item.callId || "未知工具",
       subtitle: [item.status, formatIsoForTrace(item.timestamp)].filter(Boolean).join(" · "),
     };
   }
@@ -941,9 +955,9 @@ function traceNodeFromItem(item, turnIndex, itemIndex) {
       ...base,
       type: "reasoning",
       icon: "reasoning",
-      label: "Reasoning",
+      label: "推理",
       title: item.text ? firstLine(item.text, 80) : item.encrypted ? "推理内容已加密存储" : "无明文摘要",
-      subtitle: item.encrypted ? "encrypted_content" : "summary",
+      subtitle: item.encrypted ? "已加密" : "摘要",
     };
   }
   if (item.type === "token-count") {
@@ -951,8 +965,8 @@ function traceNodeFromItem(item, turnIndex, itemIndex) {
       ...base,
       type: "metric",
       icon: "metric",
-      label: "Token usage",
-      title: "Token 统计",
+      label: "上下文占用",
+      title: "上下文占用统计",
       subtitle: formatIsoForTrace(item.timestamp),
     };
   }
@@ -961,7 +975,7 @@ function traceNodeFromItem(item, turnIndex, itemIndex) {
       ...base,
       type: "event",
       icon: "event",
-      label: item.eventType || item.responseType || "Event",
+      label: item.eventType || item.responseType || "事件",
       title: item.eventType || item.responseType || item.type,
       subtitle: formatIsoForTrace(item.timestamp),
     };
@@ -978,7 +992,7 @@ function traceNodeFromChildThread(child, spawnEvent, notificationEvent) {
     type: "subagent",
     threadId: child.childThreadId,
     icon: "agent",
-    label: `Subagent: ${thread.agentNickname || child.childThreadId}`,
+    label: `子代理：${thread.agentNickname || child.childThreadId}`,
     title: [thread.agentNickname, thread.agentRole].filter(Boolean).join(" / ") || thread.title || child.childThreadId,
     subtitle: thread.title || child.status || "",
     timestamp,
@@ -992,14 +1006,14 @@ function traceNodeFromChildThread(child, spawnEvent, notificationEvent) {
         id: `subagent:${child.childThreadId}:placeholder`,
         type: "lazy-child",
         icon: "thread",
-        label: "Child thread",
+        label: "子会话",
         title: "点击子代理节点加载完整会话",
         subtitle: thread.relativePath || "",
         timestamp: null,
         completedAt: null,
         durationMs: null,
         durationEstimated: false,
-        status: "lazy",
+        status: "按需加载",
         children: [],
         detail: {
           kind: "lazy-child",
@@ -1021,7 +1035,7 @@ function traceNodeFromChildThread(child, spawnEvent, notificationEvent) {
 function compactTraceSession(session) {
   return {
     id: session.id,
-    title: session.title,
+    title: session.title || "未命名会话",
     cwd: session.cwd,
     model: session.model,
     reasoningEffort: session.reasoningEffort,

@@ -5,6 +5,7 @@ import {
   defaultEvidenceRiskRules,
   normalizeEvidenceRiskRules,
   riskSignalsForEvidence,
+  validateEvidenceRiskRules,
 } from "../src/evidence-risk-rules.mjs";
 import "../public/evidence-risk-rules.js";
 
@@ -110,4 +111,115 @@ test("browser and server active rule overrides keep large payload threshold cons
   );
   assert.equal(serverActive[0].maxLength, 3);
   assert.equal(browserActive[0].maxLength, 3);
+});
+
+test("browser evidence risk rules validate required risk regexp fields before saving", () => {
+  const errors = globalThis.EvidenceRiskRules.validateRulesForSave([
+    {
+      id: "custom-risk",
+      label: "",
+      kind: "risk-text",
+      tool: "/exec(command/",
+      riskPattern: "",
+      nonZeroFailurePattern: "(",
+      ignoredCommandPattern: "[",
+    },
+  ]);
+
+  assert.equal(errors.some((error) => error.field === "label"), true);
+  assert.equal(errors.some((error) => error.field === "tool"), true);
+  assert.equal(errors.some((error) => error.field === "riskPattern"), true);
+  assert.equal(errors.some((error) => error.field === "nonZeroFailurePattern"), true);
+  assert.equal(errors.some((error) => error.field === "ignoredCommandPattern"), true);
+});
+
+test("browser evidence large payload rule only validates nonempty regexp fields", () => {
+  const validLargePayload = globalThis.EvidenceRiskRules.validateRulesForSave([
+    {
+      id: "large-payload",
+      label: "工具输出过大",
+      kind: "large-payload",
+      maxLength: 3,
+      riskPattern: "",
+    },
+  ]);
+  const invalidOptionalPattern = globalThis.EvidenceRiskRules.validateRulesForSave([
+    {
+      id: "large-payload",
+      label: "工具输出过大",
+      kind: "large-payload",
+      maxLength: 3,
+      riskPattern: "(",
+    },
+  ]);
+
+  assert.deepEqual(validLargePayload, []);
+  assert.equal(invalidOptionalPattern.some((error) => error.field === "riskPattern"), true);
+});
+
+test("browser evidence risk rules validate text fields and max length before saving", () => {
+  const errors = globalThis.EvidenceRiskRules.validateRulesForSave([
+    {
+      id: "large-payload",
+      label: "工具输出过大",
+      kind: "large-payload",
+      textFields: ["output", "badField"],
+      maxLength: "0",
+    },
+  ]);
+
+  assert.equal(errors.some((error) => error.field === "textFields"), true);
+  assert.equal(errors.some((error) => error.field === "maxLength"), true);
+});
+
+test("browser evidence risk rules do not serialize invalid legacy local overrides", () => {
+  const storage = {
+    getItem() {
+      return JSON.stringify([
+        { id: "error-output", enabled: true, kind: "risk-text", riskPattern: "(" },
+        { id: "large-payload", enabled: true, kind: "large-payload", maxLength: 3 },
+      ]);
+    },
+  };
+  const loaded = globalThis.EvidenceRiskRules.loadCustomRules(storage);
+  const serialized = globalThis.EvidenceRiskRules.serializeForQuery(loaded);
+
+  assert.equal(loaded.some((rule) => rule.id === "error-output" && rule.riskPattern === "("), true);
+  assert.deepEqual(
+    JSON.parse(serialized).map((rule) => rule.id),
+    ["large-payload"],
+  );
+});
+
+test("server evidence risk rules reject invalid regexp overrides", () => {
+  const errors = validateEvidenceRiskRules([
+    {
+      id: "error-output",
+      enabled: true,
+      kind: "risk-text",
+      tool: "/exec(command/",
+      riskPattern: "(",
+      ignoredCommandPattern: "[",
+    },
+  ]);
+
+  assert.equal(errors.some((error) => error.field === "tool"), true);
+  assert.equal(errors.some((error) => error.field === "riskPattern"), true);
+  assert.equal(errors.some((error) => error.field === "ignoredCommandPattern"), true);
+  assert.deepEqual(validateEvidenceRiskRules([{ id: "error-output", enabled: false, kind: "risk-text" }]), []);
+});
+
+test("server evidence risk rules reject invalid text fields and max length", () => {
+  const errors = validateEvidenceRiskRules([
+    {
+      id: "large-payload",
+      enabled: true,
+      kind: "large-payload",
+      textFields: ["output", "badField"],
+      maxLength: "0",
+    },
+  ]);
+
+  assert.equal(errors.some((error) => error.field === "textFields"), true);
+  assert.equal(errors.some((error) => error.field === "maxLength"), true);
 });

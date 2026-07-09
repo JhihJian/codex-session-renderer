@@ -6,8 +6,19 @@ const state = {
   sessions: [],
   remoteIndexSessions: [],
   filteredSessions: [],
+  sessionsLoading: false,
+  sessionsLoadError: "",
+  healthLoadError: "",
+  sessionsRequestKey: "",
+  sessionsRequestSeq: 0,
   remoteIndexLoading: false,
   remoteIndexError: "",
+  remoteIndexRequestKey: "",
+  remoteIndexRequestSeq: 0,
+  sessionLoading: false,
+  sessionLoadError: "",
+  sessionRequestKey: "",
+  pendingSessionTitle: "",
   selectedSessionId: null,
   selectedSessionKey: null,
   detail: null,
@@ -30,8 +41,22 @@ const state = {
   executionGroupRules: [],
   evidenceRiskRules: [],
   settingsView: "summary",
+  settingsInitialSnapshot: "",
+  settingsValidationErrors: [],
+  settingsValidationMessage: "",
+  settingsFeedbackMessage: "",
+  settingsFeedbackStatus: "",
+  settingsDialogOpener: null,
+  peerFormSnapshot: null,
+  peerLoading: false,
+  peerLoadError: "",
+  peerLoadRequestSeq: 0,
+  peerLoadRequestKey: "",
+  peerSaving: false,
+  peerTesting: false,
+  peerDeleting: false,
   expandedAuditGroupIds: new Set(),
-  inspectorWidth: 388,
+  inspectorWidth: 360,
   resizingInspector: false,
 };
 
@@ -57,6 +82,7 @@ const {
 const markdownCache = new Map();
 const markdownCacheLimit = 700;
 const inspectorWidthStorageKey = "codexSessionRenderer.inspectorWidth.v1";
+const inspectorSideDockMedia = "(min-width: 1281px)";
 const inspectorWidthDefaults = {
   min: 310,
   max: 680,
@@ -86,9 +112,46 @@ if (markdownRenderer) {
   markdownRenderer.renderer.rules.fence = renderMarkdownFence;
 }
 
+const localServiceUnavailableMessage = "无法连接本机服务。请确认服务已启动后点击刷新列表重试。";
+
+const clientErrorMessages = new Map([
+  ["Bad Request", "请求无效"],
+  ["Bad request", "请求无效"],
+  ["Data source not found", "数据源不存在"],
+  ["Event not found", "事件不存在"],
+  ["Forbidden", "禁止访问该资源"],
+  ["Internal Server Error", "服务内部错误"],
+  ["Internal server error", "服务内部错误"],
+  ["Invalid evidenceRiskRules parameter", "evidenceRiskRules 参数无效"],
+  ["Invalid JSON body", "请求体不是有效 JSON"],
+  ["Method Not Allowed", "请求方法不允许"],
+  ["Method not allowed", "请求方法不允许"],
+  ["Not Found", "未找到资源"],
+  ["Not found", "未找到资源"],
+  ["Peer not found", "远端数据源不存在"],
+  ["Request body too large", "请求体过大"],
+  ["Session not found", "会话不存在"],
+  ["Unauthorized", "未授权访问"],
+]);
+
+const statusErrorMessages = new Map([
+  [400, "请求无效"],
+  [401, "未授权访问"],
+  [403, "禁止访问该资源"],
+  [404, "未找到资源"],
+  [405, "请求方法不允许"],
+  [413, "请求体过大"],
+  [500, "服务内部错误"],
+  [502, "上游服务不可用"],
+  [503, "服务暂不可用"],
+  [504, "上游服务响应超时"],
+]);
+
 const els = {
   appShell: document.getElementById("appShell"),
   healthStatus: document.getElementById("healthStatus"),
+  sessionsPanel: document.getElementById("sessionsPanel"),
+  inspectorPanel: document.getElementById("inspectorPanel"),
   sessionCount: document.getElementById("sessionCount"),
   sessionList: document.getElementById("sessionList"),
   sessionSearch: document.getElementById("sessionSearch"),
@@ -101,6 +164,10 @@ const els = {
   importantOnlyLabel: document.getElementById("importantOnlyLabel"),
   sessionMetaLabel: document.getElementById("sessionMetaLabel"),
   sessionTitle: document.getElementById("sessionTitle"),
+  sessionFilterNotice: document.getElementById("sessionFilterNotice"),
+  sessionFilterNoticeText: document.getElementById("sessionFilterNoticeText"),
+  clearSessionFiltersButton: document.getElementById("clearSessionFiltersButton"),
+  returnRealtimeButton: document.getElementById("returnRealtimeButton"),
   statsStrip: document.getElementById("statsStrip"),
   threadContent: document.getElementById("threadContent"),
   compactContent: document.getElementById("compactContent"),
@@ -145,6 +212,7 @@ const els = {
   addEvidenceRiskRuleButton: document.getElementById("addEvidenceRiskRuleButton"),
   resetEvidenceRiskRulesButton: document.getElementById("resetEvidenceRiskRulesButton"),
   saveSettingsButton: document.getElementById("saveSettingsButton"),
+  cancelSettingsButton: document.getElementById("cancelSettingsButton"),
   settingsStatus: document.getElementById("settingsStatus"),
   peerDialog: document.getElementById("peerDialog"),
   peerForm: document.getElementById("peerForm"),
@@ -164,28 +232,32 @@ const els = {
   statusSession: document.getElementById("statusSession"),
   statusEvents: document.getElementById("statusEvents"),
   statusUpdated: document.getElementById("statusUpdated"),
+  statusbar: document.getElementById("statusbar"),
   copyMarkdownButton: document.getElementById("copyMarkdownButton"),
   downloadMarkdownButton: document.getElementById("downloadMarkdownButton"),
   compactViewButton: document.getElementById("compactViewButton"),
   auditViewButton: document.getElementById("auditViewButton"),
   rawViewButton: document.getElementById("rawViewButton"),
+  viewSwitch: document.querySelector(".view-switch"),
   toggleLeft: document.getElementById("toggleLeft"),
   toggleRight: document.getElementById("toggleRight"),
 };
 
 const standardItemTypeOptions = [
-  ["all", "全部类型"],
+  ["all", "全部内容"],
   ["message", "用户/助手消息"],
   ["tool", "工具与命令"],
   ["output", "工具输出"],
   ["reasoning", "推理摘要"],
-  ["compact", "Compact / 压缩"],
+  ["compact", "上下文压缩"],
   ["system", "系统事件"],
   ["error", "错误事件"],
 ];
 
+const rawItemTypeOptions = standardItemTypeOptions.map(([value, label]) => [value, value === "all" ? "全部事件" : label]);
+
 const auditItemTypeOptions = [
-  ["all", "全部"],
+  ["all", "全部节点"],
   ["intent", "意图"],
   ["reasoning", "推理"],
   ["action", "行动"],
@@ -220,7 +292,7 @@ const auditToStandardType = {
 const settingsViewOptions = [
   { id: "summary", label: "摘要规则" },
   { id: "execution", label: "执行聚合" },
-  { id: "evidence", label: "Evidence 风险" },
+  { id: "evidence", label: "证据风险" },
   { id: "structured", label: "结构化展示" },
 ];
 const settingsViewIds = new Set(settingsViewOptions.map((view) => view.id));
@@ -233,76 +305,99 @@ function init() {
   state.evidenceRiskRules = window.EvidenceRiskRules?.loadCustomRules?.() || [];
   loadInspectorWidth();
   bindEvents();
+  syncPanelToggleLabels();
   applyInspectorWidth(state.inspectorWidth);
   loadHealthAndSources();
 }
 
 function bindEvents() {
-  els.refreshButton.addEventListener("click", () => loadSessions({ keepSelection: true }));
+  els.refreshButton.addEventListener("click", () => {
+    if (state.healthLoadError) {
+      void loadHealthAndSources();
+      return;
+    }
+    void loadSessions({ keepSelection: true });
+  });
   document.addEventListener("click", handleMarkdownCodeCopy);
+  document.addEventListener("keydown", handleDialogEscapeKey);
   els.refreshRemoteButton.addEventListener("click", refreshSelectedSource);
   els.sourceSelect.addEventListener("change", () => selectSource(els.sourceSelect.value));
   els.managePeersButton.addEventListener("click", openPeerDialog);
   els.settingsButton?.addEventListener("click", openSettingsDialog);
-  els.closeSettingsDialogButton?.addEventListener("click", () => els.settingsDialog.close());
+  els.closeSettingsDialogButton?.addEventListener("click", requestCloseSettingsDialog);
+  els.cancelSettingsButton?.addEventListener("click", requestCloseSettingsDialog);
+  els.settingsDialog?.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    requestCloseSettingsDialog();
+  });
   els.settingsForm?.addEventListener("submit", saveSettingsFromForm);
   els.settingsTabs?.addEventListener("click", selectSettingsViewFromEvent);
   els.settingsOverview?.addEventListener("click", selectSettingsViewFromEvent);
   els.addSummaryRuleButton?.addEventListener("click", () => {
+    clearSettingsValidationState();
     state.summaryRules.push(newSummaryRule());
     state.settingsView = "summary";
     renderSettingsDialog();
   });
   els.resetSummaryRulesButton?.addEventListener("click", () => {
+    clearSettingsValidationState();
     state.summaryRules = [];
     state.settingsView = "summary";
     renderSettingsDialog();
   });
   els.addExecutionGroupRuleButton?.addEventListener("click", () => {
+    clearSettingsValidationState();
     state.executionGroupRules.push(newExecutionGroupRule());
     state.settingsView = "execution";
     renderSettingsDialog();
   });
   els.resetExecutionGroupRulesButton?.addEventListener("click", () => {
+    clearSettingsValidationState();
     state.executionGroupRules = [];
     state.settingsView = "execution";
     renderSettingsDialog();
   });
   els.addEvidenceRiskRuleButton?.addEventListener("click", () => {
+    clearSettingsValidationState();
     ensureEvidenceRiskEditorRules();
     state.evidenceRiskRules.unshift(newEvidenceRiskRule());
     state.settingsView = "evidence";
     renderSettingsDialog();
   });
   els.resetEvidenceRiskRulesButton?.addEventListener("click", () => {
+    clearSettingsValidationState();
     state.evidenceRiskRules = [];
     state.settingsView = "evidence";
     renderSettingsDialog();
   });
-  els.closePeerDialogButton.addEventListener("click", () => els.peerDialog.close());
-  els.newPeerButton.addEventListener("click", () => selectPeerForEdit(null));
+  els.closePeerDialogButton.addEventListener("click", requestClosePeerDialog);
+  els.peerDialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    requestClosePeerDialog();
+  });
+  els.newPeerButton.addEventListener("click", () => requestSelectPeerForEdit(null, { force: true }));
   els.peerForm.addEventListener("submit", savePeerFromForm);
   els.testPeerButton.addEventListener("click", testSelectedPeer);
   els.deletePeerButton.addEventListener("click", deleteSelectedPeer);
+  [els.peerLabel, els.peerUrl, els.peerToken, els.peerEnabled].forEach((input) => {
+    input?.addEventListener("input", handlePeerFormInput);
+    input?.addEventListener("change", handlePeerFormInput);
+  });
   els.sessionSearch.addEventListener("input", () => {
     renderSessionList();
     void loadRemoteIndexForCurrentFilter();
   });
   els.sessionTimeFilter.querySelectorAll("[data-session-time]").forEach((button) => {
     button.addEventListener("click", () => {
-      state.sessionTimeFilter = button.dataset.sessionTime || "realtime";
-      renderSessionList();
-      void loadRemoteIndexForCurrentFilter();
-      const nextSession = state.filteredSessions[0];
-      if (nextSession && !nextSession.remoteIndexOnly && !state.filteredSessions.some((session) => sessionKey(session) === state.selectedSessionKey)) {
-        selectSession(nextSession.id);
-      }
+      selectSessionTimeFilter(button.dataset.sessionTime || "realtime");
     });
   });
   els.sessionTypeFilter.addEventListener("change", () => {
     renderSessionList();
     void loadRemoteIndexForCurrentFilter();
   });
+  els.clearSessionFiltersButton?.addEventListener("click", clearSessionFiltersForSelectedSession);
+  els.returnRealtimeButton?.addEventListener("click", returnToRealtimeSessions);
   els.itemSearch.addEventListener("input", () => {
     state.visibleThreadItems = 140;
     state.visibleRawEvents = 240;
@@ -318,22 +413,26 @@ function bindEvents() {
   els.rawViewButton.addEventListener("click", () => setViewMode("raw"));
   els.reviewTabs?.querySelectorAll("[data-review-tab]").forEach((button) => {
     button.addEventListener("click", () => {
-      state.reviewTab = button.dataset.reviewTab || "summary";
-      renderInspector();
+      setReviewTab(button.dataset.reviewTab || "summary");
     });
   });
+  bindRovingTablist(els.sessionTimeFilter, "[data-session-time]", (button) => selectSessionTimeFilter(button.dataset.sessionTime || "realtime"));
+  bindRovingTablist(els.viewSwitch, "[data-view-mode]", (button) => setViewMode(button.dataset.viewMode || "compact"));
+  bindRovingTablist(els.reviewTabs, "[data-review-tab]", (button) => setReviewTab(button.dataset.reviewTab || "summary"));
+  bindRovingTablist(els.settingsTabs, "[data-settings-view]", (button) => selectSettingsView(button.dataset.settingsView || "summary"));
   els.showMoreEventsButton.addEventListener("click", renderInspector);
-  els.copyRawButton.addEventListener("click", copyReviewReference);
+  els.copyRawButton.addEventListener("click", () => copyReviewReference());
   els.copyMarkdownButton.addEventListener("click", copyMarkdown);
   els.downloadMarkdownButton.addEventListener("click", downloadMarkdown);
   els.toggleLeft.addEventListener("click", () => {
     const next = els.appShell.dataset.left === "open" ? "closed" : "open";
     els.appShell.dataset.left = next;
+    syncPanelToggleLabels();
   });
   els.toggleRight.addEventListener("click", () => {
     const next = els.appShell.dataset.right === "open" ? "closed" : "open";
     els.appShell.dataset.right = next;
-    syncInspectorResizerState();
+    syncPanelToggleLabels();
   });
   bindInspectorResize();
   window.addEventListener("resize", () => applyInspectorWidth(state.inspectorWidth));
@@ -342,6 +441,84 @@ function bindEvents() {
       els.appShell.dataset.panel = button.dataset.panelTarget;
     });
   });
+}
+
+function bindRovingTablist(tablist, selector, activate) {
+  if (!tablist) return;
+  tablist.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+    const current = event.target.closest(selector);
+    if (!current || !tablist.contains(current)) return;
+    const tabs = Array.from(tablist.querySelectorAll(selector)).filter((button) => !button.disabled);
+    if (!tabs.length) return;
+    const currentIndex = Math.max(0, tabs.indexOf(current));
+    let nextIndex = currentIndex;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = tabs.length - 1;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") nextIndex = (currentIndex + 1) % tabs.length;
+    if (event.key === "ArrowLeft" || event.key === "ArrowUp") nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+    const next = tabs[nextIndex];
+    if (!next) return;
+    event.preventDefault();
+    if (next === current) return;
+    activate(next);
+    next.focus({ preventScroll: true });
+  });
+}
+
+function syncPanelToggleLabels() {
+  const leftOpen = els.appShell.dataset.left !== "closed";
+  const rightOpen = els.appShell.dataset.right !== "closed";
+  const leftLabel = leftOpen ? "隐藏会话列表" : "显示会话列表";
+  const rightLabel = rightOpen ? "隐藏复核台" : "显示复核台";
+  els.toggleLeft.title = leftLabel;
+  els.toggleLeft.setAttribute("aria-label", leftLabel);
+  els.toggleLeft.setAttribute("aria-expanded", leftOpen ? "true" : "false");
+  els.toggleRight.title = rightLabel;
+  els.toggleRight.setAttribute("aria-label", rightLabel);
+  els.toggleRight.setAttribute("aria-expanded", rightOpen ? "true" : "false");
+  syncPanelVisibilityState();
+  syncInspectorResizerState();
+}
+
+function syncPanelVisibilityState() {
+  const leftOpen = els.appShell.dataset.left !== "closed";
+  const rightOpen = els.appShell.dataset.right !== "closed";
+  moveFocusBeforeHidingPanel(els.sessionsPanel, els.toggleLeft, leftOpen);
+  moveFocusBeforeHidingPanel(els.inspectorPanel, els.toggleRight, rightOpen);
+  if (!rightOpen && document.activeElement === els.inspectorResizer) {
+    els.toggleRight.focus({ preventScroll: true });
+  }
+  setPanelInteractivity(els.sessionsPanel, leftOpen);
+  setPanelInteractivity(els.inspectorPanel, rightOpen);
+}
+
+function moveFocusBeforeHidingPanel(panel, fallback, open) {
+  if (open || !panel?.contains(document.activeElement)) return;
+  fallback?.focus({ preventScroll: true });
+}
+
+function setPanelInteractivity(panel, open) {
+  if (!panel) return;
+  panel.inert = !open;
+  if (open) {
+    panel.removeAttribute("aria-hidden");
+  } else {
+    panel.setAttribute("aria-hidden", "true");
+  }
+}
+
+function handleDialogEscapeKey(event) {
+  if (event.key !== "Escape") return;
+  if (els.settingsDialog?.open) {
+    event.preventDefault();
+    requestCloseSettingsDialog();
+    return;
+  }
+  if (els.peerDialog?.open) {
+    event.preventDefault();
+    requestClosePeerDialog();
+  }
 }
 
 function bindInspectorResize() {
@@ -416,12 +593,19 @@ function applyInspectorWidth(width, options = {}) {
   state.inspectorWidth = Math.round(next);
   els.appShell.style.setProperty("--inspector-width", `${state.inspectorWidth}px`);
   if (els.inspectorResizer) {
+    const resizeEnabled = inspectorResizeEnabled();
     const min = bounds?.min ?? inspectorWidthDefaults.min;
     const max = bounds?.max ?? inspectorWidthDefaults.max;
     els.inspectorResizer.setAttribute("aria-valuemin", String(min));
     els.inspectorResizer.setAttribute("aria-valuemax", String(max));
     els.inspectorResizer.setAttribute("aria-valuenow", String(state.inspectorWidth));
-    els.inspectorResizer.setAttribute("aria-disabled", inspectorResizeEnabled() ? "false" : "true");
+    els.inspectorResizer.setAttribute("aria-disabled", resizeEnabled ? "false" : "true");
+    els.inspectorResizer.tabIndex = resizeEnabled ? 0 : -1;
+    if (resizeEnabled) {
+      els.inspectorResizer.removeAttribute("aria-hidden");
+    } else {
+      els.inspectorResizer.setAttribute("aria-hidden", "true");
+    }
   }
   if (options.persist) saveInspectorWidth(state.inspectorWidth);
 }
@@ -443,7 +627,7 @@ function inspectorWidthBounds() {
 }
 
 function inspectorResizeEnabled() {
-  return Boolean(els.appShell?.dataset.right !== "closed" && window.matchMedia("(min-width: 1181px)").matches);
+  return Boolean(els.appShell?.dataset.right !== "closed" && window.matchMedia(inspectorSideDockMedia).matches);
 }
 
 function syncInspectorResizerState() {
@@ -455,16 +639,34 @@ function clamp(value, min, max) {
 }
 
 async function loadHealthAndSources() {
+  state.healthLoadError = "";
+  setBusy(true);
   try {
     const health = await fetchJson("/api/health");
     state.sources = health.sources || [];
     state.selectedSourceId = health.defaultSourceId || "local";
+    state.sessionsLoadError = "";
     renderSourceControls();
     els.healthStatus.textContent = health.sources?.length > 1 ? `数据源 ${health.sources.length} 个` : `只读数据源 ${health.codexHome}`;
     await reloadPeers();
     await loadSessions();
   } catch (error) {
-    els.healthStatus.textContent = `接口不可用：${error.message}`;
+    const message = healthUnavailableMessage(error);
+    state.healthLoadError = message;
+    state.sources = [{ id: "local", label: "本机 Codex Home", kind: "local", status: { refreshable: false, error: { message } } }];
+    state.selectedSourceId = "local";
+    state.sessions = [];
+    state.filteredSessions = [];
+    state.remoteIndexSessions = [];
+    state.remoteIndexLoading = false;
+    state.remoteIndexError = "";
+    state.sessionsLoading = false;
+    state.sessionsLoadError = message;
+    clearSelectedSession();
+    setBusy(false);
+    els.healthStatus.textContent = `接口不可用：${message}`;
+    renderSourceControls();
+    renderAll();
   }
 }
 
@@ -482,6 +684,12 @@ function renderSourceControls() {
 }
 
 function renderSourceStatus() {
+  if (state.healthLoadError) {
+    els.sourceStatus.textContent = `接口不可用：${state.healthLoadError}`;
+    els.refreshRemoteButton.hidden = true;
+    renderStatusbar();
+    return;
+  }
   const source = selectedSource();
   if (!source) {
     els.sourceStatus.textContent = "数据源不存在";
@@ -492,59 +700,112 @@ function renderSourceStatus() {
   const status = source.status || {};
   els.refreshRemoteButton.hidden = !status.refreshable;
   els.refreshRemoteButton.disabled = Boolean(status.refreshing);
-  els.refreshRemoteButton.textContent = status.refreshing ? "远程刷新中" : "刷新远程";
-  const parts = [source.kind === "remote" ? "远程实时快照" : "本机"];
-  if (status.refreshing) parts.push("刷新中");
+  const refreshLabel = status.refreshing ? "正在拉取快照" : "拉取远端快照";
+  els.refreshRemoteButton.textContent = refreshLabel;
+  els.refreshRemoteButton.title = "拉取远端实时快照到本机缓存；默认只补最近 3 小时，不修改远端";
+  els.refreshRemoteButton.setAttribute("aria-label", `${refreshLabel}（默认只补最近 3 小时，写入本机缓存，不修改远端）`);
+  const parts = [source.kind === "remote" ? "远端快照（本机缓存）" : "本机"];
+  if (source.kind === "remote") parts.push("实时快照默认只补最近 3 小时，拉取会写入本机缓存");
+  if (status.refreshing) parts.push("正在拉取远端快照");
   if (status.lastSuccessfulRefreshAt) parts.push(`最近成功 ${formatDate(status.lastSuccessfulRefreshAt)}`);
   if (status.stale) parts.push("正在浏览旧快照");
   if (status.error?.message) parts.push(status.error.message);
   if (source.kind === "remote" && !status.snapshotAvailable) parts.push("尚无可用快照");
   if (source.kind === "remote" && state.sessionTimeFilter !== "realtime") {
-    parts.push(state.remoteIndexLoading ? "历史索引检索中" : "历史仅索引");
-    if (state.remoteIndexError) parts.push(state.remoteIndexError);
+    const bucket = state.sessionTimeFilter === "day" ? "近一天" : "更早";
+    parts.push(state.remoteIndexLoading ? `${bucket}历史索引检索中` : `${bucket}为历史索引，不含正文；历史正文需扩大共享窗口或额外同步`);
+    if (state.remoteIndexError) parts.push(`历史索引失败：${state.remoteIndexError}`);
   }
   els.sourceStatus.textContent = parts.join(" · ");
   renderStatusbar();
 }
 
+function selectSessionTimeFilter(bucket) {
+  state.sessionTimeFilter = bucket || "realtime";
+  renderSessionList();
+  void loadRemoteIndexForCurrentFilter();
+  const nextSession = state.filteredSessions[0];
+  if (nextSession && !nextSession.remoteIndexOnly && !state.filteredSessions.some((session) => sessionKey(session) === state.selectedSessionKey)) {
+    selectSession(nextSession.id);
+  }
+}
+
 async function loadSessions({ keepSelection = false } = {}) {
+  const sourceId = state.selectedSourceId;
+  const requestKey = `sessions:${++state.sessionsRequestSeq}:${sourceId}`;
+  state.sessionsRequestKey = requestKey;
+  state.sessionsLoading = true;
+  state.sessionsLoadError = "";
   setBusy(true);
+  renderSessionList();
   try {
-    const data = await fetchJson(sourceSessionsUrl());
+    const data = await fetchJson(sourceSessionsUrl(sourceId));
+    if (state.sessionsRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
+    state.healthLoadError = "";
     if (data.source) upsertSource(data.source);
     state.sessions = data.sessions || [];
     state.remoteIndexSessions = [];
     state.remoteIndexError = "";
+    state.remoteIndexLoading = false;
+    state.sessionsLoading = false;
+    state.sessionsLoadError = "";
+    setBusy(false);
+    renderSourceStatus();
     renderSessionList();
     const nextSession =
       keepSelection && state.filteredSessions.some((session) => sessionKey(session) === state.selectedSessionKey)
         ? state.filteredSessions.find((session) => sessionKey(session) === state.selectedSessionKey)
         : state.filteredSessions[0] || state.sessions[0];
+    if (state.sessionsRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
     if (nextSession && !nextSession.remoteIndexOnly) {
       await selectSession(nextSession.id);
     } else {
       clearSelectedSession();
       renderAll();
     }
+    if (state.sessionsRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
     await loadRemoteIndexForCurrentFilter();
   } catch (error) {
+    if (state.sessionsRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
     showToast(`加载会话失败：${error.message}`);
+    if (error.message?.includes("无法连接本机服务")) {
+      state.healthLoadError = localServiceUnavailableMessage;
+      els.healthStatus.textContent = `接口不可用：${state.healthLoadError}`;
+    }
+    state.sessions = [];
+    state.filteredSessions = [];
+    state.remoteIndexSessions = [];
+    state.remoteIndexLoading = false;
+    state.remoteIndexError = "";
+    state.sessionsLoading = false;
+    state.sessionsLoadError = error.message;
     clearSelectedSession();
     renderAll();
-    els.threadContent.innerHTML = emptyState("无法加载会话数据", "请确认服务仍在运行，或远程快照已成功刷新。");
   } finally {
-    setBusy(false);
+    if (state.sessionsRequestKey === requestKey) {
+      state.sessionsLoading = false;
+      setBusy(false);
+      renderSourceStatus();
+      renderSessionList();
+    }
   }
 }
 
 function setBusy(isBusy) {
   els.refreshButton.disabled = isBusy;
-  els.refreshButton.textContent = isBusy ? "刷新中" : "刷新";
+  els.refreshButton.textContent = isBusy ? "刷新列表中" : "刷新列表";
 }
 
 async function selectSession(id) {
+  const sourceId = state.selectedSourceId;
+  const targetSession = findSessionSummary(id);
+  const requestKey = `${sourceId}:${id}:${Date.now()}`;
   state.selectedSessionId = id;
-  state.selectedSessionKey = sessionKey({ id, sourceId: state.selectedSourceId });
+  state.selectedSessionKey = sessionKey({ id, sourceId });
+  state.sessionRequestKey = requestKey;
+  state.sessionLoading = true;
+  state.sessionLoadError = "";
+  state.pendingSessionTitle = targetSession?.title || id;
   state.detail = null;
   state.selectedItemRef = null;
   state.selectedEventIndex = null;
@@ -559,29 +820,51 @@ async function selectSession(id) {
   state.visibleEvents = 40;
   state.visibleThreadItems = 140;
   state.visibleRawEvents = 240;
-  renderSessionList();
-  els.threadContent.innerHTML = emptyState("正在读取会话", "解析当前数据源中的 JSONL 事件流。");
+  syncExportButtons();
+  renderAll();
   try {
-    const detail = await fetchJson(sourceSessionUrl(id));
+    const detail = await fetchJson(sourceSessionUrl(id, sourceId));
+    if (state.sessionRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
     state.detail = detail;
+    state.sessionLoading = false;
+    state.sessionLoadError = "";
+    state.pendingSessionTitle = "";
     state.selectedSourceId = detail.session?.sourceId || state.selectedSourceId;
     state.selectedSessionKey = sessionKey(detail.session || { id, sourceId: state.selectedSourceId });
     primeTraceExpansion(detail);
-    els.copyMarkdownButton.disabled = false;
-    els.downloadMarkdownButton.disabled = false;
     renderAll();
     els.appShell.dataset.panel = "thread";
   } catch (error) {
+    if (state.sessionRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
+    state.detail = null;
+    state.sessionLoading = false;
+    state.sessionLoadError = error.message;
+    syncExportButtons();
+    renderAll();
     showToast(`读取会话失败：${error.message}`);
   }
 }
 
 async function reloadSelectedSessionDetail() {
   if (!state.selectedSessionId) return;
-  const detail = await fetchJson(sourceSessionUrl(state.selectedSessionId));
+  const sourceId = state.selectedSourceId;
+  const sessionId = state.selectedSessionId;
+  const requestKey = `${sourceId}:${sessionId}:reload:${Date.now()}`;
+  state.sessionRequestKey = requestKey;
+  let detail;
+  try {
+    detail = await fetchJson(sourceSessionUrl(sessionId, sourceId));
+  } catch (error) {
+    if (state.sessionRequestKey !== requestKey || state.selectedSourceId !== sourceId || state.selectedSessionId !== sessionId) return;
+    throw error;
+  }
+  if (state.sessionRequestKey !== requestKey || state.selectedSourceId !== sourceId || state.selectedSessionId !== sessionId) return;
   state.detail = detail;
+  state.sessionLoading = false;
+  state.sessionLoadError = "";
+  state.pendingSessionTitle = "";
   state.selectedSourceId = detail.session?.sourceId || state.selectedSourceId;
-  state.selectedSessionKey = sessionKey(detail.session || { id: state.selectedSessionId, sourceId: state.selectedSourceId });
+  state.selectedSessionKey = sessionKey(detail.session || { id: sessionId, sourceId: state.selectedSourceId });
   primeTraceExpansion(detail);
   renderAll();
 }
@@ -589,6 +872,10 @@ async function reloadSelectedSessionDetail() {
 function clearSelectedSession() {
   state.selectedSessionId = null;
   state.selectedSessionKey = null;
+  state.sessionLoading = false;
+  state.sessionLoadError = "";
+  state.sessionRequestKey = "";
+  state.pendingSessionTitle = "";
   state.detail = null;
   state.selectedItemRef = null;
   state.selectedEventIndex = null;
@@ -600,17 +887,23 @@ function clearSelectedSession() {
   state.expandedAuditTurnKeys = new Set();
   state.expandedAuditGroupIds = new Set();
   state.rawEventCache = new Map();
-  els.copyMarkdownButton.disabled = true;
-  els.downloadMarkdownButton.disabled = true;
+  syncExportButtons();
 }
 
 async function selectSource(sourceId) {
   if (!sourceId || sourceId === state.selectedSourceId) return;
   state.selectedSourceId = sourceId;
+  state.sessions = [];
+  state.filteredSessions = [];
+  state.sessionsLoadError = "";
+  state.sessionsLoading = true;
+  state.remoteIndexRequestKey = `inactive:${++state.remoteIndexRequestSeq}`;
   state.remoteIndexSessions = [];
+  state.remoteIndexLoading = false;
   state.remoteIndexError = "";
   clearSelectedSession();
   renderSourceControls();
+  renderAll();
   await loadSessions();
 }
 
@@ -618,16 +911,16 @@ async function refreshSelectedSource() {
   const source = selectedSource();
   if (!source?.status?.refreshable) return;
   els.refreshRemoteButton.disabled = true;
-  els.refreshRemoteButton.textContent = "远程刷新中";
+  els.refreshRemoteButton.textContent = "正在拉取快照";
   try {
     const result = await fetchJson(`/api/sources/${encodeURIComponent(source.id)}/refresh`, { method: "POST" });
     if (result.source) upsertSource(result.source);
     renderSourceControls();
     await loadSessions({ keepSelection: true });
-    showToast("远程快照已刷新");
+    showToast("远端快照已拉取到本机缓存；未修改远端");
   } catch (error) {
     await reloadSources();
-    showToast(`远程刷新失败：${error.message}`);
+    showToast(`拉取远端快照失败：${error.message}；远端未修改`);
     await loadSessions({ keepSelection: true });
   } finally {
     renderSourceControls();
@@ -641,42 +934,80 @@ async function reloadSources() {
   renderSourceControls();
 }
 
-async function reloadPeers() {
-  const data = await fetchJson("/api/peers").catch((error) => {
-    state.peerEditorStatusText = error.message;
-    return null;
-  });
-  if (!data?.peers) return;
+async function reloadPeers({ showLoading = false } = {}) {
+  const requestKey = `peers:${++state.peerLoadRequestSeq}`;
+  state.peerLoadRequestKey = requestKey;
+  const preserveDraftAtStart = peerDraftShouldBePreserved();
+  if (showLoading || els.peerDialog?.open) {
+    state.peerLoading = true;
+    state.peerLoadError = "";
+    if (els.peerEditorStatus) els.peerEditorStatus.dataset.sticky = "false";
+    renderPeerManager({ preserveDraft: preserveDraftAtStart });
+  }
+  let data;
+  try {
+    data = await fetchJson("/api/peers");
+  } catch (error) {
+    if (state.peerLoadRequestKey !== requestKey) return;
+    state.peerLoading = false;
+    state.peerLoadError = error.message;
+    if (els.peerEditorStatus) els.peerEditorStatus.dataset.sticky = "false";
+    renderPeerManager({ preserveDraft: true });
+    return;
+  }
+  if (state.peerLoadRequestKey !== requestKey) return;
+  if (!data?.peers) {
+    state.peerLoading = false;
+    state.peerLoadError = "远端数据源响应缺少 peers 字段";
+    if (els.peerEditorStatus) els.peerEditorStatus.dataset.sticky = "false";
+    renderPeerManager({ preserveDraft: true });
+    return;
+  }
+  const preserveDraft = preserveDraftAtStart || peerDraftShouldBePreserved();
   state.peers = data.peers;
   if (data.sources) state.sources = data.sources;
+  state.peerLoading = false;
+  state.peerLoadError = "";
+  if (!preserveDraft) {
+    if (!state.selectedPeerId && state.peers.length > 0) state.selectedPeerId = state.peers[0].id;
+    if (state.selectedPeerId && !state.peers.some((peer) => peer.id === state.selectedPeerId)) {
+      state.selectedPeerId = state.peers[0]?.id || null;
+    }
+  }
   renderSourceControls();
-  renderPeerManager();
+  renderPeerManager({ preserveDraft });
 }
 
 function openPeerDialog() {
-  reloadPeers();
-  if (!state.selectedPeerId && state.peers.length > 0) state.selectedPeerId = state.peers[0].id;
-  renderPeerManager();
-  els.peerDialog.showModal();
+  if (!els.peerDialog.open) els.peerDialog.showModal();
+  void reloadPeers({ showLoading: true });
 }
 
-function renderPeerManager() {
+function renderPeerManager(options = {}) {
   if (!els.peerList) return;
   const selected = state.peers.find((peer) => peer.id === state.selectedPeerId) || null;
-  if (state.peers.length === 0) {
-    els.peerList.innerHTML = `<div class="peer-empty">暂无远端设备</div>`;
+  if (state.peerLoading) {
+    els.peerList.innerHTML = `<div class="peer-empty">读取远端数据源中</div>`;
+  } else if (state.peerLoadError) {
+    els.peerList.innerHTML = `<div class="peer-empty">读取远端数据源失败：${escapeHtml(state.peerLoadError)}</div>`;
+  } else if (state.peers.length === 0) {
+    els.peerList.innerHTML = `<div class="peer-empty">暂无远端数据源</div>`;
   } else {
     els.peerList.innerHTML = state.peers.map(renderPeerRow).join("");
   }
   els.peerList.querySelectorAll("[data-peer-id]").forEach((row) => {
-    row.addEventListener("click", () => selectPeerForEdit(row.dataset.peerId));
+    row.addEventListener("click", () => requestSelectPeerForEdit(row.dataset.peerId));
   });
+  if (options.preserveDraft && peerDraftShouldBePreserved()) {
+    syncPeerEditorState();
+    return;
+  }
   fillPeerForm(selected);
 }
 
 function renderPeerRow(peer) {
   const active = peer.id === state.selectedPeerId ? " active" : "";
-  const status = peer.enabled ? (peer.hasToken ? "已配置" : "缺 token") : "停用";
+  const status = peer.enabled ? (peer.hasToken ? "已配置" : "缺访问令牌") : "停用";
   return `
     <button class="peer-row${active}" type="button" data-peer-id="${escapeAttr(peer.id)}">
       <span>
@@ -693,32 +1024,63 @@ function selectPeerForEdit(id) {
   renderPeerManager();
 }
 
+function confirmDiscardPeerChanges() {
+  if (!peerFormDirty()) return true;
+  const confirmed = window.confirm("放弃远端数据源未保存更改？");
+  if (!confirmed) syncPeerEditorState();
+  return confirmed;
+}
+
+function requestClosePeerDialog() {
+  if (!els.peerDialog?.open) return true;
+  if (!confirmDiscardPeerChanges()) return false;
+  els.peerDialog.close();
+  return true;
+}
+
+function requestSelectPeerForEdit(id, { force = false } = {}) {
+  if (!force && id === state.selectedPeerId) return;
+  if (!confirmDiscardPeerChanges()) return;
+  selectPeerForEdit(id);
+}
+
 function fillPeerForm(peer) {
   els.peerId.value = peer?.id || "";
   els.peerLabel.value = peer?.label || "";
   els.peerUrl.value = peer?.url || "";
   els.peerToken.value = "";
-  els.peerToken.placeholder = peer?.hasToken ? "已保存；留空表示保留原 token" : "远端 CODEX_SHARE_TOKEN";
+  els.peerToken.placeholder = peer?.hasToken ? "已保存；留空表示保留原访问令牌" : "粘贴远端访问令牌";
   els.peerEnabled.checked = peer?.enabled !== false;
-  els.deletePeerButton.disabled = !peer;
-  els.testPeerButton.disabled = !peer;
-  if (!els.peerEditorStatus.textContent || els.peerEditorStatus.dataset.sticky !== "true") {
-    els.peerEditorStatus.textContent = peer ? "编辑设备；Token 留空会保留原值。" : "新建设备；保存后立即出现在数据源列表。";
-  }
+  state.peerFormSnapshot = peerSnapshotFromPeer(peer);
   els.peerEditorStatus.dataset.sticky = "false";
+  syncPeerEditorState();
+}
+
+function peerDraftShouldBePreserved() {
+  return Boolean(els.peerDialog?.open && peerFormDirty());
 }
 
 async function savePeerFromForm(event) {
   event.preventDefault();
+  const blockedReason = peerSaveBlockedReason();
+  if (blockedReason) {
+    setPeerStatus(blockedReason);
+    syncPeerEditorState();
+    return;
+  }
   const existingId = els.peerId.value.trim();
+  const token = els.peerToken.value.trim();
   const body = {
     id: existingId || undefined,
     label: els.peerLabel.value.trim(),
     url: els.peerUrl.value.trim(),
-    token: els.peerToken.value.trim(),
+    token,
     enabled: els.peerEnabled.checked,
   };
+  if (existingId && !token) delete body.token;
+  state.peerSaving = true;
   setPeerStatus("保存中...");
+  syncPeerEditorState();
   try {
     const url = existingId ? `/api/peers/${encodeURIComponent(existingId)}` : "/api/peers";
     const method = existingId ? "PUT" : "POST";
@@ -729,44 +1091,81 @@ async function savePeerFromForm(event) {
     });
     state.peers = data.peers || [];
     state.sources = data.sources || state.sources;
+    state.peerLoadError = "";
+    state.peerLoading = false;
     state.selectedPeerId = data.peer?.id || existingId || null;
     renderSourceControls();
     renderPeerManager();
     setPeerStatus("已保存");
-    showToast("远端设备已保存");
+    showToast("远端数据源配置已保存；访问令牌只保存在本机");
   } catch (error) {
     setPeerStatus(`保存失败：${error.message}`);
+  } finally {
+    state.peerSaving = false;
+    syncPeerEditorState();
   }
 }
 
 async function testSelectedPeer() {
+  const blockedReason = peerTestBlockedReason();
+  if (blockedReason) {
+    setPeerStatus(blockedReason);
+    syncPeerEditorState();
+    return;
+  }
   const id = els.peerId.value.trim();
   if (!id) return;
-  setPeerStatus("测试连接中...");
+  state.peerTesting = true;
+  setPeerStatus("测试已保存连接中：正在使用已保存配置向远端发起只读健康检查；表单草稿不会被测试，不保存配置、不拉取快照。");
+  syncPeerEditorState();
   try {
     const result = await fetchJson(`/api/peers/${encodeURIComponent(id)}/test`, { method: "POST" });
-    setPeerStatus(result.ok ? `连接正常 · ${formatDate(result.remote?.time) || "远端已响应"}` : `连接失败：${result.error || "未知错误"}`);
+    setPeerStatus(result.ok ? `已保存连接正常 · ${formatDate(result.remote?.time) || "远端已响应"}` : `已保存连接失败：${result.error || "未知错误"}`);
   } catch (error) {
-    setPeerStatus(`连接失败：${error.message}`);
+    setPeerStatus(`已保存连接失败：${error.message}`);
+  } finally {
+    state.peerTesting = false;
+    syncPeerEditorState();
   }
 }
 
 async function deleteSelectedPeer() {
-  const id = els.peerId.value.trim();
-  if (!id) return;
-  setPeerStatus("删除中...");
+  const blockedReason = peerDeleteBlockedReason();
+  if (blockedReason) {
+    setPeerStatus(blockedReason);
+    syncPeerEditorState();
+    return;
+  }
+  const peer = currentSavedPeer();
+  const id = peer.id;
+  const label = peerDeleteLabel(peer);
+  const confirmed = window.confirm(
+    `移除本机配置「${label}」？\n\n这只会移除本机保存的远端数据源配置和访问令牌，不会删除远端会话或远端快照，也不会修改远端数据源；本机已拉取的缓存快照不会随此操作删除。`,
+  );
+  if (!confirmed) {
+    setPeerStatus("已取消移除本机配置");
+    return;
+  }
+  state.peerDeleting = true;
+  setPeerStatus("移除本机配置中...");
+  syncPeerEditorState();
   try {
     const data = await fetchJson(`/api/peers/${encodeURIComponent(id)}`, { method: "DELETE" });
     state.peers = data.peers || [];
     state.sources = data.sources || state.sources.filter((source) => source.id !== id);
+    state.peerLoadError = "";
+    state.peerLoading = false;
     if (state.selectedSourceId === id) state.selectedSourceId = "local";
     state.selectedPeerId = state.peers[0]?.id || null;
     renderSourceControls();
     renderPeerManager();
     await loadSessions();
-    showToast("远端设备已删除");
+    showToast("已移除本机保存的远端配置和访问令牌；未删除远端会话、远端快照或本机已拉取的缓存快照");
   } catch (error) {
-    setPeerStatus(`删除失败：${error.message}`);
+    setPeerStatus(`移除本机配置失败：${error.message}`);
+  } finally {
+    state.peerDeleting = false;
+    syncPeerEditorState();
   }
 }
 
@@ -775,19 +1174,166 @@ function setPeerStatus(message) {
   els.peerEditorStatus.dataset.sticky = "true";
 }
 
+function handlePeerFormInput() {
+  els.peerEditorStatus.dataset.sticky = "false";
+  syncPeerEditorState();
+}
+
+function currentSavedPeer() {
+  const id = els.peerId.value.trim();
+  return id ? state.peers.find((peer) => peer.id === id) || null : null;
+}
+
+function peerSnapshotFromPeer(peer) {
+  return {
+    id: peer?.id || "",
+    label: peer?.label || "",
+    url: peer?.url || "",
+    enabled: peer?.enabled !== false,
+    hasToken: Boolean(peer?.hasToken),
+  };
+}
+
+function peerFormModel() {
+  return {
+    id: els.peerId.value.trim(),
+    label: els.peerLabel.value.trim(),
+    url: els.peerUrl.value.trim(),
+    token: els.peerToken.value.trim(),
+    enabled: els.peerEnabled.checked,
+  };
+}
+
+function peerFormDirty() {
+  const model = peerFormModel();
+  const snapshot = state.peerFormSnapshot || peerSnapshotFromPeer(null);
+  if (!model.id) return Boolean(model.label || model.url || model.token || model.enabled !== snapshot.enabled);
+  return model.label !== snapshot.label || model.url !== snapshot.url || model.enabled !== snapshot.enabled || Boolean(model.token);
+}
+
+function peerSaveBlockedReason() {
+  const model = peerFormModel();
+  const saved = currentSavedPeer();
+  if (state.peerSaving) return "正在保存远端数据源配置";
+  if (state.peerDeleting) return "正在移除本机配置";
+  if (!model.id) {
+    if (!model.url || !model.token) return "新建远端数据源需要填写地址和访问令牌";
+    return "";
+  }
+  if (!saved) return "请选择已保存的远端数据源";
+  if (!model.url) return "地址不能为空";
+  if (model.enabled && !saved.hasToken && !model.token) return "该数据源尚未保存访问令牌，需要填写访问令牌";
+  if (!peerFormDirty()) return "没有未保存更改";
+  return "";
+}
+
+function peerTestBlockedReason() {
+  const saved = currentSavedPeer();
+  if (state.peerTesting) return "正在测试已保存连接";
+  if (state.peerSaving) return "正在保存，保存完成后再测试";
+  if (state.peerDeleting) return "正在移除本机配置";
+  if (!saved) return "请先保存该远端数据源后再测试";
+  if (peerFormDirty()) return "当前表单有未保存更改；测试只使用已保存配置，请先保存后再测试";
+  if (!saved.enabled) return "该数据源已停用，启用并保存后再测试";
+  if (!saved.hasToken) return "该数据源缺少已保存访问令牌，填写并保存后再测试";
+  return "";
+}
+
+function peerDeleteBlockedReason() {
+  if (state.peerDeleting) return "正在移除本机配置";
+  if (state.peerSaving) return "正在保存，保存完成后再移除";
+  if (!currentSavedPeer()) return "请选择已保存的远端数据源";
+  return "";
+}
+
+function peerDeleteLabel(peer) {
+  return [peer.label || peer.id, peer.id && peer.label ? peer.id : "", peer.url].filter(Boolean).join(" · ");
+}
+
+function syncPeerEditorState() {
+  const saveReason = peerSaveBlockedReason();
+  const testReason = peerTestBlockedReason();
+  const deleteReason = peerDeleteBlockedReason();
+  const model = peerFormModel();
+  const saved = currentSavedPeer();
+  els.savePeerButton.disabled = Boolean(saveReason);
+  els.savePeerButton.title = saveReason || (model.id ? "保存远端数据源更改" : "保存新远端数据源");
+  els.testPeerButton.disabled = Boolean(testReason);
+  els.testPeerButton.title = testReason || "使用已保存配置和访问令牌向远端发起只读健康检查；当前表单草稿不会被测试，不保存配置，不拉取快照";
+  els.testPeerButton.setAttribute("aria-label", els.testPeerButton.title);
+  els.deletePeerButton.disabled = Boolean(deleteReason);
+  els.deletePeerButton.title = deleteReason || `移除本机保存的配置：${peerDeleteLabel(saved)}；不会删除远端会话、远端快照或本机已拉取的缓存快照`;
+  if (els.peerEditorStatus.dataset.sticky === "true") return;
+  if (state.peerLoading) {
+    els.peerEditorStatus.textContent = "读取远端数据源中...";
+    return;
+  }
+  if (state.peerLoadError) {
+    els.peerEditorStatus.textContent = `读取远端数据源失败：${state.peerLoadError}`;
+    return;
+  }
+  if (testReason && (!saveReason || saveReason === "没有未保存更改")) {
+    els.peerEditorStatus.textContent = `测试不可用：${testReason}`;
+  } else if (saveReason) {
+    els.peerEditorStatus.textContent = saveReason;
+  } else if (model.id) {
+    els.peerEditorStatus.textContent = model.token
+      ? "输入的新访问令牌只有保存后才会用于测试已保存连接，并会替换已保存访问令牌。"
+      : "测试已保存连接只使用已保存配置；访问令牌留空会保留已保存访问令牌，输入新值需保存后生效。";
+  } else {
+    els.peerEditorStatus.textContent = "可保存新远端数据源；保存后才能测试已保存连接；访问令牌只保存在本机配置文件。";
+  }
+}
+
 function openSettingsDialog() {
+  const opener = document.activeElement;
+  state.settingsDialogOpener = opener && opener !== document.body ? opener : els.settingsButton;
+  clearSettingsValidationState();
   state.summaryRules = window.ToolSummary?.loadCustomRules?.() || [];
   state.executionGroupRules = window.ExecutionGrouping?.loadCustomRules?.() || [];
   state.evidenceRiskRules = window.EvidenceRiskRules?.loadCustomRules?.() || [];
   normalizeSettingsView();
+  ensureEvidenceRiskEditorRules();
+  state.settingsInitialSnapshot = settingsSnapshot();
   renderSettingsDialog();
   els.settingsDialog?.showModal();
+}
+
+function requestCloseSettingsDialog() {
+  if (!els.settingsDialog?.open) return true;
+  if (settingsDirty() && !window.confirm("放弃更改？")) {
+    syncSettingsDirtyState();
+    return false;
+  }
+  restoreSettingsInitialSnapshot();
+  clearSettingsValidationState();
+  closeSettingsDialogAndRestoreFocus();
+  return true;
+}
+
+function closeSettingsDialogAndRestoreFocus() {
+  els.settingsDialog?.close();
+  restoreSettingsDialogFocus();
+}
+
+function restoreSettingsDialogFocus() {
+  const opener = state.settingsDialogOpener;
+  const target = opener && document.contains(opener) ? opener : els.settingsButton;
+  state.settingsDialogOpener = null;
+  requestAnimationFrame(() => {
+    if (target && document.contains(target) && typeof target.focus === "function") {
+      target.focus({ preventScroll: true });
+    }
+  });
 }
 
 function selectSettingsViewFromEvent(event) {
   const button = event.target.closest("[data-settings-view]");
   if (!button) return;
-  const view = button.dataset.settingsView;
+  selectSettingsView(button.dataset.settingsView);
+}
+
+function selectSettingsView(view) {
   if (!settingsViewIds.has(view)) return;
   state.settingsView = view;
   renderSettingsDialog();
@@ -803,10 +1349,93 @@ function renderSettingsDialog() {
   renderSettingsTabs();
   syncSettingsPanelVisibility();
   renderActiveSettingsPanel();
+  syncSettingsDirtyState();
+}
+
+function settingsSnapshot() {
+  return JSON.stringify({
+    summaryRules: state.summaryRules || [],
+    executionGroupRules: state.executionGroupRules || [],
+    evidenceRiskRules: settingsEvidenceRiskSnapshotRules(),
+  });
+}
+
+function settingsDirty() {
+  return Boolean(state.settingsInitialSnapshot && settingsSnapshot() !== state.settingsInitialSnapshot);
+}
+
+function settingsEvidenceRiskSnapshotRules() {
+  const rules = Array.isArray(state.evidenceRiskRules) ? state.evidenceRiskRules : [];
+  if (window.EvidenceRiskRules?.customRulesFromMerged) {
+    return window.EvidenceRiskRules.customRulesFromMerged(rules);
+  }
+  const defaults = window.EvidenceRiskRules?.normalizeRules?.(window.EvidenceRiskRules?.defaultRules?.() || []) || [];
+  if (!defaults.length) return rules;
+  const defaultById = new Map(defaults.map((rule) => [String(rule?.id || ""), rule]));
+  return rules.filter((rule) => {
+    const defaultRule = defaultById.get(String(rule?.id || ""));
+    return !defaultRule || stableSettingsJson(rule) !== stableSettingsJson(defaultRule);
+  });
+}
+
+function stableSettingsJson(value) {
+  return JSON.stringify(stableSettingsValue(value));
+}
+
+function stableSettingsValue(value) {
+  if (Array.isArray(value)) return value.map(stableSettingsValue);
+  if (!value || typeof value !== "object") return value;
+  return Object.keys(value)
+    .sort()
+    .reduce((result, key) => {
+      result[key] = stableSettingsValue(value[key]);
+      return result;
+    }, {});
+}
+
+function restoreSettingsInitialSnapshot() {
+  if (!state.settingsInitialSnapshot) return;
+  try {
+    const snapshot = JSON.parse(state.settingsInitialSnapshot);
+    state.summaryRules = Array.isArray(snapshot.summaryRules) ? snapshot.summaryRules : [];
+    state.executionGroupRules = Array.isArray(snapshot.executionGroupRules) ? snapshot.executionGroupRules : [];
+    state.evidenceRiskRules = Array.isArray(snapshot.evidenceRiskRules) ? snapshot.evidenceRiskRules : [];
+  } catch {
+    state.summaryRules = window.ToolSummary?.loadCustomRules?.() || [];
+    state.executionGroupRules = window.ExecutionGrouping?.loadCustomRules?.() || [];
+    state.evidenceRiskRules = window.EvidenceRiskRules?.loadCustomRules?.() || [];
+    ensureEvidenceRiskEditorRules();
+  }
+}
+
+function syncSettingsDirtyState() {
+  const dirty = settingsDirty();
+  if (els.saveSettingsButton) {
+    els.saveSettingsButton.disabled = !dirty;
+    els.saveSettingsButton.title = dirty ? "保存展示规则更改" : "没有未保存更改";
+  }
   if (els.settingsStatus) {
+    if (state.settingsValidationMessage) {
+      els.settingsStatus.textContent = state.settingsValidationMessage;
+      els.settingsStatus.dataset.status = "error";
+      els.settingsStatus.setAttribute("role", "alert");
+      els.settingsStatus.setAttribute("aria-live", "assertive");
+      return;
+    }
+    if (state.settingsFeedbackMessage) {
+      els.settingsStatus.textContent = state.settingsFeedbackMessage;
+      els.settingsStatus.dataset.status = state.settingsFeedbackStatus || "info";
+      els.settingsStatus.setAttribute("role", state.settingsFeedbackStatus === "error" ? "alert" : "status");
+      els.settingsStatus.setAttribute("aria-live", state.settingsFeedbackStatus === "error" ? "assertive" : "polite");
+      return;
+    }
+    delete els.settingsStatus.dataset.status;
+    els.settingsStatus.removeAttribute("role");
+    els.settingsStatus.removeAttribute("aria-live");
     const evidenceCount = window.EvidenceRiskRules?.activeRules?.(state.evidenceRiskRules)?.length || 0;
     const currentView = settingsViewOptions.find((view) => view.id === state.settingsView);
-    els.settingsStatus.textContent = `${currentView?.label || "展示规则"} · 摘要自定义 ${state.summaryRules.length} 条；执行聚合自定义 ${state.executionGroupRules.length} 条；Evidence 生效 ${evidenceCount} 条；配置保存在当前浏览器本地。`;
+    const dirtyLabel = dirty ? "有未保存更改" : "没有未保存更改";
+    els.settingsStatus.textContent = `${dirtyLabel} · ${currentView?.label || "展示规则"} · 摘要自定义 ${state.summaryRules.length} 条；执行聚合自定义 ${state.executionGroupRules.length} 条；证据生效 ${evidenceCount} 条；配置保存在当前浏览器本地。`;
   }
 }
 
@@ -848,7 +1477,7 @@ function settingsOverviewItems() {
     },
     {
       id: "evidence",
-      label: "Evidence 风险",
+      label: "证据风险",
       value: `${evidenceActiveCount}`,
       detail: `${evidenceLocalCount} 条本地覆盖 · ${evidenceDefaultCount} 条内置`,
     },
@@ -856,7 +1485,7 @@ function settingsOverviewItems() {
       id: "structured",
       label: "结构化展示",
       value: "3",
-      detail: "Git、搜索、测试检查 viewer",
+      detail: "Git、搜索、测试检查结构化视图",
     },
   ];
 }
@@ -890,6 +1519,76 @@ function renderActiveSettingsPanel() {
   }
 }
 
+function clearSettingsValidationState() {
+  state.settingsValidationErrors = [];
+  state.settingsValidationMessage = "";
+  state.settingsFeedbackMessage = "";
+  state.settingsFeedbackStatus = "";
+}
+
+function clearSettingsValidationFeedback() {
+  if (!state.settingsValidationErrors?.length && !state.settingsValidationMessage && !state.settingsFeedbackMessage) return;
+  clearSettingsValidationState();
+  els.settingsForm?.querySelectorAll("[aria-invalid='true']").forEach((input) => {
+    input.removeAttribute("aria-invalid");
+    input.removeAttribute("aria-describedby");
+  });
+  els.settingsForm?.querySelectorAll(".rule-field-error").forEach((error) => error.remove());
+}
+
+function settingsFieldError(view, index, field) {
+  return (state.settingsValidationErrors || []).find((error) => error.view === view && error.index === index && error.field === field);
+}
+
+function settingsFieldErrorId(view, index, field) {
+  return `settings-${view}-${index}-${field}-error`;
+}
+
+function settingsFieldAttrs(view, index, field) {
+  const error = settingsFieldError(view, index, field);
+  if (!error) return "";
+  return `aria-invalid="true" aria-describedby="${escapeAttr(settingsFieldErrorId(view, index, field))}"`;
+}
+
+function renderSettingsFieldError(view, index, field) {
+  const error = settingsFieldError(view, index, field);
+  if (!error) return "";
+  return `<span class="rule-field-error" id="${escapeAttr(settingsFieldErrorId(view, index, field))}" role="alert">${escapeHtml(error.message)}</span>`;
+}
+
+function validateSettingsRulesForSave() {
+  return [
+    ...(window.ToolSummary?.validateRulesForSave?.(state.summaryRules) || []).map((error) => ({ ...error, view: "summary" })),
+    ...(window.ExecutionGrouping?.validateRulesForSave?.(state.executionGroupRules) || []).map((error) => ({ ...error, view: "execution" })),
+    ...(window.EvidenceRiskRules?.validateRulesForSave?.(state.evidenceRiskRules) || []).map((error) => ({ ...error, view: "evidence" })),
+  ];
+}
+
+function settingsValidationMessage(errors) {
+  const first = errors[0];
+  if (!first) return "";
+  const viewLabel = settingsViewOptions.find((view) => view.id === first.view)?.label || "设置";
+  return `保存失败：${viewLabel}第 ${Number(first.index) + 1} 条，${first.message} 请修正后再保存。`;
+}
+
+function focusSettingsValidationError(error) {
+  const input = settingsInputForError(error);
+  if (!input) return;
+  input.focus({ preventScroll: true });
+  input.scrollIntoView({ block: "center", inline: "nearest" });
+}
+
+function settingsInputForError(error) {
+  if (!error) return null;
+  const selectors = {
+    summary: `[data-rule-field="${error.field}"][data-rule-index="${error.index}"]`,
+    execution: `[data-group-rule-field="${error.field}"][data-group-rule-index="${error.index}"]`,
+    evidence: `[data-evidence-rule-field="${error.field}"][data-evidence-rule-index="${error.index}"]`,
+  };
+  const selector = selectors[error.view];
+  return selector ? els.settingsForm?.querySelector(selector) : null;
+}
+
 function renderSummaryRuleList() {
   if (!els.summaryRuleList) return;
   if (!state.summaryRules.length) {
@@ -903,6 +1602,7 @@ function renderSummaryRuleList() {
   });
   els.summaryRuleList.querySelectorAll("[data-delete-rule]").forEach((button) => {
     button.addEventListener("click", () => {
+      clearSettingsValidationState();
       state.summaryRules.splice(Number(button.dataset.deleteRule), 1);
       renderSettingsDialog();
     });
@@ -922,16 +1622,18 @@ function renderSummaryRuleEditor(rule, index) {
       </div>
       <div class="summary-rule-grid">
         <label>
-          <span class="field-label">名称</span>
+          <span class="field-label">名称（可选，仅用于管理）</span>
           <input class="text-input" type="text" value="${escapeAttr(rule.label || "")}" data-rule-field="label" data-rule-index="${escapeAttr(String(index))}" placeholder="读取文件" />
         </label>
         <label>
           <span class="field-label">工具</span>
-          <input class="text-input" type="text" value="${escapeAttr(rule.tool || "")}" data-rule-field="tool" data-rule-index="${escapeAttr(String(index))}" placeholder="exec_command 或 *" />
+          <input class="text-input" type="text" value="${escapeAttr(rule.tool || "")}" data-rule-field="tool" data-rule-index="${escapeAttr(String(index))}" placeholder="exec_command 或 *" ${settingsFieldAttrs("summary", index, "tool")} />
+          ${renderSettingsFieldError("summary", index, "tool")}
         </label>
         <label>
           <span class="field-label">标题模板</span>
-          <input class="text-input" type="text" value="${escapeAttr(rule.title || "")}" data-rule-field="title" data-rule-index="${escapeAttr(String(index))}" placeholder="读取文件内容" />
+          <input class="text-input" type="text" value="${escapeAttr(rule.title || "")}" data-rule-field="title" data-rule-index="${escapeAttr(String(index))}" placeholder="读取文件内容" ${settingsFieldAttrs("summary", index, "title")} />
+          ${renderSettingsFieldError("summary", index, "title")}
         </label>
         <label>
           <span class="field-label">摘要模板</span>
@@ -940,7 +1642,8 @@ function renderSummaryRuleEditor(rule, index) {
       </div>
       <label>
         <span class="field-label">匹配正则</span>
-        <textarea class="text-input rule-pattern-input" data-rule-field="pattern" data-rule-index="${escapeAttr(String(index))}" spellcheck="false" placeholder="\\bGet-Content\\b">${escapeHtml(rule.pattern || "")}</textarea>
+        <textarea class="text-input rule-pattern-input" data-rule-field="pattern" data-rule-index="${escapeAttr(String(index))}" spellcheck="false" placeholder="\\bGet-Content\\b" ${settingsFieldAttrs("summary", index, "pattern")}>${escapeHtml(rule.pattern || "")}</textarea>
+        ${renderSettingsFieldError("summary", index, "pattern")}
       </label>
     </article>
   `;
@@ -965,7 +1668,7 @@ function renderDefaultSummaryRuleList() {
 function renderExecutionGroupRuleList() {
   if (!els.executionGroupRuleList) return;
   if (!state.executionGroupRules.length) {
-    els.executionGroupRuleList.innerHTML = `<div class="rule-empty">暂无自定义执行聚合规则。Audit 会先使用自定义规则，再回退到内置规则。</div>`;
+    els.executionGroupRuleList.innerHTML = `<div class="rule-empty">暂无自定义执行聚合规则。审计链会先使用自定义规则，再回退到内置规则。</div>`;
     return;
   }
   els.executionGroupRuleList.innerHTML = state.executionGroupRules.map((rule, index) => renderExecutionGroupRuleEditor(rule, index)).join("");
@@ -975,6 +1678,7 @@ function renderExecutionGroupRuleList() {
   });
   els.executionGroupRuleList.querySelectorAll("[data-delete-group-rule]").forEach((button) => {
     button.addEventListener("click", () => {
+      clearSettingsValidationState();
       state.executionGroupRules.splice(Number(button.dataset.deleteGroupRule), 1);
       renderSettingsDialog();
     });
@@ -995,11 +1699,13 @@ function renderExecutionGroupRuleEditor(rule, index) {
       <div class="summary-rule-grid">
         <label>
           <span class="field-label">名称</span>
-          <input class="text-input" type="text" value="${escapeAttr(rule.label || "")}" data-group-rule-field="label" data-group-rule-index="${escapeAttr(String(index))}" placeholder="收集文件与目录信息" />
+          <input class="text-input" type="text" value="${escapeAttr(rule.label || "")}" data-group-rule-field="label" data-group-rule-index="${escapeAttr(String(index))}" placeholder="收集文件与目录信息" ${settingsFieldAttrs("execution", index, "label")} />
+          ${renderSettingsFieldError("execution", index, "label")}
         </label>
         <label>
           <span class="field-label">工具</span>
-          <input class="text-input" type="text" value="${escapeAttr(rule.tool || "")}" data-group-rule-field="tool" data-group-rule-index="${escapeAttr(String(index))}" placeholder="exec_command 或 *" />
+          <input class="text-input" type="text" value="${escapeAttr(rule.tool || "")}" data-group-rule-field="tool" data-group-rule-index="${escapeAttr(String(index))}" placeholder="exec_command 或 *" ${settingsFieldAttrs("execution", index, "tool")} />
+          ${renderSettingsFieldError("execution", index, "tool")}
         </label>
         <label>
           <span class="field-label">组标题模板</span>
@@ -1016,7 +1722,8 @@ function renderExecutionGroupRuleEditor(rule, index) {
       </div>
       <label>
         <span class="field-label">匹配正则</span>
-        <textarea class="text-input rule-pattern-input" data-group-rule-field="pattern" data-group-rule-index="${escapeAttr(String(index))}" spellcheck="false" placeholder="读取文件内容|列出目录">${escapeHtml(rule.pattern || "")}</textarea>
+        <textarea class="text-input rule-pattern-input" data-group-rule-field="pattern" data-group-rule-index="${escapeAttr(String(index))}" spellcheck="false" placeholder="读取文件内容|列出目录" ${settingsFieldAttrs("execution", index, "pattern")}>${escapeHtml(rule.pattern || "")}</textarea>
+        ${renderSettingsFieldError("execution", index, "pattern")}
       </label>
     </article>
   `;
@@ -1042,7 +1749,7 @@ function renderEvidenceRiskRuleList() {
   if (!els.evidenceRiskRuleList) return;
   ensureEvidenceRiskEditorRules();
   if (!state.evidenceRiskRules.length) {
-    els.evidenceRiskRuleList.innerHTML = `<div class="rule-empty">暂无 Evidence 风险规则。Audit 会回退到内置规则。</div>`;
+    els.evidenceRiskRuleList.innerHTML = `<div class="rule-empty">暂无证据风险规则。审计链会回退到内置规则。</div>`;
     return;
   }
   const defaultIds = new Set(window.EvidenceRiskRules?.defaultRuleIds?.() || []);
@@ -1053,6 +1760,7 @@ function renderEvidenceRiskRuleList() {
   });
   els.evidenceRiskRuleList.querySelectorAll("[data-delete-evidence-rule]").forEach((button) => {
     button.addEventListener("click", () => {
+      clearSettingsValidationState();
       state.evidenceRiskRules.splice(Number(button.dataset.deleteEvidenceRule), 1);
       renderSettingsDialog();
     });
@@ -1069,12 +1777,13 @@ function renderEvidenceRiskRuleEditor(rule, index, isDefaultRule) {
           <input type="checkbox" ${enabled ? "checked" : ""} data-evidence-rule-field="enabled" data-evidence-rule-index="${escapeAttr(String(index))}" />
           <span>${isDefaultRule ? "启用内置规则" : "启用自定义规则"}</span>
         </label>
-        ${isDefaultRule ? `<span class="muted">内置项</span>` : `<button class="ghost-button small danger" type="button" data-delete-evidence-rule="${escapeAttr(String(index))}">删除</button>`}
+        ${isDefaultRule ? `<span class="muted">内置规则的本地覆盖</span>` : `<button class="ghost-button small danger" type="button" data-delete-evidence-rule="${escapeAttr(String(index))}">删除</button>`}
       </div>
       <div class="summary-rule-grid">
         <label>
           <span class="field-label">名称</span>
-          <input class="text-input" type="text" value="${escapeAttr(rule.label || "")}" data-evidence-rule-field="label" data-evidence-rule-index="${escapeAttr(String(index))}" placeholder="工具输出风险词" />
+          <input class="text-input" type="text" value="${escapeAttr(rule.label || "")}" data-evidence-rule-field="label" data-evidence-rule-index="${escapeAttr(String(index))}" placeholder="工具输出风险词" ${settingsFieldAttrs("evidence", index, "label")} />
+          ${renderSettingsFieldError("evidence", index, "label")}
         </label>
         <label>
           <span class="field-label">类型</span>
@@ -1085,7 +1794,8 @@ function renderEvidenceRiskRuleEditor(rule, index, isDefaultRule) {
         </label>
         <label>
           <span class="field-label">工具</span>
-          <input class="text-input" type="text" value="${escapeAttr(rule.tool || "*")}" data-evidence-rule-field="tool" data-evidence-rule-index="${escapeAttr(String(index))}" placeholder="exec_command 或 *" />
+          <input class="text-input" type="text" value="${escapeAttr(rule.tool || "*")}" data-evidence-rule-field="tool" data-evidence-rule-index="${escapeAttr(String(index))}" placeholder="exec_command 或 *" ${settingsFieldAttrs("evidence", index, "tool")} />
+          ${renderSettingsFieldError("evidence", index, "tool")}
         </label>
         <label>
           <span class="field-label">Tag</span>
@@ -1105,11 +1815,13 @@ function renderEvidenceRiskRuleEditor(rule, index, isDefaultRule) {
         </label>
         <label>
           <span class="field-label">字段</span>
-          <input class="text-input" type="text" value="${escapeAttr(fieldText)}" data-evidence-rule-field="textFields" data-evidence-rule-index="${escapeAttr(String(index))}" placeholder="status,output,payloadPreview" />
+          <input class="text-input" type="text" value="${escapeAttr(fieldText)}" data-evidence-rule-field="textFields" data-evidence-rule-index="${escapeAttr(String(index))}" placeholder="status,output,payloadPreview" ${settingsFieldAttrs("evidence", index, "textFields")} />
+          ${renderSettingsFieldError("evidence", index, "textFields")}
         </label>
         <label>
           <span class="field-label">大型输出阈值</span>
-          <input class="text-input" type="number" min="1" step="1" value="${escapeAttr(String(rule.maxLength || 100000))}" data-evidence-rule-field="maxLength" data-evidence-rule-index="${escapeAttr(String(index))}" />
+          <input class="text-input" type="number" min="1" step="1" value="${escapeAttr(String(rule.maxLength ?? 100000))}" data-evidence-rule-field="maxLength" data-evidence-rule-index="${escapeAttr(String(index))}" ${settingsFieldAttrs("evidence", index, "maxLength")} />
+          ${renderSettingsFieldError("evidence", index, "maxLength")}
         </label>
         <label class="summary-rule-grid-wide">
           <span class="field-label">提示文案</span>
@@ -1118,15 +1830,18 @@ function renderEvidenceRiskRuleEditor(rule, index, isDefaultRule) {
       </div>
       <label>
         <span class="field-label">风险词正则</span>
-        <textarea class="text-input rule-pattern-input" data-evidence-rule-field="riskPattern" data-evidence-rule-index="${escapeAttr(String(index))}" spellcheck="false">${escapeHtml(rule.riskPattern || "")}</textarea>
+        <textarea class="text-input rule-pattern-input" data-evidence-rule-field="riskPattern" data-evidence-rule-index="${escapeAttr(String(index))}" spellcheck="false" ${settingsFieldAttrs("evidence", index, "riskPattern")}>${escapeHtml(rule.riskPattern || "")}</textarea>
+        ${renderSettingsFieldError("evidence", index, "riskPattern")}
       </label>
       <label>
         <span class="field-label">非零失败正则</span>
-        <textarea class="text-input rule-pattern-input" data-evidence-rule-field="nonZeroFailurePattern" data-evidence-rule-index="${escapeAttr(String(index))}" spellcheck="false">${escapeHtml(rule.nonZeroFailurePattern || "")}</textarea>
+        <textarea class="text-input rule-pattern-input" data-evidence-rule-field="nonZeroFailurePattern" data-evidence-rule-index="${escapeAttr(String(index))}" spellcheck="false" ${settingsFieldAttrs("evidence", index, "nonZeroFailurePattern")}>${escapeHtml(rule.nonZeroFailurePattern || "")}</textarea>
+        ${renderSettingsFieldError("evidence", index, "nonZeroFailurePattern")}
       </label>
       <label>
         <span class="field-label">忽略输出正文的命令正则</span>
-        <textarea class="text-input rule-pattern-input" data-evidence-rule-field="ignoredCommandPattern" data-evidence-rule-index="${escapeAttr(String(index))}" spellcheck="false" placeholder="读取文件或搜索文本命令">${escapeHtml(rule.ignoredCommandPattern || "")}</textarea>
+        <textarea class="text-input rule-pattern-input" data-evidence-rule-field="ignoredCommandPattern" data-evidence-rule-index="${escapeAttr(String(index))}" spellcheck="false" placeholder="读取文件或搜索文本命令" ${settingsFieldAttrs("evidence", index, "ignoredCommandPattern")}>${escapeHtml(rule.ignoredCommandPattern || "")}</textarea>
+        ${renderSettingsFieldError("evidence", index, "ignoredCommandPattern")}
       </label>
     </article>
   `;
@@ -1155,14 +1870,17 @@ function renderDefaultEvidenceRiskRuleList() {
 }
 
 function updateSummaryRuleFromInput(input) {
+  clearSettingsValidationFeedback();
   const index = Number(input.dataset.ruleIndex);
   const field = input.dataset.ruleField;
   const rule = state.summaryRules[index];
   if (!rule || !field) return;
   rule[field] = field === "enabled" ? input.checked : input.value;
+  syncSettingsDirtyState();
 }
 
 function updateExecutionGroupRuleFromInput(input) {
+  clearSettingsValidationFeedback();
   const index = Number(input.dataset.groupRuleIndex);
   const field = input.dataset.groupRuleField;
   const rule = state.executionGroupRules[index];
@@ -1174,9 +1892,11 @@ function updateExecutionGroupRuleFromInput(input) {
   } else {
     rule[field] = input.value;
   }
+  syncSettingsDirtyState();
 }
 
 function updateEvidenceRiskRuleFromInput(input) {
+  clearSettingsValidationFeedback();
   const index = Number(input.dataset.evidenceRuleIndex);
   const field = input.dataset.evidenceRuleField;
   const rule = state.evidenceRiskRules[index];
@@ -1184,7 +1904,7 @@ function updateEvidenceRiskRuleFromInput(input) {
   if (field === "enabled") {
     rule[field] = input.checked;
   } else if (field === "maxLength") {
-    rule[field] = input.valueAsNumber || Number(input.value) || 100000;
+    rule[field] = input.value;
   } else if (field === "textFields") {
     rule[field] = input.value
       .split(",")
@@ -1193,6 +1913,7 @@ function updateEvidenceRiskRuleFromInput(input) {
   } else {
     rule[field] = input.value;
   }
+  syncSettingsDirtyState();
 }
 
 function ensureEvidenceRiskEditorRules() {
@@ -1201,25 +1922,59 @@ function ensureEvidenceRiskEditorRules() {
 
 async function saveSettingsFromForm(event) {
   event.preventDefault();
-  try {
-    const normalized = window.ToolSummary?.saveCustomRules?.(state.summaryRules) || [];
-    const normalizedGroupRules = window.ExecutionGrouping?.saveCustomRules?.(state.executionGroupRules) || [];
-    const normalizedEvidenceRiskRules = window.EvidenceRiskRules?.saveCustomRules?.(state.evidenceRiskRules) || [];
-    state.summaryRules = normalized;
-    state.executionGroupRules = normalizedGroupRules;
-    state.evidenceRiskRules = normalizedEvidenceRiskRules;
+  if (!settingsDirty()) {
+    syncSettingsDirtyState();
+    return;
+  }
+  const validationErrors = validateSettingsRulesForSave();
+  if (validationErrors.length) {
+    state.settingsValidationErrors = validationErrors;
+    state.settingsValidationMessage = settingsValidationMessage(validationErrors);
+    state.settingsView = validationErrors[0].view || state.settingsView;
     renderSettingsDialog();
+    requestAnimationFrame(() => focusSettingsValidationError(validationErrors[0]));
+    return;
+  }
+  clearSettingsValidationState();
+  let normalized;
+  let normalizedGroupRules;
+  let normalizedEvidenceRiskRules;
+  try {
+    normalized = window.ToolSummary?.saveCustomRules?.(state.summaryRules) || [];
+    normalizedGroupRules = window.ExecutionGrouping?.saveCustomRules?.(state.executionGroupRules) || [];
+    normalizedEvidenceRiskRules = window.EvidenceRiskRules?.saveCustomRules?.(state.evidenceRiskRules) || [];
+  } catch (error) {
+    const message = `保存展示规则失败：${errorTextFromError(error)}`;
+    state.settingsFeedbackMessage = message;
+    state.settingsFeedbackStatus = "error";
+    syncSettingsDirtyState();
+    showToast(message);
+    return;
+  }
+
+  state.summaryRules = normalized;
+  state.executionGroupRules = normalizedGroupRules;
+  state.evidenceRiskRules = normalizedEvidenceRiskRules;
+  ensureEvidenceRiskEditorRules();
+  state.settingsInitialSnapshot = settingsSnapshot();
+  renderSettingsDialog();
+  try {
     if (state.selectedSessionId) {
       await reloadSelectedSessionDetail();
     } else {
       renderMainContent();
       renderInspector();
     }
-    showToast("展示规则已保存");
-    els.settingsDialog?.close();
   } catch (error) {
-    showToast(`保存展示规则失败：${error.message}`);
+    const message = `展示规则已保存，但当前会话重新读取失败：${errorTextFromError(error)}`;
+    state.settingsFeedbackMessage = message;
+    state.settingsFeedbackStatus = "warning";
+    syncSettingsDirtyState();
+    showToast(message);
+    return;
   }
+  showToast("展示规则已保存");
+  closeSettingsDialogAndRestoreFocus();
 }
 
 function newSummaryRule() {
@@ -1250,7 +2005,7 @@ function newExecutionGroupRule() {
 function newEvidenceRiskRule() {
   return {
     id: `custom-evidence-risk-${Date.now()}`,
-    label: "自定义 Evidence 风险",
+    label: "自定义证据风险",
     enabled: true,
     kind: "risk-text",
     tool: "*",
@@ -1269,14 +2024,18 @@ function newEvidenceRiskRule() {
 async function loadRemoteIndexForCurrentFilter() {
   const source = selectedSource();
   if (source?.kind !== "remote" || state.sessionTimeFilter === "realtime") {
-    if (state.remoteIndexSessions.length || state.remoteIndexError) {
-      state.remoteIndexSessions = [];
-      state.remoteIndexError = "";
-      renderSessionList();
-    }
+    const changed = state.remoteIndexLoading || state.remoteIndexSessions.length || state.remoteIndexError;
+    state.remoteIndexRequestKey = `inactive:${++state.remoteIndexRequestSeq}`;
+    state.remoteIndexLoading = false;
+    state.remoteIndexSessions = [];
+    state.remoteIndexError = "";
+    renderSourceStatus();
+    if (changed) renderSessionList();
     return;
   }
+  const sourceId = state.selectedSourceId;
   const requestKey = [
+    ++state.remoteIndexRequestSeq,
     state.selectedSourceId,
     state.sessionTimeFilter,
     els.sessionSearch.value.trim(),
@@ -1284,10 +2043,13 @@ async function loadRemoteIndexForCurrentFilter() {
   ].join("\n");
   state.remoteIndexRequestKey = requestKey;
   state.remoteIndexLoading = true;
+  state.remoteIndexSessions = [];
+  state.remoteIndexError = "";
   renderSourceStatus();
+  renderSessionList();
   try {
-    const data = await fetchJson(remoteIndexUrl());
-    if (state.remoteIndexRequestKey !== requestKey) return;
+    const data = await fetchJson(remoteIndexUrl(sourceId));
+    if (state.remoteIndexRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
     if (data.source) upsertSource(data.source);
     state.remoteIndexSessions = (data.sessions || []).map((session) => ({
       ...session,
@@ -1296,12 +2058,12 @@ async function loadRemoteIndexForCurrentFilter() {
     }));
     state.remoteIndexError = "";
   } catch (error) {
-    if (state.remoteIndexRequestKey !== requestKey) return;
+    if (state.remoteIndexRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
     state.remoteIndexSessions = [];
     state.remoteIndexError = error.message;
     showToast(`远端索引检索失败：${error.message}`);
   } finally {
-    if (state.remoteIndexRequestKey === requestKey) {
+    if (state.remoteIndexRequestKey === requestKey && state.selectedSourceId === sourceId) {
       state.remoteIndexLoading = false;
       renderSourceStatus();
       renderSessionList();
@@ -1316,6 +2078,7 @@ function renderAll() {
   renderMainContent();
   renderInspector();
   renderStatusbar();
+  syncExportButtons();
 }
 
 function setViewMode(mode) {
@@ -1333,9 +2096,16 @@ function normalizeViewMode(mode) {
 function syncViewControls() {
   state.viewMode = normalizeViewMode(state.viewMode);
   syncItemTypeFilterOptions();
-  els.compactViewButton.classList.toggle("active", state.viewMode === "compact");
-  els.auditViewButton.classList.toggle("active", state.viewMode === "audit");
-  els.rawViewButton.classList.toggle("active", state.viewMode === "raw");
+  [
+    [els.compactViewButton, "compact"],
+    [els.auditViewButton, "audit"],
+    [els.rawViewButton, "raw"],
+  ].forEach(([button, mode]) => {
+    const active = state.viewMode === mode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+    button.tabIndex = active ? 0 : -1;
+  });
   els.threadContent.hidden = true;
   els.compactContent.hidden = state.viewMode !== "compact";
   els.terminalContent.hidden = true;
@@ -1346,7 +2116,7 @@ function syncViewControls() {
     els.importantOnlyLabel.textContent = "复核优先";
   }
   if (els.keyEventsTitle) {
-    els.keyEventsTitle.textContent = "Review Dock";
+    els.keyEventsTitle.textContent = "复核台";
   }
   if (els.importantOnlyControl) {
     els.importantOnlyControl.title = "仅在主内容区突出重要或复核优先内容";
@@ -1354,11 +2124,18 @@ function syncViewControls() {
 }
 
 function syncItemTypeFilterOptions() {
-  const mode = state.viewMode === "audit" ? "audit" : "standard";
-  if (els.itemTypeFilter.dataset.optionMode === mode) return;
+  const mode = state.viewMode === "audit" ? "audit" : state.viewMode === "raw" ? "raw" : "standard";
+  const previousMode = els.itemTypeFilter.dataset.optionMode || "standard";
+  const options = mode === "audit" ? auditItemTypeOptions : mode === "raw" ? rawItemTypeOptions : standardItemTypeOptions;
+  const currentFirstLabel = els.itemTypeFilter.options?.[0]?.textContent || "";
+  if (previousMode === mode && currentFirstLabel === options[0]?.[1]) return;
   const previous = els.itemTypeFilter.value || "all";
-  const options = mode === "audit" ? auditItemTypeOptions : standardItemTypeOptions;
-  const mapped = mode === "audit" ? standardToAuditType[previous] || "all" : auditToStandardType[previous] || "all";
+  let mapped = previous;
+  if (mode === "audit") {
+    mapped = standardToAuditType[previous] || "all";
+  } else if (previousMode === "audit") {
+    mapped = auditToStandardType[previous] || "all";
+  }
   els.itemTypeFilter.innerHTML = options
     .map(([value, label]) => `<option value="${escapeAttr(value)}">${escapeHtml(label)}</option>`)
     .join("");
@@ -1378,28 +2155,80 @@ function renderSessionList() {
   const query = els.sessionSearch.value.trim().toLowerCase();
   const filter = els.sessionTypeFilter.value;
   syncSessionTimeFilter();
+  const remoteHistory = isRemoteHistoryIndexMode();
+  if (state.sessionsLoading && state.sessions.length === 0 && state.remoteIndexSessions.length === 0) {
+    state.filteredSessions = [];
+    els.sessionCount.textContent = "0";
+    els.sessionList.innerHTML = emptyState("正在加载会话列表", `${selectedSource()?.label || "当前数据源"} · 请稍候。`);
+    renderStatusbar();
+    syncExportButtons();
+    return;
+  }
+  if (state.healthLoadError && state.sessions.length === 0 && state.remoteIndexSessions.length === 0) {
+    state.filteredSessions = [];
+    els.sessionCount.textContent = "0";
+    els.sessionList.innerHTML = emptyState("接口不可用", state.healthLoadError);
+    renderStatusbar();
+    syncExportButtons();
+    return;
+  }
+  if (state.sessionsLoadError && state.sessions.length === 0 && state.remoteIndexSessions.length === 0) {
+    state.filteredSessions = [];
+    els.sessionCount.textContent = "0";
+    els.sessionList.innerHTML = emptyState("无法加载会话列表", `${selectedSource()?.label || "当前数据源"} · ${state.sessionsLoadError}`);
+    renderStatusbar();
+    syncExportButtons();
+    return;
+  }
   const sessions = mergedVisibleSessions().filter((session) => {
     const haystack = [session.title, session.cwd, session.relativePath, session.model, session.agentNickname]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
+    const titlePathText = [session.title, session.cwd, session.relativePath].filter(Boolean).join(" ").toLowerCase();
     if (sessionTimeBucket(session) !== state.sessionTimeFilter) return false;
     if (query && !haystack.includes(query)) return false;
     if (filter === "project" && !session.cwd) return false;
     if (filter === "projectless" && session.cwd) return false;
-    if (filter === "error" && !/error|failed|失败|错误/i.test(haystack)) return false;
-    if (filter === "tool" && !/tool|mcp|command|shell|工具|命令/i.test(haystack)) return false;
+    if (filter === "error" && !/error|failed|失败|错误/i.test(titlePathText)) return false;
+    if (filter === "tool" && !/tool|mcp|command|shell|工具|命令/i.test(titlePathText)) return false;
     return true;
   });
   state.filteredSessions = sessions;
   els.sessionCount.textContent = String(sessions.length);
   if (sessions.length === 0) {
+    if (remoteHistory && state.remoteIndexLoading) {
+      els.sessionList.innerHTML = renderSessionListActionEmptyState(
+        "正在检索远端历史索引",
+        `${remoteHistoryBucketLabel()}只返回标题、时间、路径等索引元数据，正文不会随历史索引同步。`,
+        [{ action: "return-realtime", label: "返回实时" }],
+      );
+      bindSessionListEmptyActions();
+      renderStatusbar();
+      syncExportButtons();
+      return;
+    }
+    if (remoteHistory && state.remoteIndexError) {
+      els.sessionList.innerHTML = renderSessionListActionEmptyState(
+        `历史索引失败：${state.remoteIndexError}`,
+        "可以重试远端历史索引，或返回实时查看已同步到本机快照的会话正文。",
+        [
+          { action: "retry-remote-index", label: "重试历史索引" },
+          { action: "return-realtime", label: "返回实时" },
+        ],
+      );
+      bindSessionListEmptyActions();
+      renderStatusbar();
+      syncExportButtons();
+      return;
+    }
     const hint =
-      selectedSource()?.kind === "remote" && state.sessionTimeFilter !== "realtime"
-        ? "远端历史只检索索引；如果还在加载，请稍候。"
+      remoteHistory
+        ? "近一天/更早为远端历史索引，不含正文；实时快照默认只补最近 3 小时，历史正文需远端扩大共享窗口/额外同步，或切回已有本地快照。"
         : "调整搜索或过滤条件。";
     els.sessionList.innerHTML = emptyState("没有匹配的会话", hint);
     renderStatusbar();
+    syncExportButtons();
     return;
   }
   const renderedSessions = sessions.slice(0, 220);
@@ -1408,27 +2237,75 @@ function renderSessionList() {
       ? `<div class="list-overflow-note">已显示前 ${renderedSessions.length} 条，继续输入关键词可缩小范围。</div>`
       : "";
   els.sessionList.innerHTML = renderSessionDirectoryGroups(renderedSessions, query) + overflowHtml;
+  const activateSessionRow = (row) => {
+    const rowSessionId = row.dataset.sessionId;
+    const rowSessionKey = sessionKey({ id: rowSessionId, sourceId: state.selectedSourceId });
+    const loadedSessionKey = state.detail?.session ? sessionKey(state.detail.session) : "";
+    if (rowSessionKey === state.selectedSessionKey && loadedSessionKey === rowSessionKey && !state.sessionLoading) {
+      row.focus();
+      return;
+    }
+    selectSession(rowSessionId);
+  };
   els.sessionList.querySelectorAll("[data-session-id]").forEach((row) => {
     row.addEventListener("click", (event) => {
       if (event.target.closest("a")) return;
       if (row.dataset.remoteIndexOnly === "true") {
-        showToast("这是远端历史索引结果，未同步正文。请切回实时或刷新远程查看活跃会话。");
+        showToast(remoteIndexOnlyMessage());
         return;
       }
-      selectSession(row.dataset.sessionId);
+      activateSessionRow(row);
     });
     row.addEventListener("keydown", (event) => {
       if (event.target.closest("a")) return;
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
       if (row.dataset.remoteIndexOnly === "true") {
-        showToast("这是远端历史索引结果，未同步正文。");
+        showToast(remoteIndexOnlyMessage());
         return;
       }
-      selectSession(row.dataset.sessionId);
+      activateSessionRow(row);
     });
   });
   renderStatusbar();
+  syncExportButtons();
+}
+
+function isRemoteHistoryIndexMode() {
+  return selectedSource()?.kind === "remote" && state.sessionTimeFilter !== "realtime";
+}
+
+function remoteHistoryBucketLabel() {
+  if (state.sessionTimeFilter === "day") return "近一天历史索引";
+  if (state.sessionTimeFilter === "earlier") return "更早历史索引";
+  return "历史索引";
+}
+
+function renderSessionListActionEmptyState(title, subtitle, actions = []) {
+  const actionHtml = actions.length
+    ? `<div class="empty-actions">${actions
+        .map((action) => `<button class="ghost-button small" type="button" data-session-empty-action="${escapeAttr(action.action)}">${escapeHtml(action.label)}</button>`)
+        .join("")}</div>`
+    : "";
+  return `<div class="empty-state"><div><strong>${escapeHtml(title)}</strong><br /><span>${escapeHtml(subtitle)}</span>${actionHtml}</div></div>`;
+}
+
+function bindSessionListEmptyActions() {
+  els.sessionList.querySelectorAll("[data-session-empty-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const action = button.dataset.sessionEmptyAction;
+      if (action === "return-realtime") {
+        returnToRealtimeSessions();
+      } else if (action === "retry-remote-index") {
+        void loadRemoteIndexForCurrentFilter();
+      } else if (action === "clear-session-filters") {
+        els.sessionSearch.value = "";
+        els.sessionTypeFilter.value = "all";
+        renderSessionList();
+        void loadRemoteIndexForCurrentFilter();
+      }
+    });
+  });
 }
 
 function mergedVisibleSessions() {
@@ -1441,12 +2318,172 @@ function mergedVisibleSessions() {
   return [...byKey.values()];
 }
 
+function findSessionSummary(id, sourceId = state.selectedSourceId) {
+  const key = sessionKey({ id, sourceId });
+  return (
+    mergedVisibleSessions().find((session) => sessionKey(session) === key) ||
+    state.sessions.find((session) => session.id === id) ||
+    state.remoteIndexSessions.find((session) => session.id === id) ||
+    null
+  );
+}
+
+function currentSessionFilteredOut() {
+  if (!state.detail?.session || !state.selectedSessionKey) return false;
+  return !state.filteredSessions.some((session) => sessionKey(session) === state.selectedSessionKey);
+}
+
+function clearSessionFiltersForSelectedSession() {
+  els.sessionSearch.value = "";
+  els.sessionTypeFilter.value = "all";
+  if (state.detail?.session) {
+    state.sessionTimeFilter = sessionTimeBucket(state.detail.session);
+  }
+  renderSessionList();
+  void loadRemoteIndexForCurrentFilter();
+}
+
+function returnToRealtimeSessions() {
+  state.sessionTimeFilter = "realtime";
+  renderSessionList();
+  void loadRemoteIndexForCurrentFilter();
+}
+
+function renderSessionFilterNotice(filteredOut = currentSessionFilteredOut()) {
+  if (!els.sessionFilterNotice) return;
+  els.sessionFilterNotice.hidden = !filteredOut;
+  if (!filteredOut) return;
+  const source = selectedSource();
+  const remoteHistory = source?.kind === "remote" && state.sessionTimeFilter !== "realtime";
+  els.sessionFilterNoticeText.textContent = remoteHistory
+    ? "左侧正在显示远端历史索引，索引不含正文；中间仍是当前已打开正文。可清除筛选回到当前会话，或返回实时查看已同步快照。"
+    : "左侧列表不再包含当前正文；清除搜索、类型和时间筛选后，可重新对齐左侧索引与中间正文。";
+  els.clearSessionFiltersButton.title = "清除搜索和类型筛选，并切回当前会话所属时间分类";
+  els.clearSessionFiltersButton.setAttribute("aria-label", els.clearSessionFiltersButton.title);
+  const showRealtime = state.sessionTimeFilter !== "realtime";
+  els.returnRealtimeButton.hidden = !showRealtime;
+  els.returnRealtimeButton.title = "切回实时 <3h 分类";
+  els.returnRealtimeButton.setAttribute("aria-label", els.returnRealtimeButton.title);
+}
+
+function markdownExportBlockedReason() {
+  if (state.sessionLoading) return "正在读取目标会话，暂不能导出";
+  if (state.sessionLoadError) return "目标会话读取失败，无法导出";
+  if (state.healthLoadError) return "接口不可用，无法导出会话";
+  if (state.sessionsLoadError && !state.detail?.session?.id) return "会话列表加载失败，未选择可导出会话";
+  if (!state.detail?.session?.id) return "未选择可导出的会话";
+  if (currentSessionFilteredOut()) return "当前会话已被筛选隐藏，清除搜索或筛选后可导出";
+  return "";
+}
+
+function syncExportButtons() {
+  const reason = markdownExportBlockedReason();
+  const disabled = Boolean(reason);
+  const copyLabel = disabled ? reason : "复制完整会话 Markdown";
+  const downloadLabel = disabled ? reason : "下载完整会话 Markdown";
+  els.copyMarkdownButton.disabled = disabled;
+  els.downloadMarkdownButton.disabled = disabled;
+  els.copyMarkdownButton.title = copyLabel;
+  els.downloadMarkdownButton.title = downloadLabel;
+  els.copyMarkdownButton.setAttribute("aria-label", copyLabel);
+  els.downloadMarkdownButton.setAttribute("aria-label", downloadLabel);
+  syncReviewMarkdownActionButtons(reason);
+}
+
+function syncReviewMarkdownActionButtons(reason = markdownExportBlockedReason()) {
+  const disabled = Boolean(reason);
+  els.inspectorActions?.querySelectorAll('[data-review-action-type="copy-markdown"]').forEach((button) => {
+    button.disabled = disabled;
+    button.title = disabled ? reason : "复制完整会话 Markdown";
+  });
+}
+
+function selectedSessionDisplayTitle() {
+  const title = state.pendingSessionTitle || state.detail?.session?.title || state.selectedSessionId || "目标会话";
+  return firstLine(title, 80);
+}
+
+function sessionPlaceholderState() {
+  const target = selectedSessionDisplayTitle();
+  if (state.healthLoadError && !state.detail?.session) {
+    return {
+      title: "接口不可用",
+      subtitle: state.healthLoadError,
+    };
+  }
+  if (state.sessionLoading) {
+    return {
+      title: "正在读取目标会话",
+      subtitle: `${target} · 正在解析当前数据源中的 JSONL 事件流。`,
+    };
+  }
+  if (state.sessionLoadError) {
+    return {
+      title: "无法读取目标会话",
+      subtitle: `${target} · ${state.sessionLoadError}`,
+    };
+  }
+  if (state.sessionsLoadError && !state.detail?.session) {
+    return {
+      title: "会话列表加载失败",
+      subtitle: `${selectedSource()?.label || "当前数据源"} · ${state.sessionsLoadError}。请确认服务仍在运行，或远端快照已成功拉取。`,
+    };
+  }
+  return null;
+}
+
+function renderSessionPlaceholder(title, subtitle) {
+  const html = emptyState(title, subtitle);
+  [els.threadContent, els.compactContent, els.terminalContent, els.auditContent, els.traceContent, els.rawContent]
+    .filter(Boolean)
+    .forEach((container) => {
+      container.innerHTML = html;
+    });
+}
+
 function syncSessionTimeFilter() {
   els.sessionTimeFilter.querySelectorAll("[data-session-time]").forEach((button) => {
     const active = button.dataset.sessionTime === state.sessionTimeFilter;
+    const copy = sessionTimeFilterCopy(button.dataset.sessionTime || "realtime");
     button.classList.toggle("active", active);
     button.setAttribute("aria-selected", active ? "true" : "false");
+    button.title = copy.title;
+    button.setAttribute("aria-label", copy.ariaLabel);
+    button.tabIndex = active ? 0 : -1;
   });
+}
+
+function sessionTimeFilterCopy(bucket) {
+  const isRemote = selectedSource()?.kind === "remote";
+  if (isRemote) {
+    if (bucket === "realtime") {
+      return {
+        title: "远端数据源：已同步到本机实时快照的最近 3 小时会话，可打开正文；拉取实时快照默认只补最近 3 小时",
+        ariaLabel: "远端实时，小于 3 小时，已同步正文",
+      };
+    }
+    const label = bucket === "day" ? "近一天" : "更早";
+    return {
+      title: `远端数据源：${label}为历史索引入口，只含标题、时间、路径等元数据，不含正文`,
+      ariaLabel: `远端${label}，历史索引，不含正文`,
+    };
+  }
+  if (bucket === "realtime") {
+    return {
+      title: "本机数据源：最近 3 小时内的本机会话，可直接打开正文",
+      ariaLabel: "本机实时，小于 3 小时，可打开正文",
+    };
+  }
+  if (bucket === "day") {
+    return {
+      title: "本机数据源：3 小时到 1 天内的本机会话，可直接打开正文",
+      ariaLabel: "本机近一天，可打开正文",
+    };
+  }
+  return {
+    title: "本机数据源：1 天前或未知时间的本机会话，可直接打开正文",
+    ariaLabel: "本机更早，可打开正文",
+  };
 }
 
 function renderSessionDirectoryGroups(sessions, query) {
@@ -1474,7 +2511,7 @@ function groupSessionsByDirectory(sessions) {
     if (!groups.has(key)) {
       groups.set(key, {
         key,
-        label: session.cwd ? shortPath(session.cwd) : "Projectless",
+        label: session.cwd ? shortPath(session.cwd) : "无项目",
         latestTime: 0,
         sessions: [],
       });
@@ -1489,26 +2526,36 @@ function groupSessionsByDirectory(sessions) {
 function renderSessionRow(session, query) {
   const active = sessionKey(session) === state.selectedSessionKey ? " active" : "";
   const indexOnly = session.remoteIndexOnly ? " index-only" : "";
-  const cwd = session.cwd ? shortPath(session.cwd) : "Projectless";
+  const cwd = session.cwd ? shortPath(session.cwd) : "无项目";
   const agentName = session.agentNickname || "Codex";
   const agent = session.agentNickname ? `${session.agentNickname}/${session.agentRole || "agent"}` : "Codex";
   const source = session.remoteIndexOnly ? `${session.sourceLabel || selectedSource()?.label || ""} · 仅索引` : session.sourceLabel || selectedSource()?.label || "";
-  const model = session.model || session.modelProvider || "unknown";
+  const model = session.model || session.modelProvider || "未记录";
   const status = sessionStatusLabel(session.status);
+  const indexLabel = session.remoteIndexOnly ? "仅索引/未同步正文" : "";
+  const title = session.remoteIndexOnly ? remoteIndexOnlyMessage() : "";
+  const ariaLabel = session.remoteIndexOnly
+    ? `${session.title || "未命名会话"}，仅索引，未同步正文，无法直接打开`
+    : `${session.title || "未命名会话"}`;
   return `
-    <div class="session-row${active}${indexOnly}" role="button" tabindex="0" data-session-id="${escapeAttr(session.id)}" data-remote-index-only="${session.remoteIndexOnly ? "true" : "false"}">
+    <div class="session-row${active}${indexOnly}" role="button" tabindex="0" data-session-id="${escapeAttr(session.id)}" data-remote-index-only="${session.remoteIndexOnly ? "true" : "false"}" ${title ? `title="${escapeAttr(title)}"` : ""} aria-label="${escapeAttr(ariaLabel)}" ${session.remoteIndexOnly ? 'aria-disabled="true"' : ""}>
       <span class="agent-dot" data-agent="${escapeAttr(agentName.toLowerCase())}" aria-hidden="true"></span>
       <span class="session-title markdown-inline-title">${renderMarkdownTitle(session.title || "未命名会话", query)}</span>
       <span class="session-date">${formatShortDate(session.updatedAt || session.fileModifiedAt)}</span>
       <span class="session-meta">
         <span>${escapeHtml(agent)}</span>
         <span>${escapeHtml(model)}</span>
+        ${indexLabel ? `<span>${escapeHtml(indexLabel)}</span>` : ""}
         ${status ? `<span>${escapeHtml(status)}</span>` : ""}
         <span>${escapeHtml(cwd)}</span>
       </span>
       <span class="session-source">${escapeHtml(source)}</span>
     </div>
   `;
+}
+
+function remoteIndexOnlyMessage() {
+  return "这是远端历史索引结果，仅含标题、时间、路径等元数据，未同步正文。拉取远端实时快照默认只补最近 3 小时；历史正文需要远端扩大共享窗口或额外同步后再拉取，或切回已有本地快照查看已同步会话。";
 }
 
 function sessionStatusLabel(status) {
@@ -1532,8 +2579,10 @@ function sessionListTimeMs(session) {
 function renderThreadHeader() {
   const session = state.detail?.session;
   if (!session) {
-    els.sessionTitle.textContent = "选择一个会话";
+    const placeholder = sessionPlaceholderState();
+    els.sessionTitle.textContent = placeholder?.title || "选择一个会话";
     els.sessionMetaLabel.textContent = selectedSource()?.label || "未选择";
+    if (placeholder?.subtitle) els.sessionMetaLabel.textContent = firstLine(placeholder.subtitle, 96);
     return;
   }
   els.sessionTitle.innerHTML = renderMarkdownTitle(session.title || "未命名会话");
@@ -1549,13 +2598,13 @@ function renderStats() {
   }
   const tokenUsage = latestTokenUsage(state.detail.turns);
   const rows = [
-    ["Turns", stats.turnCount, "对话轮次"],
-    ["Events", stats.eventCount, "事件流"],
-    ["Important", stats.importantEventCount, "关键事件"],
-    ["Tools", countItems("tool-call"), "工具调用"],
-    ["Compact", stats.compactEventCount ?? countItems("context-compact"), "上下文压缩"],
-    ["Agents", stats.childThreadCount || 0, "子代理"],
-    ["Tokens", tokenUsage ? compactNumber(tokenUsage.total_tokens || tokenUsage.totalTokens || 0) : "n/a", "最近统计"],
+    ["轮次", stats.turnCount, "对话轮次"],
+    ["事件", stats.eventCount, "事件流"],
+    ["重点", stats.importantEventCount, "关键事件"],
+    ["工具", countItems("tool-call"), "工具调用"],
+    ["压缩", stats.compactEventCount ?? countItems("context-compact"), "上下文压缩"],
+    ["子代理", stats.childThreadCount || 0, "子代理"],
+    ["占用", tokenUsage ? compactNumber(tokenUsage.total_tokens || tokenUsage.totalTokens || 0) : "未记录", "上下文占用"],
   ];
   els.statsStrip.innerHTML = rows
     .map(
@@ -1574,22 +2623,86 @@ function renderStatusbar() {
   const source = selectedSource();
   const session = state.detail?.session;
   const stats = state.detail?.stats;
-  const sourceKind = source?.kind === "remote" ? "远程快照" : "本机只读";
+  const filteredOut = currentSessionFilteredOut();
+  renderSessionFilterNotice(filteredOut);
+  syncStatusbarDataStatus(source);
+  if (state.healthLoadError) {
+    els.statusSource.textContent = "数据源：本机服务 · 接口不可用";
+    els.statusSession.textContent = "无法连接本机服务";
+    els.statusEvents.textContent = "0 个会话";
+    els.statusUpdated.textContent = "点击刷新列表重试";
+    syncExportButtons();
+    return;
+  }
+  const sourceKind = source?.kind === "remote" ? "远端快照" : "本机只读";
   const sourceLabelText = source?.label || source?.id || "未选择";
   els.statusSource.textContent = `数据源：${sourceLabelText} · ${sourceKind}`;
-  els.statusSession.textContent = session
-    ? `当前：${firstLine(session.title || session.id || "未命名会话", 54)}`
-    : "未选择会话";
-  const remoteIndexText = state.remoteIndexSessions.length ? ` · ${state.remoteIndexSessions.length} index` : "";
-  els.statusEvents.textContent = `${state.filteredSessions.length || 0}/${state.sessions.length || 0} sessions${remoteIndexText}`;
+  if (state.sessionLoading) {
+    els.statusSession.textContent = `正在读取：${selectedSessionDisplayTitle()}`;
+  } else if (state.sessionLoadError) {
+    els.statusSession.textContent = `读取失败：${selectedSessionDisplayTitle()}`;
+  } else if (state.sessionsLoadError && !session) {
+    els.statusSession.textContent = "会话列表加载失败";
+  } else if (filteredOut) {
+    els.statusSession.textContent = "当前会话已被筛选隐藏";
+  } else {
+    els.statusSession.textContent = session ? `当前：${firstLine(session.title || session.id || "未命名会话", 54)}` : "未选择会话";
+  }
+  if (isRemoteHistoryIndexMode()) {
+    if (state.remoteIndexLoading) {
+      els.statusEvents.textContent = "正在检索远端历史索引";
+    } else if (state.remoteIndexError) {
+      els.statusEvents.textContent = `历史索引失败：${state.remoteIndexError}`;
+    } else {
+      const indexCount = state.remoteIndexSessions.length || state.filteredSessions.filter((item) => item.remoteIndexOnly).length || 0;
+      els.statusEvents.textContent = `历史索引 ${indexCount} 条 · 正文未同步`;
+    }
+  } else {
+    els.statusEvents.textContent = `${state.filteredSessions.length || 0}/${state.sessions.length || 0} 个会话`;
+  }
   const updated = session?.updatedAt || session?.fileModifiedAt || session?.startedAt;
-  els.statusUpdated.textContent = stats
-    ? `${stats.eventCount || 0} events · ${stats.turnCount || 0} turns · ${formatDate(updated) || "未知时间"}`
-    : "只读浏览";
+  if (filteredOut) {
+    els.statusUpdated.textContent = "清除搜索或筛选后可复制/下载";
+  } else if (state.sessionsLoadError && !session) {
+    els.statusUpdated.textContent = "刷新列表或检查数据源后再导出";
+  } else {
+    els.statusUpdated.textContent = stats
+      ? `${stats.eventCount || 0} 个事件 · ${stats.turnCount || 0} 轮次 · ${formatDate(updated) || "未知时间"}`
+      : "只读浏览";
+  }
+  syncExportButtons();
+}
+
+function syncStatusbarDataStatus(source = selectedSource()) {
+  if (!els.statusbar) return;
+  const status = source?.status || {};
+  let value = source?.kind === "remote" ? "remote" : "local";
+  let label = source?.kind === "remote" ? "远端快照" : "本机只读";
+  if (state.healthLoadError) {
+    value = "error";
+    label = "接口不可用";
+  } else if (state.sessionsLoading || state.sessionLoading || state.remoteIndexLoading || status.refreshing) {
+    value = "loading";
+    label = "加载中";
+  } else if (state.sessionsLoadError || state.sessionLoadError || state.remoteIndexError || status.error?.message) {
+    value = "error";
+    label = "错误";
+  } else if (source?.kind === "remote" && status.stale) {
+    value = "stale";
+    label = "旧远端快照";
+  }
+  els.statusbar.dataset.status = value;
+  els.statusbar.title = `数据状态：${label}`;
 }
 
 function renderMainContent() {
   syncViewControls();
+  const placeholder = sessionPlaceholderState();
+  if (placeholder) {
+    renderSessionPlaceholder(placeholder.title, placeholder.subtitle);
+    renderInspector();
+    return;
+  }
   if (state.viewMode === "raw") {
     renderRawView();
   } else if (state.viewMode === "audit") {
@@ -1663,7 +2776,7 @@ function renderCompact() {
   const typeFilter = els.itemTypeFilter.value;
   const filtered = filterCompactNode(compact, query, typeFilter, true);
   if (!filtered || (filtered.turns.length === 0 && filtered.children.length === 0)) {
-    els.compactContent.innerHTML = emptyState("没有匹配的精简内容", "精简视图包含用户输入、全部助手消息和子代理层级。");
+    els.compactContent.innerHTML = emptyState("没有匹配的阅读内容", "阅读视图包含用户输入、全部助手消息和子代理层级。");
     return;
   }
   els.compactContent.innerHTML = `
@@ -1699,13 +2812,48 @@ function renderCompact() {
       scrollToCompactReplacementTarget(button);
     });
   });
-  els.compactContent.querySelectorAll("[data-compact-nav-target]").forEach((row) => {
+  const outlineRows = Array.from(els.compactContent.querySelectorAll("[data-compact-nav-target]"));
+  const focusCompactOutlineRow = (index) => {
+    if (!outlineRows.length) return;
+    const nextIndex = Math.min(outlineRows.length - 1, Math.max(0, index));
+    outlineRows.forEach((candidate, candidateIndex) => {
+      candidate.tabIndex = candidateIndex === nextIndex ? 0 : -1;
+    });
+    outlineRows[nextIndex]?.focus();
+  };
+  outlineRows.forEach((row, index) => {
+    row.tabIndex = index === 0 ? 0 : -1;
+    row.addEventListener("focus", () => {
+      outlineRows.forEach((candidate) => {
+        candidate.tabIndex = candidate === row ? 0 : -1;
+      });
+    });
     row.addEventListener("click", (event) => {
       if (event.target.closest("a")) return;
       scrollToCompactTarget(row.dataset.compactNavTarget);
     });
     row.addEventListener("keydown", (event) => {
       if (event.target.closest("a")) return;
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        focusCompactOutlineRow(index + 1);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        focusCompactOutlineRow(index - 1);
+        return;
+      }
+      if (event.key === "Home") {
+        event.preventDefault();
+        focusCompactOutlineRow(0);
+        return;
+      }
+      if (event.key === "End") {
+        event.preventDefault();
+        focusCompactOutlineRow(outlineRows.length - 1);
+        return;
+      }
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
       scrollToCompactTarget(row.dataset.compactNavTarget);
@@ -1877,11 +3025,11 @@ function compactTurnSearchText(turn) {
 function renderCompactOutline(node, context) {
   const stats = compactOutlineStats(node);
   return `
-    <nav class="compact-outline" aria-label="精简视图层级目录">
+    <nav class="compact-outline" aria-label="阅读视图层级目录">
       <div class="compact-outline-section">
         <div class="compact-outline-head">
           <strong>执行层级</strong>
-          <span>${escapeHtml(`${stats.threads} 线程 · ${stats.turns} turns`)}</span>
+          <span>${escapeHtml(`${stats.threads} 线程 · ${stats.turns} 轮次`)}</span>
         </div>
         <div class="compact-outline-tree">
           ${renderCompactExecutionDirectory(node, { ...context, seen: new Set() })}
@@ -1927,16 +3075,16 @@ function renderCompactExecutionDirectory(node, context) {
   const repeatedNotice = repeated ? `<div class="compact-outline-note" style="--depth:${depth + 1}">已出现过，停止展开</div>` : "";
   const unanchoredTitle =
     unanchoredChildren && (node.turns || []).length
-      ? `<div class="compact-outline-note" style="--depth:${depth + 1}">未定位到具体 Turn 的子代理</div>`
+      ? `<div class="compact-outline-note" style="--depth:${depth + 1}">未定位到具体轮次的子代理</div>`
       : "";
   return `
     <div class="compact-outline-group">
-      <div class="compact-outline-item thread" role="button" tabindex="0" style="--depth:${depth}" data-compact-nav-target="${escapeAttr(targetId)}">
+      <div class="compact-outline-item thread" role="button" tabindex="-1" style="--depth:${depth}" data-compact-nav-target="${escapeAttr(targetId)}" aria-label="${escapeAttr(`${context.root ? "根会话" : "子代理"}：${name}`)}">
         <span class="compact-outline-indent" aria-hidden="true"></span>
         <span class="compact-outline-icon">${context.root ? "R" : "A"}</span>
         <span class="compact-outline-copy">
           <strong class="markdown-inline-title">${renderMarkdownTitle(name, context.query)}</strong>
-          <em>${escapeHtml([session.agentRole, node.notificationSummary?.label, `${(node.turns || []).length} turns`].filter(Boolean).join(" · "))}</em>
+          <em>${escapeHtml([session.agentRole, node.notificationSummary?.label, `${(node.turns || []).length} 轮次`].filter(Boolean).join(" · "))}</em>
         </span>
       </div>
       ${repeatedNotice}
@@ -1975,11 +3123,11 @@ function renderCompactOutlineTurn(turn, context) {
           .join("");
   return `
     <div class="compact-outline-group">
-      <div class="compact-outline-item turn" role="button" tabindex="0" style="--depth:${depth}" data-compact-nav-target="${escapeAttr(targetId)}">
+      <div class="compact-outline-item turn" role="button" tabindex="-1" style="--depth:${depth}" data-compact-nav-target="${escapeAttr(targetId)}" aria-label="${escapeAttr(`第 ${turn.turnNumber || ""} 轮：${compactTurnOutlineTitle(turn)}`)}">
         <span class="compact-outline-indent" aria-hidden="true"></span>
         <span class="compact-outline-icon">T</span>
         <span class="compact-outline-copy">
-          <strong>Turn ${escapeHtml(String(turn.turnNumber || ""))}</strong>
+          <strong>第 ${escapeHtml(String(turn.turnNumber || ""))} 轮</strong>
           <em>${highlight(escapeHtml(compactTurnOutlineTitle(turn)), context.query)}</em>
         </span>
       </div>
@@ -2118,7 +3266,7 @@ function renderCompactSubagentReport(summary, query) {
     .join(" · ");
   const rawButton =
     summary.eventIndex != null
-      ? `<button class="ghost-button small" type="button" data-compact-event-index="${escapeAttr(String(summary.eventIndex))}">查看 Raw</button>`
+      ? `<button class="ghost-button small" type="button" data-compact-event-index="${escapeAttr(String(summary.eventIndex))}">查看原始事件</button>`
       : "";
   const body = summary.body
     ? renderMarkdownMessage(summary.body, query)
@@ -2164,7 +3312,7 @@ function renderCompactTurn(turn, context) {
   return `
     <section class="compact-turn" id="${escapeAttr(targetId)}" tabindex="-1" data-compact-turn-number="${escapeAttr(String(turn.turnNumber || ""))}">
       <div class="compact-turn-head">
-        <strong>Turn ${escapeHtml(String(turn.turnNumber || ""))}</strong>
+        <strong>第 ${escapeHtml(String(turn.turnNumber || ""))} 轮</strong>
         <span>${escapeHtml(meta)}</span>
       </div>
       <div class="compact-message-pair">
@@ -2225,15 +3373,15 @@ function renderCompressionRefBadge(refs = []) {
   const first = valid[0];
   const eventIndexes = [...new Set(valid.map((ref) => ref.eventIndex).filter((value) => value != null))];
   const label = `被替换 ${valid.length} 条`;
-  const suffix = eventIndexes.length === 1 ? ` · #${eventIndexes[0]}` : eventIndexes.length > 1 ? ` · ${eventIndexes.length} 个事件` : "";
+  const suffix = eventIndexes.length === 1 ? ` · 事件 ${eventIndexes[0]}` : eventIndexes.length > 1 ? ` · ${eventIndexes.length} 个事件` : "";
   const detail = [
     `当前消息组被替换 ${valid.length} 条`,
-    first.compactTurnNumber ? `压缩发生在 Turn ${first.compactTurnNumber}` : "",
-    eventIndexes.length ? `event ${eventIndexes.map((index) => `#${index}`).join(", ")}` : "",
-    first.replacementIndex != null ? `replacement #${first.replacementIndex}` : "",
-    first.windowNumber != null ? `window ${first.windowNumber}` : "",
-    first.replacementItemType ? `item ${first.replacementItemType}` : "",
-    first.replacementRole ? `role ${first.replacementRole}` : "",
+    first.compactTurnNumber ? `压缩发生在第 ${first.compactTurnNumber} 轮` : "",
+    eventIndexes.length ? `事件 ${eventIndexes.join(", ")}` : "",
+    first.replacementIndex != null ? `替换记录 ${first.replacementIndex}` : "",
+    first.windowNumber != null ? `窗口 ${first.windowNumber}` : "",
+    first.replacementItemType ? `关联项 ${first.replacementItemType}` : "",
+    first.replacementRole ? `角色 ${first.replacementRole}` : "",
     formatDate(first.timestamp),
     first.summaryPreview,
   ]
@@ -2276,9 +3424,9 @@ function compactMessageSearchParts(message = {}) {
   return [
     message.text,
     ...(message.compressionRefs || []).flatMap((ref) => [
-      ref.compactTurnNumber != null ? `被替换到 Turn ${ref.compactTurnNumber}` : "",
-      ref.eventIndex != null ? `event #${ref.eventIndex}` : "",
-      ref.replacementIndex != null ? `replacement #${ref.replacementIndex}` : "",
+      ref.compactTurnNumber != null ? `被替换到第 ${ref.compactTurnNumber} 轮` : "",
+      ref.eventIndex != null ? `事件 ${ref.eventIndex}` : "",
+      ref.replacementIndex != null ? `替换记录 ${ref.replacementIndex}` : "",
       ref.replacementRole,
       ref.replacementType,
       ref.replacementItemType,
@@ -2297,7 +3445,7 @@ function renderCompactContextEvent(event, query, path) {
   const label = isSummary ? "上下文压缩摘要" : "上下文压缩完成";
   const meta = [
     formatDate(event.timestamp),
-    compact.windowNumber != null ? `window ${compact.windowNumber}` : "",
+    compact.windowNumber != null ? `窗口 ${compact.windowNumber}` : "",
     compact.replacementHistoryCount ? `替换历史 ${compact.replacementHistoryCount}` : "",
     event.truncated ? `已截断 ${compactNumber(event.textLength || 0)} 字符` : "",
   ]
@@ -2305,7 +3453,7 @@ function renderCompactContextEvent(event, query, path) {
     .join(" · ");
   const rawButton =
     event.sourceIndex != null
-      ? `<button class="ghost-button small" type="button" data-compact-event-index="${escapeAttr(String(event.sourceIndex))}">查看 Raw</button>`
+      ? `<button class="ghost-button small" type="button" data-compact-event-index="${escapeAttr(String(event.sourceIndex))}">查看原始事件</button>`
       : "";
   const body = event.text
     ? renderMarkdownMessage(event.text, query)
@@ -2344,7 +3492,7 @@ function renderCompactReplacementHistory(compact = {}, query = "", variant = "co
   const total = Number.isFinite(Number(compact.replacementHistoryCount)) ? Number(compact.replacementHistoryCount) : preview.length;
   if (!preview.length) {
     return total
-      ? `<div class="compact-replacement-empty ${escapeAttr(variant)}">替换历史包含 ${escapeHtml(String(total))} 条记录；当前接口未提供可展示预览，可在 Raw JSON 中查看完整 payload。</div>`
+      ? `<div class="compact-replacement-empty ${escapeAttr(variant)}">替换历史包含 ${escapeHtml(String(total))} 条记录；当前接口未提供可展示预览，可在原始 JSON 中查看完整原始内容。</div>`
       : "";
   }
   const more = Math.max(0, total - preview.length);
@@ -2355,7 +3503,7 @@ function renderCompactReplacementHistory(compact = {}, query = "", variant = "co
       <summary>
         <span>被替换的对话</span>
         <strong>${escapeHtml(countLabel)}</strong>
-        ${compact.replacementHistoryPreviewTruncated || more ? `<em>还有 ${escapeHtml(String(more))} 条在 Raw JSON</em>` : ""}
+        ${compact.replacementHistoryPreviewTruncated || more ? `<em>还有 ${escapeHtml(String(more))} 条在原始 JSON</em>` : ""}
       </summary>
       ${coverage ? `<div class="compact-replacement-coverage">${coverage.map((item) => `<span><strong>${escapeHtml(item.value)}</strong>${escapeHtml(item.label)}</span>`).join("")}</div>` : ""}
       <div class="compact-replacement-list">
@@ -2387,7 +3535,7 @@ function compactReplacementCoverageSummary(compact = {}, preview = [], total = p
     turnLabel ? { label: "覆盖范围", value: turnLabel } : null,
     roleLabel ? { label: "角色构成", value: roleLabel } : null,
     total ? { label: "替换条目", value: String(total) } : null,
-    longest?.textLength ? { label: "最长条目", value: `#${longest.index ?? "?"} · ${compactNumber(longest.textLength)} 字符` } : null,
+    longest?.textLength ? { label: "最长条目", value: `替换记录 ${longest.index ?? "?"} · ${compactNumber(longest.textLength)} 字符` } : null,
   ].filter(Boolean);
   return rows;
 }
@@ -2403,7 +3551,7 @@ function roleCountsFromReplacementPreview(preview = []) {
 
 function compactReplacementTurnRangeLabel(turnNumbers = []) {
   if (!turnNumbers.length) return "";
-  if (turnNumbers.length === 1) return `Turn ${turnNumbers[0]}`;
+  if (turnNumbers.length === 1) return `第 ${turnNumbers[0]} 轮`;
   const ranges = [];
   let start = turnNumbers[0];
   let previous = turnNumbers[0];
@@ -2412,25 +3560,25 @@ function compactReplacementTurnRangeLabel(turnNumbers = []) {
       previous = value;
       continue;
     }
-    ranges.push(start === previous ? `Turn ${start}` : `Turn ${start}-${previous}`);
+    ranges.push(start === previous ? `第 ${start} 轮` : `第 ${start}-${previous} 轮`);
     start = value;
     previous = value;
   }
-  ranges.push(start === previous ? `Turn ${start}` : `Turn ${start}-${previous}`);
+  ranges.push(start === previous ? `第 ${start} 轮` : `第 ${start}-${previous} 轮`);
   return ranges.join(", ");
 }
 
 function renderCompactReplacementEntry(entry = {}, query = "") {
   const role = String(entry.role || "unknown").toLowerCase();
   const roleLabel = compactReplacementRoleLabel(entry.role);
-  const turnLabel = Number.isInteger(entry.turnNumber) ? `Turn ${entry.turnNumber}` : "";
+  const turnLabel = Number.isInteger(entry.turnNumber) ? `第 ${entry.turnNumber} 轮` : "";
   const typeLabel = [entry.type, ...(entry.contentKinds || [])].filter(Boolean).join(" / ");
   const meta = [
     entry.textLength != null ? `${compactNumber(entry.textLength)} 字符` : "",
     typeLabel,
     entry.truncated ? "已截断" : "",
-    entry.turnId ? `turn ${compactReplacementShortId(entry.turnId)}` : "",
-    entry.messageId ? `msg ${compactReplacementShortId(entry.messageId)}` : "",
+    entry.turnId ? `轮次 ID ${compactReplacementShortId(entry.turnId)}` : "",
+    entry.messageId ? `消息 ID ${compactReplacementShortId(entry.messageId)}` : "",
     formatDate(entry.timestamp),
   ]
     .filter(Boolean)
@@ -2442,7 +3590,7 @@ function renderCompactReplacementEntry(entry = {}, query = "") {
   const tag = targetAttrs ? "button" : "div";
   return `
     <${tag} class="compact-replacement-row role-${escapeAttr(role)}${targetAttrs ? " actionable" : ""}" ${targetAttrs || ""}>
-      <span class="compact-replacement-index">#${escapeHtml(String(entry.index ?? ""))}</span>
+      <span class="compact-replacement-index">替换记录 ${escapeHtml(String(entry.index ?? ""))}</span>
       <span class="compact-replacement-role">${escapeHtml(roleLabel)}</span>
       <span class="compact-replacement-copy">
         ${context ? `<strong>${escapeHtml(context)}</strong>` : ""}
@@ -2505,14 +3653,14 @@ function renderTerminal() {
     <div class="terminal-shell">
       <div class="terminal-head">
         <div>
-          <p class="eyebrow">Terminal Session</p>
+          <p class="eyebrow">终端会话</p>
           <h3 class="markdown-inline-title">${renderMarkdownTitle(detail.session?.title || "当前会话")}</h3>
         </div>
         <div class="terminal-role-nav" aria-label="Terminal 角色跳转">
-          ${renderTerminalRoleNavButton("user", "User", activeStats.user, stats.user)}
-          ${renderTerminalRoleNavButton("assistant", "Agent", activeStats.assistant, stats.assistant)}
-          ${renderTerminalRoleNavButton("tool", "Tools", activeStats.tool, stats.tool)}
-          ${renderTerminalRoleNavButton("error", "Errors", activeStats.error, stats.error)}
+          ${renderTerminalRoleNavButton("user", "用户", activeStats.user, stats.user)}
+          ${renderTerminalRoleNavButton("assistant", "代理", activeStats.assistant, stats.assistant)}
+          ${renderTerminalRoleNavButton("tool", "工具", activeStats.tool, stats.tool)}
+          ${renderTerminalRoleNavButton("error", "错误", activeStats.error, stats.error)}
         </div>
       </div>
       <div class="terminal-blocks">
@@ -2545,7 +3693,7 @@ function buildTerminalBlocks(detail) {
       blocks.push({
         id: `turn-${turnNumber}-meta`,
         role: "meta",
-        title: `Turn ${turnNumber}`,
+        title: `第 ${turnNumber} 轮`,
         text: [turn.status, formatDate(turn.startedAt), turn.cwd ? shortPath(turn.cwd) : ""].filter(Boolean).join(" · "),
         turnIndex: turnNumber - 1,
         timestamp: turn.startedAt,
@@ -2676,7 +3824,7 @@ function renderTerminalRoleNavButton(role, label, activeCount, totalCount) {
 
 function renderTerminalBlock(block, query) {
   const selected = state.selectedTerminalBlockId === block.id ? " selected" : "";
-  const meta = [`Turn ${block.turnIndex + 1}`, formatDate(block.timestamp), block.item?.name, block.item?.status]
+  const meta = [`第 ${block.turnIndex + 1} 轮`, formatDate(block.timestamp), block.item?.name, block.item?.status]
     .filter(Boolean)
     .join(" · ");
   const body =
@@ -2728,7 +3876,7 @@ function jumpTerminalRole(role) {
 function renderAudit() {
   const detail = state.detail;
   if (!detail) {
-    els.auditContent.innerHTML = emptyState("选择一个会话", "Audit 视图按 Turn 聚合目标、执行链、证据、验证、风险和最终回复。");
+    els.auditContent.innerHTML = emptyState("选择一个会话", "审计链视图按轮次聚合目标、执行链、证据、验证、风险和最终回复。");
     return;
   }
   const model = buildAuditTurnModel(detail);
@@ -2750,7 +3898,7 @@ function renderAudit() {
     els.auditContent.innerHTML = `
       <div class="audit-shell">
         ${renderAuditHead(model, counts, filteredCounts, { query, typeFilter })}
-        ${emptyState("没有匹配的 Turn 审计单元", "调整内容搜索或类型过滤；Audit 会保留 Turn 上下文，不显示孤立风险列表。")}
+        ${emptyState("没有匹配的轮次审计单元", "调整内容搜索或类型过滤；审计链会保留轮次上下文，不显示孤立风险列表。")}
       </div>
     `;
     return;
@@ -2770,7 +3918,7 @@ function renderAudit() {
 function renderAuditHead(model, counts, filteredCounts, filters = {}) {
   const filtered = Boolean(filters.query || (filters.typeFilter && filters.typeFilter !== "all"));
   const metrics = [
-    ["turn", "Turns", model.turns.length, model.filteredTurnCount ?? 0],
+    ["turn", "轮次", model.turns.length, model.filteredTurnCount ?? 0],
     ["intent", "意图", counts.intent || 0, filteredCounts.intent || 0],
     ["reasoning", "推理", counts.reasoning || 0, filteredCounts.reasoning || 0],
     ["action", "行动", counts.action || 0, filteredCounts.action || 0],
@@ -2782,10 +3930,10 @@ function renderAuditHead(model, counts, filteredCounts, filters = {}) {
   return `
     <div class="audit-head">
       <div>
-        <p class="eyebrow">Turn Audit Chain</p>
+        <p class="eyebrow">轮次审计链</p>
         <h3 class="markdown-inline-title">${renderMarkdownTitle(model.detail.session?.title || "当前会话")}</h3>
         <div class="audit-head-note">
-          ${model.hasTraceRoot ? "以 trace.root 投影执行链" : "缺少 trace.root，按 Turn item 提供有限执行复核"}
+          ${model.hasTraceRoot ? "以 trace.root 投影执行链" : "缺少 trace.root，按轮次项目提供有限执行复核"}
           ${model.unplacedAuditNodes.length ? ` · ${model.unplacedAuditNodes.length} 个节点未关联` : ""}
         </div>
       </div>
@@ -2817,13 +3965,13 @@ function renderAuditTurn(turn, context = {}) {
   return `
     <article class="audit-turn${selected}${expanded ? " expanded" : ""}" role="listitem" data-audit-turn-root="${escapeAttr(turn.key)}">
       <div class="audit-turn-header">
-        <button class="audit-turn-toggle" type="button" data-audit-turn-toggle="${escapeAttr(turn.key)}" title="${expanded ? "收起 Turn" : "展开 Turn"}">
+        <button class="audit-turn-toggle" type="button" data-audit-turn-toggle="${escapeAttr(turn.key)}" title="${expanded ? "收起轮次" : "展开轮次"}">
           ${expanded ? "⌄" : "›"}
         </button>
         <button class="audit-turn-summary-button" type="button" data-audit-turn-key="${escapeAttr(turn.key)}">
           <span class="audit-turn-main">
             <span class="audit-turn-title">
-              <strong>Turn ${escapeHtml(String(turn.turnNumber))}</strong>
+              <strong>第 ${escapeHtml(String(turn.turnNumber))} 轮</strong>
               <span>${highlight(escapeHtml(turn.intentSummary), context.query)}</span>
             </span>
             <span class="audit-turn-result">${highlight(escapeHtml(turn.finalSummary), context.query)}</span>
@@ -2833,7 +3981,7 @@ function renderAuditTurn(turn, context = {}) {
             <span class="audit-state-pill ${escapeAttr(verificationClass)}">${escapeHtml(stats.verificationStatus)}</span>
             <span class="audit-state-pill risk-${escapeAttr(riskClass)}">${escapeHtml(stats.riskLabel)}</span>
           </span>
-          <span class="audit-turn-metrics" aria-label="Turn 审计指标">
+          <span class="audit-turn-metrics" aria-label="轮次审计指标">
             ${renderAuditTurnMetric("工具", stats.toolCount)}
             ${renderAuditTurnMetric("子代理", stats.subagentCount)}
             ${renderAuditTurnMetric("证据", stats.evidenceCount)}
@@ -2884,7 +4032,7 @@ function renderAuditUnlinkedSection(nodes, query) {
   return `
     <section class="audit-turn-section unlinked">
       <div class="audit-section-title">
-        <strong>未关联 / Raw 复核</strong>
+        <strong>未关联 / 原始事件复核</strong>
         <span>${escapeHtml(`${nodes.length} 个节点无法可靠挂载到执行链`)}</span>
       </div>
       <div class="audit-evidence-list">${nodes.map((node) => renderAuditEvidenceNode(node, query)).join("")}</div>
@@ -3083,9 +4231,9 @@ function renderAuditEvidenceNode(node, query) {
   const readable = readableAuditNode(node);
   const meta = [
     auditTypeLabel(node.type),
-    node.status || "n/a",
+    node.status || "未记录",
     auditRiskMetaLabel(node.riskLevel),
-    node.turnNumber ? `Turn ${node.turnNumber}` : "",
+    node.turnNumber ? `第 ${node.turnNumber} 轮` : "",
     auditEventIndexLabel(node),
     auditRelatedLabel(node),
     formatDate(node.timestamp),
@@ -3330,7 +4478,7 @@ function auditExecutionChildGroups(nodes) {
 
 function auditExecutionEmptyText(turn, context = {}) {
   if (context.filtersActive && turn.executionRows.length) return "当前搜索或类型过滤没有匹配执行节点";
-  return "此 Turn 没有工具、handoff、子代理调用或助手消息";
+  return "此轮次没有工具、handoff、子代理调用或助手消息";
 }
 
 function auditFiltersActive(filters = {}) {
@@ -3648,7 +4796,7 @@ function selectAuditNode(id) {
 
 function renderAuditActions(node) {
   const actions = [];
-  if (node.eventIndex != null || node.sourceIndex != null) actions.push(`<button class="ghost-button small" type="button" data-open-audit-raw>打开 Raw event</button>`);
+  if (node.eventIndex != null || node.sourceIndex != null) actions.push(`<button class="ghost-button small" type="button" data-open-audit-raw>打开原始事件</button>`);
   if (node.itemRef) actions.push(`<button class="ghost-button small" type="button" data-open-audit-item>查看关联项</button>`);
   if (node.traceNodeId) actions.push(`<button class="ghost-button small" type="button" data-open-audit-trace>查看执行节点</button>`);
   if (node.relatedNodeId) actions.push(`<button class="ghost-button small" type="button" data-open-audit-related>定位关联节点</button>`);
@@ -3733,8 +4881,8 @@ function auditNodeDebugPreview(node) {
 function auditEventIndexLabel(node) {
   if (node.eventIndex == null && node.sourceIndex == null) return "";
   const parts = [];
-  if (node.eventIndex != null) parts.push(`event #${node.eventIndex}`);
-  if (node.sourceIndex != null && node.sourceIndex !== node.eventIndex) parts.push(`source #${node.sourceIndex}`);
+  if (node.eventIndex != null) parts.push(`事件 ${node.eventIndex}`);
+  if (node.sourceIndex != null && node.sourceIndex !== node.eventIndex) parts.push(`来源 ${node.sourceIndex}`);
   return parts.join(" / ");
 }
 
@@ -3749,7 +4897,7 @@ function locateRelatedAuditNode(node) {
   if (!node?.relatedNodeId) return;
   const target = findAuditNode(node.relatedNodeId);
   if (!target) {
-    showToast("未找到关联 Audit 节点");
+    showToast("未找到关联审计链节点");
     return;
   }
   if (state.viewMode !== "audit") {
@@ -3885,14 +5033,14 @@ function auditNodeLabel(node) {
 function renderRawView() {
   const detail = state.detail;
   if (!detail) {
-    els.rawContent.innerHTML = emptyState("选择一个会话", "Raw 视图展示会话级事件摘要和调试 JSON。");
+    els.rawContent.innerHTML = emptyState("选择一个会话", "原始事件视图展示会话级事件摘要和调试 JSON。");
     return;
   }
   const query = els.itemSearch.value.trim().toLowerCase();
   const typeFilter = els.itemTypeFilter.value;
   const events = (detail.events || []).filter((event) => rawEventMatches(event, query, typeFilter));
   if (events.length === 0) {
-    els.rawContent.innerHTML = emptyState("没有匹配的 Raw 事件", "调整内容搜索或类型过滤。");
+    els.rawContent.innerHTML = emptyState("没有匹配的原始事件", "调整内容搜索或类型过滤。");
     return;
   }
   const shown = events.slice(0, state.visibleRawEvents);
@@ -3901,8 +5049,8 @@ function renderRawView() {
     <div class="raw-view-shell">
       <div class="raw-view-head">
         <div>
-          <p class="eyebrow">Raw JSON</p>
-          <h3>${escapeHtml(events.length)} / ${escapeHtml(detail.events.length)} events</h3>
+          <p class="eyebrow">原始 JSON</p>
+          <h3>${escapeHtml(events.length)} / ${escapeHtml(detail.events.length)} 个事件</h3>
         </div>
         <div class="raw-view-actions">
           <button class="ghost-button small" type="button" data-copy-raw-session>复制事件摘要</button>
@@ -3919,8 +5067,8 @@ function renderRawView() {
         </div>
         <div class="raw-view-preview${selected && isCompactEvent(selected) ? " has-insight" : ""}">
           <div class="raw-preview-title">
-            <strong>${escapeHtml(selected ? `#${selected.index} ${humanEventTitle(selected)}` : "事件摘要")}</strong>
-            <span>${escapeHtml(selected ? selected.kind || "" : "Pretty JSON")}</span>
+            <strong>${escapeHtml(selected ? `事件 ${selected.index} ${humanEventTitle(selected)}` : "事件摘要")}</strong>
+            <span>${escapeHtml(selected ? selected.kind || "" : "格式化 JSON")}</span>
           </div>
           ${selected ? renderRawEventInsight(selected, query) : ""}
           <pre class="raw-preview">${escapeHtml(JSON.stringify(selected || detailSummaryForRaw(detail), null, 2))}</pre>
@@ -3936,8 +5084,7 @@ function renderRawView() {
     renderRawView();
   });
   els.rawContent.querySelector("[data-copy-raw-session]")?.addEventListener("click", async () => {
-    await copyText(JSON.stringify(detailSummaryForRaw(detail), null, 2));
-    showToast("已复制会话事件摘要");
+    await copyWithToast(JSON.stringify(detailSummaryForRaw(detail), null, 2), sensitiveCopyToast("已复制会话事件摘要"));
   });
 }
 
@@ -3966,7 +5113,7 @@ function renderRawViewEventRow(event) {
   return `
     <button class="raw-view-row${active}${compact}" type="button" data-raw-event-index="${event.index}">
       <span class="raw-view-kind">${escapeHtml(event.kind || event.type || "event")}</span>
-      <strong>${escapeHtml(`event #${event.index} ${humanEventTitle(event)}`)}</strong>
+      <strong>${escapeHtml(`事件 ${event.index} ${humanEventTitle(event)}`)}</strong>
       <em>${escapeHtml(formatDate(event.timestamp) || event.payloadType || "")}</em>
       <span>${escapeHtml(firstLine(event.preview || "", 140))}</span>
     </button>
@@ -3983,7 +5130,7 @@ function renderRawEventInsight(event, query = "") {
   const isSummary = compact.kind === "compacted" || event.kind === "compacted";
   const title = isSummary ? "写入下一窗口的替换摘要" : "压缩完成标记";
   const metrics = [
-    compact.windowNumber != null ? ["Window", compact.windowNumber] : null,
+    compact.windowNumber != null ? ["窗口", compact.windowNumber] : null,
     compact.messageLength ? ["摘要字符", compactNumber(compact.messageLength)] : null,
     compact.replacementHistoryCount ? ["替换历史", compact.replacementHistoryCount] : null,
   ].filter(Boolean);
@@ -4036,14 +5183,14 @@ function detailSummaryForRaw(detail) {
 function renderTrace() {
   const detail = state.detail;
   if (!detail?.trace?.root) {
-    els.traceContent.innerHTML = emptyState("没有 Trace 数据", "当前会话没有可审计执行树。");
+    els.traceContent.innerHTML = emptyState("没有执行链路数据", "当前会话没有可审计执行树。");
     return;
   }
   const query = els.itemSearch.value.trim().toLowerCase();
   const typeFilter = els.itemTypeFilter.value;
   const root = filterTraceNode(detail.trace.root, query, typeFilter);
   if (!root) {
-    els.traceContent.innerHTML = emptyState("没有匹配的 Trace 节点", "调整搜索或类型过滤。");
+    els.traceContent.innerHTML = emptyState("没有匹配的执行节点", "调整搜索或类型过滤。");
     return;
   }
   const maxDuration = Math.max(1, detail.trace.timing?.durationMs || root.durationMs || maxNodeDuration(root));
@@ -4051,8 +5198,8 @@ function renderTrace() {
     <div class="trace-shell">
       <div class="trace-head">
         <div>
-          <p class="eyebrow">Audit Trace</p>
-          <h3 class="markdown-inline-title">${renderMarkdownTitle(detail.session.title || "Root Thread")}</h3>
+          <p class="eyebrow">审计链路</p>
+          <h3 class="markdown-inline-title">${renderMarkdownTitle(detail.session.title || "未命名会话")}</h3>
         </div>
         <div class="trace-legend">
           <span><i class="legend-dot agent"></i>子代理</span>
@@ -4130,7 +5277,7 @@ function traceSearchText(node) {
 function renderTraceNode(node, context) {
   const selected = node.id === state.selectedTraceNodeId ? " selected" : "";
   const depth = Math.min(context.depth ?? 0, 8);
-  const durationLabel = node.durationMs == null ? "n/a" : formatDuration(node.durationMs);
+  const durationLabel = node.durationMs == null ? "未记录" : formatDuration(node.durationMs);
   const width = node.durationMs == null ? 2 : Math.max(2, Math.min(100, (node.durationMs / context.maxDuration) * 100));
   const children = node.children || [];
   const expanded = state.expandedTraceNodeIds.has(node.id);
@@ -4175,7 +5322,7 @@ function renderTurn(turn, index, query) {
   return `
     <article class="turn">
       <div class="turn-header">
-        <strong>Turn ${index}</strong>
+        <strong>第 ${index} 轮</strong>
         <span>${escapeHtml(meta)}</span>
       </div>
       <div class="turn-body">
@@ -4276,6 +5423,12 @@ function renderInspector() {
   if (els.eventCount) els.eventCount.textContent = String(context.metrics?.events ?? 0);
   if (els.selectedEventLabel) els.selectedEventLabel.textContent = context.title || "未选择";
   if (els.rawPreview) els.rawPreview.textContent = context.debugData ? JSON.stringify(context.debugData, null, 2) : "";
+  if (els.copyRawButton) {
+    const label = context.kind === "session" ? "复制会话引用" : "复制对象引用";
+    els.copyRawButton.textContent = label;
+    els.copyRawButton.title = `${label}（复制当前复核上下文）`;
+    els.copyRawButton.setAttribute("aria-label", label);
+  }
   els.copyRawButton.disabled = !state.detail;
 }
 
@@ -4293,7 +5446,7 @@ function renderKeyEventGroups(events) {
       const active = event.index === state.selectedEventIndex ? " active" : "";
       return `
                   <button class="raw-event${active}" type="button" data-event-index="${event.index}">
-          <span class="raw-event-title">${escapeHtml("event #" + event.index + " " + humanEventTitle(event))}</span>
+          <span class="raw-event-title">${escapeHtml("事件 " + event.index + " " + humanEventTitle(event))}</span>
           <span class="session-date">${escapeHtml(formatDate(event.timestamp) || event.kind)}</span>
           <span class="raw-event-preview">${escapeHtml(event.preview || formatDate(event.timestamp) || "")}</span>
         </button>
@@ -4320,12 +5473,20 @@ async function selectRawEvent(index, { rerender = true } = {}) {
 }
 
 async function loadRawEvent(index) {
-  if (state.rawEventCache.has(index)) return state.rawEventCache.get(index);
   const id = state.detail?.session?.id;
   if (!id) throw new Error("未选择会话");
-  const raw = await fetchJson(sourceEventUrl(id, index));
-  state.rawEventCache.set(index, raw);
+  const sourceId = state.detail?.session?.sourceId || state.selectedSourceId;
+  const requestSessionKey = sessionKey({ id, sourceId });
+  const cacheKey = rawEventCacheKey(sourceId, id, index);
+  if (state.rawEventCache.has(cacheKey)) return state.rawEventCache.get(cacheKey);
+  const raw = await fetchJson(sourceEventUrl(id, index, sourceId));
+  if (state.selectedSourceId !== sourceId || state.selectedSessionKey !== requestSessionKey) return null;
+  state.rawEventCache.set(cacheKey, raw);
   return raw;
+}
+
+function rawEventCacheKey(sourceId, id, index) {
+  return JSON.stringify([sourceId || "local", id, index]);
 }
 
 function selectTraceNode(id) {
@@ -4388,21 +5549,21 @@ function renderAuditSelection(node) {
     .join(" · ");
   const rows = [
     ["节点类型", auditTypeLabel(node.type)],
-    ["状态", node.status || "n/a"],
+    ["状态", node.status || "未记录"],
     ["风险信号", auditRiskLabel(node.riskLevel || "none")],
-    ["Turn", node.turnNumber ? String(node.turnNumber) : "n/a"],
-    ["时间", formatDate(node.timestamp) || "n/a"],
-    ["itemRef", node.itemRef || "n/a"],
-    ["事件索引", auditEventIndexLabel(node) || "n/a"],
+    ["轮次", node.turnNumber ? String(node.turnNumber) : "未记录"],
+    ["时间", formatDate(node.timestamp) || "未记录"],
+    ["关联项引用", node.itemRef || "未记录"],
+    ["事件索引", auditEventIndexLabel(node) || "未记录"],
   ];
   if (node.traceNodeId) rows.push(["执行节点", node.traceNodeId]);
   if (node.relatedNodeId) rows.push(["关联来源", relatedMeta || node.relatedNodeId]);
   if (node.toolName) rows.push(["工具", node.toolName]);
-  if (node.callId) rows.push(["Call ID", node.callId]);
+  if (node.callId) rows.push(["调用 ID", node.callId]);
   if (node.tags?.length) rows.push(["标签", node.tags.join(", ")]);
   const body = [node.summary, node.outputPreview, node.argumentsPreview].filter(Boolean).join("\n\n");
   return renderSelectionCard({
-    eyebrow: "Audit 节点",
+    eyebrow: "审计链节点",
     title: node.title || auditTypeLabel(node.type),
     meta: [auditTypeLabel(node.type), auditRiskLabel(node.riskLevel || "none")].filter(Boolean).join(" · "),
     rows,
@@ -4413,7 +5574,7 @@ function renderAuditSelection(node) {
 
 function renderAuditTurnSelection(turn) {
   const rows = [
-    ["Turn", String(turn.turnNumber)],
+    ["轮次", String(turn.turnNumber)],
     ["验证状态", turn.stats.verificationStatus],
     ["最高风险", turn.stats.riskLabel],
     ["工具调用", String(turn.stats.toolCount)],
@@ -4423,8 +5584,8 @@ function renderAuditTurnSelection(turn) {
   ];
   const body = [`目标：${turn.intentSummary}`, `结果：${turn.finalSummary}`].join("\n");
   return renderSelectionCard({
-    eyebrow: "Turn 审计摘要",
-    title: `Turn ${turn.turnNumber}`,
+    eyebrow: "轮次审计摘要",
+    title: `第 ${turn.turnNumber} 轮`,
     meta: [turn.stats.verificationStatus, turn.stats.riskLabel].filter(Boolean).join(" · "),
     rows,
     body,
@@ -4438,9 +5599,9 @@ function renderTraceSelection(node) {
   const thread = detail.thread || detail.edge?.thread || {};
   const rows = [
     ["类型", traceTypeLabel(node.type)],
-    ["状态", node.status || "n/a"],
-    ["时间", [formatDate(node.timestamp), formatDate(node.completedAt)].filter(Boolean).join(" - ") || "n/a"],
-    ["耗时", node.durationMs == null ? "n/a" : `${formatDuration(node.durationMs)}${node.durationEstimated ? " 估算" : ""}`],
+    ["状态", node.status || "未记录"],
+    ["时间", [formatDate(node.timestamp), formatDate(node.completedAt)].filter(Boolean).join(" - ") || "未记录"],
+    ["耗时", node.durationMs == null ? "未记录" : `${formatDuration(node.durationMs)}${node.durationEstimated ? " 估算" : ""}`],
   ];
   if (item.name) rows.push(["工具", item.name]);
   if (thread.id || node.threadId) rows.push(["线程", thread.agentNickname || thread.title || node.threadId || thread.id]);
@@ -4459,12 +5620,12 @@ function renderTraceSelection(node) {
 function renderItemSelection(item) {
   const rows = [
     ["类型", itemTitle(item)],
-    ["Turn", item.turnIndex == null ? "n/a" : String(item.turnIndex + 1)],
-    ["时间", formatDate(item.timestamp) || "n/a"],
-    ["状态", [item.phase, item.status].filter(Boolean).join(" / ") || "n/a"],
+    ["轮次", item.turnIndex == null ? "未记录" : String(item.turnIndex + 1)],
+    ["时间", formatDate(item.timestamp) || "未记录"],
+    ["状态", [item.phase, item.status].filter(Boolean).join(" / ") || "未记录"],
   ];
   if (item.name) rows.push(["工具", item.name]);
-  if (item.callId) rows.push(["Call ID", item.callId]);
+  if (item.callId) rows.push(["调用 ID", item.callId]);
   const body = item.text || item.output || item.arguments || item.payloadPreview || "";
   const actions = itemSelectionActions(item);
   return renderSelectionCard({
@@ -4479,10 +5640,10 @@ function renderItemSelection(item) {
 
 function renderEventSelection(event) {
   const rows = [
-    ["事件", `event #${event.index}`],
-    ["分类", event.kind || "n/a"],
-    ["时间", formatDate(event.timestamp) || "n/a"],
-    ["Payload", event.payloadSize ? formatBytes(event.payloadSize) : "n/a"],
+    ["事件", `事件 ${event.index}`],
+    ["分类", event.kind || "未记录"],
+    ["时间", formatDate(event.timestamp) || "未记录"],
+    ["原始内容", event.payloadSize ? formatBytes(event.payloadSize) : "未记录"],
   ];
   return renderSelectionCard({
     eyebrow: "关键事件",
@@ -4553,7 +5714,7 @@ function bindSelectionActions() {
         locateRelatedAuditNode(action.node);
         return;
       }
-      if (action.copy != null) await copyInspectorText(action.copy, action.toast || "已复制");
+      if (action.copy != null) await copyInspectorText(action.copy, action.toast || "已复制", { sensitive: action.sensitive !== false });
     });
   });
 }
@@ -4598,8 +5759,8 @@ function auditSelectionActions(node) {
     { label: "复制 JSON", action: "copy-debug" },
   ];
   if (node.eventIndex != null || node.sourceIndex != null) {
-    actions.unshift({ label: "跳到 Raw", action: "open-raw-event", index: node.eventIndex ?? node.sourceIndex });
-    actions.push({ label: "复制事件索引", copy: String(node.eventIndex ?? node.sourceIndex), toast: "已复制事件索引" });
+    actions.unshift({ label: "跳到原始事件", action: "open-raw-event", index: node.eventIndex ?? node.sourceIndex });
+    actions.push({ label: "复制事件索引", copy: String(node.eventIndex ?? node.sourceIndex), toast: "已复制事件索引", sensitive: false });
   }
   if (node.itemRef) actions.unshift({ label: "查看关联项", action: "open-item-ref", ref: node.itemRef });
   if (node.traceNodeId) actions.push({ label: "查看执行节点", action: "open-trace-node", id: node.traceNodeId });
@@ -4609,7 +5770,7 @@ function auditSelectionActions(node) {
 
 function auditTurnSelectionActions(turn) {
   return [
-    { label: "复制摘要", copy: `Turn ${turn.turnNumber}\n目标：${turn.intentSummary}\n结果：${turn.finalSummary}`, toast: "已复制 Turn 审计摘要" },
+    { label: "复制摘要", copy: `第 ${turn.turnNumber} 轮\n目标：${turn.intentSummary}\n结果：${turn.finalSummary}`, toast: "已复制轮次审计摘要" },
     { label: "复制 JSON", action: "copy-debug" },
   ];
 }
@@ -4628,13 +5789,34 @@ function itemSelectionActions(item) {
   const body = readable.summary || item.text || item.output || item.arguments || item.payloadPreview || "";
   if (body) actions.unshift({ label: "复制内容", copy: body, toast: "已复制内容" });
   if (item.sourceIndex != null || item.outputSourceIndex != null) {
-    actions.push({ label: "跳到 Raw", action: "open-raw-event", index: item.sourceIndex ?? item.outputSourceIndex });
+    actions.push({ label: "跳到原始事件", action: "open-raw-event", index: item.sourceIndex ?? item.outputSourceIndex });
   }
   return actions;
 }
 
 function buildReviewContext() {
   if (!state.detail) {
+    if (state.sessionLoading) {
+      return reviewContextBase({
+        kind: "loading",
+        kindLabel: "读取中",
+        title: "正在读取目标会话",
+        summary: `${selectedSessionDisplayTitle()} · 正在解析会话正文、事件和审计链。`,
+        badges: [selectedSource()?.label || "当前数据源"],
+        metrics: { events: 0, evidence: 0, relations: 0 },
+      });
+    }
+    if (state.sessionLoadError) {
+      return reviewContextBase({
+        kind: "error",
+        kindLabel: "读取失败",
+        title: "无法读取目标会话",
+        riskLevel: "medium",
+        summary: `${selectedSessionDisplayTitle()} · ${state.sessionLoadError}`,
+        badges: [selectedSource()?.label || "当前数据源"],
+        metrics: { events: 0, evidence: 0, relations: 0 },
+      });
+    }
     return reviewContextBase({
       kind: "empty",
       kindLabel: "未选择",
@@ -4704,7 +5886,7 @@ function buildSessionBriefReviewContext(detail) {
     risks: risks.length,
     turns: stats.turnCount ?? detail.turns?.length ?? 0,
     tools: countItems("tool-call"),
-    tokens: tokenUsage ? compactNumber(tokenUsage.total_tokens || tokenUsage.totalTokens || 0) : "n/a",
+    tokens: tokenUsage ? compactNumber(tokenUsage.total_tokens || tokenUsage.totalTokens || 0) : "未记录",
   };
   const evidence = [
     ...verification.slice(0, 8).map(reviewEvidenceFromAuditNode),
@@ -4714,25 +5896,25 @@ function buildSessionBriefReviewContext(detail) {
     evidence.push({
       kind: "概览",
       title: "没有优先风险或缺口",
-      meta: "Session Brief",
-      body: "从 Audit 视图选择 Turn、执行节点或证据节点后，复核台会切换到对象级复核。",
+      meta: "会话概览",
+      body: "从审计链视图选择轮次、执行节点或证据节点后，复核台会切换到对象级复核。",
     });
   }
   return reviewContextBase({
     kind: "session",
-    kindLabel: "Session Brief",
+    kindLabel: "会话概览",
     title: session.title || "未命名会话",
     riskLevel: highestRiskLevel(risks),
-    badges: [session.dataSourceKind === "remote" ? "远程快照" : "本机只读", `${metrics.turns} turns`, `${metrics.events} events`],
-    summary: auditNodeFullBody(finalNode) || finalNode?.summary || "当前会话的默认复核入口。选择 Audit 节点、工具调用、Raw event 或子代理后，右侧会切换到对象级复核。",
+    badges: [session.dataSourceKind === "remote" ? "远端快照" : "本机只读", `${metrics.turns} 轮次`, `${metrics.events} 事件`],
+    summary: auditNodeFullBody(finalNode) || finalNode?.summary || "当前会话的默认复核入口。选择审计链节点、工具调用、原始事件或子代理后，右侧会切换到对象级复核。",
     rows: [
       ["数据源", session.sourceLabel || selectedSource()?.label || "本机 Codex Home"],
-      ["模型", [session.model, session.reasoningEffort].filter(Boolean).join(" / ") || "unknown"],
-      ["工作目录", session.cwd || "Projectless"],
-      ["时间范围", [formatDate(startedAt), formatDate(endedAt)].filter(Boolean).join(" - ") || "n/a"],
-      ["持续时间", duration == null ? "n/a" : formatDuration(duration)],
-      ["Tokens", metrics.tokens],
-      ["数据文件", session.relativePath || "n/a"],
+      ["模型", [session.model, session.reasoningEffort].filter(Boolean).join(" / ") || "未记录"],
+      ["工作目录", session.cwd || "无项目"],
+      ["时间范围", [formatDate(startedAt), formatDate(endedAt)].filter(Boolean).join(" - ") || "未记录"],
+      ["持续时间", duration == null ? "未记录" : formatDuration(duration)],
+      ["上下文占用", metrics.tokens],
+      ["数据文件", session.relativePath || "未记录"],
     ],
     metrics,
     evidence,
@@ -4747,13 +5929,13 @@ function buildSessionBriefReviewContext(detail) {
       })),
     ],
     sources: [
-      { label: "Session detail", value: session.id || "n/a", data: { session, stats } },
-      { label: "数据文件", value: stats.dataPath || session.relativePath || "n/a", data: stats.dataPath || session.relativePath || "" },
+      { label: "会话详情（技术）", value: session.id || "未记录", data: { session, stats } },
+      { label: "数据文件", value: stats.dataPath || session.relativePath || "未记录", data: stats.dataPath || session.relativePath || "" },
     ],
     actions: [
-      { label: "复制引用", action: "copy-reference" },
+      { label: "复制会话引用", action: "copy-reference" },
       { label: "复制 Markdown", action: "copy-markdown" },
-      { label: "复制会话 ID", copy: session.id || "", toast: "已复制会话 ID" },
+      { label: "复制会话 ID", copy: session.id || "", toast: "已复制会话 ID", sensitive: false },
       { label: "复制证据包", action: "copy-evidence" },
     ],
     debugData: { session, stats, metrics, auditCounts: audit.counts || auditNodeCounts(nodes) },
@@ -4774,25 +5956,25 @@ function buildAuditNodeReviewContext(node) {
     related ? reviewRelationFromAuditNode(related, "关联节点") : null,
     traceNode ? reviewRelationFromTraceNode(traceNode, "执行节点") : null,
     item ? reviewRelationFromItem(item, "关联项") : null,
-    event ? reviewRelationFromEvent(event, "Raw event") : null,
+    event ? reviewRelationFromEvent(event, "原始事件") : null,
   ].filter(Boolean);
   return reviewContextBase({
     kind: "audit_node",
-    kindLabel: "Audit 节点",
+    kindLabel: "审计链节点",
     title: readable.title || node.title || auditTypeLabel(node.type),
     riskLevel: node.riskLevel || "none",
-    badges: [auditTypeLabel(node.type), node.turnNumber ? `Turn ${node.turnNumber}` : "未定位 Turn", auditEventIndexLabel(node)].filter(Boolean),
-    summary: body || "该 Audit 节点没有摘要正文。",
+    badges: [auditTypeLabel(node.type), node.turnNumber ? `第 ${node.turnNumber} 轮` : "未定位轮次", auditEventIndexLabel(node)].filter(Boolean),
+    summary: body || "该审计链节点没有摘要正文。",
     changeSet: readable.changeSet,
     rows: [
       ["节点类型", auditTypeLabel(node.type)],
-      ["状态", node.status || "n/a"],
+      ["状态", node.status || "未记录"],
       ["风险信号", auditRiskLabel(node.riskLevel || "none")],
-      ["Turn", node.turnNumber ? String(node.turnNumber) : "n/a"],
-      ["时间", formatDate(node.timestamp) || "n/a"],
-      ["itemRef", node.itemRef || "n/a"],
-      ["事件索引", auditEventIndexLabel(node) || "n/a"],
-      ["工具", node.toolName || "n/a"],
+      ["轮次", node.turnNumber ? String(node.turnNumber) : "未记录"],
+      ["时间", formatDate(node.timestamp) || "未记录"],
+      ["关联项引用", node.itemRef || "未记录"],
+      ["事件索引", auditEventIndexLabel(node) || "未记录"],
+      ["工具", node.toolName || "未记录"],
     ],
     metrics: { events: Number(node.eventIndex != null || node.sourceIndex != null), evidence: evidence.length, relations: relations.length },
     evidence,
@@ -4822,13 +6004,13 @@ function buildAuditTurnReviewContext(turn) {
   ];
   return reviewContextBase({
     kind: "audit_turn",
-    kindLabel: "Turn 审计",
-    title: `Turn ${turn.turnNumber}`,
+    kindLabel: "轮次审计",
+    title: `第 ${turn.turnNumber} 轮`,
     riskLevel: highestRiskLevel(riskNodes),
-    badges: [turn.stats.verificationStatus, turn.stats.riskLabel, `${turn.auditNodes.length} audit nodes`].filter(Boolean),
+    badges: [turn.stats.verificationStatus, turn.stats.riskLabel, `${turn.auditNodes.length} 个审计节点`].filter(Boolean),
     summary: [`目标：${auditTurnIntentBody(turn)}`, `结果：${auditTurnFinalBody(turn)}`].join("\n"),
     rows: [
-      ["Turn", String(turn.turnNumber)],
+      ["轮次", String(turn.turnNumber)],
       ["验证状态", turn.stats.verificationStatus],
       ["最高风险", turn.stats.riskLabel],
       ["工具调用", String(turn.stats.toolCount)],
@@ -4843,9 +6025,9 @@ function buildAuditTurnReviewContext(turn) {
     },
     evidence: evidenceNodes.length
       ? evidenceNodes.slice(0, 14).map(reviewEvidenceFromAuditNode)
-      : [{ kind: "Turn", title: "没有独立证据节点", meta: "Audit", body: "展开 Audit 主视图可以查看本 Turn 的执行链。" }],
+      : [{ kind: "轮次", title: "没有独立证据节点", meta: "审计链", body: "展开审计链视图可以查看本轮次的执行链。" }],
     relations,
-    sources: [{ label: "Turn model", value: turn.key, data: auditTurnDebugPreview(turn) }],
+    sources: [{ label: "轮次复核模型", value: turn.key, data: auditTurnDebugPreview(turn) }],
     actions: auditTurnSelectionActions(turn),
     debugData: auditTurnDebugPreview(turn),
   });
@@ -4865,16 +6047,16 @@ function buildTraceReviewContext(node) {
     kindLabel: "执行节点",
     title: readable?.title || node.title || node.label || node.id,
     riskLevel: traceRiskLevel(node, item),
-    badges: [traceTypeLabel(node.type), node.status, item?.sourceIndex != null ? `event #${item.sourceIndex}` : ""].filter(Boolean),
+    badges: [traceTypeLabel(node.type), node.status, item?.sourceIndex != null ? `事件 ${item.sourceIndex}` : ""].filter(Boolean),
     summary: body || node.subtitle || "该执行节点没有可显示的正文摘要。",
     changeSet: readable?.changeSet,
     rows: [
       ["类型", traceTypeLabel(node.type)],
-      ["状态", node.status || "n/a"],
-      ["时间", [formatDate(node.timestamp), formatDate(node.completedAt)].filter(Boolean).join(" - ") || "n/a"],
-      ["耗时", node.durationMs == null ? "n/a" : `${formatDuration(node.durationMs)}${node.durationEstimated ? " 估算" : ""}`],
-      ["工具", item?.name || "n/a"],
-      ["线程", thread.agentNickname || thread.title || node.threadId || thread.id || "n/a"],
+      ["状态", node.status || "未记录"],
+      ["时间", [formatDate(node.timestamp), formatDate(node.completedAt)].filter(Boolean).join(" - ") || "未记录"],
+      ["耗时", node.durationMs == null ? "未记录" : `${formatDuration(node.durationMs)}${node.durationEstimated ? " 估算" : ""}`],
+      ["工具", item?.name || "未记录"],
+      ["线程", thread.agentNickname || thread.title || node.threadId || thread.id || "未记录"],
     ],
     metrics: { events: item?.sourceIndex != null ? 1 : 0, evidence: item ? 1 : 0, relations: childRelations.length },
     evidence: item ? [reviewEvidenceFromItem(item, "节点明细")] : [{ kind: "执行", title: node.label || node.id, meta: node.status || "", body: node.subtitle || "" }],
@@ -4900,21 +6082,21 @@ function buildItemReviewContext(item) {
     kindLabel: itemTitle(item),
     title: readable.title || itemTitle(item),
     riskLevel: itemRiskLevel(item, linkedAuditNodes),
-    badges: [item.turnIndex == null ? "未定位 Turn" : `Turn ${item.turnIndex + 1}`, item.name, item.sourceIndex != null ? `event #${item.sourceIndex}` : ""].filter(Boolean),
+    badges: [item.turnIndex == null ? "未定位轮次" : `第 ${item.turnIndex + 1} 轮`, item.name, item.sourceIndex != null ? `事件 ${item.sourceIndex}` : ""].filter(Boolean),
     summary: body || "该关联项没有正文摘要。",
     changeSet: readable.changeSet,
     rows: [
       ["类型", itemTitle(item)],
-      ["Turn", item.turnIndex == null ? "n/a" : String(item.turnIndex + 1)],
-      ["时间", formatDate(item.timestamp) || "n/a"],
-      ["状态", [item.phase, item.status].filter(Boolean).join(" / ") || "n/a"],
-      ["工具", item.name || "n/a"],
-      ["Call ID", item.callId || "n/a"],
-      ["事件索引", item.sourceIndex != null ? `event #${item.sourceIndex}` : "n/a"],
+      ["轮次", item.turnIndex == null ? "未记录" : String(item.turnIndex + 1)],
+      ["时间", formatDate(item.timestamp) || "未记录"],
+      ["状态", [item.phase, item.status].filter(Boolean).join(" / ") || "未记录"],
+      ["工具", item.name || "未记录"],
+      ["调用 ID", item.callId || "未记录"],
+      ["事件索引", item.sourceIndex != null ? `事件 ${item.sourceIndex}` : "未记录"],
     ],
     metrics: { events: item.sourceIndex != null || item.outputSourceIndex != null ? 1 : 0, evidence: linkedAuditNodes.length || (body ? 1 : 0), relations: linkedAuditNodes.length },
     evidence: [reviewEvidenceFromItem(item, "关联项"), ...linkedAuditNodes.slice(0, 8).map(reviewEvidenceFromAuditNode)],
-    relations: [...linkedAuditNodes.slice(0, 10).map((node) => reviewRelationFromAuditNode(node, "Audit")), event ? reviewRelationFromEvent(event, "Raw event") : null].filter(Boolean),
+    relations: [...linkedAuditNodes.slice(0, 10).map((node) => reviewRelationFromAuditNode(node, "审计链")), event ? reviewRelationFromEvent(event, "原始事件") : null].filter(Boolean),
     sources: buildSourceRefs({ eventIndex: item.sourceIndex ?? item.outputSourceIndex, item }),
     actions: itemSelectionActions(item),
     debugData: itemDebugPreview(item),
@@ -4927,27 +6109,27 @@ function buildRawEventReviewContext(event) {
   const readable = readableRawEvent(event);
   const compactEvidence = compactReplacementReviewEvidence(event);
   const rows = [
-    ["事件", `event #${event.index}`],
-    ["分类", event.kind || "n/a"],
-    ["类型", [event.type, event.payloadType, event.role].filter(Boolean).join(" / ") || "n/a"],
-    ["时间", formatDate(event.timestamp) || "n/a"],
-    ["Payload", event.payloadSize ? formatBytes(event.payloadSize) : "n/a"],
+    ["事件", `事件 ${event.index}`],
+    ["分类", event.kind || "未记录"],
+    ["类型", [event.type, event.payloadType, event.role].filter(Boolean).join(" / ") || "未记录"],
+    ["时间", formatDate(event.timestamp) || "未记录"],
+    ["原始内容", event.payloadSize ? formatBytes(event.payloadSize) : "未记录"],
     ...compactReviewRows(event),
   ];
-  const summary = isCompactEvent(event) ? readable.body || readable.summary || event.preview : readable.summary || event.preview || "Raw 事件没有预览正文。";
+  const summary = isCompactEvent(event) ? readable.body || readable.summary || event.preview : readable.summary || event.preview || "原始事件没有预览正文。";
   return reviewContextBase({
     kind: "raw_event",
-    kindLabel: "Raw event",
-    title: `#${event.index} ${readable.title || humanEventTitle(event)}`,
+    kindLabel: "原始事件",
+    title: `事件 ${event.index} ${readable.title || humanEventTitle(event)}`,
     riskLevel: rawEventRiskLevel(event, linkedAuditNodes),
-    badges: [event.kind || event.type || "event", formatDate(event.timestamp) || "", event.payloadSize ? formatBytes(event.payloadSize) : ""].filter(Boolean),
+    badges: [event.kind || event.type || "事件", formatDate(event.timestamp) || "", event.payloadSize ? formatBytes(event.payloadSize) : ""].filter(Boolean),
     summary,
     changeSet: readable.changeSet,
     rows,
     metrics: { events: 1, evidence: linkedAuditNodes.length + compactEvidence.length, relations: linkedItems.length + linkedAuditNodes.length },
     evidence: [reviewEvidenceFromEvent(event, "事件预览"), ...compactEvidence, ...linkedAuditNodes.slice(0, 8).map(reviewEvidenceFromAuditNode)],
-    relations: [...linkedItems.slice(0, 10).map((item) => reviewRelationFromItem(item, "关联项")), ...linkedAuditNodes.slice(0, 10).map((node) => reviewRelationFromAuditNode(node, "Audit"))],
-    sources: [{ label: "完整 Raw event", value: `event #${event.index}`, eventIndex: event.index, data: event, lazy: true }],
+    relations: [...linkedItems.slice(0, 10).map((item) => reviewRelationFromItem(item, "关联项")), ...linkedAuditNodes.slice(0, 10).map((node) => reviewRelationFromAuditNode(node, "审计链"))],
+    sources: [{ label: "完整原始事件", value: `事件 ${event.index}`, eventIndex: event.index, data: event, lazy: true }],
     actions: rawEventSelectionActions(event),
     debugData: event,
   });
@@ -4957,11 +6139,11 @@ function compactReviewRows(event) {
   const compact = event?.compact;
   if (!compact) return [];
   return [
-    ["Compact 阶段", compact.phase || "n/a"],
-    ["Window", compact.windowNumber == null ? "n/a" : String(compact.windowNumber)],
-    ["替换历史", compact.replacementHistoryCount == null ? "n/a" : String(compact.replacementHistoryCount)],
-    ["当前窗口", compact.windowId || "n/a"],
-    ["上一窗口", compact.previousWindowId || "n/a"],
+    ["压缩阶段", compact.phase || "未记录"],
+    ["窗口", compact.windowNumber == null ? "未记录" : String(compact.windowNumber)],
+    ["替换历史", compact.replacementHistoryCount == null ? "未记录" : String(compact.replacementHistoryCount)],
+    ["当前窗口", compact.windowId || "未记录"],
+    ["上一窗口", compact.previousWindowId || "未记录"],
   ];
 }
 
@@ -4973,13 +6155,13 @@ function compactReplacementReviewEvidence(event) {
   const more = Math.max(0, total - preview.length);
   return [
     {
-      kind: "Compact",
+      kind: "上下文压缩",
       title: `被替换的对话 (${preview.length}${more ? ` / ${total}` : ""})`,
-      meta: [compact.windowNumber != null ? `window ${compact.windowNumber}` : "", more ? `还有 ${more} 条在 Raw JSON` : ""].filter(Boolean).join(" · "),
+      meta: [compact.windowNumber != null ? `窗口 ${compact.windowNumber}` : "", more ? `还有 ${more} 条在原始 JSON` : ""].filter(Boolean).join(" · "),
       body: preview.map(compactReplacementReviewLine).join("\n"),
       action: "open-raw-event",
       index: event.index,
-      actionLabel: "打开 Raw",
+      actionLabel: "打开原始事件",
     },
   ];
 }
@@ -4987,21 +6169,30 @@ function compactReplacementReviewEvidence(event) {
 function compactReplacementReviewLine(entry = {}) {
   const meta = [
     entry.textLength != null ? `${compactNumber(entry.textLength)} 字符` : "",
-    entry.turnId ? `turn ${compactReplacementShortId(entry.turnId)}` : "",
+    entry.turnId ? `轮次 ID ${compactReplacementShortId(entry.turnId)}` : "",
     entry.type,
   ]
     .filter(Boolean)
     .join(" · ");
-  return `#${entry.index ?? ""} ${compactReplacementRoleLabel(entry.role)}${meta ? ` · ${meta}` : ""}\n${entry.preview || "[无文本内容]"}`;
+  return `替换记录 ${entry.index ?? ""} ${compactReplacementRoleLabel(entry.role)}${meta ? ` · ${meta}` : ""}\n${entry.preview || "[无文本内容]"}`;
+}
+
+function syncReviewPanelHeading() {
+  const header = els.inspectorActions?.closest(".inspector")?.querySelector(".panel-header");
+  const eyebrow = header?.querySelector(".eyebrow");
+  const heading = header?.querySelector("h2");
+  if (eyebrow) eyebrow.textContent = "复核台";
+  if (heading) heading.textContent = "复核对象";
 }
 
 function renderReviewHeader(context) {
+  syncReviewPanelHeading();
   if (!state.detail) {
     els.sessionDetails.innerHTML = `
-      <div class="review-object-head empty">
-        <span class="review-kind">未选择</span>
-        <strong>选择一个会话</strong>
-        <p>复核台会显示当前对象的摘要、证据、关系和来源。</p>
+      <div class="review-object-head empty risk-${escapeAttr(context.riskLevel || "none")}">
+        <span class="review-kind">${escapeHtml(context.kindLabel || "未选择")}</span>
+        <strong>${escapeHtml(context.title || "选择一个会话")}</strong>
+        <p>${escapeHtml(context.summary || "复核台会显示当前对象的摘要、证据、关系和来源。")}</p>
       </div>
     `;
     return;
@@ -5027,11 +6218,17 @@ function renderReviewTabs() {
     const active = button.dataset.reviewTab === state.reviewTab;
     button.classList.toggle("active", active);
     button.setAttribute("aria-selected", active ? "true" : "false");
+    button.tabIndex = active ? 0 : -1;
   });
 }
 
+function setReviewTab(tab) {
+  state.reviewTab = tab || "summary";
+  renderInspector();
+}
+
 function renderReviewBody(context) {
-  if (!state.detail) return renderReviewEmpty("未选择会话", "左侧选择会话后，复核台会显示 Session Brief。");
+  if (!state.detail) return renderReviewEmpty(context.title || "未选择会话", context.summary || "左侧选择会话后，复核台会显示会话概览。");
   if (state.reviewTab === "evidence") return renderReviewEvidence(context);
   if (state.reviewTab === "relations") return renderReviewRelations(context);
   if (state.reviewTab === "source") return renderReviewSource(context);
@@ -5332,7 +6529,7 @@ function renderReviewSource(context) {
     <div class="review-section">
       <div class="section-title-row">
         <h3>来源</h3>
-        <span class="muted">按需 Raw</span>
+        <span class="muted">按需原始事件</span>
       </div>
       ${sources.length ? `<div class="review-source-list">${sources.map((source, index) => renderReviewSourceCard(source, index)).join("")}</div>` : ""}
       <div class="review-source-preview">
@@ -5349,14 +6546,22 @@ function renderReviewSource(context) {
 function renderReviewActions(context) {
   const actions = normalizeReviewActions(context);
   return actions
-    .map((action, index) => `<button class="ghost-button small" type="button" data-review-action="${index}">${escapeHtml(action.label)}</button>`)
+    .map((action, index) => {
+      const disabledReason = reviewActionDisabledReason(action);
+      const title = disabledReason || action.title || action.label || "";
+      return `<button class="ghost-button small" type="button" data-review-action="${index}" data-review-action-type="${escapeAttr(action.action || "")}" title="${escapeAttr(title)}" ${disabledReason ? "disabled" : ""}>${escapeHtml(action.label)}</button>`;
+    })
     .join("");
 }
 
 function normalizeReviewActions(context) {
   if (!state.detail) return [];
+  const referenceLabel = context.kind === "session" ? "复制会话引用" : "复制对象引用";
   const actions = [...(context.actions || [])];
-  if (!actions.some((action) => action.action === "copy-reference")) actions.unshift({ label: "复制引用", action: "copy-reference" });
+  actions.forEach((action) => {
+    if (action.action === "copy-reference" && action.label === "复制引用") action.label = referenceLabel;
+  });
+  if (!actions.some((action) => action.action === "copy-reference")) actions.unshift({ label: referenceLabel, action: "copy-reference" });
   if (!actions.some((action) => action.action === "copy-evidence")) actions.push({ label: "复制证据包", action: "copy-evidence" });
   return dedupeActions(actions);
 }
@@ -5410,7 +6615,7 @@ function renderReviewSourceCard(source, index) {
     <div class="review-source-card">
       <div>
         <strong>${escapeHtml(source.label || "来源")}</strong>
-        <span>${escapeHtml(source.value || "n/a")}</span>
+        <span>${escapeHtml(source.value || "未记录")}</span>
       </div>
       ${button}
     </div>
@@ -5458,6 +6663,13 @@ function bindReviewActions(context) {
 
 async function runReviewAction(action, context = buildReviewContext()) {
   if (!action) return;
+  const disabledReason = reviewActionDisabledReason(action);
+  if (disabledReason) {
+    showToast(disabledReason);
+    syncExportButtons();
+    renderInspector();
+    return;
+  }
   if (action.action === "copy-reference") return copyReviewReference(context);
   if (action.action === "copy-evidence") return copyReviewEvidence(context);
   if (action.action === "copy-debug") return copySelectedRawEvent();
@@ -5472,7 +6684,15 @@ async function runReviewAction(action, context = buildReviewContext()) {
     renderInspector();
     return;
   }
-  if (action.copy != null) return copyInspectorText(action.copy, action.toast || "已复制");
+  if (action.copy != null) return copyInspectorText(action.copy, action.toast || "已复制", { sensitive: action.sensitive !== false });
+}
+
+function reviewActionDisabledReason(action) {
+  if (!action) return "";
+  if (action.disabledReason) return action.disabledReason;
+  if (action.disabled) return action.title || "当前操作不可用";
+  if (action.action === "copy-markdown") return markdownExportBlockedReason();
+  return "";
 }
 
 async function loadReviewSource(source) {
@@ -5482,9 +6702,13 @@ async function loadReviewSource(source) {
     preview.textContent = JSON.stringify(source.data ?? source.value ?? null, null, 2);
     return;
   }
-  preview.textContent = JSON.stringify(source.data || {}, null, 2) + "\n\n正在按需读取完整 payload...";
+  preview.textContent = JSON.stringify(source.data || {}, null, 2) + "\n\n正在按需读取完整原始事件...";
   try {
     const raw = await loadRawEvent(source.eventIndex);
+    if (!raw) {
+      preview.textContent = JSON.stringify(source.data || {}, null, 2) + "\n\n会话已切换，已忽略旧原始事件响应。";
+      return;
+    }
     preview.textContent = JSON.stringify(raw, null, 2);
   } catch (error) {
     preview.textContent = JSON.stringify(source.data || {}, null, 2) + `\n\n读取完整事件失败：${error.message}`;
@@ -5498,7 +6722,7 @@ function reviewEvidenceFromAuditNode(node) {
   return {
     kind: auditTypeLabel(node.type),
     title: readable.title || node.title || auditTypeLabel(node.type),
-    meta: [node.turnNumber ? `Turn ${node.turnNumber}` : "", node.toolName, auditEventIndexLabel(node), auditRiskMetaLabel(node.riskLevel)].filter(Boolean).join(" · "),
+    meta: [node.turnNumber ? `第 ${node.turnNumber} 轮` : "", node.toolName, auditEventIndexLabel(node), auditRiskMetaLabel(node.riskLevel)].filter(Boolean).join(" · "),
     body,
     changeSet: readable.changeSet,
     commandModel: reviewCommandOutputModelFromPieces(body, {
@@ -5523,7 +6747,7 @@ function reviewEvidenceFromItem(item, kind = "关联项") {
   return {
     kind,
     title: readable.title || itemTitle(item),
-    meta: [item.turnIndex == null ? "" : `Turn ${item.turnIndex + 1}`, item.name, item.sourceIndex != null ? `event #${item.sourceIndex}` : ""].filter(Boolean).join(" · "),
+    meta: [item.turnIndex == null ? "" : `第 ${item.turnIndex + 1} 轮`, item.name, item.sourceIndex != null ? `事件 ${item.sourceIndex}` : ""].filter(Boolean).join(" · "),
     body,
     changeSet: readable.changeSet,
     commandModel: reviewCommandOutputModelFromPieces(body, {
@@ -5540,27 +6764,27 @@ function reviewEvidenceFromItem(item, kind = "关联项") {
   };
 }
 
-function reviewEvidenceFromEvent(event, kind = "Raw event") {
+function reviewEvidenceFromEvent(event, kind = "原始事件") {
   const readable = readableRawEvent(event);
   return {
     kind,
-    title: `#${event.index} ${readable.title || humanEventTitle(event)}`,
+    title: `事件 ${event.index} ${readable.title || humanEventTitle(event)}`,
     meta: [event.kind || event.type, formatDate(event.timestamp)].filter(Boolean).join(" · "),
     body: readable.summary || event.preview || "",
     changeSet: readable.changeSet,
     riskLevel: rawEventRiskLevel(event, auditNodesForEventIndex(event.index)),
     action: "open-raw-event",
     index: event.index,
-    actionLabel: "打开 Raw",
+    actionLabel: "打开原始事件",
   };
 }
 
-function reviewRelationFromAuditNode(node, kind = "Audit") {
+function reviewRelationFromAuditNode(node, kind = "审计链") {
   const readable = readableAuditNode(node);
   return {
     kind,
     title: readable.title || node.title || auditTypeLabel(node.type),
-    meta: [readable.summary, auditTypeLabel(node.type), auditRiskMetaLabel(node.riskLevel), node.turnNumber ? `Turn ${node.turnNumber}` : ""].filter(Boolean).join(" · "),
+    meta: [readable.summary, auditTypeLabel(node.type), auditRiskMetaLabel(node.riskLevel), node.turnNumber ? `第 ${node.turnNumber} 轮` : ""].filter(Boolean).join(" · "),
     action: "open-audit-node",
     id: node.id,
   };
@@ -5582,17 +6806,17 @@ function reviewRelationFromItem(item, kind = "关联项") {
   return {
     kind,
     title: readable.title || itemTitle(item),
-    meta: [readable.summary, item.turnIndex == null ? "" : `Turn ${item.turnIndex + 1}`, item.name].filter(Boolean).join(" · "),
+    meta: [readable.summary, item.turnIndex == null ? "" : `第 ${item.turnIndex + 1} 轮`, item.name].filter(Boolean).join(" · "),
     action: "open-item-ref",
     ref: itemRef(item),
   };
 }
 
-function reviewRelationFromEvent(event, kind = "Raw") {
+function reviewRelationFromEvent(event, kind = "原始事件") {
   const readable = readableRawEvent(event);
   return {
     kind,
-    title: `#${event.index} ${readable.title || humanEventTitle(event)}`,
+    title: `事件 ${event.index} ${readable.title || humanEventTitle(event)}`,
     meta: [readable.summary, event.kind || event.type, formatDate(event.timestamp)].filter(Boolean).join(" · "),
     action: "open-raw-event",
     index: event.index,
@@ -5603,17 +6827,17 @@ function buildSourceRefs({ eventIndex, item, node, traceNode } = {}) {
   const sources = [];
   if (eventIndex != null) {
     const event = eventByIndex(eventIndex);
-    sources.push({ label: "Raw event", value: `event #${eventIndex}`, eventIndex, data: event, lazy: true });
+    sources.push({ label: "原始事件", value: `事件 ${eventIndex}`, eventIndex, data: event, lazy: true });
   }
-  if (item) sources.push({ label: "Item model", value: itemRef(item), data: itemDebugPreview(item) });
-  if (node) sources.push({ label: "Audit node", value: node.id, data: auditNodeDebugPreview(node) });
-  if (traceNode) sources.push({ label: "Trace node", value: traceNode.id, data: traceNodePreview(traceNode) });
+  if (item) sources.push({ label: "关联项模型", value: itemRef(item), data: itemDebugPreview(item) });
+  if (node) sources.push({ label: "审计链节点", value: node.id, data: auditNodeDebugPreview(node) });
+  if (traceNode) sources.push({ label: "执行节点模型", value: traceNode.id, data: traceNodePreview(traceNode) });
   return sources;
 }
 
 function rawEventSelectionActions(event) {
   return [
-    { label: "读取完整 Raw", action: "switch-review-tab", tab: "source" },
+    { label: "读取完整原始事件", action: "switch-review-tab", tab: "source" },
     { label: "复制摘要", copy: event.preview || humanEventTitle(event), toast: "已复制事件摘要" },
     { label: "复制 JSON", action: "copy-debug" },
   ];
@@ -5701,7 +6925,7 @@ function locateAuditNode(id) {
   if (!id) return;
   const target = findAuditNode(id);
   if (!target) {
-    showToast("未找到 Audit 节点");
+    showToast("未找到审计链节点");
     return;
   }
   if (state.viewMode !== "audit") state.viewMode = "audit";
@@ -5713,14 +6937,17 @@ function reviewReference(context = buildReviewContext()) {
   const session = state.detail?.session || {};
   const parts = [context.kindLabel || context.kind || "对象", context.title || "未命名对象"];
   if (context.badges?.length) parts.push(context.badges.join(" · "));
-  if (session.id) parts.push(`session: ${session.id}`);
+  if (session.id) parts.push(`会话：${session.id}`);
   return parts.filter(Boolean).join("\n");
 }
 
 async function copyReviewReference(context = buildReviewContext()) {
   if (!state.detail) return;
-  await copyText(reviewReference(context));
-  showToast("已复制引用");
+  await copyWithToast(reviewReference(context), context.kind === "session" ? "已复制会话引用" : "已复制对象引用");
+}
+
+function sensitiveCopyToast(prefix) {
+  return `${prefix}；可能包含会话正文、路径、命令参数、命令输出或原始内容，请谨慎分享`;
 }
 
 async function copyReviewEvidence(context = buildReviewContext()) {
@@ -5732,8 +6959,7 @@ async function copyReviewEvidence(context = buildReviewContext()) {
     relations: context.relations,
     sources: (context.sources || []).map((source) => ({ label: source.label, value: source.value, eventIndex: source.eventIndex ?? null })),
   };
-  await copyText(JSON.stringify(pack, null, 2));
-  showToast("已复制证据包");
+  await copyWithToast(JSON.stringify(pack, null, 2), sensitiveCopyToast("已复制证据包"));
 }
 
 function toggleTraceNode(id) {
@@ -5750,56 +6976,121 @@ async function copySelectedRawEvent() {
   if (state.selectedTraceNodeId) {
     const node = findTraceNode(state.detail.trace?.root, state.selectedTraceNodeId);
     if (!node) return;
-    await copyText(JSON.stringify(traceNodePreview(node), null, 2));
-    showToast("已复制执行节点");
+    await copyWithToast(JSON.stringify(traceNodePreview(node), null, 2), sensitiveCopyToast("已复制执行节点"));
     return;
   }
   if (state.selectedAuditNodeId) {
     const node = findAuditNode(state.selectedAuditNodeId);
     if (!node) return;
-    await copyText(JSON.stringify(auditNodeDebugPreview(node), null, 2));
-    showToast("已复制 Audit 节点");
+    await copyWithToast(JSON.stringify(auditNodeDebugPreview(node), null, 2), sensitiveCopyToast("已复制审计链节点"));
     return;
   }
   if (state.selectedAuditTurnKey) {
     const turn = findAuditTurn(state.selectedAuditTurnKey);
     if (!turn) return;
-    await copyText(JSON.stringify(auditTurnDebugPreview(turn), null, 2));
-    showToast("已复制 Turn 审计摘要");
+    await copyWithToast(JSON.stringify(auditTurnDebugPreview(turn), null, 2), sensitiveCopyToast("已复制轮次审计摘要"));
     return;
   }
   if (state.selectedItemRef) {
     const item = findItemByRef(state.selectedItemRef);
     if (!item) return;
-    await copyText(JSON.stringify(itemDebugPreview(item), null, 2));
-    showToast("已复制关联项 JSON");
+    await copyWithToast(JSON.stringify(itemDebugPreview(item), null, 2), sensitiveCopyToast("已复制关联项 JSON"));
     return;
   }
   if (state.selectedEventIndex == null) return;
   const event = await loadRawEvent(state.selectedEventIndex);
-  await copyText(JSON.stringify(event, null, 2));
-    showToast("已复制调试 JSON");
+  if (!event) return;
+  await copyWithToast(JSON.stringify(event, null, 2), sensitiveCopyToast("已复制原始事件调试 JSON"));
 }
 
 async function copyMarkdown() {
-  if (!state.detail?.session?.id) return;
-  const markdown = await fetchText(sourceMarkdownUrl(state.detail.session.id));
-  await copyText(markdown);
-  showToast("已复制 Markdown");
+  const blockedReason = markdownExportBlockedReason();
+  if (blockedReason) {
+    showToast(blockedReason);
+    syncExportButtons();
+    return;
+  }
+  const snapshot = markdownExportSnapshot();
+  if (!snapshot) {
+    showToast("未选择可导出的会话");
+    syncExportButtons();
+    return;
+  }
+  els.copyMarkdownButton.disabled = true;
+  try {
+    const markdown = await fetchText(sourceMarkdownUrl(snapshot.sessionId, snapshot.sourceId));
+    if (!markdownExportSnapshotStillCurrent(snapshot)) {
+      showToast("会话或数据源已切换，已取消本次 Markdown 复制");
+      return;
+    }
+    await copyText(markdown);
+    if (!markdownExportSnapshotStillCurrent(snapshot)) {
+      showToast("会话或数据源已切换，本次 Markdown 复制不再作为当前会话结果提示");
+      return;
+    }
+    showToast(sensitiveCopyToast("已复制 Markdown"));
+  } catch (error) {
+    showToast(`复制 Markdown 失败：${error.message}`);
+  } finally {
+    syncExportButtons();
+  }
 }
 
 async function downloadMarkdown() {
-  if (!state.detail?.session?.id) return;
-  const markdown = await fetchText(sourceMarkdownUrl(state.detail.session.id));
-  const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${sanitizeFileName(state.detail.session.title || state.detail.session.id)}.md`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+  const blockedReason = markdownExportBlockedReason();
+  if (blockedReason) {
+    showToast(blockedReason);
+    syncExportButtons();
+    return;
+  }
+  const snapshot = markdownExportSnapshot();
+  if (!snapshot) {
+    showToast("未选择可导出的会话");
+    syncExportButtons();
+    return;
+  }
+  els.downloadMarkdownButton.disabled = true;
+  try {
+    const markdown = await fetchText(sourceMarkdownUrl(snapshot.sessionId, snapshot.sourceId));
+    if (!markdownExportSnapshotStillCurrent(snapshot)) {
+      showToast("会话或数据源已切换，已取消本次 Markdown 下载");
+      return;
+    }
+    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${sanitizeFileName(snapshot.title || snapshot.sessionId)}.md`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    if (markdownExportSnapshotStillCurrent(snapshot)) showToast(sensitiveCopyToast("已下载 Markdown"));
+  } catch (error) {
+    showToast(`下载 Markdown 失败：${error.message}`);
+  } finally {
+    syncExportButtons();
+  }
+}
+
+function markdownExportSnapshot() {
+  const session = state.detail?.session;
+  if (!session?.id) return null;
+  return {
+    sourceId: state.selectedSourceId,
+    sessionId: session.id,
+    title: session.title || session.id,
+    selectedSessionKey: state.selectedSessionKey,
+  };
+}
+
+function markdownExportSnapshotStillCurrent(snapshot) {
+  if (!snapshot) return false;
+  return (
+    state.selectedSourceId === snapshot.sourceId &&
+    state.selectedSessionKey === snapshot.selectedSessionKey &&
+    state.detail?.session?.id === snapshot.sessionId
+  );
 }
 
 function countItems(type) {
@@ -5857,7 +7148,7 @@ function compactTraceItem(item) {
 function truncateText(value, max) {
   if (value == null) return value;
   const text = String(value);
-  return text.length > max ? `${text.slice(0, max)}\n\n... truncated ${text.length - max} chars for inspector preview ...` : value;
+  return text.length > max ? `${text.slice(0, max)}\n\n... 复核预览已截断 ${text.length - max} 个字符 ...` : value;
 }
 
 function traceNodeLabel(node) {
@@ -5883,7 +7174,7 @@ function traceIcon(node) {
 
 function formatDuration(ms) {
   const value = Number(ms);
-  if (!Number.isFinite(value)) return "n/a";
+  if (!Number.isFinite(value)) return "未记录";
   if (value < 1000) return `${Math.round(value)} ms`;
   if (value < 60_000) return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)} s`;
   const minutes = Math.floor(value / 60_000);
@@ -5922,7 +7213,7 @@ function readableCompactEvent(event) {
   const isSummary = compact.kind === "compacted" || event?.kind === "compacted";
   const title = isSummary ? "上下文压缩摘要" : "上下文压缩完成";
   const meta = [
-    compact.windowNumber != null ? `window ${compact.windowNumber}` : "",
+    compact.windowNumber != null ? `窗口 ${compact.windowNumber}` : "",
     compact.replacementHistoryCount ? `替换历史 ${compact.replacementHistoryCount}` : "",
     compact.messageLength ? `${compactNumber(compact.messageLength)} 字符` : "",
   ]
@@ -5967,7 +7258,7 @@ function itemTitle(item) {
     return readable.matched ? readable.title : "工具输出";
   }
   if (item.type === "reasoning") return "推理摘要";
-  if (item.type === "token-count") return "Token 统计";
+  if (item.type === "token-count") return "上下文占用统计";
   if (item.type === "context-compact") return item.compact?.kind === "context_compacted" ? "上下文压缩完成" : "上下文压缩摘要";
   return item.eventType || item.responseType || item.type;
 }
@@ -6088,7 +7379,7 @@ function groupEventsByTurn(events) {
   const turns = state.detail?.turns || [];
   if (turns.length === 0) return [{ label: "关键事件", events }];
   const groups = turns.map((turn, index) => ({
-    label: `Turn ${turn.turnNumber || index + 1}`,
+    label: `第 ${turn.turnNumber || index + 1} 轮`,
     start: dateMs(turn.startedAt),
     end: dateMs(turn.completedAt),
     events: [],
@@ -6118,7 +7409,7 @@ function humanEventTitle(event) {
   if (kind === "agent_message") return "助手消息";
   if (kind === "function_call" || kind === "custom_tool_call") return event.title || "工具调用";
   if (kind === "tool_output") return "工具输出";
-  if (kind === "token_count" || event.payloadType === "token_count") return "Token 统计";
+  if (kind === "token_count" || event.payloadType === "token_count") return "上下文占用统计";
   if (isCompactEvent(event)) return event.compact?.kind === "context_compacted" ? "上下文压缩完成" : "上下文压缩摘要";
   if (/spawn_agent/i.test(event.preview || event.title || "")) return "启动子代理";
   if (/wait_agent/i.test(event.preview || event.title || "")) return "等待子代理";
@@ -6146,7 +7437,7 @@ function dateMs(value) {
 
 function traceTypeLabel(type) {
   if (type === "thread") return "线程";
-  if (type === "turn") return "Turn";
+  if (type === "turn") return "轮次";
   if (type === "agent_message") return "助手消息";
   if (type === "tool") return "工具";
   if (type === "handoff") return "委派";
@@ -6167,13 +7458,12 @@ function emptyInspectorSection(title, subtitle) {
   `;
 }
 
-async function copyInspectorText(text, message) {
+async function copyInspectorText(text, message, { sensitive = true } = {}) {
   if (!text) {
     showToast("没有可复制内容");
     return;
   }
-  await copyText(String(text));
-  showToast(message);
+  await copyWithToast(String(text), sensitive ? sensitiveCopyToast(message) : message);
 }
 
 async function handleMarkdownCodeCopy(event) {
@@ -6186,11 +7476,11 @@ async function handleMarkdownCodeCopy(event) {
     showToast("没有可复制代码");
     return;
   }
-  await copyText(code);
+  const copied = await copyWithToast(code, sensitiveCopyToast("已复制代码"));
+  if (!copied) return;
   const originalText = button.textContent;
   button.textContent = "已复制";
   button.disabled = true;
-  showToast("已复制代码");
   setTimeout(() => {
     button.textContent = originalText || "复制";
     button.disabled = false;
@@ -6203,8 +7493,8 @@ function selectedSource() {
 
 function sourceLabel(source) {
   const status = source.status || {};
-  const suffix = source.kind === "remote" && status.stale ? "旧快照" : source.kind === "remote" ? "远程" : "本机";
-  return `${source.label || source.id} (${suffix})`;
+  const suffix = source.kind === "remote" && status.stale ? "旧远端快照" : source.kind === "remote" ? "远端快照" : "本机";
+  return [source.label || source.id, suffix ? `(${suffix})` : ""].filter(Boolean).join(" ");
 }
 
 function upsertSource(source) {
@@ -6216,34 +7506,34 @@ function upsertSource(source) {
   }
 }
 
-function sourceSessionsUrl() {
-  return `/api/sources/${encodeURIComponent(state.selectedSourceId)}/sessions`;
+function sourceSessionsUrl(sourceId = state.selectedSourceId) {
+  return `/api/sources/${encodeURIComponent(sourceId)}/sessions`;
 }
 
-function remoteIndexUrl() {
+function remoteIndexUrl(sourceId = state.selectedSourceId) {
   const params = new URLSearchParams({
     bucket: state.sessionTimeFilter,
     limit: "220",
   });
   const query = els.sessionSearch.value.trim();
   if (query) params.set("q", query);
-  return `/api/sources/${encodeURIComponent(state.selectedSourceId)}/index?${params.toString()}`;
+  return `/api/sources/${encodeURIComponent(sourceId)}/index?${params.toString()}`;
 }
 
-function sourceSessionUrl(id) {
+function sourceSessionUrl(id, sourceId = state.selectedSourceId) {
   const params = new URLSearchParams();
   const evidenceRiskRules = window.EvidenceRiskRules?.serializeForQuery?.(state.evidenceRiskRules);
   if (evidenceRiskRules) params.set("evidenceRiskRules", evidenceRiskRules);
   const query = params.toString();
-  return `/api/sources/${encodeURIComponent(state.selectedSourceId)}/sessions/${encodeURIComponent(id)}${query ? `?${query}` : ""}`;
+  return `/api/sources/${encodeURIComponent(sourceId)}/sessions/${encodeURIComponent(id)}${query ? `?${query}` : ""}`;
 }
 
-function sourceEventUrl(id, index) {
-  return `/api/sources/${encodeURIComponent(state.selectedSourceId)}/sessions/${encodeURIComponent(id)}/events/${index}`;
+function sourceEventUrl(id, index, sourceId = state.selectedSourceId) {
+  return `/api/sources/${encodeURIComponent(sourceId)}/sessions/${encodeURIComponent(id)}/events/${index}`;
 }
 
-function sourceMarkdownUrl(id) {
-  return `/api/sources/${encodeURIComponent(state.selectedSourceId)}/sessions/${encodeURIComponent(id)}/markdown`;
+function sourceMarkdownUrl(id, sourceId = state.selectedSourceId) {
+  return `/api/sources/${encodeURIComponent(sourceId)}/sessions/${encodeURIComponent(id)}/markdown`;
 }
 
 function sessionKey(session) {
@@ -6251,43 +7541,125 @@ function sessionKey(session) {
 }
 
 async function fetchJson(url, options = {}) {
-  const response = await fetch(url, { cache: "no-store", ...options });
+  let response;
+  try {
+    response = await fetch(url, { cache: "no-store", ...options });
+  } catch (error) {
+    throw new Error(requestFailedMessage(error));
+  }
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(errorText(text, response.statusText));
+    throw new Error(errorText(text, response.statusText, response.status));
   }
   return response.json();
 }
 
 async function fetchText(url) {
-  const response = await fetch(url, { cache: "no-store" });
+  let response;
+  try {
+    response = await fetch(url, { cache: "no-store" });
+  } catch (error) {
+    throw new Error(requestFailedMessage(error));
+  }
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(errorText(text, response.statusText));
+    throw new Error(errorText(text, response.statusText, response.status));
   }
   return response.text();
 }
 
-function errorText(text, fallback) {
+function errorText(text, fallback, status) {
+  let message = "";
   try {
     const parsed = JSON.parse(text);
-    return parsed.error?.message || parsed.error || parsed.details?.message || fallback;
+    message = parsed.message || parsed.error?.message || (typeof parsed.error === "string" ? parsed.error : "") || parsed.details?.message || "";
   } catch {
-    return text || fallback;
+    message = text || "";
+  }
+  return localizeErrorText(message || fallback, status);
+}
+
+function localizeErrorText(message, status) {
+  const text = typeof message === "string" ? message.trim() : String(message || "").trim();
+  if (clientErrorMessages.has(text)) return clientErrorMessages.get(text);
+  if (text && !/^\[object Object\]$/.test(text)) return text;
+  return statusErrorMessages.get(status) || "请求失败";
+}
+
+function requestFailedMessage(error) {
+  const message = errorTextFromError(error);
+  if (!message || error?.name === "TypeError" || /failed to fetch|fetch failed|networkerror|load failed/i.test(message)) {
+    return localServiceUnavailableMessage;
+  }
+  return localizeErrorText(message);
+}
+
+function healthUnavailableMessage(error) {
+  const message = requestFailedMessage(error);
+  if (!message || message.includes("无法连接本机服务")) return localServiceUnavailableMessage;
+  const normalized = message.replace(/[。.\s]+$/, "");
+  return `本机服务健康检查失败：${normalized}。请确认服务已启动后点击刷新列表重试。`;
+}
+
+async function copyWithToast(text, successMessage) {
+  try {
+    await copyText(String(text));
+    showToast(successMessage);
+    return true;
+  } catch (error) {
+    console.warn("复制到剪贴板失败", error);
+    showToast(`复制失败：${errorTextFromError(error)}`);
+    return false;
   }
 }
 
 async function copyText(text) {
+  const value = String(text);
+  const errors = [];
   if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
+    try {
+      await clipboardWriteTextWithTimeout(value);
+      return;
+    } catch (error) {
+      errors.push({ method: "navigator.clipboard.writeText", error });
+    }
   }
   const textarea = document.createElement("textarea");
-  textarea.value = text;
-  document.body.appendChild(textarea);
-  textarea.select();
-  document.execCommand("copy");
-  textarea.remove();
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "0";
+  try {
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    textarea.setSelectionRange(0, value.length);
+    if (typeof document.execCommand !== "function") {
+      throw new Error("document.execCommand 不可用");
+    }
+    const copied = document.execCommand("copy");
+    if (!copied) throw new Error("document.execCommand 返回 false");
+  } catch (error) {
+    errors.push({ method: "document.execCommand", error });
+    console.warn("复制通道均失败", errors);
+    throw new Error("请允许浏览器访问剪贴板，或手动选中文本复制。");
+  } finally {
+    textarea.remove();
+  }
+}
+
+function clipboardWriteTextWithTimeout(value, timeoutMs = 800) {
+  return Promise.race([
+    navigator.clipboard.writeText(value),
+    new Promise((_, reject) => {
+      window.setTimeout(() => reject(new Error("浏览器剪贴板响应超时")), timeoutMs);
+    }),
+  ]);
+}
+
+function errorTextFromError(error) {
+  return localizeErrorText(error?.message || String(error || "未知错误"));
 }
 
 function showToast(message) {
@@ -6334,7 +7706,7 @@ function renderMarkdownTitle(text, query = "") {
 }
 
 function renderDetailValue(key, value) {
-  const text = value || "n/a";
+  const text = value || "未记录";
   if (key === "标题") return `<span class="markdown-inline-title">${renderMarkdownTitle(text)}</span>`;
   return escapeHtml(text);
 }

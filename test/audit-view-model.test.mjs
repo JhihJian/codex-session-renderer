@@ -37,7 +37,7 @@ test("trace item node projects item identity into an execution row", () => {
     id: "item:0:2:abc",
     type: "tool",
     icon: "tool",
-    label: "Tool call",
+    label: "工具调用",
     status: "completed",
     timestamp: "2026-07-08T10:00:00.000Z",
     completedAt: "2026-07-08T10:00:02.000Z",
@@ -133,12 +133,13 @@ test("fallback tool-call row keeps identity, handoff classification, and duratio
   assert.equal(row.itemIndex, 4);
   assert.equal(row.type, "handoff");
   assert.equal(row.icon, "handoff");
-  assert.equal(row.label, "Handoff");
+  assert.equal(row.label, "委派");
   assert.equal(row.title, "spawn_agent");
   assert.equal(row.subtitle, "completed · fmt:2026-07-08T10:00:00.000Z");
   assert.equal(row.durationMs, 5000);
   assert.equal(row.durationEstimated, false);
   assert.equal(estimated.type, "tool");
+  assert.equal(estimated.label, "工具调用");
   assert.equal(estimated.durationMs, null);
   assert.equal(estimated.durationEstimated, true);
 });
@@ -246,6 +247,7 @@ test("execution rows without assistant messages attach to an implicit synthetic 
   assert.equal(linkedRows.length, 2);
   assert.equal(linkedRows[0].id, "agent-message:0:implicit");
   assert.equal(linkedRows[0].synthetic, true);
+  assert.equal(linkedRows[0].label, "助手消息");
   assert.deepEqual(linkedRows[0].childRowIds, ["tool:0"]);
   assert.equal(linkedRows[1].id, "tool:0");
   assert.equal(linkedRows[1].parentRowId, "agent-message:0:implicit");

@@ -11,6 +11,10 @@ const safeIdPattern = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const snapshotStatusFile = ".codex-session-renderer-source.json";
 const snapshotMetadataFile = ".codex-session-renderer-snapshot.json";
 const allowedSnapshotFiles = new Set(["state_5.sqlite", "session_index.jsonl", snapshotMetadataFile]);
+const remoteUrlQueryCode = "remote_url_query";
+const remoteUrlQueryMessage = "远端地址不能包含查询参数或片段；认证信息只填写在访问令牌字段里。";
+const remoteUrlUserinfoCode = "remote_url_userinfo";
+const remoteUrlUserinfoMessage = "远端地址不能把账号或密码写在地址里；请在访问令牌里配置认证信息。";
 
 function createDataSourceRegistry(options = {}) {
   const env = options.env || process.env;
@@ -198,8 +202,8 @@ function parseConfigRemoteDefinitions(config = {}) {
 }
 
 function parseConfigPeerDefinition(peer, index = 0) {
-  const sourceId = normalizeSourceId(peer.id || peer.label || peer.url || `remote-${index + 1}`);
   const peerUrl = normalizePeerUrl(peer.url);
+  const sourceId = normalizeSourceId(peer.id || peer.label || peerUrl || `remote-${index + 1}`);
   return {
     id: sourceId,
     label: peer.label || sourceId,
@@ -309,14 +313,57 @@ function peerIndexUrlFromPeerUrl(value) {
 
 function normalizePeerUrl(value) {
   const text = String(value || "").trim();
-  return /^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `http://${text}`;
+  if (!text) return "";
+  const withProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `http://${text}`;
+  const url = new URL(withProtocol);
+  rejectUrlUserinfo(url);
+  rejectUrlQuery(url);
+  url.pathname = url.pathname.replace(/\/+$/, "");
+  return url.toString().replace(/\/$/, "");
+}
+
+function rejectRemoteUrlUserinfo(value) {
+  const text = String(value || "").trim();
+  if (!text || !/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) return text;
+  rejectUrlUserinfo(new URL(text));
+  return text;
+}
+
+function rejectUrlUserinfo(url) {
+  if (!url.username && !url.password) return;
+  const error = new Error(remoteUrlUserinfoMessage);
+  error.code = remoteUrlUserinfoCode;
+  throw error;
+}
+
+function rejectUrlQuery(url) {
+  if (!url.search && !url.hash) return;
+  const error = new Error(remoteUrlQueryMessage);
+  error.code = remoteUrlQueryCode;
+  throw error;
+}
+
+function publicRemoteOrigin(origin = {}) {
+  const publicOrigin = { ...origin };
+  if (publicOrigin.peerUrl) publicOrigin.peerUrl = publicRemoteUrl(publicOrigin.peerUrl);
+  return publicOrigin;
+}
+
+function publicRemoteUrl(value) {
+  try {
+    return normalizePeerUrl(value);
+  } catch {
+    return null;
+  }
 }
 
 function parseRemoteDefinition(id, env = process.env) {
   const sourceId = normalizeSourceId(id);
   const prefix = envPrefix(sourceId);
   const label = env[`${prefix}_LABEL`] || (sourceId === "remote" ? env.CODEX_REMOTE_LABEL : "");
-  const snapshotUrl = env[`${prefix}_SNAPSHOT_URL`] || (sourceId === "remote" ? env.CODEX_REMOTE_SNAPSHOT_URL : "");
+  const snapshotUrl = rejectRemoteUrlUserinfo(
+    env[`${prefix}_SNAPSHOT_URL`] || (sourceId === "remote" ? env.CODEX_REMOTE_SNAPSHOT_URL : ""),
+  );
   const snapshotPath = env[`${prefix}_SNAPSHOT_PATH`] || (sourceId === "remote" ? env.CODEX_REMOTE_SNAPSHOT_PATH : "");
   const remoteCodexHome = env[`${prefix}_CODEX_HOME`] || (sourceId === "remote" ? env.CODEX_REMOTE_CODEX_HOME : "");
   const tokenEnv = env[`${prefix}_TOKEN_ENV`] || (sourceId === "remote" ? env.CODEX_REMOTE_TOKEN_ENV : "") || `${prefix}_TOKEN`;
@@ -406,7 +453,7 @@ async function fetchRemoteSnapshotToDirectory(source, stagingPath, options = {})
     await downloadSnapshotArchive(source, stagingPath, options);
     return;
   }
-  throw remoteRefreshError("not_configured", "远程数据源缺少 snapshotPath 或 snapshotUrl。");
+  throw remoteRefreshError("not_configured", "远端数据源缺少 snapshotPath 或 snapshotUrl。");
 }
 
 async function copySnapshotTree(sourcePath, stagingPath, fsApi = fs) {
@@ -616,7 +663,7 @@ function publicDataSource(source) {
     id: source.id,
     label: source.label,
     kind: source.kind,
-    origin: source.origin,
+    origin: publicRemoteOrigin(source.origin),
     isDefault: source.id === "local",
     codexHome: source.kind === "local" ? source.codexHome : null,
     snapshotPath: source.kind === "remote" ? source.currentPath : null,
@@ -654,6 +701,7 @@ function sanitizeErrorMessage(message) {
   const text = firstSafeLine(message || "刷新失败。");
   const authPlaceholder = "__CSR_AUTH_BEARER_REDACTED__";
   return text
+    .replace(/([a-z][a-z0-9+.-]*:\/\/)[^@/\s]+@/gi, "$1[redacted]@")
     .replace(/authorization\s*[=:]\s*bearer\s+[a-z0-9._~+/=-]+/gi, authPlaceholder)
     .replace(/bearer\s+[a-z0-9._~+/=-]+/gi, "Bearer [redacted]")
     .replace(/token[=:]\s*[^\s]+/gi, "token=[redacted]")
@@ -668,10 +716,13 @@ function firstSafeLine(value) {
 export {
   copyCodexTree,
   createDataSourceRegistry,
+  normalizePeerUrl,
   normalizeSourceId,
   parseConfigRemoteDefinitions,
   parseRemoteDefinitions,
   publicDataSource,
+  remoteUrlQueryMessage,
+  remoteUrlUserinfoMessage,
   safeRemoteError,
   sanitizeErrorMessage,
   snapshotMetadataFile,
