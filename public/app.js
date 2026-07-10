@@ -32,6 +32,7 @@ const state = {
   expandedAuditTurnKeys: new Set(),
   rawEventCache: new Map(),
   viewMode: "compact",
+  auditMinimalMode: false,
   sessionTimeFilter: "realtime",
   visibleEvents: 40,
   visibleThreadItems: 140,
@@ -89,7 +90,7 @@ const inspectorWidthDefaults = {
   step: 24,
   contentMin: 360,
 };
-const visibleViewModes = new Set(["compact", "audit", "raw"]);
+const visibleViewModes = new Set(["compact", "audit", "stats", "raw"]);
 const markdownRenderer = window.markdownit?.({
   html: false,
   linkify: true,
@@ -173,6 +174,7 @@ const els = {
   compactContent: document.getElementById("compactContent"),
   terminalContent: document.getElementById("terminalContent"),
   auditContent: document.getElementById("auditContent"),
+  statsContent: document.getElementById("statsContent"),
   traceContent: document.getElementById("traceContent"),
   rawContent: document.getElementById("rawContent"),
   sessionDetails: document.getElementById("sessionDetails"),
@@ -237,6 +239,7 @@ const els = {
   downloadMarkdownButton: document.getElementById("downloadMarkdownButton"),
   compactViewButton: document.getElementById("compactViewButton"),
   auditViewButton: document.getElementById("auditViewButton"),
+  statsViewButton: document.getElementById("statsViewButton"),
   rawViewButton: document.getElementById("rawViewButton"),
   viewSwitch: document.querySelector(".view-switch"),
   toggleLeft: document.getElementById("toggleLeft"),
@@ -410,6 +413,7 @@ function bindEvents() {
   els.importantOnly.addEventListener("change", renderMainContent);
   els.compactViewButton.addEventListener("click", () => setViewMode("compact"));
   els.auditViewButton.addEventListener("click", () => setViewMode("audit"));
+  els.statsViewButton.addEventListener("click", () => setViewMode("stats"));
   els.rawViewButton.addEventListener("click", () => setViewMode("raw"));
   els.reviewTabs?.querySelectorAll("[data-review-tab]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -2099,6 +2103,7 @@ function syncViewControls() {
   [
     [els.compactViewButton, "compact"],
     [els.auditViewButton, "audit"],
+    [els.statsViewButton, "stats"],
     [els.rawViewButton, "raw"],
   ].forEach(([button, mode]) => {
     const active = state.viewMode === mode;
@@ -2110,6 +2115,7 @@ function syncViewControls() {
   els.compactContent.hidden = state.viewMode !== "compact";
   els.terminalContent.hidden = true;
   els.auditContent.hidden = state.viewMode !== "audit";
+  els.statsContent.hidden = state.viewMode !== "stats";
   els.traceContent.hidden = true;
   els.rawContent.hidden = state.viewMode !== "raw";
   if (els.importantOnlyLabel) {
@@ -2124,7 +2130,7 @@ function syncViewControls() {
 }
 
 function syncItemTypeFilterOptions() {
-  const mode = state.viewMode === "audit" ? "audit" : state.viewMode === "raw" ? "raw" : "standard";
+  const mode = state.viewMode === "audit" ? "audit" : state.viewMode === "raw" || state.viewMode === "stats" ? "raw" : "standard";
   const previousMode = els.itemTypeFilter.dataset.optionMode || "standard";
   const options = mode === "audit" ? auditItemTypeOptions : mode === "raw" ? rawItemTypeOptions : standardItemTypeOptions;
   const currentFirstLabel = els.itemTypeFilter.options?.[0]?.textContent || "";
@@ -2434,7 +2440,7 @@ function sessionPlaceholderState() {
 
 function renderSessionPlaceholder(title, subtitle) {
   const html = emptyState(title, subtitle);
-  [els.threadContent, els.compactContent, els.terminalContent, els.auditContent, els.traceContent, els.rawContent]
+  [els.threadContent, els.compactContent, els.terminalContent, els.auditContent, els.statsContent, els.traceContent, els.rawContent]
     .filter(Boolean)
     .forEach((container) => {
       container.innerHTML = html;
@@ -2619,6 +2625,181 @@ function renderStats() {
     .join("");
 }
 
+function buildEventTypeStats(detail) {
+  const groups = new Map();
+  for (const event of detail?.events || []) {
+    const kind = eventTypeKey(event);
+    const current = groups.get(kind) || {
+      kind,
+      label: eventTypeLabel(kind),
+      count: 0,
+      approxTokens: 0,
+      approxBytes: 0,
+    };
+    current.count += 1;
+    current.approxTokens += estimateEventTokens(event);
+    current.approxBytes += estimateEventBytes(event);
+    groups.set(kind, current);
+  }
+  return [...groups.values()].sort(
+    (left, right) => right.count - left.count || right.approxTokens - left.approxTokens || left.kind.localeCompare(right.kind),
+  );
+}
+
+function eventTypeKey(event) {
+  return String(event?.kind || event?.payloadType || event?.type || "event").trim() || "event";
+}
+
+function eventTypeLabel(kind) {
+  const labels = {
+    meta: "会话元信息",
+    session_meta: "会话元信息",
+    context: "轮次上下文",
+    turn_context: "轮次上下文",
+    user_message: "用户消息",
+    agent_message: "助手消息",
+    message: "消息",
+    reasoning: "推理",
+    function_call: "工具调用",
+    custom_tool_call: "工具调用",
+    mcp_tool_call: "工具调用",
+    tool_search_call: "工具调用",
+    function_call_output: "工具输出",
+    custom_tool_call_output: "工具输出",
+    mcp_tool_call_end: "工具输出",
+    tool_search_output: "工具输出",
+    token_count: "上下文占用",
+    task_started: "任务开始",
+    task_complete: "任务完成",
+    task_failed: "任务失败",
+    turn_aborted: "轮次中断",
+    compacted: "压缩摘要",
+    context_compacted: "压缩完成",
+    jsonl_parse_error: "解析失败",
+  };
+  return labels[kind] || kind;
+}
+
+function estimateEventTokens(event) {
+  const explicit = numericEventTokenValue(event);
+  if (Number.isFinite(explicit)) return Math.max(0, Math.round(explicit));
+  const size = Number(event?.rawSize || event?.payloadSize || 0);
+  if (Number.isFinite(size) && size > 0) return Math.max(1, Math.ceil(size / 4));
+  return approxTokensFromValue([event?.title, event?.preview, event?.kind, event?.type, event?.payloadType].filter(Boolean).join("\n"));
+}
+
+function estimateEventBytes(event) {
+  const size = Number(event?.rawSize || event?.payloadSize || 0);
+  if (Number.isFinite(size) && size > 0) return Math.round(size);
+  return [event?.title, event?.preview, event?.kind, event?.type, event?.payloadType].filter(Boolean).join("\n").length;
+}
+
+function numericEventTokenValue(event) {
+  const candidates = [
+    event?.tokens,
+    event?.tokenCount,
+    event?.token_count,
+    event?.usage?.total_tokens,
+    event?.usage?.totalTokens,
+    event?.total_token_usage?.total_tokens,
+    event?.totalTokenUsage?.totalTokens,
+  ];
+  for (const value of candidates) {
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
+}
+
+function approxTokensFromValue(value) {
+  const length = String(value || "").length;
+  return length ? Math.max(1, Math.ceil(length / 4)) : 0;
+}
+
+function renderStatsInfoView() {
+  const detail = state.detail;
+  if (!detail) {
+    els.statsContent.innerHTML = emptyState("选择一个会话", "统计信息视图展示事件类型分布和 token 估算。");
+    return;
+  }
+  const query = els.itemSearch.value.trim().toLowerCase();
+  const typeFilter = els.itemTypeFilter.value;
+  const allEvents = detail.events || [];
+  const filteredEvents = allEvents.filter((event) => rawEventMatches(event, query, typeFilter));
+  const eventTypeStats = buildEventTypeStats({ events: filteredEvents });
+  const totalEventTypeStats = buildEventTypeStats(detail);
+  const filtered = filteredEvents.length !== allEvents.length;
+  const approxTokens = eventTypeStats.reduce((sum, stat) => sum + stat.approxTokens, 0);
+  const approxBytes = eventTypeStats.reduce((sum, stat) => sum + stat.approxBytes, 0);
+  const maxCount = Math.max(1, ...eventTypeStats.map((stat) => stat.count));
+  const topType = eventTypeStats[0];
+  const title = filtered ? `${filteredEvents.length} / ${allEvents.length} 个事件` : `${allEvents.length} 个事件`;
+  els.statsContent.innerHTML = `
+    <div class="stats-view-shell">
+      <div class="stats-view-head">
+        <div>
+          <p class="eyebrow">统计信息</p>
+          <h3>${escapeHtml(title)}</h3>
+          <div class="stats-view-note">${escapeHtml(filtered ? "当前统计已应用搜索或类型过滤" : "当前统计覆盖完整会话事件流")}</div>
+        </div>
+      </div>
+      <div class="stats-view-metrics" aria-label="事件统计概要">
+        ${renderStatsMetric("事件类型", eventTypeStats.length, `全部 ${totalEventTypeStats.length} 类`)}
+        ${renderStatsMetric("约 token", compactNumber(approxTokens), "按事件体积估算")}
+        ${renderStatsMetric("事件体积", formatBytes(approxBytes), "raw / payload 体积")}
+        ${renderStatsMetric("最多类型", topType ? topType.label : "无", topType ? `${topType.count} 个事件` : "无事件")}
+      </div>
+      ${
+        eventTypeStats.length
+          ? `<div class="stats-event-table" role="table" aria-label="事件类型统计">
+              <div class="stats-event-row header" role="row">
+                <span role="columnheader">类型</span>
+                <span role="columnheader">事件数</span>
+                <span role="columnheader">约 token</span>
+                <span role="columnheader">平均</span>
+                <span role="columnheader">占比</span>
+                <span role="columnheader">体积</span>
+              </div>
+              ${eventTypeStats.map((stat) => renderStatsEventRow(stat, filteredEvents.length, maxCount, query)).join("")}
+            </div>`
+          : emptyState("没有匹配的事件统计", "调整内容搜索或类型过滤。")
+      }
+    </div>
+  `;
+}
+
+function renderStatsMetric(label, value, hint) {
+  return `
+    <div class="stats-metric">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(String(value))}</strong>
+      <em>${escapeHtml(hint || "")}</em>
+    </div>
+  `;
+}
+
+function renderStatsEventRow(stat, totalEvents, maxCount, query) {
+  const percent = totalEvents ? Math.round((stat.count / totalEvents) * 1000) / 10 : 0;
+  const average = stat.count ? Math.round(stat.approxTokens / stat.count) : 0;
+  const bar = Math.max(2, Math.round((stat.count / maxCount) * 100));
+  return `
+    <div class="stats-event-row" role="row" style="--bar:${escapeAttr(String(bar))}" title="${escapeAttr(`${stat.kind} · ${stat.count} 个事件 · 约 ${compactNumber(stat.approxTokens)} tok`)}">
+      <span class="stats-event-type" role="cell">
+        <strong>${highlight(escapeHtml(stat.label), query)}</strong>
+        <em>${highlight(escapeHtml(stat.kind), query)}</em>
+      </span>
+      <span role="cell"><strong>${escapeHtml(String(stat.count))}</strong></span>
+      <span role="cell">${escapeHtml(`约 ${compactNumber(stat.approxTokens)}`)}</span>
+      <span role="cell">${escapeHtml(`约 ${compactNumber(average)}`)}</span>
+      <span class="stats-event-share" role="cell">
+        <i aria-hidden="true"></i>
+        <em>${escapeHtml(`${percent}%`)}</em>
+      </span>
+      <span role="cell">${escapeHtml(formatBytes(stat.approxBytes))}</span>
+    </div>
+  `;
+}
+
 function renderStatusbar() {
   const source = selectedSource();
   const session = state.detail?.session;
@@ -2705,6 +2886,8 @@ function renderMainContent() {
   }
   if (state.viewMode === "raw") {
     renderRawView();
+  } else if (state.viewMode === "stats") {
+    renderStatsInfoView();
   } else if (state.viewMode === "audit") {
     renderAudit();
   } else {
@@ -3029,7 +3212,7 @@ function renderCompactOutline(node, context) {
       <div class="compact-outline-section">
         <div class="compact-outline-head">
           <strong>执行层级</strong>
-          <span>${escapeHtml(`${stats.threads} 线程 · ${stats.turns} 轮次`)}</span>
+          <span>${escapeHtml([`${stats.threads} 线程`, `${stats.turns} 轮次`, stats.compacts ? `${stats.compacts} 压缩` : ""].filter(Boolean).join(" · "))}</span>
         </div>
         <div class="compact-outline-tree">
           ${renderCompactExecutionDirectory(node, { ...context, seen: new Set() })}
@@ -3108,6 +3291,15 @@ function renderCompactOutlineThreadUnderTurn(node, context) {
 function renderCompactOutlineTurn(turn, context) {
   const depth = Math.min(context.depth ?? 0, 8);
   const targetId = compactElementId("turn", context.path);
+  const compactEvents = compactEventsForTurn(turn)
+    .map((event, index) =>
+      renderCompactOutlineContextEvent(event, {
+        depth: depth + 1,
+        path: `${context.path}-compact-${index}`,
+        query: context.query,
+      }),
+    )
+    .join("");
   const children =
     context.allowChildren === false
       ? ""
@@ -3131,7 +3323,33 @@ function renderCompactOutlineTurn(turn, context) {
           <em>${highlight(escapeHtml(compactTurnOutlineTitle(turn)), context.query)}</em>
         </span>
       </div>
+      ${compactEvents}
       ${children}
+    </div>
+  `;
+}
+
+function renderCompactOutlineContextEvent(event, context) {
+  const compact = event.compact || {};
+  const depth = Math.min(context.depth ?? 0, 9);
+  const targetId = compactElementId("event", context.path || `event-${event.sourceIndex ?? event.id ?? "compact"}`);
+  const isSummary = compact.kind === "compacted" || event.eventType === "compacted";
+  const label = isSummary ? "上下文压缩摘要" : "上下文压缩完成";
+  const meta = [
+    compact.windowNumber != null ? `窗口 ${compact.windowNumber}` : "",
+    compact.replacementHistoryCount ? `替换 ${compact.replacementHistoryCount}` : "",
+    formatDate(event.timestamp),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return `
+    <div class="compact-outline-item compact-event" role="button" tabindex="-1" style="--depth:${depth}" data-compact-nav-target="${escapeAttr(targetId)}" aria-label="${escapeAttr(label)}">
+      <span class="compact-outline-indent" aria-hidden="true"></span>
+      <span class="compact-outline-icon">C</span>
+      <span class="compact-outline-copy">
+        <strong>${highlight(escapeHtml(label), context.query)}</strong>
+        <em>${highlight(escapeHtml(meta || "压缩事件"), context.query)}</em>
+      </span>
     </div>
   `;
 }
@@ -3166,9 +3384,10 @@ function compactOutlineStats(node, seen = new Set()) {
       const childStats = compactOutlineStats(child, nextSeen);
       stats.turns += childStats.turns;
       stats.threads += childStats.threads;
+      stats.compacts += childStats.compacts;
       return stats;
     },
-    { turns: (node.turns || []).length, threads: 1 },
+    { turns: (node.turns || []).length, threads: 1, compacts: (node.turns || []).reduce((count, turn) => count + compactEventsForTurn(turn).length, 0) },
   );
 }
 
@@ -3901,15 +4120,20 @@ function renderAudit() {
         ${emptyState("没有匹配的轮次审计单元", "调整内容搜索或类型过滤；审计链会保留轮次上下文，不显示孤立风险列表。")}
       </div>
     `;
+    bindAuditInteractions();
     return;
   }
   els.auditContent.innerHTML = `
     <div class="audit-shell">
       ${renderAuditHead(model, counts, filteredCounts, { query, typeFilter })}
-      <div class="audit-turn-list" role="list">
-        ${filteredTurns.map((turn) => renderAuditTurn(turn, { query, filtersActive: auditFiltersActive(filters) })).join("")}
-        ${filteredUnplaced.length ? renderAuditUnplacedSection(filteredUnplaced, query) : ""}
-      </div>
+      ${
+        state.auditMinimalMode
+          ? renderAuditMinimalTimeline(filteredTurns, filteredUnplaced, { query, typeFilter, filtersActive: auditFiltersActive(filters) })
+          : `<div class="audit-turn-list" role="list">
+              ${filteredTurns.map((turn) => renderAuditTurn(turn, { query, filtersActive: auditFiltersActive(filters) })).join("")}
+              ${filteredUnplaced.length ? renderAuditUnplacedSection(filteredUnplaced, query) : ""}
+            </div>`
+      }
     </div>
   `;
   bindAuditInteractions();
@@ -3937,20 +4161,588 @@ function renderAuditHead(model, counts, filteredCounts, filters = {}) {
           ${model.unplacedAuditNodes.length ? ` · ${model.unplacedAuditNodes.length} 个节点未关联` : ""}
         </div>
       </div>
-      <div class="audit-summary" aria-label="审计链概览">
-        ${metrics
+      <div class="audit-head-tools">
+        <button class="ghost-button small audit-minimal-toggle${state.auditMinimalMode ? " active" : ""}" type="button" data-audit-minimal-toggle aria-pressed="${state.auditMinimalMode ? "true" : "false"}" title="${state.auditMinimalMode ? "关闭极简时间线" : "开启极简时间线"}">
+          ${state.auditMinimalMode ? "标准模式" : "极简模式"}
+        </button>
+        <div class="audit-summary" aria-label="审计链概览">
+          ${metrics
+            .map(
+              ([type, label, total, active]) => `
+                <div class="audit-summary-item type-${escapeAttr(type)}" title="${escapeAttr(filtered ? `显示 ${active} / 全部 ${total}` : `全部 ${total}`)}">
+                  <span>${escapeHtml(label)}</span>
+                  <strong>${escapeHtml(filtered ? `显示 ${active} / 全部 ${total}` : String(total))}</strong>
+                </div>
+              `,
+            )
+            .join("")}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderAuditMinimalTimeline(turns, unplacedNodes, context = {}) {
+  const turnHtml = (turns || []).map((turn) => renderAuditMinimalTurn(turn, context)).filter(Boolean).join("");
+  const unplacedHtml = unplacedNodes?.length ? renderAuditMinimalUnplaced(unplacedNodes, context) : "";
+  return `
+    <div class="audit-minimal-shell">
+      ${renderAuditMinimalLegend()}
+      <div class="audit-minimal-list" role="list" aria-label="审计链极简纵向上下文占用条">
+        ${turnHtml || (!unplacedHtml ? `<div class="audit-section-empty">当前筛选下没有可展示的操作条。</div>` : "")}
+        ${unplacedHtml}
+      </div>
+    </div>
+  `;
+}
+
+function renderAuditMinimalTurn(turn, context = {}) {
+  const entries = auditMinimalLayoutEntries(auditMinimalEntriesForTurn(turn, context));
+  if (!entries.length) return "";
+  const totalTokens = entries.reduce((sum, entry) => sum + entry.tokenAmount, 0);
+  const usageLabel = auditMinimalTurnUsageLabel(entries);
+  const trackHeight = auditMinimalTrackHeight(entries);
+  return `
+    <section class="audit-minimal-turn" role="listitem" style="--track-height:${escapeAttr(String(trackHeight))}px">
+      <div class="audit-minimal-turn-head">
+        <strong>第 ${escapeHtml(String(turn.turnNumber))} 轮</strong>
+        <span>${escapeHtml(`${entries.length} 操作 · 约 ${compactNumber(totalTokens)} tok`)}</span>
+        <em>${escapeHtml(usageLabel)}</em>
+      </div>
+      <div class="audit-minimal-column">
+        <div class="audit-minimal-axis" aria-hidden="true">
+          <span>100%</span>
+          <span>50%</span>
+          <span>0%</span>
+        </div>
+        <div class="audit-minimal-track" aria-label="${escapeAttr(`第 ${turn.turnNumber} 轮上下文占用条`)}">
+          ${entries.map((entry) => renderAuditMinimalEntry(entry, context.query)).join("")}
+        </div>
+      </div>
+      ${renderAuditMinimalSidePanel({ turn, entries, totalTokens, usageLabel, context })}
+    </section>
+  `;
+}
+
+function renderAuditMinimalUnplaced(nodes, context = {}) {
+  const entries = auditMinimalLayoutEntries((nodes || [])
+    .map((node) => auditMinimalEntryFromNode(node, null))
+    .sort((left, right) => left.sort - right.sort));
+  const trackHeight = auditMinimalTrackHeight(entries);
+  return `
+    <section class="audit-minimal-turn unplaced" role="listitem" style="--track-height:${escapeAttr(String(trackHeight))}px">
+      <div class="audit-minimal-turn-head">
+        <strong>未定位</strong>
+        <span>${escapeHtml(`${entries.length} 操作`)}</span>
+        <em>无轮次上下文</em>
+      </div>
+      <div class="audit-minimal-column">
+        <div class="audit-minimal-axis" aria-hidden="true">
+          <span>100%</span>
+          <span>50%</span>
+          <span>0%</span>
+        </div>
+        <div class="audit-minimal-track" aria-label="未定位操作占用条">
+          ${entries.map((entry) => renderAuditMinimalEntry(entry, context.query)).join("")}
+        </div>
+      </div>
+      ${renderAuditMinimalSidePanel({ turn: null, entries, totalTokens: entries.reduce((sum, entry) => sum + entry.tokenAmount, 0), usageLabel: "无轮次上下文", context, unplaced: true })}
+    </section>
+  `;
+}
+
+function renderAuditMinimalSidePanel({ turn, entries = [], totalTokens = 0, usageLabel = "", context = {}, unplaced = false } = {}) {
+  const selectedEntry = auditMinimalSelectedEntry(entries);
+  if (selectedEntry) return renderAuditMinimalEntryDetail(selectedEntry, { turn, usageLabel, context, unplaced });
+  return renderAuditMinimalTurnSummary({ turn, entries, totalTokens, usageLabel, context, unplaced });
+}
+
+function auditMinimalSelectedEntry(entries = []) {
+  return entries.find(auditMinimalEntryIsSelected) || null;
+}
+
+function auditMinimalEntryIsSelected(entry) {
+  if (!entry) return false;
+  if (entry.kind === "node") return state.selectedAuditNodeId === entry.id;
+  if (entry.row && auditExecutionRowIsSelected(entry.row)) return true;
+  if (entry.row?.auditNodes?.some((node) => node.id === state.selectedAuditNodeId)) return true;
+  return false;
+}
+
+function renderAuditMinimalTurnSummary({ turn, entries = [], totalTokens = 0, usageLabel = "", unplaced = false } = {}) {
+  const stats = turn?.stats || {};
+  const riskNodes = turn?.auditNodes?.filter((node) => node.type === "risk" || (node.riskLevel && node.riskLevel !== "none")) || [];
+  const gapCount = Number(stats.gapCount) || riskNodes.filter(auditNodeIsGap).length;
+  const subagentCount = Number(stats.subagentCount) || entries.filter((entry) => entry.type === "subagent" || entry.type === "lazy-child").length;
+  const verification = stats.verificationStatus || (unplaced ? "未定位" : "未验证");
+  const riskLabel = stats.riskLabel || (riskNodes.length ? `${auditRiskLabel(highestRiskLevel(riskNodes))} · ${riskNodes.length}` : "无风险信号");
+  const signals = [
+    riskNodes.length ? { label: riskLabel, type: "risk" } : null,
+    gapCount ? { label: `缺口 ${gapCount}`, type: "gap" } : null,
+    verification && verification !== "已验证" ? { label: verification, type: "verification" } : null,
+    subagentCount ? { label: `子代理 ${subagentCount}`, type: "subagent" } : null,
+  ].filter(Boolean);
+  return `
+    <aside class="audit-minimal-side" aria-label="${escapeAttr(unplaced ? "未定位操作摘要" : `第 ${turn?.turnNumber ?? ""} 轮摘要`)}">
+      <div class="audit-minimal-side-head">
+        <strong>${escapeHtml(unplaced ? "未定位摘要" : "轮次摘要")}</strong>
+        <span>${escapeHtml(usageLabel || "上下文未记录")}</span>
+      </div>
+      <div class="audit-minimal-kpis" aria-label="轮次极简指标">
+        ${renderAuditMinimalKpi("操作", entries.length)}
+        ${renderAuditMinimalKpi("约 token", `${compactNumber(totalTokens)} tok`)}
+        ${renderAuditMinimalKpi("风险", riskLabel)}
+        ${renderAuditMinimalKpi("验证", verification)}
+      </div>
+      ${renderAuditMinimalTypeDistribution(entries)}
+      ${
+        signals.length
+          ? `<div class="audit-minimal-signals">${signals
+              .slice(0, 5)
+              .map((signal) => `<span class="type-${escapeAttr(signal.type)}">${escapeHtml(signal.label)}</span>`)
+              .join("")}</div>`
+          : `<div class="audit-minimal-muted">没有优先风险或缺口信号。</div>`
+      }
+    </aside>
+  `;
+}
+
+function renderAuditMinimalKpi(label, value) {
+  return `
+    <span class="audit-minimal-kpi">
+      <em>${escapeHtml(label)}</em>
+      <strong>${escapeHtml(String(value ?? "未记录"))}</strong>
+    </span>
+  `;
+}
+
+function renderAuditMinimalTypeDistribution(entries = []) {
+  const totals = auditMinimalTypeTokenTotals(entries);
+  if (!totals.length) return "";
+  const total = totals.reduce((sum, entry) => sum + entry.tokens, 0) || 1;
+  const shown = totals.slice(0, 6);
+  return `
+    <div class="audit-minimal-distribution" aria-label="操作类型 token 分布">
+      <div class="audit-minimal-type-bar" aria-hidden="true">
+        ${shown
+          .map((entry) => `<span class="type-${escapeAttr(entry.type)}" style="--share:${escapeAttr(String(Math.max(2, Math.round((entry.tokens / total) * 100))))}"></span>`)
+          .join("")}
+      </div>
+      <div class="audit-minimal-type-list">
+        ${shown
           .map(
-            ([type, label, total, active]) => `
-              <div class="audit-summary-item type-${escapeAttr(type)}" title="${escapeAttr(filtered ? `显示 ${active} / 全部 ${total}` : `全部 ${total}`)}">
-                <span>${escapeHtml(label)}</span>
-                <strong>${escapeHtml(filtered ? `显示 ${active} / 全部 ${total}` : String(total))}</strong>
-              </div>
+            (entry) => `
+              <span class="type-${escapeAttr(entry.type)}">
+                <i aria-hidden="true"></i>
+                <strong>${escapeHtml(auditMinimalTypeLabel(entry.type))}</strong>
+                <em>${escapeHtml(`${entry.count} 次 · ${compactNumber(entry.tokens)} tok`)}</em>
+              </span>
             `,
           )
           .join("")}
       </div>
     </div>
   `;
+}
+
+function auditMinimalTypeTokenTotals(entries = []) {
+  const totals = new Map();
+  for (const entry of entries) {
+    const type = entry.type || "action";
+    const current = totals.get(type) || { type, count: 0, tokens: 0 };
+    current.count += 1;
+    current.tokens += Math.max(1, Number(entry.tokenAmount) || 1);
+    totals.set(type, current);
+  }
+  return [...totals.values()].sort((left, right) => right.tokens - left.tokens || right.count - left.count || auditMinimalTypeLabel(left.type).localeCompare(auditMinimalTypeLabel(right.type)));
+}
+
+function renderAuditMinimalEntryDetail(entry, { turn, unplaced = false } = {}) {
+  const detail = auditMinimalEntryDetail(entry, turn);
+  const rows = [
+    ["类型", auditMinimalTypeLabel(entry.type)],
+    ["约 token", `${compactNumber(entry.tokenAmount || 0)} tok`],
+    ["上下文", detail.usageLabel],
+    ["状态", detail.status || "未记录"],
+    ["来源", detail.source || (unplaced ? "未定位" : turn ? `第 ${turn.turnNumber} 轮` : "未记录")],
+  ];
+  return `
+    <aside class="audit-minimal-side selected type-${escapeAttr(entry.type)}" aria-label="选中操作详情">
+      <div class="audit-minimal-side-head">
+        <strong>选中操作</strong>
+        <span>${escapeHtml(detail.kindLabel)}</span>
+      </div>
+      <div class="audit-minimal-detail-title">
+        <i aria-hidden="true"></i>
+        <strong>${escapeHtml(firstLine(detail.title || detail.kindLabel, 90))}</strong>
+      </div>
+      ${detail.summary ? `<p class="audit-minimal-detail-summary">${escapeHtml(firstLine(detail.summary, 180))}</p>` : ""}
+      <div class="audit-minimal-detail-rows">
+        ${rows
+          .map(
+            ([label, value]) => `
+              <span>
+                <em>${escapeHtml(label)}</em>
+                <strong>${escapeHtml(value || "未记录")}</strong>
+              </span>
+            `,
+          )
+          .join("")}
+      </div>
+      ${detail.badges.length ? `<div class="audit-minimal-signals">${detail.badges.slice(0, 5).map((badge) => `<span>${escapeHtml(badge)}</span>`).join("")}</div>` : ""}
+    </aside>
+  `;
+}
+
+function auditMinimalEntryDetail(entry, turn) {
+  const percent = contextUsagePercent(entry.contextUsage);
+  const usageLabel = Number.isFinite(percent) ? `上下文 ${percent}%` : "上下文占用未记录";
+  if (entry.kind === "node") {
+    const node = entry.node || findAuditNode(entry.id);
+    const item = node?.itemRef ? findItemByRef(node.itemRef) : null;
+    const readable = node ? readableAuditNode(node, item) : {};
+    return {
+      kindLabel: "审计节点",
+      title: readable.title || node?.title || auditMinimalTypeLabel(entry.type),
+      summary: readable.summary || node?.summary || "",
+      status: node?.status || "",
+      source: auditEventIndexLabel(node) || (node?.turnNumber ? `第 ${node.turnNumber} 轮` : ""),
+      usageLabel,
+      badges: [node?.riskLevel && node.riskLevel !== "none" ? auditRiskLabel(node.riskLevel) : "", node?.toolName ? `工具 ${node.toolName}` : ""].filter(Boolean),
+    };
+  }
+  const row = entry.row || findAuditExecutionRow(entry.id);
+  const readable = row ? readableExecutionRow(row) : {};
+  const riskLevel = highestRiskLevel(row?.auditNodes || []);
+  return {
+    kindLabel: "执行节点",
+    title: readable.title || row?.title || row?.label || auditMinimalTypeLabel(entry.type),
+    summary: readable.summary || row?.subtitle || "",
+    status: row?.status || "",
+    source: [row?.itemRef ? "关联项" : "", row?.traceNodeId ? "执行链" : "", turn?.turnNumber ? `第 ${turn.turnNumber} 轮` : ""].filter(Boolean).join(" · "),
+    usageLabel,
+    badges: [
+      riskLevel !== "none" ? auditRiskLabel(riskLevel) : "",
+      row?.auditNodes?.some((node) => node.type === "verification") ? "包含验证" : "",
+      row?.auditNodes?.length ? `${row.auditNodes.length} 个审计节点` : "",
+    ].filter(Boolean),
+  };
+}
+
+function auditMinimalEntriesForTurn(turn, context = {}) {
+  const filtersActive = Boolean(context.filtersActive);
+  const typeFilter = context.typeFilter || "all";
+  const query = context.query || "";
+  const nodes = filtersActive ? turn.auditNodes.filter((node) => auditNodeMatches(node, query, typeFilter)) : turn.auditNodes;
+  const rows = filtersActive ? turn.visibleExecutionRows || [] : turn.executionRows || turn.visibleExecutionRows || [];
+  const rowNodeIds = new Set(rows.flatMap((row) => (row.auditNodes || []).map((node) => node.id)));
+  const entries = rows.map((row, index) => auditMinimalEntryFromRow(row, turn, index));
+  const unmountedNodes = nodes.filter((node) => !rowNodeIds.has(node.id));
+  entries.push(...unmountedNodes.map((node, index) => auditMinimalEntryFromNode(node, turn, rows.length + index)));
+  if (!entries.length) entries.push(...nodes.map((node, index) => auditMinimalEntryFromNode(node, turn, index)));
+  return entries.sort((left, right) => left.sort - right.sort || left.order - right.order || left.label.localeCompare(right.label));
+}
+
+function auditMinimalEntryFromNode(node, turn, order = 0) {
+  const usage = auditMinimalContextUsageForNode(node, turn);
+  const item = node?.itemRef ? findItemByRef(node.itemRef) : null;
+  const tokenAmount = auditMinimalTokenAmountForNode(node, item, usage);
+  return {
+    kind: "node",
+    id: node.id,
+    type: node.type || "node",
+    label: auditTypeLabel(node.type),
+    sort: auditMinimalSortValue(node),
+    order,
+    node,
+    contextUsage: usage,
+    tokenAmount,
+    tokenEstimated: true,
+  };
+}
+
+function auditMinimalEntryFromRow(row, turn, order = 0) {
+  const usage = auditMinimalContextUsageForRow(row, turn);
+  const type = auditMinimalTypeForRow(row);
+  const tokenAmount = auditMinimalTokenAmountForRow(row, usage);
+  return {
+    kind: "row",
+    id: row.id,
+    type,
+    label: auditMinimalLabelForRow(row, type),
+    sort: auditMinimalSortValue(row),
+    order,
+    row,
+    contextUsage: usage,
+    tokenAmount,
+    tokenEstimated: true,
+  };
+}
+
+function renderAuditMinimalEntry(entry, query = "") {
+  const selected = auditMinimalEntryIsSelected(entry);
+  const percent = contextUsagePercent(entry.contextUsage);
+  const usageLabel = Number.isFinite(percent) ? `上下文 ${percent}%` : "上下文占用未记录";
+  const tokenLabel = `约 ${compactNumber(entry.tokenAmount || 0)} tok`;
+  const dataAttr =
+    entry.kind === "node"
+      ? `data-audit-node-id="${escapeAttr(entry.id)}"`
+      : `data-audit-exec-node-id="${escapeAttr(entry.id)}"`;
+  return `
+    <button class="audit-minimal-entry type-${escapeAttr(entry.type)}${selected ? " selected" : ""}${Number.isFinite(percent) ? "" : " usage-unknown"}" type="button" ${dataAttr} style="--segment-height:${escapeAttr(String(entry.segmentHeight || 1))}" title="${escapeAttr(`${entry.label} · ${tokenLabel} · ${usageLabel}`)}" aria-label="${escapeAttr(`${entry.label}，${tokenLabel}，${usageLabel}`)}"></button>
+  `;
+}
+
+function renderAuditMinimalLegend() {
+  const types = ["intent", "reasoning", "agent_message", "action", "handoff", "subagent", "evidence", "verification", "risk", "final"];
+  return `
+    <div class="audit-minimal-legend" aria-label="极简审计链颜色图例">
+      ${types
+        .map(
+          (type) => `
+            <span class="audit-minimal-legend-item type-${escapeAttr(type)}">
+              <i aria-hidden="true"></i>${escapeHtml(auditMinimalShortLabel(type, auditMinimalTypeLabel(type)))}
+            </span>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function auditMinimalLayoutEntries(entries = []) {
+  const ordered = (entries || []).map((entry, index) => ({ ...entry, order: entry.order ?? index }));
+  const withDeltas = auditMinimalApplyContextDeltas(ordered);
+  const shares = auditMinimalSegmentHeightShares(withDeltas);
+  return withDeltas.map((entry, index) => ({ ...entry, segmentHeight: shares[index] || 1 }));
+}
+
+function auditMinimalTrackHeight(entries = []) {
+  const count = entries.length || 1;
+  return Math.max(360, Math.min(2200, count * 10));
+}
+
+function auditMinimalApplyContextDeltas(entries) {
+  let previousUsed = null;
+  return entries.map((entry) => {
+    const used = auditMinimalContextUsedTokens(entry.contextUsage);
+    if (Number.isFinite(used) && Number.isFinite(previousUsed) && used > previousUsed) {
+      const delta = Math.round(used - previousUsed);
+      previousUsed = used;
+      return { ...entry, tokenAmount: Math.max(1, delta), tokenEstimated: false };
+    }
+    if (Number.isFinite(used)) previousUsed = used;
+    return { ...entry, tokenAmount: Math.max(1, Math.round(entry.tokenAmount || 1)) };
+  });
+}
+
+function auditMinimalSegmentHeightShares(entries) {
+  const count = entries.length;
+  if (!count) return [];
+  const raw = entries.map((entry) => Math.max(1, Number(entry.tokenAmount) || 1));
+  const total = raw.reduce((sum, value) => sum + value, 0) || count;
+  const base = raw.map((value) => (value / total) * 100);
+  let minShare = Math.min(5, Math.max(0.7, 28 / count));
+  if (minShare * count > 92) minShare = 92 / count;
+  const fixed = base.map((share) => (share < minShare ? minShare : 0));
+  const fixedTotal = fixed.reduce((sum, value) => sum + value, 0);
+  const flexibleTotal = base.reduce((sum, share, index) => sum + (fixed[index] ? 0 : share), 0);
+  const remaining = Math.max(0, 100 - fixedTotal);
+  return base.map((share, index) => {
+    if (fixed[index]) return roundSegmentShare(fixed[index]);
+    if (!flexibleTotal) return roundSegmentShare(remaining / count);
+    return roundSegmentShare((share / flexibleTotal) * remaining);
+  });
+}
+
+function roundSegmentShare(value) {
+  return Math.max(0.2, Math.round(value * 10) / 10);
+}
+
+function auditMinimalTurnUsageLabel(entries = []) {
+  const percents = entries.map((entry) => contextUsagePercent(entry.contextUsage)).filter(Number.isFinite);
+  if (!percents.length) return "上下文未记录";
+  return `最高 ${Math.max(...percents)}%`;
+}
+
+function auditMinimalTypeForRow(row = {}) {
+  const nodes = row.auditNodes || [];
+  if (nodes.some((node) => node.type === "risk" || (node.riskLevel && node.riskLevel !== "none"))) return "risk";
+  if (nodes.some((node) => node.type === "verification")) return "verification";
+  if (nodes.some((node) => node.type === "evidence")) return "evidence";
+  if (nodes.some((node) => node.type === "final")) return "final";
+  if (nodes.some((node) => node.type === "reasoning")) return "reasoning";
+  if (row.type === "agent_message") return "agent_message";
+  if (row.type === "handoff") return "handoff";
+  if (row.type === "subagent" || row.type === "lazy-child") return "subagent";
+  return "action";
+}
+
+function auditMinimalLabelForRow(row, type) {
+  if (type === "agent_message") return "助手消息";
+  if (type === "handoff") return "委派";
+  if (type === "subagent") return "子代理";
+  return auditMinimalTypeLabel(type);
+}
+
+function auditMinimalTypeLabel(type) {
+  if (type === "agent_message") return "助手";
+  if (type === "handoff") return "委派";
+  if (type === "subagent" || type === "lazy-child") return "子代理";
+  if (type === "tool") return "行动";
+  return auditTypeLabel(type);
+}
+
+function auditMinimalShortLabel(type, label) {
+  const labels = {
+    intent: "意",
+    reasoning: "推",
+    action: "行",
+    tool: "行",
+    evidence: "证",
+    verification: "验",
+    risk: "险",
+    final: "终",
+    agent_message: "助",
+    handoff: "委",
+    subagent: "代",
+    "lazy-child": "代",
+  };
+  return labels[type] || String(label || type || "事").slice(0, 1);
+}
+
+function auditMinimalTokenAmountForNode(node, item, usage) {
+  const explicit = auditMinimalNumericTokenValue(node);
+  if (Number.isFinite(explicit)) return Math.max(1, Math.round(explicit));
+  const used = auditMinimalContextUsedTokens(usage);
+  const body = auditNodeFullBody(node, readableAuditNode(node, item), item);
+  const text = [
+    body,
+    node?.summary,
+    node?.title,
+    node?.argumentsPreview,
+    node?.outputPreview,
+    item?.text,
+    item?.arguments,
+    item?.output,
+    item?.payloadPreview,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return Math.max(1, approxTokensFromValue(text) || Math.round((Number.isFinite(used) ? used : 0) * 0.01) || auditMinimalTokenFallbackForType(node?.type));
+}
+
+function auditMinimalTokenAmountForRow(row, usage) {
+  const explicit = auditMinimalNumericTokenValue(row);
+  if (Number.isFinite(explicit)) return Math.max(1, Math.round(explicit));
+  const item = row?.itemRef ? findItemByRef(row.itemRef) : null;
+  const readable = readableExecutionRow(row);
+  const used = auditMinimalContextUsedTokens(usage);
+  const text = [
+    readable.body,
+    readable.summary,
+    readable.title,
+    row?.title,
+    row?.subtitle,
+    item?.text,
+    item?.arguments,
+    item?.output,
+    item?.payloadPreview,
+    ...(row?.auditNodes || []).map((node) => auditNodeFullBody(node) || node.summary || node.title || ""),
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return Math.max(1, approxTokensFromValue(text) || Math.round((Number.isFinite(used) ? used : 0) * 0.01) || auditMinimalTokenFallbackForType(row?.type));
+}
+
+function auditMinimalNumericTokenValue(source = {}) {
+  const candidates = [
+    source.tokens,
+    source.tokenCount,
+    source.token_count,
+    source.usage?.total_tokens,
+    source.usage?.totalTokens,
+    source.total_token_usage?.total_tokens,
+    source.totalTokenUsage?.totalTokens,
+  ];
+  for (const value of candidates) {
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
+}
+
+function auditMinimalContextUsedTokens(usage) {
+  const used = Number(usage?.used ?? usage?.usedTokens ?? usage?.context_used ?? usage?.contextUsed);
+  if (Number.isFinite(used)) return used;
+  const percent = contextUsagePercent(usage);
+  const limit = Number(usage?.limit ?? usage?.context_window ?? usage?.contextWindow);
+  if (Number.isFinite(percent) && Number.isFinite(limit) && limit > 0) return Math.round((percent / 100) * limit);
+  return null;
+}
+
+function auditMinimalTokenFallbackForType(type) {
+  if (type === "agent_message" || type === "final") return 120;
+  if (type === "tool" || type === "action" || type === "handoff") return 80;
+  if (type === "subagent" || type === "lazy-child") return 70;
+  if (type === "reasoning") return 60;
+  return 24;
+}
+
+function auditMinimalContextUsageForNode(node, turn) {
+  const rows = turn?.executionRows || turn?.visibleExecutionRows || [];
+  const row =
+    rows.find((candidate) => (candidate.auditNodes || []).some((auditNode) => auditNode.id === node.id)) ||
+    rows.find((candidate) => node.traceNodeId && candidate.traceNodeId === node.traceNodeId) ||
+    rows.find((candidate) => node.itemRef && candidate.itemRef === node.itemRef);
+  return (
+    auditMinimalContextUsageForRow(row, turn) ||
+    auditMinimalContextUsageForItem(node?.itemRef ? findItemByRef(node.itemRef) : null) ||
+    auditMinimalTurnContextUsage(turn, node)
+  );
+}
+
+function auditMinimalContextUsageForRow(row, turn) {
+  if (!row) return null;
+  if (row.contextUsage) return row.contextUsage;
+  const rowById = new Map((turn?.executionRows || turn?.visibleExecutionRows || []).map((candidate) => [candidate.id, candidate]));
+  const parent = row.parentRowId ? rowById.get(row.parentRowId) : null;
+  if (parent?.contextUsage) return parent.contextUsage;
+  const agentItem = row.agentMessageItemRef ? findItemByRef(row.agentMessageItemRef) : null;
+  const item = row.itemRef ? findItemByRef(row.itemRef) : null;
+  return auditMinimalContextUsageForItem(agentItem) || auditMinimalContextUsageForItem(item) || auditMinimalTurnContextUsage(turn, row);
+}
+
+function auditMinimalContextUsageForItem(item) {
+  if (!item) return null;
+  if (item.contextUsage) return item.contextUsage;
+  if (item.type === "token-count") return tokenItemContextUsage(item);
+  return null;
+}
+
+function auditMinimalTurnContextUsage(turn, anchor = {}) {
+  const items = turn?.turn?.items || turn?.items || [];
+  const tokenItems = items
+    .map((item, index) => ({ item, index, usage: tokenItemContextUsage(item) }))
+    .filter((entry) => entry.usage);
+  if (!tokenItems.length) return null;
+  const anchorIndex = Number.isInteger(anchor.itemIndex) ? anchor.itemIndex : window.AuditViewModel?.itemIndexFromItemRef?.(anchor.itemRef);
+  if (Number.isInteger(anchorIndex)) {
+    return tokenItems.find((entry) => entry.index >= anchorIndex)?.usage || [...tokenItems].reverse().find((entry) => entry.index <= anchorIndex)?.usage || tokenItems.at(-1)?.usage || null;
+  }
+  return tokenItems.at(-1)?.usage || null;
+}
+
+function tokenItemContextUsage(item) {
+  return item?.info?.context_usage || item?.info?.contextUsage || item?.contextUsage || null;
+}
+
+function auditMinimalSortValue(source = {}) {
+  const direct = Number(source.eventIndex ?? source.sourceIndex ?? source.itemIndex);
+  if (Number.isFinite(direct)) return direct;
+  const time = dateMs(source.timestamp);
+  if (time != null) return 1_000_000_000 + time;
+  return Number.MAX_SAFE_INTEGER;
 }
 
 function renderAuditTurn(turn, context = {}) {
@@ -4608,6 +5400,10 @@ function auditTurnSearchText(turn) {
 }
 
 function bindAuditInteractions() {
+  els.auditContent.querySelector("[data-audit-minimal-toggle]")?.addEventListener("click", () => {
+    state.auditMinimalMode = !state.auditMinimalMode;
+    renderAudit();
+  });
   els.auditContent.querySelectorAll("[data-audit-turn-toggle]").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -4679,7 +5475,7 @@ function selectAuditTurn(key) {
   state.selectedEventIndex = null;
   state.selectedTerminalBlockId = null;
   renderInspector();
-  markAuditSelection();
+  refreshAuditSelectionSurface();
 }
 
 function selectAuditExecutionNode(id) {
@@ -4747,6 +5543,7 @@ function markAuditSelection() {
   els.auditContent.querySelectorAll(".audit-exec-group.selected").forEach((row) => row.classList.remove("selected"));
   els.auditContent.querySelectorAll(".audit-exec-row.selected").forEach((row) => row.classList.remove("selected"));
   els.auditContent.querySelectorAll(".audit-evidence-node.selected, .audit-node-chip.selected").forEach((row) => row.classList.remove("selected"));
+  els.auditContent.querySelectorAll(".audit-minimal-entry.selected").forEach((row) => row.classList.remove("selected"));
   if (state.selectedAuditTurnKey) {
     els.auditContent.querySelector(`[data-audit-turn-root="${cssEscape(state.selectedAuditTurnKey)}"]`)?.classList.add("selected");
   }
@@ -4791,6 +5588,14 @@ function selectAuditNode(id) {
   state.selectedItemRef = null;
   state.selectedEventIndex = node.eventIndex ?? node.sourceIndex ?? null;
   renderInspector();
+  refreshAuditSelectionSurface();
+}
+
+function refreshAuditSelectionSurface() {
+  if (state.viewMode === "audit" && state.auditMinimalMode) {
+    renderAudit();
+    return;
+  }
   markAuditSelection();
 }
 
@@ -5502,7 +6307,7 @@ function selectTraceNode(id) {
   els.traceContent.querySelectorAll(".trace-row.selected").forEach((row) => row.classList.remove("selected"));
   const active = els.traceContent.querySelector(`[data-trace-node-id="${cssEscape(id)}"]`);
   active?.classList.add("selected");
-  markAuditSelection();
+  refreshAuditSelectionSurface();
 }
 
 function renderTraceActions(node) {

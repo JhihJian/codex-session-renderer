@@ -97,6 +97,7 @@
             <div class="view-switch" role="tablist" aria-label="视图切换">
               <button class="view-tab active" id="compactViewButton" type="button" role="tab" aria-selected="true" aria-controls="compactContent" data-view-mode="compact" title="阅读视图：整理后的会话正文" aria-label="阅读视图：整理后的会话正文">阅读</button>
               <button class="view-tab" id="auditViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="auditContent" data-view-mode="audit" title="审计链视图：按轮次复核目标、证据和风险" aria-label="审计链视图：按轮次复核目标、证据和风险">审计链</button>
+              <button class="view-tab" id="statsViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="statsContent" data-view-mode="stats" title="统计信息视图：事件类型和 token 估算" aria-label="统计信息视图：事件类型和 token 估算">统计</button>
               <button class="view-tab" id="rawViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="rawContent" data-view-mode="raw" title="原始事件视图：诊断 JSONL 事件流" aria-label="原始事件视图：诊断 JSONL 事件流">原始事件</button>
             </div>
             <input class="text-input compact" id="itemSearch" type="search" autocomplete="off" placeholder="搜索内容、命令、输出..." />
@@ -123,6 +124,7 @@
         <section class="compact-content" id="compactContent" tabindex="-1"></section>
         <section class="terminal-content" id="terminalContent" tabindex="-1" hidden></section>
         <section class="audit-content" id="auditContent" tabindex="-1" hidden></section>
+        <section class="stats-content" id="statsContent" tabindex="-1" hidden></section>
         <section class="trace-content" id="traceContent" tabindex="-1" hidden></section>
         <section class="raw-content" id="rawContent" tabindex="-1" hidden></section>
       </main>
