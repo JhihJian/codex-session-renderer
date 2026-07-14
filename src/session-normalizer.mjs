@@ -1,4 +1,4 @@
-import { isToolCallOutput, isToolCallStart, mergeToolOutput, toolArgumentsFromPayload, toolNameFromPayload, toolOutputFromPayload } from "./tool-events.mjs";
+import { isToolCallOutput, isToolCallStart, toolArgumentsFromPayload, toolNameFromPayload, toolOutputFromPayload } from "./tool-events.mjs";
 import { cleanUserMessageText } from "./user-message-cleanup.mjs";
 
 const timeKeys = ["timestamp", "time", "ts", "created", "created_at", "datetime", "date", "event_time", "when", "at"];

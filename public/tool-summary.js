@@ -443,7 +443,7 @@
   function parseMaybeJson(value) {
     if (value && typeof value === "object") return value;
     const text = String(value || "").trim();
-    if (!/^[{\[]/.test(text)) return null;
+    if (!/^[{[]/.test(text)) return null;
     try {
       return JSON.parse(text);
     } catch {
@@ -1123,7 +1123,7 @@
   function parseSearchMatches(output) {
     const matches = [];
     for (const line of String(output || "").split(/\r?\n/)) {
-      const match = line.match(/^(.+?)(?::|-)(\d+)(?::(\d+))?[:\-](.*)$/);
+      const match = line.match(/^(.+?)(?::|-)(\d+)(?::(\d+))?[:-](.*)$/);
       if (!match) continue;
       matches.push({
         path: cleanPatchPath(match[1]),

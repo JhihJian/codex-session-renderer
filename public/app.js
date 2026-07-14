@@ -66,7 +66,6 @@ const {
   cssEscape,
   escapeAttr,
   escapeHtml,
-  escapeRegExp,
   firstLine,
   formatBytes,
   formatDate,
@@ -4216,7 +4215,7 @@ function renderAuditMinimalTurn(turn, context = {}) {
           <span>0%</span>
         </div>
         <div class="audit-minimal-track" aria-label="${escapeAttr(`第 ${turn.turnNumber} 轮上下文占用条`)}">
-          ${entries.map((entry) => renderAuditMinimalEntry(entry, context.query)).join("")}
+          ${entries.map((entry) => renderAuditMinimalEntry(entry)).join("")}
         </div>
       </div>
       ${renderAuditMinimalSidePanel({ turn, entries, totalTokens, usageLabel, context })}
@@ -4243,7 +4242,7 @@ function renderAuditMinimalUnplaced(nodes, context = {}) {
           <span>0%</span>
         </div>
         <div class="audit-minimal-track" aria-label="未定位操作占用条">
-          ${entries.map((entry) => renderAuditMinimalEntry(entry, context.query)).join("")}
+          ${entries.map((entry) => renderAuditMinimalEntry(entry)).join("")}
         </div>
       </div>
       ${renderAuditMinimalSidePanel({ turn: null, entries, totalTokens: entries.reduce((sum, entry) => sum + entry.tokenAmount, 0), usageLabel: "无轮次上下文", context, unplaced: true })}
@@ -4479,7 +4478,7 @@ function auditMinimalEntryFromRow(row, turn, order = 0) {
   };
 }
 
-function renderAuditMinimalEntry(entry, query = "") {
+function renderAuditMinimalEntry(entry) {
   const selected = auditMinimalEntryIsSelected(entry);
   const percent = contextUsagePercent(entry.contextUsage);
   const usageLabel = Number.isFinite(percent) ? `上下文 ${percent}%` : "上下文占用未记录";

@@ -307,7 +307,7 @@ function stripShellWrapper(segment) {
 
 function parseMaybeJson(text) {
   const trimmed = String(text || "").trim();
-  if (!trimmed || !/^[{\[]/.test(trimmed)) return null;
+  if (!trimmed || !/^[{[]/.test(trimmed)) return null;
   try {
     return JSON.parse(trimmed);
   } catch {

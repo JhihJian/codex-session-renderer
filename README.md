@@ -293,10 +293,28 @@ curl -fsS 'http://127.0.0.1:4789/api/sources/dev71/query/sessions?limit=5&fields
 
 ## 检查与测试
 
+首次检出仓库后先安装锁文件中的依赖：
+
 ```powershell
-npm run check
+npm ci
+```
+
+完成 JavaScript 修改后依次运行：
+
+```powershell
+npm run lint
 npm test
 ```
+
+需要应用 ESLint 可安全自动修复的改动时运行：
+
+```powershell
+npm run lint:fix
+```
+
+`npm run lint` 使用 ESLint Flat Config 检查 Node.js 服务、无构建浏览器脚本、同步脚本和测试；正确性问题直接报错，文件规模、函数规模、复杂度、嵌套、参数量和语句量也纳入同一阻断门禁。依赖、构建产物、覆盖率目录、生成代码和压缩文件不会参与检查。
+
+`eslint-suppressions.json` 记录接入 ESLint 前已经存在的复杂度、规模和前端遗留未使用函数，避免一次配置改造混入大范围业务重构；新增问题仍会阻断 lint。重构清除旧问题后运行 `npx eslint . --prune-suppressions` 删除失效基线，不要通过重新生成基线规避新告警。
 
 `npm run check` 会对服务端入口、拆分后的 `src/` 模块和前端脚本做语法检查。`npm test` 会先运行语法检查，再运行 `node --test` 下的轻量回归测试。
 

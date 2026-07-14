@@ -1,0 +1,194 @@
+{
+  "public/app-format.js": {
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "public/app.js": {
+    "complexity": {
+      "count": 47
+    },
+    "max-lines": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 2
+    },
+    "max-params": {
+      "count": 1
+    },
+    "max-statements": {
+      "count": 5
+    },
+    "no-unused-vars": {
+      "count": 21
+    }
+  },
+  "public/audit-view-model.js": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "public/evidence-risk-rules.js": {
+    "complexity": {
+      "count": 2
+    },
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "public/execution-grouping.js": {
+    "complexity": {
+      "count": 2
+    },
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "public/tool-summary.js": {
+    "complexity": {
+      "count": 11
+    },
+    "max-lines": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "max-statements": {
+      "count": 2
+    }
+  },
+  "scripts/sync-71-sessions.mjs": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "server.mjs": {
+    "complexity": {
+      "count": 3
+    },
+    "max-lines": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "max-params": {
+      "count": 1
+    },
+    "max-statements": {
+      "count": 1
+    }
+  },
+  "src/audit-chain.mjs": {
+    "complexity": {
+      "count": 3
+    },
+    "max-lines": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "max-statements": {
+      "count": 1
+    }
+  },
+  "src/data-sources.mjs": {
+    "complexity": {
+      "count": 2
+    },
+    "max-lines": {
+      "count": 1
+    }
+  },
+  "src/event-summary.mjs": {
+    "complexity": {
+      "count": 3
+    }
+  },
+  "src/evidence-risk-rules.mjs": {
+    "complexity": {
+      "count": 4
+    }
+  },
+  "src/jsonl-reader.mjs": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/session-events.mjs": {
+    "complexity": {
+      "count": 9
+    },
+    "max-lines": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "max-statements": {
+      "count": 2
+    }
+  },
+  "src/session-models.mjs": {
+    "complexity": {
+      "count": 4
+    }
+  },
+  "src/session-normalizer.mjs": {
+    "complexity": {
+      "count": 5
+    },
+    "max-lines": {
+      "count": 1
+    }
+  },
+  "src/session-query.mjs": {
+    "complexity": {
+      "count": 4
+    }
+  },
+  "src/snapshot-share.mjs": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/sqlite-threads.mjs": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "test/audit-chain.test.mjs": {
+    "max-lines": {
+      "count": 1
+    }
+  },
+  "test/data-sources.test.mjs": {
+    "max-statements": {
+      "count": 1
+    }
+  },
+  "test/server-http-smoke.test.mjs": {
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "max-statements": {
+      "count": 1
+    }
+  },
+  "test/session-events.test.mjs": {
+    "max-lines": {
+      "count": 1
+    }
+  },
+  "test/ui-copy.test.mjs": {
+    "max-statements": {
+      "count": 1
+    }
+  }
+}

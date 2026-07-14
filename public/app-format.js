@@ -134,7 +134,11 @@
   }
 
   function sanitizeFileName(value) {
-    return String(value).replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").slice(0, 120);
+    const invalidCharacters = '<>:"/\\|?*';
+    return Array.from(String(value), (character) => {
+      const codePoint = character.codePointAt(0);
+      return codePoint <= 0x1f || invalidCharacters.includes(character) ? "_" : character;
+    }).join("").slice(0, 120);
   }
 
   function escapeHtml(value) {

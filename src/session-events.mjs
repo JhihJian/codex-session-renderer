@@ -20,9 +20,6 @@ import {
 import { coalesceNormalizedEvents, normalizeSessionEvent, safeStringifyRedacted } from "./session-normalizer.mjs";
 import { cleanUserMessageText, isUsefulUserMessageText } from "./user-message-cleanup.mjs";
 import {
-  isStandaloneToolEvent,
-  isToolCallOutput,
-  isToolCallStart,
   mergeToolOutput,
   toolArgumentsFromPayload,
   toolNameFromPayload,
@@ -1299,16 +1296,6 @@ function parseJsonObject(value) {
   } catch {
     return null;
   }
-}
-
-function flattenTrace(root) {
-  const nodes = [];
-  const walk = (node, depth, parentId) => {
-    nodes.push({ ...node, depth, parentId, children: undefined, childCount: node.children?.length || 0 });
-    for (const child of node.children || []) walk(child, depth + 1, node.id);
-  };
-  walk(root, 0, null);
-  return nodes;
 }
 
 function durationMs(start, end) {

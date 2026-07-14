@@ -1,6 +1,4 @@
 import {
-  classifyEvent,
-  eventTime,
   firstLine,
   isImportantEvent,
   normalizeText,

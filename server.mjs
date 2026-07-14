@@ -11,7 +11,6 @@ import { readJsonl, readJsonlLineWithDiagnostics, readJsonlRange, readJsonlWithD
 import {
   buildTrace,
   buildTurns,
-  classifyEvent,
   compactChildBase,
   compactChildPlaceholder,
   compactCompactSession,
@@ -19,7 +18,6 @@ import {
   compactTurnForView,
   deriveSessionStatusFromEvents,
   deriveSessionStatusFromTurns,
-  eventTime,
   extractTitleFromEvents,
   fileTimeMs,
   findSpawnAgentEvents,

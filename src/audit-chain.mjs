@@ -354,7 +354,6 @@ function riskSignalsForAction(item) {
 
 function riskSignalsForVerification(item) {
   const signals = [];
-  const text = [item.status, item.output].filter(Boolean).join("\n");
   if (verificationLooksFailed(item)) {
     signals.push({
       level: statusLooksFailed(item.status) ? "high" : "medium",
@@ -506,7 +505,7 @@ function isDangerousCommandSegment(segment) {
 
 function parseMaybeJson(text) {
   const trimmed = String(text || "").trim();
-  if (!trimmed || !/^[{\[]/.test(trimmed)) return null;
+  if (!trimmed || !/^[{[]/.test(trimmed)) return null;
   try {
     return JSON.parse(trimmed);
   } catch {
