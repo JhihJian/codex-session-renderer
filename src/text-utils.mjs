@@ -20,13 +20,13 @@ function eventTime(event) {
 }
 
 function sessionIdFromFile(filePath) {
-  const name = path.basename(filePath, ".jsonl");
+  const name = path.basename(normalizeSlash(filePath), ".jsonl");
   const match = name.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i);
   return match?.[1] ?? name;
 }
 
 function sessionStartedFromFile(filePath) {
-  const name = path.basename(filePath, ".jsonl");
+  const name = path.basename(normalizeSlash(filePath), ".jsonl");
   const match = name.match(/^rollout-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})-/);
   if (match) return `${match[1].replace(/T(\d{2})-(\d{2})-(\d{2})/, "T$1:$2:$3")}.000Z`;
   const piMatch = name.match(/^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})-(\d{3})Z_/);

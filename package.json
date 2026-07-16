@@ -6,8 +6,8 @@
   "scripts": {
     "start": "node server.mjs",
     "share": "node share-server.mjs",
-    "lint": "eslint . --max-warnings=0",
-    "lint:fix": "eslint . --fix --max-warnings=0",
+    "lint": "eslint --suppressions-location eslint-suppressions.json . --max-warnings=0",
+    "lint:fix": "eslint --suppressions-location eslint-suppressions.json . --fix --max-warnings=0",
     "check": "node --check server.mjs && node --check share-server.mjs && node --check src/data-sources.mjs && node --check src/renderer-config.mjs && node --check src/snapshot-share.mjs && node --check src/session-events.mjs && node --check src/session-query.mjs && node --check src/jsonl-reader.mjs && node --check src/http-response.mjs && node --check src/sqlite-threads.mjs && node --check src/session-models.mjs && node --check src/session-catalog.mjs && node --check src/markdown-export.mjs && node --check src/text-utils.mjs && node --check src/tool-events.mjs && node --check src/event-summary.mjs && node --check src/evidence-risk-rules.mjs && node --check src/audit-chain.mjs && node --check src/session-normalizer.mjs && node --check src/user-message-cleanup.mjs && node --check scripts/sync-71-sessions.mjs && node --check public/app-format.js && node --check public/tool-summary.js && node --check public/execution-grouping.js && node --check public/audit-view-model.js && node --check public/evidence-risk-rules.js && node --check public/app.js",
     "test": "npm run check && node --test",
     "sync:71": "node scripts/sync-71-sessions.mjs"

@@ -69,7 +69,7 @@
   },
   "server.mjs": {
     "complexity": {
-      "count": 3
+      "count": 5
     },
     "max-lines": {
       "count": 1
@@ -108,7 +108,7 @@
   },
   "src/event-summary.mjs": {
     "complexity": {
-      "count": 3
+      "count": 4
     }
   },
   "src/evidence-risk-rules.mjs": {
