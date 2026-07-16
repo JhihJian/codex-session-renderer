@@ -1353,6 +1353,8 @@ function buildTurns(events) {
   for (const [eventIndex, event] of normalizedEvents.entries()) {
     const sourceIndex = event.index ?? eventIndex;
     const payload = event.payload ?? {};
+    const isUserMessage = isUserMessageEvent(event);
+    const isAssistantMessage = isAssistantMessageEvent(event);
     if (event.kind === "meta" || event.semanticKind === "meta") continue;
     if (payload.type === "task_started") {
       current = {
@@ -1366,6 +1368,10 @@ function buildTurns(events) {
       turns.push(current);
       activeCall = new Map();
       continue;
+    }
+    if (current && isUserMessage && shouldStartNewImplicitUserTurn(current, event)) {
+      current = null;
+      activeCall = new Map();
     }
     if (event.kind === "context") {
       const turn = ensureTurn(event);
@@ -1395,7 +1401,7 @@ function buildTurns(events) {
       continue;
     }
 
-    if (event.kind === "user_message" || (event.semanticKind === "message" && event.role === "user")) {
+    if (isUserMessage) {
       const text = cleanUserMessageText(event.text);
       if (!event.attachments?.length && !isUsefulUserMessageText(text)) continue;
       if (!event.attachments?.length && isKnownUserEcho(current, event, text)) continue;
@@ -1413,18 +1419,20 @@ function buildTurns(events) {
       continue;
     }
 
-    if (event.kind === "agent_message" || (event.semanticKind === "message" && event.role === "assistant")) {
-      if (!event.attachments?.length && isDuplicateAssistantMessage(current, event.text)) continue;
-      current.items.push({
-        id: `item-${current.items.length}`,
-        type: "assistant-message",
-        sourceIndex,
-        timestamp: event.timestamp,
-        phase: payload.phase ?? null,
-        text: event.text ?? "",
-        attachments: event.attachments,
-        messageId: event.messageId,
-      });
+    if (isAssistantMessage) {
+      if (event.attachments?.length || !isDuplicateAssistantMessage(current, event.text)) {
+        current.items.push({
+          id: `item-${current.items.length}`,
+          type: "assistant-message",
+          sourceIndex,
+          timestamp: event.timestamp,
+          phase: payload.phase ?? null,
+          text: event.text ?? "",
+          attachments: event.attachments,
+          messageId: event.messageId,
+        });
+      }
+      for (const toolCall of event.toolCalls || []) registerEmbeddedToolCall(current, activeCall, event, toolCall, sourceIndex);
       continue;
     }
 
@@ -1518,6 +1526,21 @@ function buildTurns(events) {
 function shouldStartImplicitTurn(event) {
   const payloadType = event.payload?.type;
   return event.rawType === "event_msg" || event.rawType === "response_item" || payloadType === "user_message" || payloadType === "turn_aborted" || event.compact || event.semanticKind === "message" || event.semanticKind === "tool_call" || event.semanticKind === "tool_result" || event.semanticKind === "diagnostic";
+}
+
+function isUserMessageEvent(event) {
+  return event.kind === "user_message" || (event.semanticKind === "message" && event.role === "user");
+}
+
+function isAssistantMessageEvent(event) {
+  return event.kind === "agent_message" || (event.semanticKind === "message" && event.role === "assistant");
+}
+
+function shouldStartNewImplicitUserTurn(current, event) {
+  if (!current || event.payload?.turn_id) return false;
+  if (current.items.length === 0) return false;
+  if (current.status !== "running") return true;
+  return current.items.some((item) => item.type === "assistant-message" || item.type === "tool-call" || item.type === "reasoning");
 }
 
 function hasAssistantMessage(turn, text) {
@@ -1626,6 +1649,23 @@ function registerToolCall(turn, activeCall, event, sourceIndex) {
     callId,
     status: payload.status || "started",
     arguments: event.toolInput ?? toolArgumentsFromPayload(payload),
+    output: null,
+  };
+  activeCall.set(callId, item);
+  turn.items.push(item);
+}
+
+function registerEmbeddedToolCall(turn, activeCall, event, toolCall, sourceIndex) {
+  const callId = toolCall.callId || `${event.messageId || sourceIndex}:tool-${turn.items.length}`;
+  const item = {
+    id: callId,
+    type: "tool-call",
+    sourceIndex,
+    timestamp: event.timestamp,
+    name: toolCall.name || "tool",
+    callId,
+    status: "started",
+    arguments: toolCall.arguments ?? null,
     output: null,
   };
   activeCall.set(callId, item);

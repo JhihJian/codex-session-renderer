@@ -1,6 +1,6 @@
-# Codex JSONL 事件规范化契约
+# Codex/Pi Agent JSONL 事件规范化契约
 
-本项目把 Codex 会话文件视为 UTF-8 JSONL 事件流读取。不同 Codex 客户端和版本可能记录不同字段形态，因此服务端先把原始事件转换为内部稳定事件模型，再供会话摘要、Turn 聚合、Audit、Trace、Raw 视图、Markdown 导出和外部查询 API 使用。
+本项目把 Codex 和 Pi Agent 会话文件视为 UTF-8 JSONL 事件流读取。不同客户端和版本可能记录不同字段形态，因此服务端先把原始事件转换为内部稳定事件模型，再供会话摘要、Turn 聚合、Audit、Trace、Raw 视图、Markdown 导出和外部查询 API 使用。
 
 ## 稳定字段
 
@@ -12,6 +12,7 @@
 - `role`、`messageId`、`parentId`、`callId`：消息、线程和工具调用关联字段。
 - `text`、`textParts`：从字符串字段和 content parts 提取的可读文本。
 - `toolName`、`toolInput`、`toolOutput`：从 `tool`、`name`、`function.name`、`arguments`、`input`、`stdout`、`stderr`、`result`、`output` 等字段归一化。
+- `toolCalls`：Pi Agent 把工具调用嵌入到助手消息的 `message.content[].type = "toolCall"` 中时，规范化层会提取调用 ID、名称和参数，Turn 聚合再把它们展开成独立 `tool-call` item。
 - `attachments`：图片和附件的安全摘要。
 - `reasoning`：reasoning 摘要和加密状态。
 - `compact`：Codex 上下文压缩事件的摘要、窗口 ID、替换历史数量、被替换对话短预览和阶段。
@@ -22,19 +23,33 @@
 
 ## 字段漂移兼容
 
-解析层优先按 `type` 识别事件，缺失时使用 `payload.type`、`role` 或兼容映射推断。`function_result` / `tool_result` 会映射为工具输出语义，`function_call` / `tool_call` 会映射为工具调用语义。
+解析层优先按 `type` 识别事件，缺失时使用 `payload.type`、`role` 或兼容映射推断。`function_result` / `tool_result` 会映射为工具输出语义，`function_call` / `tool_call` 会映射为工具调用语义。Pi Agent 的顶层 `type: "message"` 会从 `message.role` 和 `message.content` 提取用户/助手文本；`message.role: "toolResult"` 会归一化为工具输出，并用 `toolCallId` 关联前序嵌入式工具调用。
 
 文本提取支持：
 
 - `content` 字符串。
 - `content` parts 中的字符串、`text`、`value`、`input_text`、`output_text`。
 - `text`、`message`、`value`、`last_agent_message`。
+- Pi Agent `message.content` 中的 `{ type: "text", text: "..." }`。
 
 工具字段提取支持：
 
 - 工具名：`tool`、`name`、`function.name`、MCP `invocation`。
 - 参数：`arguments`、`function.arguments`、`arguments_json`、`input`。
 - 输出：`stdout` / `stderr`、`result`、`output`。
+- Pi Agent 工具调用：助手消息 `content` 中的 `toolCall.id/name/arguments`。
+- Pi Agent 工具结果：`message.role = "toolResult"` 的 `toolCallId`、`toolName` 和文本 `content`。
+
+## Pi Agent 会话
+
+Pi Agent 本机数据源默认扫描 `~/.pi/agent/sessions/**/*.jsonl`，在 API 中的 `sourceId` 为 `pi-agent`。该目录通常按项目目录分组，单个 JSONL 文件名形如 `2026-07-10T04-51-55-870Z_<uuid>.jsonl`。服务端会从以下事件中提取会话列表元数据：
+
+- `type: "session"`：会话 ID、开始时间和 `cwd`。
+- `type: "session_info"`：会话标题。
+- `type: "model_change"`：模型提供方和模型 ID。
+- `type: "thinking_level_change"`：推理/思考等级。
+
+Pi Agent 没有 Codex 的 `state_5.sqlite` 时，会直接走 JSONL 文件扫描路径。阅读模型会把连续聊天记录按用户新输入拆分成多轮；助手消息里的 `toolCall` 会展开成工具调用，后续 `toolResult` 会合并为该工具调用的输出。Raw event 接口仍返回原始 Pi Agent JSONL 行。
 
 ## Delta 合并
 
@@ -110,6 +125,7 @@ Raw event 仍可按需查看完整原始 JSON。默认视图、事件预览和�
 
 - 字段漂移的文本、时间、工具名、参数和输出。
 - `function_call` / `function_result` 兼容映射。
+- Pi Agent `message.content` 文本、嵌入式 `toolCall` 和 `toolResult`。
 - 同一 `messageId` 的 delta 合并。
 - data URI 图片摘要和默认脱敏。
 - `encrypted_content` 不进入搜索文本。

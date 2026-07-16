@@ -436,6 +436,77 @@ test("buildTurns uses normalized field drift and coalesces assistant deltas", ()
   assert.equal(turns[0].items[2].output, "ok");
 });
 
+test("buildTurns renders Pi Agent messages, embedded tool calls and explicit session titles", () => {
+  const events = [
+    { type: "session", id: "019f4a5e-355e-798f-8e14-34b472b8615d", timestamp: "2026-07-10T04:51:55.870Z", cwd: "D:\\work\\pi-web" },
+    { type: "model_change", id: "model-1", timestamp: "2026-07-10T04:51:55.879Z", provider: "openai-compatible", modelId: "gpt-5.5" },
+    { type: "session_info", id: "info-1", timestamp: "2026-07-10T04:52:06.050Z", name: "AI 身份介绍" },
+    {
+      type: "message",
+      id: "msg-user-1",
+      parentId: "info-1",
+      timestamp: "2026-07-10T04:52:06.061Z",
+      message: { role: "user", content: [{ type: "text", text: "你是谁？" }] },
+    },
+    {
+      type: "message",
+      id: "msg-assistant-1",
+      parentId: "msg-user-1",
+      timestamp: "2026-07-10T04:52:08.142Z",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "text", text: "我是编码助手。" },
+          { type: "toolCall", id: "call-write", name: "write", arguments: { path: "hello.html" } },
+        ],
+      },
+    },
+    {
+      type: "message",
+      id: "msg-tool-1",
+      parentId: "msg-assistant-1",
+      timestamp: "2026-07-10T04:52:08.300Z",
+      message: {
+        role: "toolResult",
+        toolCallId: "call-write",
+        toolName: "write",
+        content: [{ type: "text", text: "Successfully wrote file" }],
+        isError: false,
+      },
+    },
+    {
+      type: "message",
+      id: "msg-assistant-2",
+      parentId: "msg-tool-1",
+      timestamp: "2026-07-10T04:52:09.000Z",
+      message: { role: "assistant", content: [{ type: "text", text: "文件已创建。" }] },
+    },
+    {
+      type: "message",
+      id: "msg-user-2",
+      parentId: "msg-assistant-2",
+      timestamp: "2026-07-10T04:53:00.000Z",
+      message: { role: "user", content: [{ type: "text", text: "继续验证。" }] },
+    },
+  ];
+
+  const turns = buildTurns(events);
+
+  assert.equal(extractTitleFromEvents(events, "fallback"), "AI 身份介绍");
+  assert.equal(turns.length, 2);
+  assert.deepEqual(
+    turns[0].items.map((item) => item.type),
+    ["user-message", "assistant-message", "tool-call", "assistant-message"],
+  );
+  assert.equal(turns[0].items[0].text, "你是谁？");
+  assert.equal(turns[0].items[1].text, "我是编码助手。");
+  assert.equal(turns[0].items[2].name, "write");
+  assert.equal(turns[0].items[2].arguments, JSON.stringify({ path: "hello.html" }, null, 2));
+  assert.equal(turns[0].items[2].output, "Successfully wrote file");
+  assert.equal(turns[0].status, "waiting");
+  assert.equal(turns[1].items[0].text, "继续验证。");
+});
+
 test("compactTurnsForClient exposes attachment summary without inline data", () => {
   const dataUri = "data:image/png;base64," + Buffer.from("abc").toString("base64");
   const turns = buildTurns([

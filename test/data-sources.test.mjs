@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   createDataSourceRegistry,
+  parsePiAgentDefinition,
   parseConfigRemoteDefinitions,
   parseRemoteDefinitions,
   publicDataSource,
@@ -57,6 +58,50 @@ test("parseRemoteDefinitions accepts compact peer URLs", () => {
   assert.equal(definitions[0].token, "shared-token");
   assert.equal(definitions[1].id, "lab");
   assert.equal(definitions[1].snapshotUrl, "https://lab.example.test/share.tar.gz");
+});
+
+test("createDataSourceRegistry adds Pi Agent source when sessions root is configured", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "csr-pi-source-"));
+  try {
+    const sessionsRoot = path.join(dir, ".pi", "agent", "sessions");
+    await mkdir(sessionsRoot, { recursive: true });
+
+    const registry = createDataSourceRegistry({
+      env: {
+        CODEX_HOME: path.join(dir, ".codex"),
+        PI_AGENT_SESSIONS_ROOT: sessionsRoot,
+      },
+      homeDir: dir,
+    });
+
+    const source = registry.getSource("pi-agent");
+    assert.equal(source.kind, "pi-agent");
+    assert.equal(source.sessionsRoot, sessionsRoot);
+    assert.equal(source.codexHome, path.dirname(sessionsRoot));
+    assert.equal(source.status.refreshable, false);
+    assert.equal(source.status.snapshotAvailable, true);
+    assert.equal(registry.listSources().some((item) => item.id === "pi-agent" && item.codexHome === path.dirname(sessionsRoot)), true);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("parsePiAgentDefinition auto-detects default sessions root only when it exists", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "csr-pi-detect-"));
+  try {
+    assert.equal(parsePiAgentDefinition({}, dir), null);
+
+    const sessionsRoot = path.join(dir, ".pi", "agent", "sessions");
+    await mkdir(sessionsRoot, { recursive: true });
+
+    assert.deepEqual(parsePiAgentDefinition({}, dir), {
+      agentHome: path.dirname(sessionsRoot),
+      sessionsRoot,
+      autoDetected: true,
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("remote peer URL parsing rejects embedded userinfo", () => {

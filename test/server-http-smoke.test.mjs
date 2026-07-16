@@ -16,6 +16,7 @@ const envKeys = [
   "CODEX_REMOTE_SNAPSHOT_URL",
   "CODEX_REMOTE_SNAPSHOT_PATH",
   "CODEX_REMOTE_REMOTE_A_SNAPSHOT_ROOT",
+  "PI_AGENT_SESSIONS_ROOT",
 ];
 const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
 const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "csr-http-smoke-"));
@@ -26,6 +27,10 @@ const remoteSnapshotRoot = path.join(tempRoot, "remote-a-source");
 const remoteCodexHome = path.join(remoteSnapshotRoot, "current");
 const remoteSessionDir = path.join(remoteCodexHome, "sessions", "2026", "07", "08");
 const remoteSessionPath = path.join(remoteSessionDir, `rollout-2026-07-08T10-00-00-${sessionId}.jsonl`);
+const piSessionId = "22222222-2222-4222-8222-222222222222";
+const piSessionsRoot = path.join(tempRoot, ".pi", "agent", "sessions");
+const piProjectDir = path.join(piSessionsRoot, "--D--work-pi-web--");
+const piSessionPath = path.join(piProjectDir, `2026-07-10T04-51-55-870Z_${piSessionId}.jsonl`);
 
 await fs.mkdir(sessionDir, { recursive: true });
 await fs.writeFile(
@@ -85,6 +90,68 @@ await fs.writeFile(
   `${JSON.stringify({ id: sessionId, thread_name: "Remote HTTP smoke 会话", updated_at: "2026-07-08T10:00:06.000Z" })}\n`,
   "utf8",
 );
+await fs.mkdir(piProjectDir, { recursive: true });
+await fs.writeFile(
+  piSessionPath,
+  [
+    {
+      type: "session",
+      version: 3,
+      id: piSessionId,
+      timestamp: "2026-07-10T04:51:55.870Z",
+      cwd: "D:\\work\\pi-web",
+    },
+    {
+      type: "model_change",
+      id: "pi-model",
+      parentId: null,
+      timestamp: "2026-07-10T04:51:55.879Z",
+      provider: "openai-compatible",
+      modelId: "gpt-5.5",
+    },
+    {
+      type: "session_info",
+      id: "pi-info",
+      parentId: "pi-model",
+      timestamp: "2026-07-10T04:52:06.050Z",
+      name: "Pi Agent smoke 会话",
+    },
+    {
+      type: "message",
+      id: "pi-user",
+      parentId: "pi-info",
+      timestamp: "2026-07-10T04:52:06.061Z",
+      message: { role: "user", content: [{ type: "text", text: "请创建 hello 页面" }] },
+    },
+    {
+      type: "message",
+      id: "pi-assistant",
+      parentId: "pi-user",
+      timestamp: "2026-07-10T04:52:08.142Z",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "text", text: "我会写入文件。" },
+          { type: "toolCall", id: "call-write", name: "write", arguments: { path: "hello.html" } },
+        ],
+      },
+    },
+    {
+      type: "message",
+      id: "pi-tool-result",
+      parentId: "pi-assistant",
+      timestamp: "2026-07-10T04:52:08.300Z",
+      message: {
+        role: "toolResult",
+        toolCallId: "call-write",
+        toolName: "write",
+        content: [{ type: "text", text: "Successfully wrote file" }],
+        isError: false,
+      },
+    },
+  ].map((event) => JSON.stringify(event)).join("\n") + "\n",
+  "utf8",
+);
 
 process.env.CODEX_HOME = codexHome;
 process.env.HOME = tempRoot;
@@ -95,6 +162,7 @@ process.env.CODEX_REMOTE_SOURCE_ID = "";
 process.env.CODEX_REMOTE_SNAPSHOT_URL = "";
 process.env.CODEX_REMOTE_SNAPSHOT_PATH = "";
 process.env.CODEX_REMOTE_REMOTE_A_SNAPSHOT_ROOT = remoteSnapshotRoot;
+process.env.PI_AGENT_SESSIONS_ROOT = piSessionsRoot;
 
 const serverModuleUrl = `${pathToFileURL(path.resolve("server.mjs")).href}?httpSmoke=${Date.now()}`;
 const { createRendererServer } = await import(serverModuleUrl);
@@ -175,6 +243,7 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   assert.equal(health.body.defaultSourceId, "local");
   assert.equal(health.body.codexHome, codexHome);
   assert.equal(health.body.sources.some((source) => source.id === "local"), true);
+  assert.equal(health.body.sources.some((source) => source.id === "pi-agent" && source.kind === "pi-agent"), true);
 
   const healthPost = await requestJson(baseUrl, "/api/health", { method: "POST" });
   assert.equal(healthPost.response.status, 405);
@@ -185,6 +254,22 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   assert.equal(list.body.sessions.length, 1);
   assert.equal(list.body.sessions[0].id, sessionId);
   assert.equal(list.body.sessions[0].title, "HTTP smoke 会话");
+
+  const piList = await requestJson(baseUrl, "/api/sources/pi-agent/sessions");
+  assert.equal(piList.response.status, 200);
+  assert.equal(piList.body.sessions.length, 1);
+  assert.equal(piList.body.sessions[0].id, piSessionId);
+  assert.equal(piList.body.sessions[0].title, "Pi Agent smoke 会话");
+  assert.equal(piList.body.sessions[0].cwd, "D:\\work\\pi-web");
+  assert.equal(piList.body.sessions[0].model, "gpt-5.5");
+  assert.equal(piList.body.sessions[0].dataSourceKind, "pi-agent");
+
+  const piDetail = await requestJson(baseUrl, `/api/sources/pi-agent/sessions/${piSessionId}`);
+  assert.equal(piDetail.response.status, 200);
+  assert.equal(piDetail.body.turns[0].items[0].text, "请创建 hello 页面");
+  assert.equal(piDetail.body.turns[0].items[2].type, "tool-call");
+  assert.equal(piDetail.body.turns[0].items[2].name, "write");
+  assert.equal(piDetail.body.turns[0].items[2].output, "Successfully wrote file");
 
   const sessionsPost = await requestJson(baseUrl, "/api/sessions", { method: "POST" });
   assert.equal(sessionsPost.response.status, 405);

@@ -11,6 +11,9 @@ const safeIdPattern = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const snapshotStatusFile = ".codex-session-renderer-source.json";
 const snapshotMetadataFile = ".codex-session-renderer-snapshot.json";
 const allowedSnapshotFiles = new Set(["state_5.sqlite", "session_index.jsonl", snapshotMetadataFile]);
+const piAgentSourceId = "pi-agent";
+const piAgentSessionsRootEnvKeys = ["CODEX_SESSION_RENDERER_PI_AGENT_SESSIONS_ROOT", "PI_AGENT_SESSIONS_ROOT", "PI_AGENT_SESSIONS"];
+const piAgentHomeEnvKeys = ["CODEX_SESSION_RENDERER_PI_AGENT_HOME", "PI_AGENT_HOME"];
 const remoteUrlQueryCode = "remote_url_query";
 const remoteUrlQueryMessage = "远端地址不能包含查询参数或片段；认证信息只填写在访问令牌字段里。";
 const remoteUrlUserinfoCode = "remote_url_userinfo";
@@ -26,6 +29,7 @@ function createDataSourceRegistry(options = {}) {
   const localCodexHome = path.resolve(env.CODEX_HOME || path.join(homeDir, ".codex"));
   const remoteSnapshotRoot = path.resolve(env.CODEX_REMOTE_SNAPSHOT_ROOT || defaultRemoteSnapshotRoot);
   const remoteDefinitions = [...parseConfigRemoteDefinitions(options.config), ...parseRemoteDefinitions(env)];
+  const piAgentDefinition = parsePiAgentDefinition(env, homeDir);
 
   const sources = new Map();
   const activeRefreshes = new Map();
@@ -38,6 +42,10 @@ function createDataSourceRegistry(options = {}) {
       remoteSnapshotRoot,
       now,
     });
+    sources.set(source.id, source);
+  }
+  if (piAgentDefinition && !sources.has(piAgentSourceId)) {
+    const source = createPiAgentDataSource(piAgentDefinition);
     sources.set(source.id, source);
   }
 
@@ -192,6 +200,57 @@ function parseRemoteDefinitions(env = process.env) {
     if (single) definitions.push(single);
   }
   return definitions;
+}
+
+function parsePiAgentDefinition(env = process.env, homeDir = os.homedir()) {
+  const configuredSessionsRoot = firstEnvValue(env, piAgentSessionsRootEnvKeys);
+  const configuredAgentHome = firstEnvValue(env, piAgentHomeEnvKeys);
+  const sessionsRoot = path.resolve(configuredSessionsRoot || path.join(homeDir, ".pi", "agent", "sessions"));
+  const autoDetected = !configuredSessionsRoot && !configuredAgentHome;
+  if (autoDetected && !existsSync(sessionsRoot)) return null;
+  const agentHome = path.resolve(configuredAgentHome || path.dirname(sessionsRoot));
+  return {
+    agentHome,
+    sessionsRoot,
+    autoDetected,
+  };
+}
+
+function firstEnvValue(env, keys) {
+  for (const key of keys) {
+    const value = env[key];
+    if (value != null && String(value).trim()) return String(value).trim();
+  }
+  return "";
+}
+
+function createPiAgentDataSource({ agentHome, sessionsRoot, autoDetected }) {
+  const snapshotAvailable = existsSync(sessionsRoot);
+  return {
+    id: piAgentSourceId,
+    label: "Pi Agent Sessions",
+    kind: "pi-agent",
+    origin: {
+      type: "pi-agent",
+      sessionsRoot,
+      autoDetected,
+    },
+    codexHome: agentHome,
+    originalCodexHome: agentHome,
+    sessionsRoot,
+    sessionIndexPath: path.join(agentHome, "session_index.jsonl"),
+    stateDbPath: path.join(agentHome, "state_5.sqlite"),
+    status: {
+      configured: true,
+      refreshable: false,
+      refreshing: false,
+      lastRefreshOk: null,
+      lastSuccessfulRefreshAt: null,
+      stale: false,
+      snapshotAvailable,
+      error: snapshotAvailable ? null : safeRemoteError("missing_sessions_root", "Pi Agent 会话目录不存在。"),
+    },
+  };
 }
 
 function parseConfigRemoteDefinitions(config = {}) {
@@ -665,7 +724,7 @@ function publicDataSource(source) {
     kind: source.kind,
     origin: publicRemoteOrigin(source.origin),
     isDefault: source.id === "local",
-    codexHome: source.kind === "local" ? source.codexHome : null,
+    codexHome: source.kind === "remote" ? null : source.codexHome,
     snapshotPath: source.kind === "remote" ? source.currentPath : null,
     status: {
       configured: source.status.configured,
@@ -718,8 +777,10 @@ export {
   createDataSourceRegistry,
   normalizePeerUrl,
   normalizeSourceId,
+  parsePiAgentDefinition,
   parseConfigRemoteDefinitions,
   parseRemoteDefinitions,
+  piAgentSourceId,
   publicDataSource,
   remoteUrlQueryMessage,
   remoteUrlUserinfoMessage,

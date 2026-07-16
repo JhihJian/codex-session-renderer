@@ -44,6 +44,70 @@ test("normalizer maps function_result to tool result and preserves output preced
   assert.equal(normalized.toolOutput, "stdout text\nstderr text");
 });
 
+test("normalizer maps Pi Agent message records to stable message and tool fields", () => {
+  const user = normalizeSessionEvent(
+    {
+      type: "message",
+      id: "msg-user",
+      parentId: "session-info",
+      timestamp: "2026-07-10T04:52:06.061Z",
+      message: {
+        role: "user",
+        content: [{ type: "text", text: "你是谁？" }],
+      },
+    },
+    3,
+  );
+  const assistant = normalizeSessionEvent(
+    {
+      type: "message",
+      id: "msg-assistant",
+      parentId: "msg-user",
+      timestamp: "2026-07-10T04:52:58.045Z",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "text", text: "我会创建文件。" },
+          { type: "toolCall", id: "call-write", name: "write", arguments: { path: "hello.html" } },
+        ],
+      },
+    },
+    4,
+  );
+  const toolResult = normalizeSessionEvent(
+    {
+      type: "message",
+      id: "msg-tool",
+      parentId: "msg-assistant",
+      timestamp: "2026-07-10T04:52:59.000Z",
+      message: {
+        role: "toolResult",
+        toolCallId: "call-write",
+        toolName: "write",
+        content: [{ type: "text", text: "Successfully wrote file" }],
+        isError: false,
+      },
+    },
+    5,
+  );
+
+  assert.equal(user.kind, "message");
+  assert.equal(user.semanticKind, "message");
+  assert.equal(user.role, "user");
+  assert.equal(user.text, "你是谁？");
+  assert.equal(user.parentId, "session-info");
+  assert.equal(assistant.role, "assistant");
+  assert.equal(assistant.text, "我会创建文件。");
+  assert.deepEqual(assistant.toolCalls, [{ callId: "call-write", name: "write", arguments: JSON.stringify({ path: "hello.html" }, null, 2) }]);
+  assert.match(assistant.searchText, /hello\.html/);
+  assert.equal(toolResult.kind, "function_call_output");
+  assert.equal(toolResult.semanticKind, "tool_result");
+  assert.equal(toolResult.role, "tool");
+  assert.equal(toolResult.callId, "call-write");
+  assert.equal(toolResult.toolName, "write");
+  assert.equal(toolResult.toolOutput, "Successfully wrote file");
+});
+
 test("coalesceNormalizedEvents joins streamed message delta chunks by message id", () => {
   const events = [
     { type: "assistant", message_id: "msg-1", delta: true, content: [{ text: "第一段" }] },

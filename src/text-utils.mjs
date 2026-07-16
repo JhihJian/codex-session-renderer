@@ -28,8 +28,10 @@ function sessionIdFromFile(filePath) {
 function sessionStartedFromFile(filePath) {
   const name = path.basename(filePath, ".jsonl");
   const match = name.match(/^rollout-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})-/);
-  if (!match) return null;
-  return `${match[1].replace(/T(\d{2})-(\d{2})-(\d{2})/, "T$1:$2:$3")}.000Z`;
+  if (match) return `${match[1].replace(/T(\d{2})-(\d{2})-(\d{2})/, "T$1:$2:$3")}.000Z`;
+  const piMatch = name.match(/^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})-(\d{3})Z_/);
+  if (piMatch) return `${piMatch[1]}:${piMatch[2]}:${piMatch[3]}.${piMatch[4]}Z`;
+  return null;
 }
 
 function firstLine(text, max = 120) {

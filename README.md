@@ -1,12 +1,13 @@
 # Codex 会话工作台
 
-这个小工具只读扫描 Codex 会话文件，并在浏览器里渲染成本地会话工作台。默认数据源仍是当前用户的本机 Codex Home；也可以把远端数据源的 Codex Home 先拉取到本机缓存快照，再作为独立数据源查看。正文渲染始终只读本地快照；历史分类仅按需访问远端索引，不取历史正文。
+这个小工具只读扫描 Codex 会话文件，并在浏览器里渲染成本地会话工作台。默认数据源仍是当前用户的本机 Codex Home；如果本机存在 Pi Agent 会话目录，也会作为独立本机数据源显示；也可以把远端数据源的 Codex Home 先拉取到本机缓存快照，再作为独立数据源查看。正文渲染始终只读本地文件或本地快照；历史分类仅按需访问远端索引，不取历史正文。
 
 ## 数据来源
 
 - 会话元数据：`%USERPROFILE%\.codex\state_5.sqlite`，用于读取标题、工作目录、模型、推理强度和归档状态。
 - 正文事件流：`%USERPROFILE%\.codex\sessions\**\*.jsonl`
 - 轻量索引回退：`%USERPROFILE%\.codex\session_index.jsonl`
+- Pi Agent 会话：默认自动检测 `%USERPROFILE%\.pi\agent\sessions\**\*.jsonl`；存在时在数据源下拉框显示为 `Pi Agent Sessions`，事件结构会适配 `session`、`session_info`、`model_change`、`message.content`、`toolCall` 和 `toolResult`。
 - 远端数据源：通过页面或环境变量配置后，拉取到本机快照缓存目录；正文渲染只读取发布后的本地快照，不直接绑定实时远端请求，也不会修改远端；历史分类仅按需访问远端索引，不取历史正文。
 - 参考实现：Codex App 的打包前端位于 `resources\app.asar`，本项目只参考模块边界和事件分组思路，不复制原始专有源码。
 
@@ -30,6 +31,15 @@ $env:PORT=4790
 $env:CODEX_HOME='C:\Users\user\.codex'
 npm start
 ```
+
+如需指定非默认的 Pi Agent 会话目录，可设置：
+
+```powershell
+$env:PI_AGENT_SESSIONS_ROOT='C:\Users\user\.pi\agent\sessions'
+npm start
+```
+
+默认路径不存在且未显式配置时，不会显示空的 Pi Agent 数据源；显式配置后即使目录暂不可读，也会在数据源状态中提示目录不存在。
 
 如需让局域网内其他设备访问，可把监听地址改为所有网卡：
 
@@ -253,7 +263,7 @@ curl -fsS 'http://127.0.0.1:4789/api/sources/dev71/query/sessions?limit=5&fields
 
 - `server.mjs`：HTTP 路由、数据源分发、会话文件定位、缓存和接口编排；底层响应、SQLite、DTO 和解析逻辑已拆到 `src/`。
 - `share-server.mjs`：远端快照共享服务入口；只暴露受 Bearer token 保护的 Codex 快照下载接口。
-- `src/data-sources.mjs`：本机/远端数据源配置、远端快照拉取、原子发布和脱敏状态。
+- `src/data-sources.mjs`：本机 Codex、Pi Agent 和远端数据源配置、远端快照拉取、原子发布和脱敏状态。
 - `src/renderer-config.mjs`：页面管理的远端数据源配置读写、校验和脱敏输出。
 - `src/snapshot-share.mjs`：按需复制实时 Codex 会话文件、写入快照元数据、打包 tar，并提供历史会话索引检索。
 - `src/session-catalog.mjs`：本地文件回退的会话根目录发现和 live/archived 副本去重；文件回退会同时扫描 `sessions` 与 `archived_sessions`，并优先保留 live 副本。
@@ -263,7 +273,7 @@ curl -fsS 'http://127.0.0.1:4789/api/sources/dev71/query/sessions?limit=5&fields
 - `src/session-models.mjs`：服务端 API 会话 DTO、列表 DTO、线程元数据和文件 stat 合并。
 - `src/text-utils.mjs`：时间、路径、首行摘要、消息正文提取和文本规范化等基础纯函数。
 - `src/tool-events.mjs`：工具调用开始/结束识别、工具名/参数/输出提取、MCP 结果渲染和输出合并。
-- `src/session-normalizer.mjs`：Codex JSONL 原始事件规范化、字段漂移兼容、delta 合并、图片/附件摘要、加密 reasoning 脱敏和搜索文本构建。
+- `src/session-normalizer.mjs`：Codex/Pi Agent JSONL 原始事件规范化、字段漂移兼容、delta 合并、图片/附件摘要、加密 reasoning 脱敏和搜索文本构建。
 - `src/user-message-cleanup.mjs`：Codex 自动注入用户消息的识别和清理规则，供规范化、turn 聚合、事件摘要和 Audit 意图过滤复用。
 - `src/event-summary.mjs`：事件分类、重要事件判断、标题/预览摘要和会话事件计数。
 - `src/audit-chain.mjs`：基于服务端完整 turn/item 模型生成 Audit Chain，集中维护审计节点、验证识别和非 evidence 风险启发式规则。
@@ -331,7 +341,7 @@ npm run lint:fix
 ## 设计说明
 
 - 服务端只读访问本地文件，不写入 `.codex`。
-- 数据源是一等概念：旧接口默认读取本机 `local` 数据源，新接口可显式指定 `sourceId`；前端用 `sourceId + session id` 区分会话，避免不同数据源中相同 session id 混淆。
+- 数据源是一等概念：旧接口默认读取本机 `local` 数据源，新接口可显式指定 `sourceId`；前端用 `sourceId + session id` 区分会话，避免不同数据源中相同 session id 混淆。Pi Agent 本机数据源固定为 `pi-agent`，默认扫描 `~/.pi/agent/sessions`。
 - 远端数据源可以通过页面管理，配置保存在本机私有 `config.json`；环境变量仍可作为高级配置来源。页面接口只返回访问令牌是否存在，不回显访问令牌原文。“移除本机配置”只移除本机保存的远端配置和访问令牌，不删除远端会话、远端快照或本机已拉取的缓存快照。
 - 远端数据源的正文只在拉取阶段访问配置好的实时快照 URL 或快照目录；普通会话列表、复核台、Markdown 导出和正文渲染都从本地 `current` 快照读取。拉取实时快照默认只补最近 3 小时。历史分类仅按需访问远端索引接口，索引只返回元数据，不包含会话正文；历史正文需要远端扩大共享窗口或额外同步后再拉取，或切回已有本地快照查看已同步会话。
 - 远端实时快照拉取使用 staging 目录构建，再原子切换到 `current`。共享服务的实时快照和 `copyCodexTree` 发布的远端快照只包含 `sessions/**/*.jsonl`、`state_5.sqlite`、`session_index.jsonl` 等允许文件，不包含 `archived_sessions`；本地文件回退扫描 `sessions` 与 `archived_sessions` 是另一条读取路径。拉取失败不会覆盖上一次成功快照。同一数据源的并发拉取会复用正在进行的任务，不同数据源仍可并行，避免并发发布 `staging/current/previous` 竞态。
@@ -341,7 +351,7 @@ npm run lint:fix
 - 顶栏设置入口提供“展示规则设置”，用户可在浏览器本地新增、启停或删除工具摘要规则、审计链执行聚合规则和证据风险规则；自定义规则优先于内置规则。设置页按“摘要规则 / 执行聚合 / 证据风险 / 结构化展示”分类切换，顶部概览主数字展示生效数量，辅助文字展示自定义/内置数量，当前分类只展示自己的编辑区和内置参考；证据风险页内容较长时只滚动编辑区，取消/保存 footer 固定在弹窗可见区域。结构化展示分类用只读说明列出命令输出结构化视图当前覆盖的命令类型和展示内容，便于判断哪些 `exec_command` 输出会被自动整理。摘要规则只影响审计链、复核台、原始事件列表标题和前端搜索，摘要规则名称仅用于本地管理；执行聚合规则只影响审计链执行链中连续执行节点的折叠展示，不改变服务端 `audit.nodes`、turn/item 轻量模型、`trace.root` 或原始事件；证据风险规则会随会话详情请求传给服务端，用于重新派生 `audit.nodes` 中的证据风险节点和风险计数。若浏览器 localStorage 里存在旧版本留下的非法证据风险规则，普通打开会话时前端会跳过这些非法覆盖，不再把它们序列化到详情请求；用户仍可在设置页看到并修正规则后保存。
 - 会话列表优先读取 SQLite `threads` 表，并在 SQLite 查询层排除 `thread_spawn_edges.child_thread_id` 对应的子代理线程，避免子代理在左侧会话列表独立展示；SQLite 不可用或列表查询失败时回退扫描 JSONL 文件。文件回退会同时扫描 `sessions` 和 `archived_sessions`，按 session id 去重，live 副本优先，只有没有 live 副本时才把 archived 副本作为可打开会话；同时会从 `session_meta.source.subagent.thread_spawn` 继续识别父子关系和子代理昵称，默认仍只展示根会话。
 - JSONL 读取使用流式逐行解析；列表回退读取前若干条事件时不会把整个大文件一次性读入内存。
-- JSONL 事件会先经过规范化层形成稳定字段，兼容 `type`/`role`、多种时间字段、content parts、工具字段漂移、delta chunk、图片引用、加密 reasoning 和 Codex 上下文压缩事件；契约见 `docs/session-event-normalization.md`。
+- JSONL 事件会先经过规范化层形成稳定字段，兼容 `type`/`role`、多种时间字段、content parts、工具字段漂移、Pi Agent 嵌入式 `toolCall`/`toolResult`、delta chunk、图片引用、加密 reasoning 和 Codex 上下文压缩事件；契约见 `docs/session-event-normalization.md`。
 - 解析器把 JSONL 中的 `session_meta`、`turn_context`、`event_msg`、`response_item` 聚合为 turn 和 item。
 - 工具调用会合并 `function_call`、`function_call_output`、`custom_tool_call`、`custom_tool_call_output`、`mcp_tool_call_end`、`patch_apply_end` 等 Codex 事件。
 - 同一 `message_id` 的 streamed/delta 消息会在规范化层合并为连续可读文本，并保留来源事件索引用于原始事件回溯。

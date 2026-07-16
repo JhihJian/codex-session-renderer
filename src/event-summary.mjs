@@ -4,9 +4,12 @@ import { normalizeSessionEvent, redactSensitiveText } from "./session-normalizer
 import { cleanUserMessageText } from "./user-message-cleanup.mjs";
 
 function extractTitleFromEvents(events, fallback) {
+  for (const event of events) {
+    if (event?.type === "session_info" && event.name) return firstLine(event.name, 90);
+  }
   for (const [index, event] of events.entries()) {
     const normalized = normalizeSessionEvent(event, event?.index ?? index);
-    if (normalized.kind === "user_message") {
+    if (normalized.kind === "user_message" || (normalized.semanticKind === "message" && normalized.role === "user")) {
       const message = cleanUserMessageText(normalized.text ?? event.payload?.message ?? "");
       if (message) return firstLine(message, 90);
     }

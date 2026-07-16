@@ -14,19 +14,20 @@ function normalizeSessionEvent(rawEvent, index = null) {
   const payload = eventPayload(raw);
   const rawType = stringOrNull(raw.type);
   const payloadType = stringOrNull(payload.type);
-  const role = stringOrNull(payload.role ?? raw.role);
+  const role = normalizeRole(payload.role ?? raw.role ?? raw.message?.role);
   const kind = classifyNormalizedKind({ rawType, payloadType, role });
   const semanticKind = semanticKindFor({ kind, role });
   const textParts = extractTextParts(payload, raw);
   const attachments = extractAttachments(payload, raw);
   const reasoning = extractReasoning(payload, raw, semanticKind);
   const compact = extractCompact(payload, raw, kind);
+  const toolCalls = extractEmbeddedToolCalls(payload, raw);
   const toolName = semanticKind === "tool_call" || semanticKind === "tool_result" ? toolNameFromPayload(payload) : null;
   const toolInput = semanticKind === "tool_call" ? stringifyMaybe(toolArgumentsFromPayload(payload)) : null;
   const toolOutput = semanticKind === "tool_result" ? stringifyMaybe(toolOutputFromPayload(payload)) : null;
   const text = textParts.join("\n\n");
   const messageId = stringOrNull(raw.message_id ?? raw.id ?? payload.message_id ?? payload.id);
-  const parentId = stringOrNull(raw.parent_id ?? payload.parent_id);
+  const parentId = stringOrNull(raw.parent_id ?? raw.parentId ?? payload.parent_id ?? payload.parentId);
   const hasDeltaIndex = raw.delta_index != null || payload.delta_index != null;
   const isDelta = Boolean(raw.delta ?? raw.chunk ?? payload.delta ?? payload.chunk ?? hasDeltaIndex);
 
@@ -52,6 +53,7 @@ function normalizeSessionEvent(rawEvent, index = null) {
     toolName,
     toolInput,
     toolOutput,
+    toolCalls,
     attachments,
     reasoning,
     compact,
@@ -150,8 +152,40 @@ function mergeText(previous, next) {
 }
 
 function eventPayload(raw) {
+  if (isPiAgentMessageEvent(raw)) return piAgentMessagePayload(raw);
   if (isObject(raw.payload)) return raw.payload;
   return raw;
+}
+
+function isPiAgentMessageEvent(raw) {
+  return raw?.type === "message" && isObject(raw.message);
+}
+
+function piAgentMessagePayload(raw) {
+  const message = raw.message || {};
+  const role = normalizeRole(message.role);
+  const base = {
+    ...message,
+    id: message.id ?? raw.id,
+    parent_id: message.parent_id ?? raw.parent_id ?? raw.parentId,
+    timestamp: message.timestamp ?? raw.timestamp,
+    role,
+  };
+  if (message.role === "toolResult" || role === "tool") {
+    return {
+      ...base,
+      type: "function_call_output",
+      call_id: message.toolCallId ?? message.call_id ?? message.callId,
+      name: message.toolName ?? message.name,
+      output: piAgentContentText(message.content),
+      success: message.isError == null ? undefined : message.isError === false,
+    };
+  }
+  return {
+    ...base,
+    type: "message",
+    message_id: message.message_id ?? raw.id,
+  };
 }
 
 function classifyNormalizedKind({ rawType, payloadType, role }) {
@@ -188,7 +222,7 @@ function semanticKindFor({ kind, role }) {
 }
 
 function normalizeEventTimestamp(event) {
-  for (const container of [event, event?.payload].filter(isObject)) {
+  for (const container of [event, event?.payload, event?.message].filter(isObject)) {
     for (const key of timeKeys) {
       const iso = normalizeTimestampValue(container[key]);
       if (iso) return iso;
@@ -223,6 +257,7 @@ function extractTextParts(payload, raw) {
   const parts = [];
   const push = (value) => {
     if (value == null) return;
+    if (typeof value === "object") return;
     const text = redactSensitiveText(String(value));
     if (text) parts.push(text);
   };
@@ -249,6 +284,49 @@ function extractTextParts(payload, raw) {
   }
 
   return [...new Set(parts)];
+}
+
+function extractEmbeddedToolCalls(payload, raw) {
+  const calls = [];
+  const contentValues = [];
+  const seenContent = new Set();
+  const pushContent = (content) => {
+    if (!Array.isArray(content) || seenContent.has(content)) return;
+    seenContent.add(content);
+    contentValues.push(content);
+  };
+  pushContent(payload.content);
+  if (payload !== raw) pushContent(raw.content);
+  if (isObject(raw.message)) pushContent(raw.message.content);
+
+  for (const content of contentValues) {
+    for (const part of content) {
+      if (!isObject(part) || part.type !== "toolCall") continue;
+      calls.push(
+        compactObject({
+          callId: stringOrNull(part.id ?? part.call_id ?? part.callId),
+          name: stringOrNull(part.name ?? part.toolName ?? part.tool),
+          arguments: stringifyMaybe(part.arguments ?? part.input ?? part.args),
+        }),
+      );
+    }
+  }
+  return calls;
+}
+
+function piAgentContentText(content) {
+  const parts = [];
+  for (const part of Array.isArray(content) ? content : [content]) {
+    if (part == null) continue;
+    if (typeof part === "string") {
+      parts.push(part);
+      continue;
+    }
+    if (!isObject(part)) continue;
+    const text = part.text ?? part.value ?? part.output;
+    if (text != null) parts.push(String(text));
+  }
+  return [...new Set(parts.map(redactSensitiveText).filter(Boolean))].join("\n\n");
 }
 
 function extractReasoning(payload, raw, semanticKind) {
@@ -523,6 +601,7 @@ function buildSearchText(event) {
     event.toolName,
     event.toolInput,
     event.toolOutput,
+    ...(event.toolCalls || []).flatMap((call) => [call.name, call.arguments]),
     attachmentText,
     reasoningText,
     event.compact?.kind,
@@ -592,6 +671,12 @@ function safeJsonLength(value) {
 
 function stringOrNull(value) {
   return value == null || value === "" ? null : String(value);
+}
+
+function normalizeRole(value) {
+  const role = stringOrNull(value);
+  if (role === "toolResult") return "tool";
+  return role;
 }
 
 function numberOrNull(value) {

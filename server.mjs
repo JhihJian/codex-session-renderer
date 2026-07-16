@@ -248,14 +248,14 @@ async function listFileSessions(context) {
         sourceId: context.source.id,
         sourceLabel: context.source.label,
         dataSourceKind: context.source.kind,
-        title: indexed?.title || extractTitleFromEvents(events, path.basename(filePath, ".jsonl")),
+        title: indexed?.title || meta.title || extractTitleFromEvents(events, path.basename(filePath, ".jsonl")),
         cwd: stripLongPathPrefix(meta.cwd || "") || null,
         originator: meta.originator || null,
-        model: meta.model || meta.model_provider || null,
-        reasoningEffort: null,
-        source: meta.source || null,
+        model: meta.model || meta.modelId || meta.model_provider || null,
+        reasoningEffort: meta.reasoning_effort || meta.reasoningEffort || null,
+        source: meta.source || (context.source.kind === "pi-agent" ? "pi-agent" : null),
         threadSource: meta.thread_source || null,
-        modelProvider: meta.model_provider || null,
+        modelProvider: meta.model_provider || meta.provider || null,
         archived: record.archived,
         archivedAt: null,
         agentNickname: null,
@@ -276,7 +276,23 @@ async function listFileSessions(context) {
 }
 
 function sessionMetaFromEvents(events) {
-  return events.find((event) => event.type === "session_meta")?.payload ?? {};
+  const codexMeta = events.find((event) => event.type === "session_meta")?.payload;
+  if (codexMeta) return codexMeta;
+  const piSession = events.find((event) => event.type === "session") || null;
+  const piInfo = events.find((event) => event.type === "session_info") || null;
+  const piModel = [...events].reverse().find((event) => event.type === "model_change") || null;
+  const piThinking = [...events].reverse().find((event) => event.type === "thinking_level_change") || null;
+  if (!piSession && !piInfo && !piModel && !piThinking) return {};
+  return {
+    title: piInfo?.name || null,
+    cwd: piSession?.cwd || null,
+    timestamp: piSession?.timestamp || null,
+    model: piModel?.modelId || piModel?.model || null,
+    model_provider: piModel?.provider || null,
+    reasoningEffort: piThinking?.thinkingLevel || null,
+    originator: "pi_agent",
+    source: "pi-agent",
+  };
 }
 
 async function enrichSessionFromFileMeta(session) {
@@ -288,10 +304,11 @@ async function enrichSessionFromFileMeta(session) {
     ...session,
     cwd: session.cwd || stripLongPathPrefix(meta.cwd || "") || null,
     originator: session.originator || meta.originator || null,
-    model: session.model || meta.model || meta.model_provider || null,
+    model: session.model || meta.model || meta.modelId || meta.model_provider || null,
+    reasoningEffort: session.reasoningEffort || meta.reasoning_effort || meta.reasoningEffort || null,
     source: sourceForExtraction,
     threadSource: session.threadSource || meta.thread_source || null,
-    modelProvider: session.modelProvider || meta.model_provider || null,
+    modelProvider: session.modelProvider || meta.model_provider || meta.provider || null,
     startedAt: session.startedAt || toIso(meta.timestamp) || null,
   });
   return {
@@ -450,7 +467,7 @@ async function getSessionDetail(context, id, options = {}) {
       stale: context.source.status?.stale ?? false,
       lastSuccessfulRefreshAt: context.source.status?.lastSuccessfulRefreshAt ?? null,
     },
-    codexHome: context.source.kind === "local" ? context.codexHome : null,
+    codexHome: context.source.kind === "remote" ? null : context.codexHome,
     dataPath: sessionWithStat.path,
   };
   const detail = { session: sessionForDetail, turns: publicTurns, events: publicEvents, stats, trace, compact, audit };
@@ -813,14 +830,14 @@ async function sessionFromFilePath(context, filePath, options = {}) {
       sourceId: context.source.id,
       sourceLabel: context.source.label,
       dataSourceKind: context.source.kind,
-      title: extractTitleFromEvents(events, path.basename(filePath, ".jsonl")),
+      title: meta.title || extractTitleFromEvents(events, path.basename(filePath, ".jsonl")),
       cwd: stripLongPathPrefix(meta.cwd || "") || null,
       originator: meta.originator || null,
-      model: meta.model || meta.model_provider || null,
-      reasoningEffort: null,
-      source: meta.source || null,
+      model: meta.model || meta.modelId || meta.model_provider || null,
+      reasoningEffort: meta.reasoning_effort || meta.reasoningEffort || null,
+      source: meta.source || (context.source.kind === "pi-agent" ? "pi-agent" : null),
       threadSource: meta.thread_source || null,
-      modelProvider: meta.model_provider || null,
+      modelProvider: meta.model_provider || meta.provider || null,
       archived: options.archived ?? false,
       archivedAt: null,
       agentNickname: null,
