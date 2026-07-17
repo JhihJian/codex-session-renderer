@@ -351,6 +351,15 @@ npm run lint
 npm test
 ```
 
+Chromium 工作台契约测试使用项目内锁定的 Playwright，不读取真实 `~/.codex`、浏览器配置或缓存。首次在 `npm ci` 后安装项目私有 Chromium；该命令把浏览器安装到 `node_modules`，不依赖全局浏览器工具：
+
+```powershell
+npm run install:e2e-browser
+npm run test:e2e
+```
+
+`npm run test:e2e` 会启动临时本机服务，并写入固定的隔离 JSONL 样本，只做 DOM、ARIA、可见性和几何断言，不使用像素基线。失败时 `test-results/` 保留 trace、截图和视频，`playwright-report/` 保留 HTML 报告；两者均已忽略，不会提交。`npm run verify` 依次执行 lint、Node 回归和 Chromium 契约测试，作为组合质量门禁。
+
 需要应用 ESLint 可安全自动修复的改动时运行：
 
 ```powershell
@@ -372,6 +381,7 @@ npm run lint:fix
 - 特殊会话样例覆盖 fork replay 前导重放、`turn_aborted` 续跑、真实重复用户输入、等待状态、图片附件和 encrypted reasoning 脱敏。
 - 无 SQLite 文件回退覆盖 `sessions`/`archived_sessions` 去重，避免同一 session id 同时出现在 live 和 archived 副本时重复展示。
 - 前端 HTML 高亮不会改写标签，Windows 路径缩短和下载文件名清理保持稳定。
+- Chromium 契约覆盖桌面三栏与复核台键盘调整、窄屏流式复核区和移动三面板；时间、主视图、复核和设置 tablist 的 roving focus / `aria-selected` 同步；隐藏面板的焦点迁移和设置 dialog 的 Escape/关闭按钮焦点恢复；以及任务归档加载取消和过期响应隔离。
 
 ## 设计说明
 

@@ -21,6 +21,9 @@ Thumbs.db
 !test/fixtures/special-sessions/*.jsonl
 *.log
 
+playwright-report/
+test-results/
+
 coverage/
 dist/
 build/
