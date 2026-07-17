@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { access, copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -347,6 +347,7 @@ test("remote snapshot refresh reuses one in-flight refresh for the same source",
       readFile,
       readdir,
       rm,
+      symlink,
       writeFile,
       async copyFile(from, to) {
         if (isPathInside(remoteHome, from)) {
@@ -431,6 +432,7 @@ test("remote snapshot refresh clears failed in-flight refresh before later retry
       readFile,
       readdir,
       rm,
+      symlink,
       writeFile,
       async copyFile(from, to) {
         if (isPathInside(remoteHome, from)) {

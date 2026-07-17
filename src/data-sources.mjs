@@ -2,9 +2,10 @@ import { createReadStream, createWriteStream, existsSync, readFileSync, promises
 import path from "node:path";
 import os from "node:os";
 import { pipeline } from "node:stream/promises";
-import { Readable } from "node:stream";
 import { createGunzip } from "node:zlib";
 import { spawn } from "node:child_process";
+import { createConcurrencyGate, createSharedSubscriptionRegistry } from "./prompt-archive-coordinator.mjs";
+import { createDeadlineSignal, fetchWithDeadline, isAbortError, pipelineLimitedResponse, throwIfAborted } from "./remote-http.mjs";
 
 const defaultRemoteSnapshotRoot = path.join(os.homedir(), ".codex-session-renderer", "remote-snapshots");
 const safeIdPattern = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -26,13 +27,16 @@ function createDataSourceRegistry(options = {}) {
   const fsApi = options.fsApi || fs;
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   const spawnImpl = options.spawnImpl || spawn;
+  const refreshLimits = remoteRefreshLimits(env);
+  const refreshGate = options.refreshGate || createConcurrencyGate(refreshLimits.maxConcurrent);
+  const refreshSubscriptions = options.refreshSubscriptions || createSharedSubscriptionRegistry();
   const localCodexHome = path.resolve(env.CODEX_HOME || path.join(homeDir, ".codex"));
   const remoteSnapshotRoot = path.resolve(env.CODEX_REMOTE_SNAPSHOT_ROOT || defaultRemoteSnapshotRoot);
   const remoteDefinitions = [...parseConfigRemoteDefinitions(options.config), ...parseRemoteDefinitions(env)];
   const piAgentDefinition = parsePiAgentDefinition(env, homeDir);
 
   const sources = new Map();
-  const activeRefreshes = new Map();
+
   const localSource = createLocalDataSource({ codexHome: localCodexHome });
   sources.set(localSource.id, localSource);
 
@@ -61,7 +65,7 @@ function createDataSourceRegistry(options = {}) {
     return sources.get("local");
   }
 
-  async function refreshSource(id) {
+  async function refreshSource(id, options = {}) {
     const source = getSource(id);
     if (!source) {
       return {
@@ -78,30 +82,24 @@ function createDataSourceRegistry(options = {}) {
       };
     }
 
-    const existingRefresh = activeRefreshes.get(source.id);
-    if (existingRefresh) return await existingRefresh;
-
-    const refreshPromise = (async () => {
-      await refreshRemoteSource(source, {
-        fsApi,
-        fetchImpl,
-        spawnImpl,
-        now,
-      });
+    const refreshPromise = refreshSubscriptions.subscribe(source.snapshotRoot, async (signal) => {
+      await refreshGate.run(async () => {
+        await refreshRemoteSource(source, {
+          fsApi,
+          fetchImpl,
+          spawnImpl,
+          now,
+          signal,
+          limits: refreshLimits,
+        });
+      }, signal);
       return {
         ok: source.status.lastRefreshOk === true,
         status: source.status.lastRefreshOk === true ? 200 : 502,
         source: publicDataSource(source),
       };
-    })();
-    activeRefreshes.set(source.id, refreshPromise);
-    try {
-      return await refreshPromise;
-    } finally {
-      if (activeRefreshes.get(source.id) === refreshPromise) {
-        activeRefreshes.delete(source.id);
-      }
-    }
+    }, options.signal);
+    return await refreshPromise;
   }
 
   return {
@@ -109,7 +107,23 @@ function createDataSourceRegistry(options = {}) {
     getSource,
     listSources,
     refreshSource,
+    refreshLimits,
   };
+}
+
+function remoteRefreshLimits(env = process.env) {
+  return {
+    deadlineMs: positiveEnv(env, "CODEX_REMOTE_HTTP_DEADLINE_MS", 30_000, 300_000),
+    snapshotMaxBytes: positiveEnv(env, "CODEX_REMOTE_SNAPSHOT_MAX_BYTES", 256 * 1024 * 1024, 2 * 1024 * 1024 * 1024),
+    maxConcurrent: positiveEnv(env, "CODEX_REMOTE_MAX_CONCURRENT_REFRESHES", 2, 16),
+    maxGenerations: positiveEnv(env, "CODEX_REMOTE_MAX_SNAPSHOT_GENERATIONS", 2, 16),
+  };
+}
+
+function positiveEnv(env, name, fallback, maximum) {
+  const value = Number(env[name]);
+  if (!Number.isFinite(value) || value <= 0) return fallback;
+  return Math.min(Math.floor(value), maximum);
 }
 
 function createLocalDataSource({ codexHome }) {
@@ -464,6 +478,7 @@ async function refreshRemoteSource(source, options = {}) {
   source.status.startedAt = startedAt;
 
   try {
+    throwIfAborted(options.signal);
     await fsApi.mkdir(source.snapshotRoot, { recursive: true });
     const stagingPath = path.join(source.snapshotRoot, `staging-${Date.now()}-${process.pid}`);
     await fsApi.rm(stagingPath, { recursive: true, force: true });
@@ -471,13 +486,19 @@ async function refreshRemoteSource(source, options = {}) {
 
     try {
       await fetchRemoteSnapshotToDirectory(source, stagingPath, options);
+      throwIfAborted(options.signal);
       const codexHomePath = await findSnapshotCodexHome(stagingPath, source.definition.remoteCodexHome, fsApi);
       const snapshotMetadata = await readSnapshotMetadata(codexHomePath, fsApi);
       if (!source.definition.remoteCodexHome && snapshotMetadata?.codexHome) {
         updateSourceOriginalCodexHome(source, snapshotMetadata.codexHome);
       }
       await validateSnapshot(codexHomePath, fsApi);
-      await publishSnapshot(source, codexHomePath, fsApi, now);
+      await publishSnapshot(source, codexHomePath, {
+        fsApi,
+        now,
+        signal: options.signal,
+        maxGenerations: options.limits?.maxGenerations,
+      });
       source.status.lastRefreshOk = true;
       source.status.lastSuccessfulRefreshAt = now().toISOString();
       source.status.snapshotAvailable = true;
@@ -487,6 +508,7 @@ async function refreshRemoteSource(source, options = {}) {
       await fsApi.rm(stagingPath, { recursive: true, force: true });
     }
   } catch (error) {
+    if (isAbortError(error)) throw error;
     source.status.lastRefreshOk = false;
     source.status.snapshotAvailable = await pathExists(source.currentPath, fsApi);
     source.status.stale = source.status.snapshotAvailable;
@@ -502,7 +524,7 @@ async function refreshRemoteSource(source, options = {}) {
 async function fetchRemoteSnapshotToDirectory(source, stagingPath, options = {}) {
   const { definition } = source;
   if (definition.snapshotPath) {
-    await copySnapshotTree(definition.snapshotPath, stagingPath, options.fsApi || fs);
+    await copySnapshotTree(definition.snapshotPath, stagingPath, options.fsApi || fs, options);
     return;
   }
   if (definition.snapshotUrl) {
@@ -515,17 +537,19 @@ async function fetchRemoteSnapshotToDirectory(source, stagingPath, options = {})
   throw remoteRefreshError("not_configured", "远端数据源缺少 snapshotPath 或 snapshotUrl。");
 }
 
-async function copySnapshotTree(sourcePath, stagingPath, fsApi = fs) {
+async function copySnapshotTree(sourcePath, stagingPath, fsApi = fs, options = {}) {
   if (!(await pathExists(sourcePath, fsApi))) {
     throw remoteRefreshError("snapshot_failed", "配置的快照路径不可读。");
   }
-  await copyCodexTree(sourcePath, stagingPath, fsApi);
+  await copyCodexTree(sourcePath, stagingPath, fsApi, options);
 }
 
 async function copyCodexTree(sourcePath, targetPath, fsApi = fs, options = {}) {
+  throwIfAborted(options.signal);
   await fsApi.mkdir(targetPath, { recursive: true });
   const entries = await fsApi.readdir(sourcePath, { withFileTypes: true });
   for (const entry of entries) {
+    throwIfAborted(options.signal);
     const from = path.join(sourcePath, entry.name);
     const to = path.join(targetPath, entry.name);
     if (entry.isDirectory()) {
@@ -538,6 +562,7 @@ async function copyCodexTree(sourcePath, targetPath, fsApi = fs, options = {}) {
     ) {
       await fsApi.mkdir(path.dirname(to), { recursive: true });
       await fsApi.copyFile(from, to);
+      throwIfAborted(options.signal);
     }
   }
 }
@@ -551,47 +576,62 @@ async function downloadSnapshotArchive(source, stagingPath, options = {}) {
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   const fsApi = options.fsApi || fs;
   if (!fetchImpl) throw remoteRefreshError("transport_failed", "当前 Node 运行时缺少 fetch。");
-  const response = await fetchImpl(source.definition.snapshotUrl, {
+  const deadline = createDeadlineSignal(options.signal, options.limits?.deadlineMs, "snapshot_deadline_exceeded");
+  try {
+  const response = await fetchWithDeadline(fetchImpl, source.definition.snapshotUrl, {
     headers: {
       authorization: `Bearer ${source.definition.token}`,
     },
+  }, {
+    signal: deadline.signal,
+    timeoutCode: "snapshot_deadline_exceeded",
   }).catch((error) => {
+    if (isAbortError(error) || error?.code === "snapshot_deadline_exceeded") throw error;
     throw remoteRefreshError("unreachable", error?.message || "远端不可达。");
   });
   if (response.status === 401 || response.status === 403) {
     throw remoteRefreshError("auth_failed", "远端认证失败。");
   }
-  if (!response.ok || !response.body) {
+  if (!response.ok) {
     throw remoteRefreshError("transport_failed", `远端快照下载失败：HTTP ${response.status}`);
   }
 
   const archivePath = path.join(stagingPath, "snapshot.tar");
-  await pipeline(Readable.fromWeb(response.body), createWriteStream(archivePath));
-  await extractTarArchive(archivePath, stagingPath, source.definition.snapshotUrl, options.spawnImpl || spawn);
+  await pipelineLimitedResponse(response, createWriteStream(archivePath), {
+    maxBytes: options.limits?.snapshotMaxBytes || 256 * 1024 * 1024,
+    code: "snapshot_too_large",
+    signal: deadline.signal,
+  });
+  await extractTarArchive(archivePath, stagingPath, source.definition.snapshotUrl, options.spawnImpl || spawn, deadline.signal);
   await fsApi.rm(archivePath, { force: true });
+  } finally {
+    deadline.dispose();
+  }
 }
 
-async function extractTarArchive(archivePath, targetDir, sourceUrl, spawnImpl = spawn) {
+async function extractTarArchive(archivePath, targetDir, sourceUrl, spawnImpl = spawn, signal) {
   const tarArgs = ["-xf", archivePath, "-C", targetDir];
   const lower = String(sourceUrl || archivePath).toLowerCase();
   const useGunzip = lower.endsWith(".tgz") || lower.endsWith(".tar.gz");
   if (!useGunzip) {
-    await runProcess(spawnImpl, "tar", tarArgs, "snapshot_failed");
+    await runProcess(spawnImpl, "tar", tarArgs, "snapshot_failed", signal);
     return;
   }
 
   const inflatedPath = `${archivePath}.inflated`;
-  await pipeline(createReadStream(archivePath), createGunzip(), createWriteStream(inflatedPath));
+  await pipeline(createReadStream(archivePath), createGunzip(), createWriteStream(inflatedPath), { signal });
   try {
-    await runProcess(spawnImpl, "tar", ["-xf", inflatedPath, "-C", targetDir], "snapshot_failed");
+    await runProcess(spawnImpl, "tar", ["-xf", inflatedPath, "-C", targetDir], "snapshot_failed", signal);
   } finally {
     await fs.rm(inflatedPath, { force: true });
   }
 }
 
-function runProcess(spawnImpl, command, args, code) {
+function runProcess(spawnImpl, command, args, code, signal) {
   return new Promise((resolve, reject) => {
     const child = spawnImpl(command, args, { stdio: ["ignore", "ignore", "pipe"] });
+    const abort = () => child.kill?.("SIGTERM");
+    signal?.addEventListener("abort", abort, { once: true });
     let stderr = "";
     child.stderr?.setEncoding("utf8");
     child.stderr?.on("data", (chunk) => {
@@ -599,6 +639,11 @@ function runProcess(spawnImpl, command, args, code) {
     });
     child.on("error", (error) => reject(remoteRefreshError(code, error?.message || `${command} 启动失败。`)));
     child.on("close", (exitCode) => {
+      signal?.removeEventListener("abort", abort);
+      if (signal?.aborted) {
+        reject(Object.assign(new Error("The operation was aborted"), { name: "AbortError", code: "ABORT_ERR" }));
+        return;
+      }
       if (exitCode === 0) {
         resolve();
       } else {
@@ -673,26 +718,53 @@ function updateSourceOriginalCodexHome(source, originalCodexHome) {
   source.origin.remoteCodexHome = originalCodexHome;
 }
 
-async function publishSnapshot(source, codexHomePath, fsApi = fs, now = () => new Date()) {
-  const nextPath = path.join(source.snapshotRoot, `next-${Date.now()}-${process.pid}`);
-  const previousPath = path.join(source.snapshotRoot, "previous");
+async function publishSnapshot(source, codexHomePath, options = {}) {
+  const fsApi = options.fsApi || fs;
+  const now = options.now || (() => new Date());
+  const signal = options.signal;
+  const maxGenerations = options.maxGenerations || 2;
+  const versionsPath = path.join(source.snapshotRoot, "versions");
+  const generation = `snapshot-${Date.now()}-${process.pid}`;
+  const nextPath = path.join(versionsPath, generation);
+  const nextLink = path.join(source.snapshotRoot, `.current-${generation}`);
+  await fsApi.mkdir(versionsPath, { recursive: true });
   await fsApi.rm(nextPath, { recursive: true, force: true });
-  await copyCodexTree(codexHomePath, nextPath, fsApi);
+  await copyCodexTree(codexHomePath, nextPath, fsApi, { signal });
+  throwIfAborted(signal);
   await validateSnapshot(nextPath, fsApi);
-  await fsApi.rm(previousPath, { recursive: true, force: true });
-  if (await pathExists(source.currentPath, fsApi)) {
-    await fsApi.rename(source.currentPath, previousPath);
-  }
   try {
-    await fsApi.rename(nextPath, source.currentPath);
-  } catch (error) {
-    if (await pathExists(previousPath, fsApi)) {
-      await fsApi.rename(previousPath, source.currentPath).catch(() => {});
+    await fsApi.rm(nextLink, { force: true });
+    await fsApi.symlink(path.relative(source.snapshotRoot, nextPath), nextLink, "dir");
+    try {
+      await fsApi.rename(nextLink, source.currentPath);
+    } catch (error) {
+      if (error?.code !== "EEXIST" && error?.code !== "ENOTEMPTY") throw error;
+      const legacyPath = path.join(source.snapshotRoot, `legacy-${generation}`);
+      await fsApi.rename(source.currentPath, legacyPath);
+      try {
+        await fsApi.rename(nextLink, source.currentPath);
+      } catch (publishError) {
+        await fsApi.rename(legacyPath, source.currentPath).catch(() => {});
+        throw publishError;
+      }
     }
+  } catch (error) {
+    await fsApi.rm(nextLink, { force: true }).catch(() => {});
     throw remoteRefreshError("local_snapshot_unavailable", error?.message || "本地快照发布失败。");
   }
-  await fsApi.rm(previousPath, { recursive: true, force: true });
+  await pruneSnapshotGenerations(versionsPath, generation, maxGenerations, fsApi);
   source.status.publishedAt = now().toISOString();
+}
+
+async function pruneSnapshotGenerations(versionsPath, currentGeneration, maxGenerations, fsApi) {
+  const entries = await fsApi.readdir(versionsPath, { withFileTypes: true }).catch(() => []);
+  const generations = entries
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith("snapshot-"))
+    .map((entry) => entry.name)
+    .toSorted((left, right) => right.localeCompare(left));
+  const retained = new Set(generations.slice(0, Math.max(1, maxGenerations)));
+  retained.add(currentGeneration);
+  await Promise.all(generations.filter((generation) => !retained.has(generation)).map((generation) => fsApi.rm(path.join(versionsPath, generation), { recursive: true, force: true }).catch(() => {})));
 }
 
 async function writeStatusFile(source, fsApi = fs) {
@@ -782,6 +854,7 @@ export {
   parseRemoteDefinitions,
   piAgentSourceId,
   publicDataSource,
+  remoteRefreshLimits,
   remoteUrlQueryMessage,
   remoteUrlUserinfoMessage,
   safeRemoteError,

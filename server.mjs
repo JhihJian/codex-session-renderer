@@ -8,6 +8,7 @@ import { createDataSourceRegistry, sanitizeErrorMessage } from "./src/data-sourc
 import { evidenceRiskRulesFingerprint, normalizeEvidenceRiskRules, validateEvidenceRiskRules } from "./src/evidence-risk-rules.mjs";
 import { sendError, sendJson, sendText, serveStaticFile } from "./src/http-response.mjs";
 import { createRendererConfigStore } from "./src/renderer-config.mjs";
+import { createDeadlineSignal, fetchWithDeadline, isAbortError as isRemoteAbortError, readLimitedResponseText } from "./src/remote-http.mjs";
 import { createSessionDetailCoordinator } from "./src/session-detail-coordinator.mjs";
 import { readJsonl, readJsonlLineWithDiagnostics, readJsonlRange } from "./src/jsonl-reader.mjs";
 import {
@@ -37,7 +38,7 @@ import {
 import { dedupeSessionFileRecords, sessionFileRoots } from "./src/session-catalog.mjs";
 import { normalizeSessionEvent } from "./src/session-normalizer.mjs";
 import { promptProjectKey } from "./src/session-prompts.mjs";
-import { createAbortError, createConcurrencyGate, createPromptArchiveCoordinator, fileSignature, isAbortError } from "./src/prompt-archive-coordinator.mjs";
+import { createAbortError, createConcurrencyGate, createPromptArchiveCoordinator, createSharedSubscriptionRegistry, fileSignature, isAbortError } from "./src/prompt-archive-coordinator.mjs";
 import {
   compactSessionForList,
   publicThreadMeta,
@@ -69,10 +70,17 @@ const recentSessionWindowMs = 24 * 60 * 60 * 1000;
 const port = Number(process.env.PORT || 4789);
 const host = process.env.HOST || "127.0.0.1";
 const accessToken = process.env.CODEX_SESSION_RENDERER_TOKEN || "";
+const remoteHttpLimits = {
+  deadlineMs: readPositiveEnv("CODEX_REMOTE_HTTP_DEADLINE_MS", 30_000, 300_000),
+  indexMaxBytes: readPositiveEnv("CODEX_REMOTE_INDEX_MAX_BYTES", 2 * 1024 * 1024, 32 * 1024 * 1024),
+  healthMaxBytes: readPositiveEnv("CODEX_REMOTE_HEALTH_MAX_BYTES", 256 * 1024, 4 * 1024 * 1024),
+};
 const sessionReadGate = createConcurrencyGate(readPositiveEnv("CODEX_SESSION_DETAIL_MAX_CONCURRENT_READS", 4, 32));
+const remoteRefreshGate = createConcurrencyGate(readPositiveEnv("CODEX_REMOTE_MAX_CONCURRENT_REFRESHES", 2, 16));
+const remoteRefreshSubscriptions = createSharedSubscriptionRegistry();
 const configStore = createRendererConfigStore();
 let rendererConfig = await configStore.readConfig();
-let dataSources = createDataSourceRegistry({ config: rendererConfig });
+let dataSources = createDataSourceRegistry({ config: rendererConfig, refreshGate: remoteRefreshGate, refreshSubscriptions: remoteRefreshSubscriptions });
 const sourceContexts = new Map();
 
 function readPositiveEnv(name, fallback, maximum) {
@@ -94,7 +102,7 @@ function sessionDetailCoordinatorOptions() {
 
 async function reloadDataSources() {
   rendererConfig = await configStore.readConfig();
-  dataSources = createDataSourceRegistry({ config: rendererConfig });
+  dataSources = createDataSourceRegistry({ config: rendererConfig, refreshGate: remoteRefreshGate, refreshSubscriptions: remoteRefreshSubscriptions });
   sourceContexts.clear();
 }
 
@@ -838,15 +846,16 @@ function remoteHttpFailureStatus(status) {
   return status === 401 || status === 403 ? status : 502;
 }
 
-async function readRemoteJson(response, { code, message, status = 502 }) {
+async function readRemoteJson(response, { code, message, status = 502, maxBytes, signal }) {
   try {
-    return await response.json();
+    return JSON.parse(await readLimitedResponseText(response, { maxBytes, code, signal }));
   } catch (error) {
+    if (isRemoteAbortError(error)) throw error;
     throw createRemoteServiceError(code, message, status, error);
   }
 }
 
-async function queryRemoteSessionIndex(source, params) {
+async function queryRemoteSessionIndex(source, params, options = {}) {
   if (source.kind !== "remote" || !source.definition?.indexUrl) {
     throw createRemoteServiceError("remote_index_not_configured", "远端索引不可用。", 404);
   }
@@ -860,13 +869,18 @@ async function queryRemoteSessionIndex(source, params) {
     throw createRemoteServiceError("remote_index_invalid_url", "远端索引地址无效。", 400, error);
   }
   for (const [key, value] of params) indexUrl.searchParams.set(key, value);
-  const response = await fetch(indexUrl, {
-    headers: {
-      authorization: `Bearer ${source.definition.token}`,
-    },
-  }).catch((error) => {
-    throw createRemoteServiceError("remote_index_unreachable", `远端索引不可达：${error?.message || "连接失败"}`, 502, error);
-  });
+  const deadline = createDeadlineSignal(options.signal, remoteHttpLimits.deadlineMs, "remote_index_deadline_exceeded");
+  let response;
+  try {
+    response = await fetchWithDeadline(fetch, indexUrl, {
+      headers: {
+        authorization: `Bearer ${source.definition.token}`,
+      },
+    }, { signal: deadline.signal }).catch((error) => {
+      if (isRemoteAbortError(error)) throw error;
+      if (error?.code === "remote_index_deadline_exceeded") throw createRemoteServiceError(error.code, "远端索引请求超时。", 502, error);
+      throw createRemoteServiceError("remote_index_unreachable", `远端索引不可达：${error?.message || "连接失败"}`, 502, error);
+    });
   if (response.status === 401 || response.status === 403) {
     throw createRemoteServiceError("remote_index_auth_failed", "远端索引认证失败。", response.status);
   }
@@ -877,35 +891,40 @@ async function queryRemoteSessionIndex(source, params) {
       remoteHttpFailureStatus(response.status),
     );
   }
-  const data = await readRemoteJson(response, {
-    code: "remote_index_non_json",
-    message: "远端索引返回非 JSON。",
-  });
-  return {
-    ok: true,
-    status: 200,
-    page: data.page,
-    sessions: (data.sessions || []).map((session) => ({
-      ...session,
-      sourceId: source.id,
-      sourceLabel: source.label,
-      dataSourceKind: "remote",
-      remoteIndexOnly: true,
-      availableInSnapshot: false,
-    })),
-  };
+    const data = await readRemoteJson(response, {
+      code: "remote_index_non_json",
+      message: "远端索引返回非 JSON。",
+      maxBytes: remoteHttpLimits.indexMaxBytes,
+      signal: deadline.signal,
+    });
+    return {
+      ok: true,
+      status: 200,
+      page: data.page,
+      sessions: (data.sessions || []).map((session) => ({
+        ...session,
+        sourceId: source.id,
+        sourceLabel: source.label,
+        dataSourceKind: "remote",
+        remoteIndexOnly: true,
+        availableInSnapshot: false,
+      })),
+    };
+  } finally {
+    deadline.dispose();
+  }
 }
 
-async function testRemotePeer(source) {
+async function testRemotePeer(source, options = {}) {
   try {
-    return await testRemotePeerOrThrow(source);
+    return await testRemotePeerOrThrow(source, options);
   } catch (error) {
     if (isRemoteServiceError(error)) return remoteFailurePayload(error);
     throw error;
   }
 }
 
-async function testRemotePeerOrThrow(source) {
+async function testRemotePeerOrThrow(source, options = {}) {
   if (source.kind !== "remote" || !source.definition?.indexUrl) {
     throw createRemoteServiceError("remote_health_not_configured", "远端索引不可用。", 404);
   }
@@ -919,13 +938,18 @@ async function testRemotePeerOrThrow(source) {
     throw createRemoteServiceError("remote_health_invalid_url", "远端健康检查地址无效。", 400, error);
   }
   healthUrl.pathname = healthUrl.pathname.replace(/\/api\/codex-session-index$/, "/api/share-health");
-  const response = await fetch(healthUrl, {
-    headers: {
-      authorization: `Bearer ${source.definition.token}`,
-    },
-  }).catch((error) => {
-    throw createRemoteServiceError("remote_health_unreachable", `远端健康检查不可达：${error?.message || "连接失败"}`, 502, error);
-  });
+  const deadline = createDeadlineSignal(options.signal, remoteHttpLimits.deadlineMs, "remote_health_deadline_exceeded");
+  let response;
+  try {
+    response = await fetchWithDeadline(fetch, healthUrl, {
+      headers: {
+        authorization: `Bearer ${source.definition.token}`,
+      },
+    }, { signal: deadline.signal }).catch((error) => {
+      if (isRemoteAbortError(error)) throw error;
+      if (error?.code === "remote_health_deadline_exceeded") throw createRemoteServiceError(error.code, "远端健康检查超时。", 502, error);
+      throw createRemoteServiceError("remote_health_unreachable", `远端健康检查不可达：${error?.message || "连接失败"}`, 502, error);
+    });
   if (response.status === 401 || response.status === 403) {
     throw createRemoteServiceError("remote_health_auth_failed", "远端认证失败。", response.status);
   }
@@ -936,19 +960,24 @@ async function testRemotePeerOrThrow(source) {
       remoteHttpFailureStatus(response.status),
     );
   }
-  const data = await readRemoteJson(response, {
-    code: "remote_health_non_json",
-    message: "远端健康检查返回非 JSON。",
-  });
-  return {
-    ok: true,
-    status: response.status,
-    remote: {
-      codexHome: data.codexHome || null,
-      requiresAuth: data.requiresAuth !== false,
-      time: data.time || null,
-    },
-  };
+    const data = await readRemoteJson(response, {
+      code: "remote_health_non_json",
+      message: "远端健康检查返回非 JSON。",
+      maxBytes: remoteHttpLimits.healthMaxBytes,
+      signal: deadline.signal,
+    });
+    return {
+      ok: true,
+      status: response.status,
+      remote: {
+        codexHome: data.codexHome || null,
+        requiresAuth: data.requiresAuth !== false,
+        time: data.time || null,
+      },
+    };
+  } finally {
+    deadline.dispose();
+  }
 }
 
 async function buildCompactView(context, { session, normalizedEvents, turns, hierarchy, options = {} }) {
@@ -1266,13 +1295,13 @@ async function route(req, res) {
       if (req.method !== "POST") return sendError(res, 405, "Method not allowed");
       const source = dataSources.getSource(decodeURIComponent(peerTestMatch[1]));
       if (!source) return sendError(res, 404, "Peer not found");
-      return sendJson(res, 200, await testRemotePeer(source));
+      return sendJson(res, 200, await testRemotePeer(source, { signal: requestSubscription.signal }));
     }
     const sourceIndexMatch = pathname.match(/^\/api\/sources\/([^/]+)\/index$/);
     if (sourceIndexMatch) {
       const source = dataSources.getSource(decodeURIComponent(sourceIndexMatch[1]));
       if (!source) return sendError(res, 404, "Data source not found");
-      const result = await queryRemoteSessionIndex(source, url.searchParams);
+      const result = await queryRemoteSessionIndex(source, url.searchParams, { signal: requestSubscription.signal });
       if (!result.ok) return sendError(res, result.status || 502, result.error || "Remote index is not available");
       return sendJson(res, 200, {
         source: dataSources.listSources().find((item) => item.id === source.id),
@@ -1297,7 +1326,7 @@ async function route(req, res) {
     if (sourceRefreshMatch) {
       if (req.method !== "POST") return sendError(res, 405, "Method not allowed");
       const sourceId = decodeURIComponent(sourceRefreshMatch[1]);
-      const result = await dataSources.refreshSource(sourceId);
+      const result = await dataSources.refreshSource(sourceId, { signal: requestSubscription.signal });
       invalidateSourceContext(sourceId);
       if (!result.ok) {
         const status = result.status || 502;

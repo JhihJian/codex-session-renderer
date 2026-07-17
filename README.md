@@ -159,6 +159,23 @@ npm run share
 
 默认共享端口是 `4791`，默认只把最近 3 小时内变更过的 `sessions/**/*.jsonl` 打包进实时快照。`state_5.sqlite` 和 `session_index.jsonl` 会随实时快照一起传输，用于标题、归档、子代理关系和路径映射。共享服务和远端快照发布使用的 `copyCodexTree` 只复制 `sessions` 目录下的 JSONL 文件，不复制 `archived_sessions`。
 
+### 传输与建包边界
+
+远端 HTTP 快照、历史索引和健康检查都使用同一请求 deadline；快照响应会先检查 `Content-Length`，再对实际流式字节计数，因此没有长度头的 chunked 响应也不能绕过上限。刷新请求断开会解除该调用的订阅；同一远端快照根目录的调用会共享一次下载，只有最后一个订阅取消时才会停止下载、解压、子进程和临时目录。不同数据源通过服务实例级门控限制并发。取消是中性终止，不会将上一份正常快照标记成失败，也不会覆盖它。
+
+- `CODEX_REMOTE_HTTP_DEADLINE_MS=30000`：远端快照、索引、健康检查的总 deadline，范围为 `1` 至 `300000` 毫秒。
+- `CODEX_REMOTE_SNAPSHOT_MAX_BYTES=268435456`：下载快照压缩包的声明和实际字节上限，最大 2 GiB。
+- `CODEX_REMOTE_INDEX_MAX_BYTES=2097152`、`CODEX_REMOTE_HEALTH_MAX_BYTES=262144`：历史索引与健康检查 JSON 的声明和实际字节上限。
+- `CODEX_REMOTE_MAX_CONCURRENT_REFRESHES=2`：查看端跨数据源同时刷新上限，范围为 `1` 至 `16`。
+- `CODEX_REMOTE_MAX_SNAPSHOT_GENERATIONS=2`：本机缓存保留的完整快照版本数，范围为 `1` 至 `16`。
+
+本机快照以不可变 `versions/snapshot-*` 目录保存，`current` 是原子替换的目录链接。读取者只能在一个完整旧版本或完整新版本中打开文件，发布失败和下载失败都不改变 `current`。发布后最多保留配置数量的完整版本，默认当前版本和上一版本，避免缓存无限增长；应把快照根目录放在有容量监控的私密磁盘中。
+
+共享端把等价的 `scope`、`since`、`hours` 请求合并为一次建包，每个客户端各自流式读取同一个完成的 tar；建包完成前达到服务并发或队列边界会返回 `503` 和 `Retry-After`。客户端断开会释放租约，最后一个客户端离开时会中止建包并清理临时目录。
+
+- `CODEX_SHARE_MAX_CONCURRENT_BUILDS=1`：共享端同时建包数，范围为 `1` 至 `8`。
+- `CODEX_SHARE_MAX_QUEUED_BUILDS=4`：共享端等待建包数，范围为 `0` 至 `32`。
+
 如果要改端口或实时窗口：
 
 ```powershell

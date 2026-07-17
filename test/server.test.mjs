@@ -150,6 +150,27 @@ test("remote index upstream 500 is reported without Internal server error", asyn
   assertRedacted(text);
 });
 
+test("remote index and health reject oversized declared bodies before reading them", async (t) => {
+  let bodyReads = 0;
+  const context = await withRemoteServer(t, async () => ({
+    status: 200,
+    ok: true,
+    headers: { get: (name) => name === "content-length" ? "99999999" : null },
+    get body() {
+      bodyReads += 1;
+      return new ReadableStream();
+    },
+  }));
+
+  const index = await requestJson(context, "/api/sources/office/index");
+  assert.equal(index.response.status, 502);
+  assert.equal(index.body.details.code, "remote_index_non_json");
+  const health = await requestJson(context, "/api/peers/office/test", { method: "POST" });
+  assert.equal(health.response.status, 200);
+  assert.equal(health.body.code, "remote_health_non_json");
+  assert.equal(bodyReads, 0);
+});
+
 test("remote peer health unreachable returns structured redacted result", async (t) => {
   const context = await withRemoteServer(t, async (url, options) => {
     assert.match(String(url), /\/api\/share-health$/);

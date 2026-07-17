@@ -4,6 +4,8 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { pipeline } from "node:stream/promises";
 import { readJsonl } from "./jsonl-reader.mjs";
+import { createAbortError, throwIfAborted } from "./remote-http.mjs";
+import { createSnapshotBuildCoordinator } from "./snapshot-build-coordinator.mjs";
 import { sessionIdFromFile, sessionStartedFromFile, toIso } from "./session-events.mjs";
 import { createSqliteThreadStore, stripLongPathPrefix } from "./sqlite-threads.mjs";
 import { copyCodexTree, snapshotMetadataFile, validateSnapshot } from "./data-sources.mjs";
@@ -18,7 +20,15 @@ function snapshotShareConfig(options = {}) {
     port: Number(env.CODEX_SHARE_PORT || env.PORT || 4791),
     token: env.CODEX_SHARE_TOKEN || env.CODEX_REMOTE_TOKEN || "",
     realtimeHours: Number(env.CODEX_SHARE_REALTIME_HOURS || 3),
+    maxConcurrentBuilds: positiveEnv(env.CODEX_SHARE_MAX_CONCURRENT_BUILDS, 1, 8),
+    maxQueuedBuilds: positiveEnv(env.CODEX_SHARE_MAX_QUEUED_BUILDS, 4, 32),
   };
+}
+
+function positiveEnv(value, fallback, maximum) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) return fallback;
+  return Math.min(Math.floor(number), maximum);
 }
 
 function createSnapshotShareHandler(options = {}) {
@@ -27,11 +37,17 @@ function createSnapshotShareHandler(options = {}) {
   const spawnImpl = options.spawnImpl || spawn;
   const now = options.now || (() => new Date());
   const tempRoot = options.tempRoot || os.tmpdir();
+  const coordinator = options.coordinator || createSnapshotBuildCoordinator({
+    maxConcurrent: config.maxConcurrentBuilds,
+    maxQueued: config.maxQueuedBuilds,
+    fsApi,
+  });
 
   return async function route(req, res) {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
     try {
       if (url.pathname === "/api/share-health") {
+        if (req.method !== "GET") return sendError(res, 405, "Method not allowed");
         if (!isAuthorizedSnapshotRequest(req, config.token)) return sendError(res, 401, "Unauthorized");
         return sendJson(res, 200, {
           ok: true,
@@ -44,7 +60,7 @@ function createSnapshotShareHandler(options = {}) {
       if (url.pathname === "/api/codex-snapshot.tar") {
         if (req.method !== "GET") return sendError(res, 405, "Method not allowed");
         if (!isAuthorizedSnapshotRequest(req, config.token)) return sendError(res, 401, "Unauthorized");
-        return serveSnapshotArchive(res, {
+        return serveSnapshotArchive(req, res, {
           codexHome: config.codexHome,
           scope: url.searchParams.get("scope") || "realtime",
           since: url.searchParams.get("since") || "",
@@ -53,6 +69,7 @@ function createSnapshotShareHandler(options = {}) {
           spawnImpl,
           now,
           tempRoot,
+          coordinator,
         });
       }
 
@@ -70,10 +87,10 @@ function createSnapshotShareHandler(options = {}) {
       return sendError(res, 404, "Not found");
     } catch (error) {
       if (!res.headersSent) {
-        return sendError(res, 500, "Internal server error", {
-          name: error?.name,
-          message: error?.message,
-        });
+        const status = error?.status || 500;
+        return sendError(res, status, status === 503 ? "Snapshot service is busy" : "Internal server error", {
+          code: error?.code,
+        }, status === 503 ? { "retry-after": "1" } : {});
       }
       res.destroy(error);
     }
@@ -98,9 +115,12 @@ function safeEqual(left, right) {
   return diff === 0;
 }
 
-async function serveSnapshotArchive(res, options) {
-  const archivePath = await createSnapshotArchive(options);
+async function serveSnapshotArchive(req, res, options) {
+  const subscription = requestAbortSubscription(req, res);
+  let lease;
   try {
+    lease = await options.coordinator.acquire(snapshotRequestKey(options), (signal) => createSnapshotArchive({ ...options, signal }), subscription.signal);
+    const archivePath = lease.archivePath;
     const stat = await fs.stat(archivePath);
     res.writeHead(200, {
       "content-type": "application/x-tar",
@@ -108,11 +128,41 @@ async function serveSnapshotArchive(res, options) {
       "cache-control": "no-store",
       "content-disposition": 'attachment; filename="codex-snapshot.tar"',
     });
-    await pipeline(createReadStream(archivePath), res);
+    await pipeline(createReadStream(archivePath), res, { signal: subscription.signal });
   } finally {
-    await fs.rm(path.dirname(archivePath), { recursive: true, force: true }).catch(() => {});
+    subscription.dispose();
+    await lease?.release();
   }
 }
+
+function requestAbortSubscription(req, res) {
+  const controller = new AbortController();
+  const abort = () => {
+    if (!controller.signal.aborted) controller.abort();
+  };
+  const onClose = () => {
+    if (!res.writableEnded) abort();
+  };
+  req.once("aborted", abort);
+  res.once("close", onClose);
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      req.removeListener("aborted", abort);
+      res.removeListener("close", onClose);
+    },
+  };
+}
+
+function snapshotRequestKey(options) {
+  return JSON.stringify({
+    codexHome: path.resolve(options.codexHome),
+    scope: normalizeSnapshotScope(options.scope),
+    since: options.since || "",
+    realtimeHours: Number(options.realtimeHours || 3),
+  });
+}
+
 
 async function createSnapshotArchive(options = {}) {
   const fsApi = options.fsApi || fs;
@@ -127,7 +177,9 @@ async function createSnapshotArchive(options = {}) {
   const archivePath = path.join(workDir, "codex-snapshot.tar");
 
   try {
+    throwIfAborted(options.signal);
     await copyCodexTree(codexHome, snapshotDir, fsApi, {
+      signal: options.signal,
       includeSessionFile: async (filePath) => scope === "all" || (await isFileChangedAfter(filePath, cutoffMs, fsApi)),
     });
     await fsApi.writeFile(
@@ -147,7 +199,7 @@ async function createSnapshotArchive(options = {}) {
       "utf8",
     );
     await validateSnapshot(snapshotDir, fsApi);
-    await runTar(spawnImpl, archivePath, snapshotDir);
+    await runTar(spawnImpl, archivePath, snapshotDir, options.signal);
     return archivePath;
   } catch (error) {
     await fsApi.rm(workDir, { recursive: true, force: true }).catch(() => {});
@@ -370,11 +422,13 @@ function clampNumber(value, min, max, fallback) {
   return Math.max(min, Math.min(max, Math.trunc(number)));
 }
 
-function runTar(spawnImpl, archivePath, sourceDir) {
+function runTar(spawnImpl, archivePath, sourceDir, signal) {
   return new Promise((resolve, reject) => {
     const child = spawnImpl("tar", ["-cf", archivePath, "-C", sourceDir, "."], {
       stdio: ["ignore", "ignore", "pipe"],
     });
+    const abort = () => child.kill?.("SIGTERM");
+    signal?.addEventListener("abort", abort, { once: true });
     let stderr = "";
     child.stderr?.setEncoding("utf8");
     child.stderr?.on("data", (chunk) => {
@@ -382,6 +436,8 @@ function runTar(spawnImpl, archivePath, sourceDir) {
     });
     child.on("error", (error) => reject(error));
     child.on("close", (exitCode) => {
+      signal?.removeEventListener("abort", abort);
+      if (signal?.aborted) return reject(createAbortError());
       if (exitCode === 0) {
         resolve();
       } else {
@@ -397,6 +453,7 @@ function firstLine(value) {
 
 export {
   createSnapshotArchive,
+  createSnapshotBuildCoordinator,
   createSessionIndex,
   createSnapshotShareHandler,
   isAuthorizedSnapshotRequest,
