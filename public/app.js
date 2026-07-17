@@ -70,6 +70,9 @@ const state = {
   promptArchiveLoading: false,
   promptArchiveError: "",
   promptArchiveRequestKey: "",
+  promptArchiveRequestSeq: 0,
+  promptArchiveScope: "",
+  promptArchiveLoaded: false,
   promptArchiveProject: "all",
 };
 
@@ -337,7 +340,7 @@ function bindEvents() {
       return;
     }
     void loadSessions({ keepSelection: true }).then(() => {
-      if (state.sidebarMode === "prompts") return loadPromptArchive();
+      if (state.sidebarMode === "prompts") return loadPromptArchive({ force: true });
       return undefined;
     });
   });
@@ -756,6 +759,10 @@ function renderSourceStatus() {
 
 function selectSessionTimeFilter(bucket) {
   state.sessionTimeFilter = bucket || "realtime";
+  if (state.sidebarMode === "prompts") {
+    void loadPromptArchive();
+    return;
+  }
   renderSessionList();
   if (selectedSource()?.kind === "remote") {
     void loadRemoteIndexForCurrentFilter();
@@ -768,6 +775,10 @@ function selectSessionTimeFilter(bucket) {
 
 function selectSidebarMode(mode) {
   const next = mode === "prompts" ? "prompts" : "sessions";
+  if (next === state.sidebarMode) {
+    renderAll();
+    return;
+  }
   state.sidebarMode = next;
   els.appShell.dataset.mode = next;
   els.appShell.dataset.panel = next === "prompts" ? "thread" : "sessions";
@@ -784,18 +795,29 @@ function selectSidebarMode(mode) {
   if (next === "prompts") els.promptArchiveContent?.focus({ preventScroll: true });
 }
 
-async function loadPromptArchive() {
+async function loadPromptArchive({ force = false } = {}) {
   const sourceId = state.selectedSourceId;
-  const requestKey = `prompts:${++state.sessionsRequestSeq}:${sourceId}`;
+  const scope = promptArchiveScope();
+  if (!force && state.promptArchiveScope === scope && state.promptArchiveLoaded && !state.promptArchiveError) {
+    renderAll();
+    return;
+  }
+  const requestKey = `prompts:${++state.promptArchiveRequestSeq}:${sourceId}:${scope}`;
   state.promptArchiveRequestKey = requestKey;
   state.promptArchiveLoading = true;
   state.promptArchiveError = "";
+  state.promptArchiveScope = scope;
+  state.promptArchiveLoaded = false;
+  state.promptArchive = [];
+  state.promptArchiveProjects = [];
+  state.promptArchiveProject = "all";
   renderAll();
   try {
-    const data = await fetchJson(promptArchiveUrl(sourceId));
+    const data = await fetchJson(promptArchiveUrl(sourceId, scope));
     if (state.promptArchiveRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
     state.promptArchive = data.entries || [];
     state.promptArchiveProjects = data.projects || [];
+    state.promptArchiveLoaded = true;
     state.promptArchiveError = "";
   } catch (error) {
     if (state.promptArchiveRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
@@ -808,6 +830,10 @@ async function loadPromptArchive() {
       renderAll();
     }
   }
+}
+
+function promptArchiveScope() {
+  return state.sessionTimeFilter === "earlier" ? "history" : "recent24h";
 }
 
 async function loadSessions({ keepSelection = false } = {}) {
@@ -1025,6 +1051,7 @@ async function selectSource(sourceId) {
   state.remoteIndexError = "";
   state.promptArchive = [];
   state.promptArchiveProjects = [];
+  state.promptArchiveLoaded = false;
   state.promptArchiveError = "";
   state.promptArchiveProject = "all";
   clearSelectedSession();
@@ -1044,13 +1071,13 @@ async function refreshSelectedSource() {
     if (result.source) upsertSource(result.source);
     renderSourceControls();
     await loadSessions({ keepSelection: true });
-    if (state.sidebarMode === "prompts") await loadPromptArchive();
+    if (state.sidebarMode === "prompts") await loadPromptArchive({ force: true });
     showToast("远端快照已拉取到本机缓存；未修改远端");
   } catch (error) {
     await reloadSources();
     showToast(`拉取远端快照失败：${error.message}；远端未修改`);
     await loadSessions({ keepSelection: true });
-    if (state.sidebarMode === "prompts") await loadPromptArchive();
+    if (state.sidebarMode === "prompts") await loadPromptArchive({ force: true });
   } finally {
     renderSourceControls();
   }
@@ -2295,7 +2322,8 @@ function renderPromptArchiveSidebar() {
     return;
   }
   if (!projects.length) {
-    els.sessionList.innerHTML = emptyState("暂无任务归档", "当前数据源中没有可读取的会话正文。", []);
+    const message = isRemoteHistoryIndexMode() ? "远端历史只返回索引元数据，未同步正文，无法提取首个提示词。" : "当前时间分类中没有可读取的会话正文。";
+    els.sessionList.innerHTML = emptyState("暂无任务归档", message, []);
     return;
   }
   const active = state.promptArchiveProject;
@@ -2351,7 +2379,10 @@ function renderPromptArchive() {
     return;
   }
   if (!entries.length) {
-    els.promptArchiveContent.innerHTML = emptyState("没有匹配的任务", "调整搜索、项目或提示词状态筛选。", []);
+    const message = isRemoteHistoryIndexMode()
+      ? "远端历史时间分类只有索引元数据，不含正文；切回实时或先扩大远端快照范围后再归档。"
+      : "调整搜索、项目或提示词状态筛选。";
+    els.promptArchiveContent.innerHTML = emptyState(isRemoteHistoryIndexMode() ? "历史正文未同步" : "没有匹配的任务", message, []);
     return;
   }
   const groups = groupPromptArchiveEntries(entries);
@@ -8650,8 +8681,9 @@ function sourceSessionsUrl(sourceId = state.selectedSourceId, scope = "all") {
   return `/api/sources/${encodeURIComponent(sourceId)}/sessions${query ? `?${query}` : ""}`;
 }
 
-function promptArchiveUrl(sourceId = state.selectedSourceId) {
-  return `/api/sources/${encodeURIComponent(sourceId)}/prompts?limit=800`;
+function promptArchiveUrl(sourceId = state.selectedSourceId, scope = promptArchiveScope()) {
+  const params = new URLSearchParams({ limit: "800", scope });
+  return `/api/sources/${encodeURIComponent(sourceId)}/prompts?${params.toString()}`;
 }
 
 function remoteIndexUrl(sourceId = state.selectedSourceId) {

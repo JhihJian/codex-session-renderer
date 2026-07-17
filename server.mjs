@@ -95,8 +95,9 @@ function getSourceContext(sourceId = "local") {
     allSessionCache: null,
     allSessionCacheTime: 0,
     sessionDetailCache: new Map(),
-    promptArchiveCache: null,
-    promptArchiveCacheKey: "",
+    promptArchiveEntryCache: new Map(),
+    promptArchiveScopeCache: new Map(),
+    promptArchiveInFlight: new Map(),
   };
   sourceContexts.set(source.id, context);
   return context;
@@ -147,8 +148,9 @@ function invalidateSourceContext(sourceId) {
   context.allSessionCache = null;
   context.allSessionCacheTime = 0;
   context.sessionDetailCache.clear();
-  context.promptArchiveCache = null;
-  context.promptArchiveCacheKey = "";
+  context.promptArchiveEntryCache.clear();
+  context.promptArchiveScopeCache.clear();
+  context.promptArchiveInFlight.clear();
 }
 
 async function* walkJsonl(dir, options = {}) {
@@ -456,35 +458,26 @@ async function querySessions(context, params, projectionOptions = {}) {
   };
 }
 
-async function listPromptArchive(context) {
-  const sessions = await listAllSessionsForQuery(context);
-  const cacheKey = sessions
-    .map((session) => `${session.id}:${session.updatedAt || session.fileModifiedAt || session.startedAt || ""}`)
-    .join("\n");
-  if (context.promptArchiveCache && context.promptArchiveCacheKey === cacheKey) return context.promptArchiveCache;
+async function listPromptArchive(context, scope = "recent24h") {
+  const normalizedScope = normalizeSessionCatalogScope(scope);
+  const sessions = await listSessions(context, { scope: normalizedScope });
+  const cacheKey = sessions.map(promptSessionCacheSignature).join("\n");
+  const cachedScope = context.promptArchiveScopeCache.get(normalizedScope);
+  if (cachedScope?.key === cacheKey) return cachedScope.entries;
 
-  const entries = await Promise.all(
-    sessions.map(async (session) => {
-      if (!session?.path) return buildPromptArchiveEntry(session, { state: "unavailable", attachments: [] });
-      try {
-        return buildPromptArchiveEntry(session, extractFirstPrompt(await readJsonlWithDiagnostics(session.path)));
-      } catch {
-        return buildPromptArchiveEntry(session, { state: "error", attachments: [] });
-      }
-    }),
-  );
+  const entries = await Promise.all(sessions.map((session) => getPromptArchiveEntry(context, session)));
   entries.sort((left, right) => promptEntryTimeMs(right) - promptEntryTimeMs(left));
-  context.promptArchiveCache = entries;
-  context.promptArchiveCacheKey = cacheKey;
+  context.promptArchiveScopeCache.set(normalizedScope, { key: cacheKey, entries });
   return entries;
 }
 
 async function queryPromptArchive(context, params) {
+  const scope = normalizeSessionCatalogScope(params.get("scope") || "recent24h");
   const q = String(params.get("q") || "").trim().toLowerCase();
   const project = String(params.get("project") || "").trim();
   const status = String(params.get("status") || "all").trim();
   const limit = Math.max(1, Math.min(1000, Number(params.get("limit")) || 800));
-  const entries = (await listPromptArchive(context)).filter((entry) => {
+  const entries = (await listPromptArchive(context, scope)).filter((entry) => {
     if (project && entry.projectKey !== project && promptProjectKey(entry.cwd) !== project) return false;
     if (status !== "all" && entry.promptState !== status) return false;
     if (!q) return true;
@@ -496,6 +489,7 @@ async function queryPromptArchive(context, params) {
   });
   return {
     source: dataSources.listSources().find((source) => source.id === context.source.id) || null,
+    scope,
     entries: entries.slice(0, limit),
     page: {
       total: entries.length,
@@ -506,6 +500,40 @@ async function queryPromptArchive(context, params) {
     projects: projectSummaries(entries),
     serverTime: new Date().toISOString(),
   };
+}
+
+function promptSessionCacheSignature(session) {
+  return [session?.id || "", session?.path || "", session?.sizeBytes ?? "", session?.fileModifiedAt || "", session?.updatedAt || ""].join(":");
+}
+
+async function getPromptArchiveEntry(context, session) {
+  const cacheKey = `${context.source.id}:${session?.id || ""}`;
+  const signature = promptSessionCacheSignature(session);
+  const cached = context.promptArchiveEntryCache.get(cacheKey);
+  if (cached?.signature === signature) return cached.entry;
+  const inFlight = context.promptArchiveInFlight.get(cacheKey);
+  if (inFlight) return inFlight;
+
+  const task = (async () => {
+    let entry;
+    if (!session?.path) {
+      entry = buildPromptArchiveEntry(session, { state: "unavailable", attachments: [] });
+    } else {
+      try {
+        entry = buildPromptArchiveEntry(session, extractFirstPrompt(await readJsonlWithDiagnostics(session.path)));
+      } catch {
+        entry = buildPromptArchiveEntry(session, { state: "error", attachments: [] });
+      }
+    }
+    context.promptArchiveEntryCache.set(cacheKey, { signature, entry });
+    return entry;
+  })();
+  context.promptArchiveInFlight.set(cacheKey, task);
+  try {
+    return await task;
+  } finally {
+    context.promptArchiveInFlight.delete(cacheKey);
+  }
 }
 
 function projectSummaries(entries) {

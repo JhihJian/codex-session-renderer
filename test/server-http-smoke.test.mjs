@@ -258,8 +258,9 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   assert.equal(list.body.sessions[0].id, sessionId);
   assert.equal(list.body.sessions[0].title, "HTTP smoke 会话");
 
-  const prompts = await requestJson(baseUrl, "/api/sources/local/prompts");
+  const prompts = await requestJson(baseUrl, "/api/sources/local/prompts?scope=all");
   assert.equal(prompts.response.status, 200);
+  assert.equal(prompts.body.scope, "all");
   assert.equal(prompts.body.entries.length, 1);
   assert.equal(prompts.body.entries[0].sessionId, sessionId);
   assert.equal(prompts.body.entries[0].projectLabel, "D:\\github\\codex-session-renderer");
@@ -267,10 +268,18 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   assert.equal(prompts.body.entries[0].promptText, "请生成 HTTP smoke 测试");
   assert.equal(prompts.body.entries[0].promptEventIndex, 2);
   assert.equal(prompts.body.entries[0].id, `local:${sessionId}`);
-  const promptSearch = await requestJson(baseUrl, "/api/sources/local/prompts?q=smoke&status=found");
+  const recentPrompts = await requestJson(baseUrl, "/api/sources/local/prompts?scope=recent24h");
+  assert.equal(recentPrompts.response.status, 200);
+  assert.equal(recentPrompts.body.scope, "recent24h");
+  assert.equal(recentPrompts.body.entries.length, 0);
+  const historyPrompts = await requestJson(baseUrl, "/api/sources/local/prompts?scope=history");
+  assert.equal(historyPrompts.response.status, 200);
+  assert.equal(historyPrompts.body.scope, "history");
+  assert.equal(historyPrompts.body.entries.length, 1);
+  const promptSearch = await requestJson(baseUrl, "/api/sources/local/prompts?scope=all&q=smoke&status=found");
   assert.equal(promptSearch.response.status, 200);
   assert.equal(promptSearch.body.entries.length, 1);
-  const promptMiss = await requestJson(baseUrl, "/api/sources/local/prompts?q=不存在");
+  const promptMiss = await requestJson(baseUrl, "/api/sources/local/prompts?scope=all&q=不存在");
   assert.equal(promptMiss.response.status, 200);
   assert.equal(promptMiss.body.entries.length, 0);
 
