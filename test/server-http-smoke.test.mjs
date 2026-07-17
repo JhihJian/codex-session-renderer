@@ -90,6 +90,9 @@ await fs.writeFile(
   `${JSON.stringify({ id: sessionId, thread_name: "Remote HTTP smoke 会话", updated_at: "2026-07-08T10:00:06.000Z" })}\n`,
   "utf8",
 );
+const oldFileTime = new Date(Date.now() - 48 * 60 * 60 * 1000);
+await fs.utimes(sessionPath, oldFileTime, oldFileTime);
+await fs.utimes(remoteSessionPath, oldFileTime, oldFileTime);
 await fs.mkdir(piProjectDir, { recursive: true });
 await fs.writeFile(
   piSessionPath,
@@ -254,6 +257,16 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   assert.equal(list.body.sessions.length, 1);
   assert.equal(list.body.sessions[0].id, sessionId);
   assert.equal(list.body.sessions[0].title, "HTTP smoke 会话");
+
+  const recentOnlyList = await requestJson(baseUrl, "/api/sources/local/sessions?scope=recent24h");
+  assert.equal(recentOnlyList.response.status, 200);
+  assert.equal(recentOnlyList.body.scope, "recent24h");
+  assert.equal(recentOnlyList.body.sessions.length, 0);
+
+  const historyOnlyList = await requestJson(baseUrl, "/api/sources/local/sessions?scope=history");
+  assert.equal(historyOnlyList.response.status, 200);
+  assert.equal(historyOnlyList.body.scope, "history");
+  assert.equal(historyOnlyList.body.sessions.length, 1);
 
   const piList = await requestJson(baseUrl, "/api/sources/pi-agent/sessions");
   assert.equal(piList.response.status, 200);

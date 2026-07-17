@@ -36,14 +36,17 @@ function createSqliteThreadStore(options) {
     throw lastError || new Error("sqlite3 is not available");
   }
 
-  async function readThreads() {
+  async function readThreads({ sinceMs = null, beforeMs = null } = {}) {
+    const conditions = ["id not in (select child_thread_id from thread_spawn_edges where child_thread_id is not null)"];
+    if (Number.isFinite(sinceMs)) conditions.push(`updated_at_ms >= ${Math.trunc(sinceMs)}`);
+    if (Number.isFinite(beforeMs)) conditions.push(`(updated_at_ms < ${Math.trunc(beforeMs)} or updated_at_ms is null)`);
     const query = [
       "select",
       "id,title,rollout_path,created_at,updated_at,created_at_ms,updated_at_ms,",
       "source,thread_source,model_provider,cwd,archived,archived_at,",
       "model,reasoning_effort,agent_nickname,agent_role,first_user_message,preview",
       "from threads",
-      "where id not in (select child_thread_id from thread_spawn_edges where child_thread_id is not null)",
+      `where ${conditions.join(" and ")}`,
       "order by updated_at_ms desc limit",
       String(maxListSessions),
     ].join(" ");

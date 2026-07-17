@@ -11,6 +11,11 @@ const state = {
   healthLoadError: "",
   sessionsRequestKey: "",
   sessionsRequestSeq: 0,
+  historyLoading: false,
+  historyLoadError: "",
+  historyLoaded: false,
+  historyRequestKey: "",
+  historyRequestSeq: 0,
   remoteIndexLoading: false,
   remoteIndexError: "",
   remoteIndexRequestKey: "",
@@ -59,6 +64,13 @@ const state = {
   expandedAuditGroupIds: new Set(),
   inspectorWidth: 360,
   resizingInspector: false,
+  sidebarMode: "sessions",
+  promptArchive: [],
+  promptArchiveProjects: [],
+  promptArchiveLoading: false,
+  promptArchiveError: "",
+  promptArchiveRequestKey: "",
+  promptArchiveProject: "all",
 };
 
 const {
@@ -157,6 +169,11 @@ const els = {
   sessionSearch: document.getElementById("sessionSearch"),
   sessionTimeFilter: document.getElementById("sessionTimeFilter"),
   sessionTypeFilter: document.getElementById("sessionTypeFilter"),
+  sessionsModeButton: document.getElementById("sessionsModeButton"),
+  promptsModeButton: document.getElementById("promptsModeButton"),
+  promptArchiveControls: document.getElementById("promptArchiveControls"),
+  promptArchiveSearch: document.getElementById("promptArchiveSearch"),
+  promptArchiveStatus: document.getElementById("promptArchiveStatus"),
   itemSearch: document.getElementById("itemSearch"),
   itemTypeFilter: document.getElementById("itemTypeFilter"),
   importantOnly: document.getElementById("importantOnly"),
@@ -169,6 +186,7 @@ const els = {
   clearSessionFiltersButton: document.getElementById("clearSessionFiltersButton"),
   returnRealtimeButton: document.getElementById("returnRealtimeButton"),
   statsStrip: document.getElementById("statsStrip"),
+  promptArchiveContent: document.getElementById("promptArchiveContent"),
   threadContent: document.getElementById("threadContent"),
   compactContent: document.getElementById("compactContent"),
   terminalContent: document.getElementById("terminalContent"),
@@ -398,6 +416,11 @@ function bindEvents() {
     renderSessionList();
     void loadRemoteIndexForCurrentFilter();
   });
+  [els.sessionsModeButton, els.promptsModeButton].forEach((button) => {
+    button?.addEventListener("click", () => selectSidebarMode(button.dataset.sidebarMode || "sessions"));
+  });
+  els.promptArchiveSearch?.addEventListener("input", renderPromptArchive);
+  els.promptArchiveStatus?.addEventListener("change", renderPromptArchive);
   els.clearSessionFiltersButton?.addEventListener("click", clearSessionFiltersForSelectedSession);
   els.returnRealtimeButton?.addEventListener("click", returnToRealtimeSessions);
   els.itemSearch.addEventListener("input", () => {
@@ -420,6 +443,7 @@ function bindEvents() {
     });
   });
   bindRovingTablist(els.sessionTimeFilter, "[data-session-time]", (button) => selectSessionTimeFilter(button.dataset.sessionTime || "realtime"));
+  bindRovingTablist(document.querySelector(".sidebar-mode-switch"), "[data-sidebar-mode]", (button) => selectSidebarMode(button.dataset.sidebarMode || "sessions"));
   bindRovingTablist(els.viewSwitch, "[data-view-mode]", (button) => setViewMode(button.dataset.viewMode || "compact"));
   bindRovingTablist(els.reviewTabs, "[data-review-tab]", (button) => setReviewTab(button.dataset.reviewTab || "summary"));
   bindRovingTablist(els.settingsTabs, "[data-settings-view]", (button) => selectSettingsView(button.dataset.settingsView || "summary"));
@@ -719,6 +743,10 @@ function renderSourceStatus() {
     parts.push(state.remoteIndexLoading ? `${bucket}历史索引检索中` : `${bucket}为历史索引，不含正文；历史正文需扩大共享窗口或额外同步`);
     if (state.remoteIndexError) parts.push(`历史索引失败：${state.remoteIndexError}`);
   }
+  if (source.kind !== "remote" && state.sessionTimeFilter === "earlier") {
+    if (state.historyLoading) parts.push("历史会话读取中");
+    else if (state.historyLoadError) parts.push(`历史会话失败：${state.historyLoadError}`);
+  }
   els.sourceStatus.textContent = parts.join(" · ");
   renderStatusbar();
 }
@@ -726,10 +754,54 @@ function renderSourceStatus() {
 function selectSessionTimeFilter(bucket) {
   state.sessionTimeFilter = bucket || "realtime";
   renderSessionList();
-  void loadRemoteIndexForCurrentFilter();
-  const nextSession = state.filteredSessions[0];
-  if (nextSession && !nextSession.remoteIndexOnly && !state.filteredSessions.some((session) => sessionKey(session) === state.selectedSessionKey)) {
-    selectSession(nextSession.id);
+  if (selectedSource()?.kind === "remote") {
+    void loadRemoteIndexForCurrentFilter();
+  } else if (state.sessionTimeFilter === "earlier" && !state.historyLoaded) {
+    void loadHistoricalSessions();
+  } else {
+    selectFirstVisibleSession();
+  }
+}
+
+function selectSidebarMode(mode) {
+  const next = mode === "prompts" ? "prompts" : "sessions";
+  state.sidebarMode = next;
+  els.appShell.dataset.mode = next;
+  [els.sessionsModeButton, els.promptsModeButton].forEach((button) => {
+    if (!button) return;
+    const active = button.dataset.sidebarMode === next;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+    button.tabIndex = active ? 0 : -1;
+  });
+  if (next === "prompts") void loadPromptArchive();
+  renderAll();
+  if (next === "prompts") els.promptArchiveContent?.focus({ preventScroll: true });
+}
+
+async function loadPromptArchive() {
+  const sourceId = state.selectedSourceId;
+  const requestKey = `prompts:${++state.sessionsRequestSeq}:${sourceId}`;
+  state.promptArchiveRequestKey = requestKey;
+  state.promptArchiveLoading = true;
+  state.promptArchiveError = "";
+  renderAll();
+  try {
+    const data = await fetchJson(promptArchiveUrl(sourceId));
+    if (state.promptArchiveRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
+    state.promptArchive = data.entries || [];
+    state.promptArchiveProjects = data.projects || [];
+    state.promptArchiveError = "";
+  } catch (error) {
+    if (state.promptArchiveRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
+    state.promptArchive = [];
+    state.promptArchiveProjects = [];
+    state.promptArchiveError = error.message;
+  } finally {
+    if (state.promptArchiveRequestKey === requestKey && state.selectedSourceId === sourceId) {
+      state.promptArchiveLoading = false;
+      renderAll();
+    }
   }
 }
 
@@ -739,14 +811,19 @@ async function loadSessions({ keepSelection = false } = {}) {
   state.sessionsRequestKey = requestKey;
   state.sessionsLoading = true;
   state.sessionsLoadError = "";
+  state.historyLoading = false;
+  state.historyLoadError = "";
+  state.historyLoaded = false;
+  state.historyRequestKey = `inactive:${++state.historyRequestSeq}`;
   setBusy(true);
   renderSessionList();
   try {
-    const data = await fetchJson(sourceSessionsUrl(sourceId));
+    const data = await fetchJson(sourceSessionsUrl(sourceId, "recent24h"));
     if (state.sessionsRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
     state.healthLoadError = "";
     if (data.source) upsertSource(data.source);
     state.sessions = data.sessions || [];
+    state.historyLoaded = false;
     state.remoteIndexSessions = [];
     state.remoteIndexError = "";
     state.remoteIndexLoading = false;
@@ -790,6 +867,43 @@ async function loadSessions({ keepSelection = false } = {}) {
       setBusy(false);
       renderSourceStatus();
       renderSessionList();
+    }
+  }
+}
+
+function selectFirstVisibleSession() {
+  const nextSession = state.filteredSessions[0];
+  if (!nextSession || nextSession.remoteIndexOnly || state.filteredSessions.some((session) => sessionKey(session) === state.selectedSessionKey)) return;
+  void selectSession(nextSession.id);
+}
+
+async function loadHistoricalSessions() {
+  const sourceId = state.selectedSourceId;
+  const requestKey = `history:${++state.historyRequestSeq}:${sourceId}`;
+  state.historyRequestKey = requestKey;
+  state.historyLoading = true;
+  state.historyLoadError = "";
+  renderSourceStatus();
+  renderSessionList();
+  try {
+    const data = await fetchJson(sourceSessionsUrl(sourceId, "history"));
+    if (state.historyRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
+    if (data.source) upsertSource(data.source);
+    const byKey = new Map(state.sessions.map((session) => [sessionKey(session), session]));
+    for (const session of data.sessions || []) byKey.set(sessionKey(session), session);
+    state.sessions = [...byKey.values()];
+    state.historyLoaded = true;
+    state.historyLoadError = "";
+  } catch (error) {
+    if (state.historyRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
+    state.historyLoadError = error.message;
+    showToast(`加载历史会话失败：${error.message}`);
+  } finally {
+    if (state.historyRequestKey === requestKey && state.selectedSourceId === sourceId) {
+      state.historyLoading = false;
+      renderSourceStatus();
+      renderSessionList();
+      selectFirstVisibleSession();
     }
   }
 }
@@ -2157,6 +2271,12 @@ function primeTraceExpansion(detail) {
 }
 
 function renderSessionList() {
+  if (state.sidebarMode === "prompts") {
+    renderPromptArchiveSidebar();
+    renderStatusbar();
+    syncExportButtons();
+    return;
+  }
   const query = els.sessionSearch.value.trim().toLowerCase();
   const filter = els.sessionTypeFilter.value;
   syncSessionTimeFilter();
@@ -2202,6 +2322,18 @@ function renderSessionList() {
   state.filteredSessions = sessions;
   els.sessionCount.textContent = String(sessions.length);
   if (sessions.length === 0) {
+    if (!remoteHistory && state.sessionTimeFilter === "earlier" && state.historyLoading) {
+      els.sessionList.innerHTML = renderSessionListActionEmptyState("正在读取更早会话", "历史会话仅在切换到该分类后读取。", []);
+      renderStatusbar();
+      syncExportButtons();
+      return;
+    }
+    if (!remoteHistory && state.sessionTimeFilter === "earlier" && state.historyLoadError) {
+      els.sessionList.innerHTML = renderSessionListActionEmptyState(`历史会话读取失败：${state.historyLoadError}`, "可以点击刷新列表后重试。", []);
+      renderStatusbar();
+      syncExportButtons();
+      return;
+    }
     if (remoteHistory && state.remoteIndexLoading) {
       els.sessionList.innerHTML = renderSessionListActionEmptyState(
         "正在检索远端历史索引",
@@ -8310,8 +8442,11 @@ function upsertSource(source) {
   }
 }
 
-function sourceSessionsUrl(sourceId = state.selectedSourceId) {
-  return `/api/sources/${encodeURIComponent(sourceId)}/sessions`;
+function sourceSessionsUrl(sourceId = state.selectedSourceId, scope = "all") {
+  const params = new URLSearchParams();
+  if (scope && scope !== "all") params.set("scope", scope);
+  const query = params.toString();
+  return `/api/sources/${encodeURIComponent(sourceId)}/sessions${query ? `?${query}` : ""}`;
 }
 
 function remoteIndexUrl(sourceId = state.selectedSourceId) {

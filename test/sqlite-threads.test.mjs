@@ -98,6 +98,25 @@ test("sqlite list query excludes subagent child threads before applying limit", 
   assert.match(calls[0].args.at(-1), /order by updated_at_ms desc limit 25/);
 });
 
+test("sqlite list query pushes recent and historical time bounds into SQL", async () => {
+  const calls = [];
+  const store = createSqliteThreadStore({
+    stateDbPath: "D:\\codex\\state_5.sqlite",
+    maxListSessions: 25,
+    sqliteCandidates: ["sqlite3-test"],
+    runCommand: async (command, args, options) => {
+      calls.push({ command, args, options });
+      return { stdout: "[]" };
+    },
+  });
+
+  await store.readThreads({ sinceMs: 1_700_000_000_000 });
+  await store.readThreads({ beforeMs: 1_700_000_000_000 });
+
+  assert.match(calls[0].args.at(-1), /updated_at_ms >= 1700000000000/);
+  assert.match(calls[1].args.at(-1), /updated_at_ms < 1700000000000 or updated_at_ms is null/);
+});
+
 test("sqlite all-thread query keeps child threads for external query APIs", async () => {
   const calls = [];
   const store = createSqliteThreadStore({

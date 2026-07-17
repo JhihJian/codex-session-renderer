@@ -34,6 +34,7 @@ import {
 } from "./src/session-events.mjs";
 import { dedupeSessionFileRecords, sessionFileRoots } from "./src/session-catalog.mjs";
 import { normalizeSessionEvent } from "./src/session-normalizer.mjs";
+import { buildPromptArchiveEntry, extractFirstPrompt, promptProjectKey } from "./src/session-prompts.mjs";
 import {
   compactSessionForList,
   publicThreadMeta,
@@ -61,6 +62,7 @@ import { createSqliteThreadStore, stripLongPathPrefix } from "./src/sqlite-threa
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
 const maxListSessions = Number(process.env.CODEX_SESSION_RENDERER_LIMIT || 800);
+const recentSessionWindowMs = 24 * 60 * 60 * 1000;
 const port = Number(process.env.PORT || 4789);
 const host = process.env.HOST || "127.0.0.1";
 const configStore = createRendererConfigStore();
@@ -89,9 +91,12 @@ function getSourceContext(sourceId = "local") {
     threadStore: createSqliteThreadStore({ stateDbPath: source.stateDbPath, maxListSessions }),
     sessionCache: null,
     sessionCacheTime: 0,
+    sessionCacheByScope: new Map(),
     allSessionCache: null,
     allSessionCacheTime: 0,
     sessionDetailCache: new Map(),
+    promptArchiveCache: null,
+    promptArchiveCacheKey: "",
   };
   sourceContexts.set(source.id, context);
   return context;
@@ -138,12 +143,15 @@ function invalidateSourceContext(sourceId) {
   if (!context) return;
   context.sessionCache = null;
   context.sessionCacheTime = 0;
+  context.sessionCacheByScope.clear();
   context.allSessionCache = null;
   context.allSessionCacheTime = 0;
   context.sessionDetailCache.clear();
+  context.promptArchiveCache = null;
+  context.promptArchiveCacheKey = "";
 }
 
-async function* walkJsonl(dir) {
+async function* walkJsonl(dir, options = {}) {
   let entries;
   try {
     entries = await fs.readdir(dir, { withFileTypes: true });
@@ -153,23 +161,36 @@ async function* walkJsonl(dir) {
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      yield* walkJsonl(fullPath);
+      if (options.sinceMs != null && datedDirectoryEndsBefore(fullPath, options.sinceMs)) continue;
+      yield* walkJsonl(fullPath, options);
     } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
       yield fullPath;
     }
   }
 }
 
-async function collectSessionFileRecords(context) {
+function datedDirectoryEndsBefore(directoryPath, cutoffMs) {
+  const parts = path.normalize(directoryPath).split(path.sep);
+  for (let index = 0; index <= parts.length - 3; index += 1) {
+    if (!/^\d{4}$/.test(parts[index]) || !/^\d{2}$/.test(parts[index + 1]) || !/^\d{2}$/.test(parts[index + 2])) continue;
+    const endMs = Date.UTC(Number(parts[index]), Number(parts[index + 1]) - 1, Number(parts[index + 2]) + 1);
+    return endMs <= cutoffMs;
+  }
+  return false;
+}
+
+async function collectSessionFileRecords(context, options = {}) {
   const records = [];
   for (const entry of sessionFileRoots(context.codexHome, context.sessionsRoot)) {
-    for await (const filePath of walkJsonl(entry.root)) {
+    for await (const filePath of walkJsonl(entry.root, options)) {
       let stat;
       try {
         stat = await fs.stat(filePath);
       } catch {
         continue;
       }
+      if (options.sinceMs != null && stat.mtimeMs < options.sinceMs) continue;
+      if (options.beforeMs != null && stat.mtimeMs >= options.beforeMs) continue;
       records.push({
         id: sessionIdFromFile(filePath),
         filePath,
@@ -199,11 +220,33 @@ async function readIndex(context) {
   return byId;
 }
 
-async function listSessions(context) {
-  const now = Date.now();
-  if (context.sessionCache && now - context.sessionCacheTime < 3000) return context.sessionCache;
+function sessionCatalogBounds(scope) {
+  const cutoffMs = Date.now() - recentSessionWindowMs;
+  if (scope === "recent24h") return { sinceMs: cutoffMs };
+  if (scope === "history") return { beforeMs: cutoffMs };
+  return {};
+}
 
-  const threads = await context.threadStore.readThreads();
+function normalizeSessionCatalogScope(scope) {
+  return ["recent24h", "history", "all"].includes(scope) ? scope : "all";
+}
+
+function sessionMatchesCatalogBounds(session, bounds) {
+  const timestamp = new Date(session.updatedAt || session.fileModifiedAt || session.startedAt || "").getTime();
+  if (!Number.isFinite(timestamp)) return bounds.beforeMs != null;
+  if (bounds.sinceMs != null && timestamp < bounds.sinceMs) return false;
+  if (bounds.beforeMs != null && timestamp >= bounds.beforeMs) return false;
+  return true;
+}
+
+async function listSessions(context, options = {}) {
+  const scope = normalizeSessionCatalogScope(options.scope || "all");
+  const bounds = sessionCatalogBounds(scope);
+  const now = Date.now();
+  const cached = context.sessionCacheByScope.get(scope);
+  if (cached && now - cached.time < 3000) return cached.sessions;
+
+  const threads = await context.threadStore.readThreads(bounds);
   if (threads.size > 0) {
     const spawnEdges = await context.threadStore.readSpawnEdges();
     const sessions = [];
@@ -213,22 +256,25 @@ async function listSessions(context) {
     }
     const rootSessions = rootSessionsOnly(sessions, spawnEdges);
     rootSessions.sort((a, b) => new Date(b.updatedAt || b.fileModifiedAt || 0) - new Date(a.updatedAt || a.fileModifiedAt || 0));
-    context.sessionCache = rootSessions.slice(0, maxListSessions);
+    const scopedSessions = rootSessions.filter((session) => sessionMatchesCatalogBounds(session, bounds));
+    context.sessionCache = scopedSessions.slice(0, maxListSessions);
     context.sessionCacheTime = now;
+    context.sessionCacheByScope.set(scope, { sessions: context.sessionCache, time: now });
     return context.sessionCache;
   }
 
-  const sessions = await listFileSessions(context);
+  const sessions = await listFileSessions(context, bounds);
   const rootSessions = rootSessionsOnly(sessions, spawnEdgesFromSessions(sessions));
   rootSessions.sort((a, b) => new Date(b.updatedAt || b.fileModifiedAt) - new Date(a.updatedAt || a.fileModifiedAt));
   context.sessionCache = rootSessions.slice(0, maxListSessions);
   context.sessionCacheTime = now;
+  context.sessionCacheByScope.set(scope, { sessions: context.sessionCache, time: now });
   return context.sessionCache;
 }
 
-async function listFileSessions(context) {
-  const index = await readIndex(context);
-  const files = await collectSessionFileRecords(context);
+async function listFileSessions(context, bounds = {}) {
+  const index = bounds.sinceMs == null ? await readIndex(context) : new Map();
+  const files = await collectSessionFileRecords(context, bounds);
 
   const sessions = [];
   for (const record of files) {
@@ -237,7 +283,7 @@ async function listFileSessions(context) {
     const indexed = index.get(id);
     let events = [];
     try {
-      events = await readJsonl(filePath, { maxLines: 40 });
+      events = await readJsonl(filePath, { maxLines: bounds.beforeMs != null ? 1 : 40 });
     } catch {
       // Keep the unreadable file visible in diagnostics.
     }
@@ -408,6 +454,85 @@ async function querySessions(context, params, projectionOptions = {}) {
     watermark: sessionWatermark(filtered),
     serverTime: new Date().toISOString(),
   };
+}
+
+async function listPromptArchive(context) {
+  const sessions = await listAllSessionsForQuery(context);
+  const cacheKey = sessions
+    .map((session) => `${session.id}:${session.updatedAt || session.fileModifiedAt || session.startedAt || ""}`)
+    .join("\n");
+  if (context.promptArchiveCache && context.promptArchiveCacheKey === cacheKey) return context.promptArchiveCache;
+
+  const entries = await Promise.all(
+    sessions.map(async (session) => {
+      if (!session?.path) return buildPromptArchiveEntry(session, { state: "unavailable", attachments: [] });
+      try {
+        return buildPromptArchiveEntry(session, extractFirstPrompt(await readJsonlWithDiagnostics(session.path)));
+      } catch {
+        return buildPromptArchiveEntry(session, { state: "error", attachments: [] });
+      }
+    }),
+  );
+  entries.sort((left, right) => promptEntryTimeMs(right) - promptEntryTimeMs(left));
+  context.promptArchiveCache = entries;
+  context.promptArchiveCacheKey = cacheKey;
+  return entries;
+}
+
+async function queryPromptArchive(context, params) {
+  const q = String(params.get("q") || "").trim().toLowerCase();
+  const project = String(params.get("project") || "").trim();
+  const status = String(params.get("status") || "all").trim();
+  const limit = Math.max(1, Math.min(1000, Number(params.get("limit")) || 800));
+  const entries = (await listPromptArchive(context)).filter((entry) => {
+    if (project && entry.projectKey !== project && promptProjectKey(entry.cwd) !== project) return false;
+    if (status !== "all" && entry.promptState !== status) return false;
+    if (!q) return true;
+    return [entry.sessionTitle, entry.promptText, entry.promptPreview, entry.cwd, entry.sessionId, entry.sourceLabel, entry.status]
+      .filter(Boolean)
+      .join("\n")
+      .toLowerCase()
+      .includes(q);
+  });
+  return {
+    source: dataSources.listSources().find((source) => source.id === context.source.id) || null,
+    entries: entries.slice(0, limit),
+    page: {
+      total: entries.length,
+      returned: Math.min(entries.length, limit),
+      limit,
+      truncated: entries.length > limit,
+    },
+    projects: projectSummaries(entries),
+    serverTime: new Date().toISOString(),
+  };
+}
+
+function projectSummaries(entries) {
+  const groups = new Map();
+  for (const entry of entries) {
+    const current = groups.get(entry.projectKey) || {
+      key: entry.projectKey,
+      label: entry.projectLabel,
+      cwd: entry.cwd,
+      count: 0,
+      latestAt: null,
+    };
+    current.count += 1;
+    if (!current.latestAt || promptEntryTimeMs(entry) > promptEntryTimeMs({ updatedAt: current.latestAt })) {
+      current.latestAt = entry.updatedAt || entry.startedAt || null;
+    }
+    groups.set(entry.projectKey, current);
+  }
+  return [...groups.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label, "zh-CN"));
+}
+
+function promptEntryTimeMs(entry) {
+  for (const value of [entry?.updatedAt, entry?.startedAt, entry?.promptTimestamp]) {
+    const time = value ? new Date(value).getTime() : NaN;
+    if (Number.isFinite(time)) return time;
+  }
+  return 0;
 }
 
 async function getSessionDetail(context, id, options = {}) {
@@ -938,6 +1063,7 @@ function isReadOnlyApiPath(pathname) {
     pathname.startsWith("/api/sessions/") ||
     pathname.startsWith("/api/query/") ||
     /^\/api\/sources\/[^/]+\/index$/.test(pathname) ||
+    /^\/api\/sources\/[^/]+\/prompts$/.test(pathname) ||
     /^\/api\/sources\/[^/]+\/sessions(?:\/.*)?$/.test(pathname) ||
     /^\/api\/sources\/[^/]+\/query\/.*$/.test(pathname)
   );
@@ -1010,6 +1136,12 @@ async function route(req, res) {
       });
     }
     const sourceRefreshMatch = pathname.match(/^\/api\/sources\/([^/]+)\/refresh$/);
+    const sourcePromptsMatch = pathname.match(/^\/api\/sources\/([^/]+)\/prompts$/);
+    if (sourcePromptsMatch) {
+      const context = getSourceContext(decodeURIComponent(sourcePromptsMatch[1]));
+      if (!context) return sendError(res, 404, "Data source not found");
+      return sendJson(res, 200, await queryPromptArchive(context, url.searchParams));
+    }
     if (sourceRefreshMatch) {
       if (req.method !== "POST") return sendError(res, 405, "Method not allowed");
       const sourceId = decodeURIComponent(sourceRefreshMatch[1]);
@@ -1028,15 +1160,17 @@ async function route(req, res) {
     if (pathname === "/api/sessions") {
       const context = resolveRequestSource(url);
       if (!context) return sendError(res, 404, "Data source not found");
-      const sessions = (await listSessions(context)).map(compactSessionForList);
-      return sendJson(res, 200, { sessions });
+      const scope = normalizeSessionCatalogScope(url.searchParams.get("scope"));
+      const sessions = (await listSessions(context, { scope })).map(compactSessionForList);
+      return sendJson(res, 200, { scope, sessions });
     }
     const sourceSessionsMatch = pathname.match(/^\/api\/sources\/([^/]+)\/sessions$/);
     if (sourceSessionsMatch) {
       const context = getSourceContext(decodeURIComponent(sourceSessionsMatch[1]));
       if (!context) return sendError(res, 404, "Data source not found");
-      const sessions = (await listSessions(context)).map(compactSessionForList);
-      return sendJson(res, 200, { source: dataSources.listSources().find((source) => source.id === context.source.id), sessions });
+      const scope = normalizeSessionCatalogScope(url.searchParams.get("scope"));
+      const sessions = (await listSessions(context, { scope })).map(compactSessionForList);
+      return sendJson(res, 200, { source: dataSources.listSources().find((source) => source.id === context.source.id), scope, sessions });
     }
     const sourceMarkdownMatch = pathname.match(/^\/api\/sources\/([^/]+)\/sessions\/([^/]+)\/markdown$/);
     if (sourceMarkdownMatch) {
