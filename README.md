@@ -10,6 +10,19 @@
 
 首次归档是有界工作：会话发现和响应一次最多处理 200 个会话，服务实例内最多 4 路 JSONL 读取并发；缓存最多保留 400 个当前文件版本；单个文件最多读取 2 MiB 或 20,000 条非空 JSONL 记录，提示词正文上限为 12,000 个字符。超过任一上限时只返回“内容超过归档读取上限”状态和原因，不返回可能敏感的正文。浏览器在切换数据源、时间分类、刷新或离开任务归档时会取消过期请求；服务端会解除对应订阅，只有没有其他订阅者时才中止共享读取。归档不写入 Codex 文件或新数据库；正文未同步、仅有图片附件、没有有效用户输入和读取失败都会明确标记。远端历史索引只有元数据，不能生成虚假的首个提示词；需要先把正文同步到本机快照。
 
+## 会话详情有界读取
+
+会话详情、`compact/turns/trace/audit` 外部 view 和 Markdown 导出共用稳定有界读取协调器。读取前后都会校验文件签名（路径、大小、修改/创建时间）；读取中变化、超限、失败或客户端取消时，不返回局部详情，也不会写入详情缓存。浏览器切换会话或数据源会取消旧详情和 Markdown 请求；HTTP 客户端断连同样会传到服务端 JSONL 流。服务进程中的详情、compact 子会话、单条原始事件和分页诊断共用读取并发闸门。
+
+默认边界及可选环境变量如下：
+
+- `CODEX_SESSION_DETAIL_MAX_FILE_BYTES=8388608`：单个详情/导出读取最多 8 MiB。
+- `CODEX_SESSION_DETAIL_MAX_EVENTS=10000`：最多 10,000 条非空 JSONL 事件。
+- `CODEX_SESSION_DETAIL_MAX_CONCURRENT_READS=4`：整个服务实例最多 4 路会话 JSONL 读取（也与任务归档共享）。
+- `CODEX_SESSION_DETAIL_MAX_CACHE_ENTRIES=24`、`CODEX_SESSION_DETAIL_MAX_CACHE_BYTES=50331648`：稳定完整详情、compact 派生和 Markdown 的版本 LRU 最多 24 条且估算总量最多 48 MiB。
+
+命中详情边界时详情接口仍返回 `200`，但含 `complete: false` 与机器可识别的 `readState.code = session_read_limited`（或文件变化时 `session_file_changed`），`turns/events/compact/trace/audit` 都为空值，前端不会把部分内容当作完整会话。页面会给出既有原始事件分页诊断接口的链接；`/markdown` 则返回 `413` JSON 状态，绝不导出部分 Markdown。原始事件分页接口仍按请求的 `limit` / `maxScan` 做流式诊断，并受上述单次读取字节边界和服务并发闸门保护。
+
 ## 数据来源
 
 - 会话元数据：`%USERPROFILE%\.codex\state_5.sqlite`，用于读取标题、工作目录、模型、推理强度和归档状态。

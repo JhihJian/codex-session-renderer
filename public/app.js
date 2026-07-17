@@ -96,6 +96,8 @@ const {
 } = window.AppFormat;
 
 const markdownCache = new Map();
+let sessionAbortController = null;
+let markdownAbortController = null;
 const markdownCacheLimit = 700;
 const inspectorWidthStorageKey = "codexSessionRenderer.inspectorWidth.v1";
 const inspectorSideDockMedia = "(min-width: 1281px)";
@@ -957,6 +959,9 @@ function setBusy(isBusy) {
 }
 
 async function selectSession(id) {
+  sessionAbortController?.abort();
+  markdownAbortController?.abort();
+  sessionAbortController = new AbortController();
   const sourceId = state.selectedSourceId;
   const targetSession = findSessionSummary(id);
   const requestKey = `${sourceId}:${id}:${Date.now()}`;
@@ -983,7 +988,7 @@ async function selectSession(id) {
   syncExportButtons();
   renderAll();
   try {
-    const detail = await fetchJson(sourceSessionUrl(id, sourceId));
+    const detail = await fetchJson(sourceSessionUrl(id, sourceId), { signal: sessionAbortController.signal });
     if (state.sessionRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
     state.detail = detail;
     state.sessionLoading = false;
@@ -1010,10 +1015,12 @@ async function reloadSelectedSessionDetail() {
   const sourceId = state.selectedSourceId;
   const sessionId = state.selectedSessionId;
   const requestKey = `${sourceId}:${sessionId}:reload:${Date.now()}`;
+  sessionAbortController?.abort();
+  sessionAbortController = new AbortController();
   state.sessionRequestKey = requestKey;
   let detail;
   try {
-    detail = await fetchJson(sourceSessionUrl(sessionId, sourceId));
+    detail = await fetchJson(sourceSessionUrl(sessionId, sourceId), { signal: sessionAbortController.signal });
   } catch (error) {
     if (state.sessionRequestKey !== requestKey || state.selectedSourceId !== sourceId || state.selectedSessionId !== sessionId) return;
     throw error;
@@ -1030,6 +1037,10 @@ async function reloadSelectedSessionDetail() {
 }
 
 function clearSelectedSession() {
+  sessionAbortController?.abort();
+  markdownAbortController?.abort();
+  sessionAbortController = null;
+  markdownAbortController = null;
   state.selectedSessionId = null;
   state.selectedSessionKey = null;
   state.sessionLoading = false;
@@ -2727,6 +2738,7 @@ function renderSessionFilterNotice(filteredOut = currentSessionFilteredOut()) {
 function markdownExportBlockedReason() {
   if (state.sessionLoading) return "正在读取目标会话，暂不能导出";
   if (state.sessionLoadError) return "目标会话读取失败，无法导出";
+  if (state.detail?.complete === false) return "会话详情受读取上限保护，不能导出不完整 Markdown";
   if (state.healthLoadError) return "接口不可用，无法导出会话";
   if (state.sessionsLoadError && !state.detail?.session?.id) return "会话列表加载失败，未选择可导出会话";
   if (!state.detail?.session?.id) return "未选择可导出的会话";
@@ -2763,35 +2775,35 @@ function selectedSessionDisplayTitle() {
 
 function sessionPlaceholderState() {
   const target = selectedSessionDisplayTitle();
-  if (state.healthLoadError && !state.detail?.session) {
-    return {
-      title: "接口不可用",
-      subtitle: state.healthLoadError,
-    };
-  }
-  if (state.sessionLoading) {
-    return {
-      title: "正在读取目标会话",
-      subtitle: `${target} · 正在解析当前数据源中的 JSONL 事件流。`,
-    };
-  }
-  if (state.sessionLoadError) {
-    return {
-      title: "无法读取目标会话",
-      subtitle: `${target} · ${state.sessionLoadError}`,
-    };
-  }
+  const limited = limitedSessionPlaceholder(target, state.detail);
+  if (limited) return limited;
+  if (state.healthLoadError && !state.detail?.session) return { title: "接口不可用", subtitle: state.healthLoadError };
+  if (state.sessionLoading) return { title: "正在读取目标会话", subtitle: `${target} · 正在解析当前数据源中的 JSONL 事件流。` };
+  if (state.sessionLoadError) return { title: "无法读取目标会话", subtitle: `${target} · ${state.sessionLoadError}` };
   if (state.sessionsLoadError && !state.detail?.session) {
-    return {
-      title: "会话列表加载失败",
-      subtitle: `${selectedSource()?.label || "当前数据源"} · ${state.sessionsLoadError}。请确认服务仍在运行，或远端快照已成功拉取。`,
-    };
+    return { title: "会话列表加载失败", subtitle: `${selectedSource()?.label || "当前数据源"} · ${state.sessionsLoadError}。请确认服务仍在运行，或远端快照已成功拉取。` };
   }
   return null;
 }
 
-function renderSessionPlaceholder(title, subtitle) {
-  const html = emptyState(title, subtitle);
+function limitedSessionPlaceholder(target, detail) {
+  const readState = detail?.readState;
+  if (detail?.complete !== false || !readState) return null;
+  const limits = readState.limits || {};
+  const fileSize = readState.fileSizeBytes ? `文件 ${formatBytes(readState.fileSizeBytes)}；` : "";
+  const reason = readState.state === "changing" ? "读取期间文件发生变化，未展示可能过期的内容。" : "为保护工作台，未读取或展示任何部分详情。";
+  return {
+    title: readState.state === "changing" ? "会话文件正在变化" : "会话详情超过读取上限",
+    subtitle: `${target} · ${fileSize}${reason}详情上限为 ${formatBytes(limits.maxFileBytes || 0)} / ${limits.maxEvents || 0} 个事件。`,
+    diagnosticUrl: readState.diagnosticUrl || "",
+  };
+}
+
+function renderSessionPlaceholder(title, subtitle, diagnosticUrl = "") {
+  const action = diagnosticUrl
+    ? `<div class="empty-state-actions"><a class="ghost-button" href="${escapeAttr(diagnosticUrl)}" target="_blank" rel="noreferrer">打开原始事件分页诊断</a></div>`
+    : "";
+  const html = emptyState(title, subtitle, action);
   [els.threadContent, els.compactContent, els.terminalContent, els.auditContent, els.statsContent, els.traceContent, els.rawContent]
     .filter(Boolean)
     .forEach((container) => {
@@ -3259,7 +3271,7 @@ function renderMainContent() {
   syncViewControls();
   const placeholder = sessionPlaceholderState();
   if (placeholder) {
-    renderSessionPlaceholder(placeholder.title, placeholder.subtitle);
+    renderSessionPlaceholder(placeholder.title, placeholder.subtitle, placeholder.diagnosticUrl);
     renderInspector();
     return;
   }
@@ -7008,6 +7020,17 @@ function buildReviewContext() {
       summary: "左侧选择会话后，复核台会显示当前对象的摘要、证据、关系和来源。",
     });
   }
+  if (state.detail.complete === false) {
+    const readState = state.detail.readState || {};
+    return reviewContextBase({
+      kind: "limited",
+      kindLabel: "读取受限",
+      title: readState.state === "changing" ? "会话文件正在变化" : "会话详情超过读取上限",
+      summary: "未读取正文、事件、审计链或风险结论。请使用原始事件分页诊断。",
+      badges: [readState.code || "session_read_limited"],
+      metrics: { events: 0, evidence: 0, relations: 0 },
+    });
+  }
   if (state.selectedTraceNodeId) {
     const node = findTraceNode(state.detail.trace?.root, state.selectedTraceNodeId);
     if (node) return buildTraceReviewContext(node);
@@ -8200,9 +8223,11 @@ async function copyMarkdown() {
     syncExportButtons();
     return;
   }
+  markdownAbortController?.abort();
+  markdownAbortController = new AbortController();
   els.copyMarkdownButton.disabled = true;
   try {
-    const markdown = await fetchText(sourceMarkdownUrl(snapshot.sessionId, snapshot.sourceId));
+    const markdown = await fetchText(sourceMarkdownUrl(snapshot.sessionId, snapshot.sourceId), { signal: markdownAbortController.signal });
     if (!markdownExportSnapshotStillCurrent(snapshot)) {
       showToast("会话或数据源已切换，已取消本次 Markdown 复制");
       return;
@@ -8214,6 +8239,7 @@ async function copyMarkdown() {
     }
     showToast(sensitiveCopyToast("已复制 Markdown"));
   } catch (error) {
+    if (isAbortError(error)) return;
     showToast(`复制 Markdown 失败：${error.message}`);
   } finally {
     syncExportButtons();
@@ -8233,9 +8259,11 @@ async function downloadMarkdown() {
     syncExportButtons();
     return;
   }
+  markdownAbortController?.abort();
+  markdownAbortController = new AbortController();
   els.downloadMarkdownButton.disabled = true;
   try {
-    const markdown = await fetchText(sourceMarkdownUrl(snapshot.sessionId, snapshot.sourceId));
+    const markdown = await fetchText(sourceMarkdownUrl(snapshot.sessionId, snapshot.sourceId), { signal: markdownAbortController.signal });
     if (!markdownExportSnapshotStillCurrent(snapshot)) {
       showToast("会话或数据源已切换，已取消本次 Markdown 下载");
       return;
@@ -8251,6 +8279,7 @@ async function downloadMarkdown() {
     URL.revokeObjectURL(url);
     if (markdownExportSnapshotStillCurrent(snapshot)) showToast(sensitiveCopyToast("已下载 Markdown"));
   } catch (error) {
+    if (isAbortError(error)) return;
     showToast(`下载 Markdown 失败：${error.message}`);
   } finally {
     syncExportButtons();
@@ -8751,11 +8780,12 @@ function isAbortError(error) {
   return error?.name === "AbortError";
 }
 
-async function fetchText(url) {
+async function fetchText(url, options = {}) {
   let response;
   try {
-    response = await fetch(url, { cache: "no-store" });
+    response = await fetch(url, { cache: "no-store", ...options });
   } catch (error) {
+    if (error?.name === "AbortError") throw error;
     throw new Error(requestFailedMessage(error));
   }
   if (!response.ok) {
@@ -8866,8 +8896,8 @@ function showToast(message) {
   showToast.timer = setTimeout(() => els.toast.classList.remove("show"), 2200);
 }
 
-function emptyState(title, subtitle) {
-  return `<div class="empty-state"><div><strong>${escapeHtml(title)}</strong><br /><span>${escapeHtml(subtitle)}</span></div></div>`;
+function emptyState(title, subtitle, action = "") {
+  return `<div class="empty-state"><div><strong>${escapeHtml(title)}</strong><br /><span>${escapeHtml(subtitle)}</span>${action}</div></div>`;
 }
 
 function renderMarkdownFence(tokens, index, options) {

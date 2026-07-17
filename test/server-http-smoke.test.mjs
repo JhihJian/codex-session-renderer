@@ -427,6 +427,38 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   assert.equal(markdown.status, 200);
   assert.match(await markdown.text(), /# HTTP smoke 会话/);
 
+  const limitedId = "33333333-3333-4333-8333-333333333333";
+  const limitedRows = Array.from({ length: 10_001 }, (_, index) => JSON.stringify({ type: "event_msg", payload: { type: "agent_message", message: `event-${index}` } })).join("\n") + "\n";
+  const localLimitedPath = path.join(sessionDir, `rollout-2026-07-08T10-00-00-${limitedId}.jsonl`);
+  const remoteLimitedPath = path.join(remoteSessionDir, `rollout-2026-07-08T10-00-00-${limitedId}.jsonl`);
+  const piLimitedPath = path.join(piProjectDir, `2026-07-10T04-51-55-870Z_${limitedId}.jsonl`);
+  await Promise.all([fs.writeFile(localLimitedPath, limitedRows, "utf8"), fs.writeFile(remoteLimitedPath, limitedRows, "utf8"), fs.writeFile(piLimitedPath, limitedRows, "utf8")]);
+
+  for (const pathname of [
+    `/api/sources/local/sessions/${limitedId}`,
+    `/api/sources/pi-agent/sessions/${limitedId}`,
+    `/api/sources/remote-a/sessions/${limitedId}`,
+  ]) {
+    const limited = await requestJson(baseUrl, pathname);
+    assert.equal(limited.response.status, 200);
+    assert.equal(limited.body.complete, false);
+    assert.equal(limited.body.readState.code, "session_read_limited");
+    assert.equal(limited.body.readState.reason, "too_many_events");
+    assert.deepEqual(limited.body.events, []);
+    assert.deepEqual(limited.body.turns, []);
+  }
+  const limitedCompact = await requestJson(baseUrl, `/api/sources/local/query/sessions/${limitedId}/view?view=compact`);
+  assert.equal(limitedCompact.response.status, 200);
+  assert.equal(limitedCompact.body.complete, false);
+  assert.equal(limitedCompact.body.readState.code, "session_read_limited");
+  assert.equal(limitedCompact.body.compact, null);
+  const limitedMarkdown = await requestJson(baseUrl, `/api/sources/local/sessions/${limitedId}/markdown`);
+  assert.equal(limitedMarkdown.response.status, 413);
+  assert.equal(limitedMarkdown.body.code, "session_read_limited");
+  const limitedEvents = await requestJson(baseUrl, `/api/sources/local/query/sessions/${limitedId}/events?limit=2`);
+  assert.equal(limitedEvents.response.status, 200);
+  assert.equal(limitedEvents.body.events.length, 2);
+
   const peers = await requestJson(baseUrl, "/api/peers");
   assert.equal(peers.response.status, 200);
   assert.deepEqual(peers.body.peers, []);

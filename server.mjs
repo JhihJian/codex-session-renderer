@@ -8,7 +8,8 @@ import { createDataSourceRegistry, sanitizeErrorMessage } from "./src/data-sourc
 import { evidenceRiskRulesFingerprint, normalizeEvidenceRiskRules, validateEvidenceRiskRules } from "./src/evidence-risk-rules.mjs";
 import { sendError, sendJson, sendText, serveStaticFile } from "./src/http-response.mjs";
 import { createRendererConfigStore } from "./src/renderer-config.mjs";
-import { readJsonl, readJsonlLineWithDiagnostics, readJsonlRange, readJsonlWithDiagnostics } from "./src/jsonl-reader.mjs";
+import { createSessionDetailCoordinator } from "./src/session-detail-coordinator.mjs";
+import { readJsonl, readJsonlLineWithDiagnostics, readJsonlRange } from "./src/jsonl-reader.mjs";
 import {
   buildTrace,
   buildTurns,
@@ -20,7 +21,7 @@ import {
   deriveSessionStatusFromEvents,
   deriveSessionStatusFromTurns,
   extractTitleFromEvents,
-  fileTimeMs,
+
   findSpawnAgentEvents,
   findSubagentNotifications,
   isImportantEvent,
@@ -36,7 +37,7 @@ import {
 import { dedupeSessionFileRecords, sessionFileRoots } from "./src/session-catalog.mjs";
 import { normalizeSessionEvent } from "./src/session-normalizer.mjs";
 import { promptProjectKey } from "./src/session-prompts.mjs";
-import { createAbortError, createConcurrencyGate, createPromptArchiveCoordinator, isAbortError } from "./src/prompt-archive-coordinator.mjs";
+import { createAbortError, createConcurrencyGate, createPromptArchiveCoordinator, fileSignature, isAbortError } from "./src/prompt-archive-coordinator.mjs";
 import {
   compactSessionForList,
   publicThreadMeta,
@@ -68,11 +69,28 @@ const recentSessionWindowMs = 24 * 60 * 60 * 1000;
 const port = Number(process.env.PORT || 4789);
 const host = process.env.HOST || "127.0.0.1";
 const accessToken = process.env.CODEX_SESSION_RENDERER_TOKEN || "";
+const sessionReadGate = createConcurrencyGate(readPositiveEnv("CODEX_SESSION_DETAIL_MAX_CONCURRENT_READS", 4, 32));
 const configStore = createRendererConfigStore();
 let rendererConfig = await configStore.readConfig();
 let dataSources = createDataSourceRegistry({ config: rendererConfig });
 const sourceContexts = new Map();
-const promptArchiveReadGate = createConcurrencyGate(4);
+
+function readPositiveEnv(name, fallback, maximum) {
+  const value = Number(process.env[name]);
+  if (!Number.isFinite(value) || value <= 0) return fallback;
+  return Math.min(Math.floor(value), maximum);
+}
+
+function sessionDetailCoordinatorOptions() {
+  return {
+    maxConcurrentReads: readPositiveEnv("CODEX_SESSION_DETAIL_MAX_CONCURRENT_READS", 4, 32),
+    maxFileBytes: readPositiveEnv("CODEX_SESSION_DETAIL_MAX_FILE_BYTES", 8 * 1024 * 1024, 256 * 1024 * 1024),
+    maxEvents: readPositiveEnv("CODEX_SESSION_DETAIL_MAX_EVENTS", 10_000, 500_000),
+    maxCacheEntries: readPositiveEnv("CODEX_SESSION_DETAIL_MAX_CACHE_ENTRIES", 24, 2_000),
+    maxCacheBytes: readPositiveEnv("CODEX_SESSION_DETAIL_MAX_CACHE_BYTES", 48 * 1024 * 1024, 512 * 1024 * 1024),
+    readGate: sessionReadGate,
+  };
+}
 
 async function reloadDataSources() {
   rendererConfig = await configStore.readConfig();
@@ -98,8 +116,8 @@ function getSourceContext(sourceId = "local") {
     sessionCacheByScope: new Map(),
     allSessionCache: null,
     allSessionCacheTime: 0,
-    sessionDetailCache: new Map(),
-    promptArchiveCoordinator: createPromptArchiveCoordinator({ readGate: promptArchiveReadGate }),
+    sessionDetailCoordinator: createSessionDetailCoordinator(sessionDetailCoordinatorOptions()),
+    promptArchiveCoordinator: createPromptArchiveCoordinator({ readGate: sessionReadGate }),
   };
   sourceContexts.set(source.id, context);
   return context;
@@ -153,8 +171,8 @@ function invalidateSourceContext(sourceId) {
   context.sessionCacheByScope.clear();
   context.allSessionCache = null;
   context.allSessionCacheTime = 0;
-  context.sessionDetailCache.clear();
-  context.promptArchiveCoordinator = createPromptArchiveCoordinator({ readGate: promptArchiveReadGate });
+  context.sessionDetailCoordinator.cache.clear();
+  context.promptArchiveCoordinator = createPromptArchiveCoordinator({ readGate: sessionReadGate });
 }
 
 async function* walkJsonl(dir, options = {}) {
@@ -375,9 +393,12 @@ function sessionMetaFromEvents(events) {
   };
 }
 
-async function enrichSessionFromFileMeta(session) {
+async function enrichSessionFromFileMeta(session, options = {}) {
   if (!session?.path) return withSubagentMeta(session);
-  const events = await readJsonl(session.path, { maxLines: 40 }).catch(() => []);
+  const events = await readJsonl(session.path, { maxLines: 40, maxBytes: 128 * 1024, signal: options.signal }).catch((error) => {
+    if (isAbortError(error)) throw error;
+    return [];
+  });
   const meta = sessionMetaFromEvents(events);
   const sourceForExtraction = meta.source || session.source || null;
   const enriched = withSubagentMeta({
@@ -397,12 +418,12 @@ async function enrichSessionFromFileMeta(session) {
   };
 }
 
-async function enrichThreadRowsFromFiles(context, threads) {
+async function enrichThreadRowsFromFiles(context, threads, options = {}) {
   const enriched = new Map();
   await Promise.all(
     [...threads.entries()].map(async ([id, thread]) => {
       const session = sessionFromThread(thread, context.codexHome, sourceModelOptions(context));
-      const sessionMeta = await enrichSessionFromFileMeta(session);
+      const sessionMeta = await enrichSessionFromFileMeta(session, options);
       enriched.set(id, {
         ...thread,
         cwd: thread.cwd || sessionMeta.cwd || null,
@@ -417,22 +438,24 @@ async function enrichThreadRowsFromFiles(context, threads) {
   return enriched;
 }
 
-async function getSessionById(context, id) {
+async function getSessionById(context, id, options = {}) {
+  throwIfRequestAborted(options.signal);
   const cached = context.sessionCache?.find((session) => session.id === id);
   if (cached) return cached;
 
   const thread = (await context.threadStore.readThreadRowsByIds([id])).get(id);
   if (thread) {
     const session = sessionFromThread(thread, context.codexHome, sourceModelOptions(context));
-    if (await sessionFileExists(session)) return enrichSessionFromFileMeta(session);
+    if (await sessionFileExists(session, options)) return enrichSessionFromFileMeta(session, options);
   }
 
-  const sessions = await listSessions(context);
+  const sessions = await listSessions(context, options);
   const listed = sessions.find((session) => session.id === id);
   if (listed) return listed;
 
-  for (const record of await collectSessionFileRecords(context)) {
-    if (record.id === id) return sessionFromFilePath(context, record.filePath, { archived: record.archived });
+  for (const record of await collectSessionFileRecords(context, options)) {
+    throwIfRequestAborted(options.signal);
+    if (record.id === id) return sessionFromFilePath(context, record.filePath, { archived: record.archived, signal: options.signal });
   }
   return null;
 }
@@ -498,7 +521,7 @@ async function listPromptArchive(context, scope = "recent24h", options = {}) {
     scope: normalizedScope,
     signal: options.signal,
     maxRecords: context.promptArchiveCoordinator.limits.maxSessions,
-    readGate: promptArchiveReadGate,
+    readGate: sessionReadGate,
   });
   const result = await context.promptArchiveCoordinator.list(sessions, { signal: options.signal });
   const entries = result.entries;
@@ -567,47 +590,65 @@ function promptEntryTimeMs(entry) {
 }
 
 async function getSessionDetail(context, id, options = {}) {
-  const session = await getSessionById(context, id);
+  throwIfRequestAborted(options.signal);
+  const session = await getSessionById(context, id, { signal: options.signal });
   if (!session) return null;
   const maxDepth = options.maxDepth ?? 3;
   const evidenceRiskRules = normalizeEvidenceRiskRules(options.evidenceRiskRules);
   const evidenceRiskRulesKey = evidenceRiskRulesFingerprint(evidenceRiskRules);
-  const stat = await fs.stat(session.path);
-  const sessionWithStat = withFileStat(session, stat);
-  const hierarchy = await getThreadHierarchy(context, id);
-  const cacheKey = `${id}:maxDepth=${maxDepth}:evidenceRiskRules=${evidenceRiskRulesKey}`;
-  const cached = context.sessionDetailCache.get(cacheKey);
-  if (cached && cached.mtimeMs === fileTimeMs(stat) && cached.size === stat.size && hierarchy.children.length === 0) return cached.detail;
+  const cacheKey = `detail:${context.source.id}:${id}:maxDepth=${maxDepth}:evidenceRiskRules=${evidenceRiskRulesKey}`;
+  const result = await context.sessionDetailCoordinator.read(session, {
+    cacheKey,
+    signal: options.signal,
+    shouldCache: (detail) => detail.stats?.childThreadCount === 0,
+    derive: async (rawEvents, stat, signal) => {
+      throwIfRequestAborted(signal);
+      const sessionWithStat = withFileStat(session, stat);
+      const hierarchy = await getThreadHierarchy(context, id, { signal });
+      const analysisEvents = rawEvents.map(analysisEventFromRaw);
+      const publicEvents = analysisEvents.map(({ payload, ...event }) => ({
+        index: event.index,
+        timestamp: event.timestamp,
+        kind: event.kind,
+        semanticKind: event.semanticKind,
+        important: event.important,
+        type: event.type,
+        role: event.role,
+        messageId: event.messageId,
+        parentId: event.parentId,
+        title: event.title,
+        preview: event.preview,
+        payloadSize: event.payloadSize,
+        rawSize: event.rawSize,
+        attachments: event.attachments,
+        reasoning: event.reasoning,
+        compact: event.compact,
+        diagnostic: event.diagnostic,
+      }));
+      const turns = buildTurns(rawEvents);
+      const sessionForDetail = { ...sessionWithStat, status: deriveSessionStatusFromTurns(turns) };
+      const trace = buildTrace(sessionForDetail, rawEvents, analysisEvents, turns, hierarchy);
+      const compact = await buildCompactView(context, { session: sessionForDetail, normalizedEvents: analysisEvents, turns, hierarchy, options: { maxDepth, signal } });
+      const audit = buildAuditChain({ turns, evidenceRiskRules });
+      return {
+        complete: true,
+        readState: { state: "ready", code: "session_read_complete" },
+        session: sessionForDetail,
+        turns: compactTurnsForClient(turns),
+        events: publicEvents,
+        stats: sessionDetailStats(context, sessionWithStat, { stat, rawEvents, analysisEvents, turns, hierarchy }),
+        trace,
+        compact,
+        audit,
+      };
+    },
+  });
+  if (result.state === "ready") return result.value;
+  return limitedSessionDetail(context, session, result.stat, result, id);
+}
 
-  const rawEvents = await readJsonlWithDiagnostics(session.path);
-  const analysisEvents = rawEvents.map(analysisEventFromRaw);
-  const publicEvents = analysisEvents.map(({ payload, ...event }) => ({
-    index: event.index,
-    timestamp: event.timestamp,
-    kind: event.kind,
-    semanticKind: event.semanticKind,
-    important: event.important,
-    type: event.type,
-    role: event.role,
-    messageId: event.messageId,
-    parentId: event.parentId,
-    title: event.title,
-    preview: event.preview,
-    payloadSize: event.payloadSize,
-    rawSize: event.rawSize,
-    attachments: event.attachments,
-    reasoning: event.reasoning,
-    compact: event.compact,
-    diagnostic: event.diagnostic,
-  }));
-  const turns = buildTurns(rawEvents);
-  const sessionStatus = deriveSessionStatusFromTurns(turns);
-  const sessionForDetail = { ...sessionWithStat, status: sessionStatus };
-  const publicTurns = compactTurnsForClient(turns);
-  const trace = buildTrace(sessionForDetail, rawEvents, analysisEvents, turns, hierarchy);
-  const compact = await buildCompactView(context, sessionForDetail, analysisEvents, turns, hierarchy, { maxDepth });
-  const audit = buildAuditChain({ turns, evidenceRiskRules });
-  const stats = {
+function sessionDetailStats(context, session, { stat, rawEvents = [], analysisEvents = [], turns = [], hierarchy = { children: [] } } = {}) {
+  return {
     ...summarizeSessionEvents(rawEvents),
     eventCount: rawEvents.length,
     diagnosticEventCount: analysisEvents.filter((event) => event.kind === "jsonl_parse_error").length,
@@ -615,7 +656,7 @@ async function getSessionDetail(context, id, options = {}) {
     turnCount: turns.length,
     importantEventCount: analysisEvents.filter((event) => event.important).length,
     childThreadCount: hierarchy.children.length,
-    sizeBytes: stat.size,
+    sizeBytes: stat?.size ?? null,
     source: {
       id: context.source.id,
       label: context.source.label,
@@ -624,28 +665,61 @@ async function getSessionDetail(context, id, options = {}) {
       lastSuccessfulRefreshAt: context.source.status?.lastSuccessfulRefreshAt ?? null,
     },
     codexHome: context.source.kind === "remote" ? null : context.codexHome,
-    dataPath: sessionWithStat.path,
+    dataPath: session.path,
   };
-  const detail = { session: sessionForDetail, turns: publicTurns, events: publicEvents, stats, trace, compact, audit };
-  context.sessionDetailCache.set(cacheKey, { mtimeMs: fileTimeMs(stat), size: stat.size, detail });
-  return detail;
 }
 
-async function querySessionEvents(context, id, params, projectionOptions = {}) {
-  const session = await getSessionById(context, id);
+function limitedSessionDetail(context, session, stat, readState, id) {
+  return {
+    complete: false,
+    readState: {
+      ...readState,
+      diagnosticUrl: `/api/sources/${encodeURIComponent(context.source.id)}/query/sessions/${encodeURIComponent(id)}/events?limit=100`,
+    },
+    session: withFileStat(session, stat),
+    turns: [],
+    events: [],
+    stats: sessionDetailStats(context, session, { stat }),
+    trace: null,
+    compact: null,
+    audit: null,
+  };
+}
+
+async function querySessionEvents(context, id, params, projectionOptions = {}, options = {}) {
+  throwIfRequestAborted(options.signal);
+  const session = await getSessionById(context, id, { signal: options.signal });
   if (!session?.path) return null;
   const query = parseSessionEventQuery(params);
-  const range = await readJsonlRange(session.path, {
-    start: query.cursor,
-    limit: query.limit,
-    maxScan: query.maxScan,
-    includeInvalid: true,
-    predicate: (event, index) => {
-      const projected = projectEventForApi(event, index, { fields: [] });
-      return eventMatchesQuery(projected, event, query);
-    },
-  });
+  const beforeStat = await fs.stat(session.path);
+  const beforeSignature = fileSignature(session.path, beforeStat);
+  const byteLimited = beforeStat.size > context.sessionDetailCoordinator.limits.maxFileBytes;
+  const range = await context.sessionDetailCoordinator.readGate.run(
+    () => readJsonlRange(session.path, {
+      start: query.cursor,
+      limit: query.limit,
+      maxScan: query.maxScan,
+      maxBytes: context.sessionDetailCoordinator.limits.maxFileBytes,
+      signal: options.signal,
+      // The bounded stream can end in the middle of a JSON record; never turn that tail into a fake parse diagnostic.
+      includeInvalid: !byteLimited,
+      predicate: (event, index) => {
+        const projected = projectEventForApi(event, index, { fields: [] });
+        return eventMatchesQuery(projected, event, query);
+      },
+    }),
+    options.signal,
+  );
   const stat = await fs.stat(session.path).catch(() => null);
+  if (!stat || beforeSignature !== fileSignature(session.path, stat)) {
+    return {
+      session: projectSessionForApi(withFileStat(session, stat), {}, projectionOptions),
+      events: [],
+      page: { cursor: query.cursor, limit: query.limit, maxScan: query.maxScan, scanned: 0, returned: 0, nextCursor: query.cursor, hasMore: true },
+      readState: { state: "changing", code: "session_file_changed", reason: "file_changed_during_read" },
+      serverTime: new Date().toISOString(),
+    };
+  }
   const sessionWithStat = withFileStat(session, stat);
   return {
     session: projectSessionForApi(sessionWithStat, {}, projectionOptions),
@@ -657,19 +731,24 @@ async function querySessionEvents(context, id, params, projectionOptions = {}) {
       scanned: range.scanned,
       returned: range.items.length,
       nextCursor: range.nextCursor,
-      hasMore: !range.exhausted,
+      hasMore: !range.exhausted || byteLimited,
     },
+    readState: byteLimited
+      ? { state: "limited", code: "session_read_limited", reason: "raw_scan_byte_limit", limits: { maxFileBytes: context.sessionDetailCoordinator.limits.maxFileBytes } }
+      : null,
     serverTime: new Date().toISOString(),
   };
 }
 
-async function querySessionView(context, id, params, projectionOptions = {}) {
+async function querySessionView(context, id, params, projectionOptions = {}, options = {}) {
   const query = parseSessionViewQuery(params);
-  const detail = await getSessionDetail(context, id, { maxDepth: query.maxDepth, evidenceRiskRules: parseEvidenceRiskRulesParam(params) });
+  const detail = await getSessionDetail(context, id, { maxDepth: query.maxDepth, evidenceRiskRules: parseEvidenceRiskRulesParam(params), signal: options.signal });
   if (!detail) return null;
   const base = {
     session: projectSessionForApi(detail.session, {}, projectionOptions),
     view: query.view,
+    complete: detail.complete !== false,
+    readState: detail.readState || null,
     stats: detail.stats,
     serverTime: new Date().toISOString(),
   };
@@ -680,13 +759,35 @@ async function querySessionView(context, id, params, projectionOptions = {}) {
   return { ...base, detail };
 }
 
-async function getSessionEvent(context, id, index) {
-  const session = await getSessionById(context, id);
+async function getSessionEvent(context, id, index, options = {}) {
+  throwIfRequestAborted(options.signal);
+  const session = await getSessionById(context, id, { signal: options.signal });
   if (!session?.path) return null;
-  const event = await readJsonlLineWithDiagnostics(session.path, index);
+  const beforeStat = await fs.stat(session.path);
+  const beforeSignature = fileSignature(session.path, beforeStat);
+  const event = await context.sessionDetailCoordinator.readGate.run(
+    () => readJsonlLineWithDiagnostics(session.path, index, {
+      signal: options.signal,
+      maxBytes: context.sessionDetailCoordinator.limits.maxFileBytes,
+      maxScan: context.sessionDetailCoordinator.limits.maxEvents,
+    }),
+    options.signal,
+  );
+  const afterStat = await fs.stat(session.path).catch(() => null);
+  if (!afterStat || beforeSignature !== fileSignature(session.path, afterStat)) {
+    const error = new Error("Session file changed during read");
+    error.status = 409;
+    error.code = "session_file_changed";
+    throw error;
+  }
+  if (!event && beforeStat.size > context.sessionDetailCoordinator.limits.maxFileBytes) {
+    const error = new Error("Session event exceeds the diagnostic scan limit");
+    error.status = 413;
+    error.code = "session_read_limited";
+    throw error;
+  }
   if (!event) return null;
-  const projected = projectEventForApi(event, index, { includePayload: true, includeRaw: true });
-  return projected;
+  return projectEventForApi(event, index, { includePayload: true, includeRaw: true });
 }
 
 function parseEvidenceRiskRulesParam(params) {
@@ -850,7 +951,8 @@ async function testRemotePeerOrThrow(source) {
   };
 }
 
-async function buildCompactView(context, session, normalizedEvents, turns, hierarchy, options = {}) {
+async function buildCompactView(context, { session, normalizedEvents, turns, hierarchy, options = {} }) {
+  throwIfRequestAborted(options.signal);
   const depth = options.depth ?? 0;
   const maxDepth = options.maxDepth ?? 3;
   const childById = new Map(hierarchy.children.map((child) => [child.childThreadId, child]));
@@ -865,6 +967,7 @@ async function buildCompactView(context, session, normalizedEvents, turns, hiera
         maxDepth,
         spawnEvent: spawnByChildId.get(child.childThreadId),
         notificationEvent: notificationByChildId.get(child.childThreadId),
+        signal: options.signal,
       });
       childNodes.set(child.childThreadId, childSummary);
     }
@@ -922,51 +1025,32 @@ async function buildCompactChildNode(sourceContext, child, context) {
   const thread = child.thread || {};
   const base = compactChildBase(child, context);
   if (!thread.id || !thread.path) {
-    return {
-      ...base,
-      unavailable: true,
-      unavailableReason: "missing-thread-path",
-      turns: [],
-      children: [],
-    };
+    return { ...base, unavailable: true, unavailableReason: "missing-thread-path", turns: [], children: [] };
   }
-
   try {
-    const childSession = await getSessionById(sourceContext, thread.id);
-    if (!childSession?.path) {
-      return {
-        ...base,
-        unavailable: true,
-        unavailableReason: "missing-session",
-        turns: [],
-        children: [],
-      };
-    }
-    const stat = await fs.stat(childSession.path);
-    const childSessionWithStat = withFileStat(childSession, stat);
-    const rawEvents = await readJsonlWithDiagnostics(childSession.path);
-    const normalizedEvents = rawEvents.map(analysisEventFromRaw);
-    const childTurns = buildTurns(rawEvents);
-    const childHierarchy = await getThreadHierarchy(sourceContext, thread.id);
-    const compact = await buildCompactView(sourceContext, childSessionWithStat, normalizedEvents, childTurns, childHierarchy, {
-      depth: context.depth + 1,
-      maxDepth: context.maxDepth,
+    throwIfRequestAborted(context.signal);
+    const childSession = await getSessionById(sourceContext, thread.id, { signal: context.signal });
+    if (!childSession?.path) return { ...base, unavailable: true, unavailableReason: "missing-session", turns: [], children: [] };
+    const result = await sourceContext.sessionDetailCoordinator.read(childSession, {
+      cacheKey: `compact:${sourceContext.source.id}:${thread.id}:depth=${context.depth + 1}:maxDepth=${context.maxDepth}`,
+      signal: context.signal,
+      derive: async (rawEvents, stat, signal) => {
+        const childSessionWithStat = withFileStat(childSession, stat);
+        const childHierarchy = await getThreadHierarchy(sourceContext, thread.id, { signal });
+        return buildCompactView(sourceContext, {
+          session: childSessionWithStat,
+          normalizedEvents: rawEvents.map(analysisEventFromRaw),
+          turns: buildTurns(rawEvents),
+          hierarchy: childHierarchy,
+          options: { depth: context.depth + 1, maxDepth: context.maxDepth, signal },
+        });
+      },
     });
-
-    return {
-      ...base,
-      session: compact.session,
-      turns: compact.turns,
-      children: compact.children,
-    };
+    if (result.state !== "ready") return { ...base, unavailable: true, unavailableReason: result.code || result.reason || "read-limited", turns: [], children: [] };
+    return { ...base, session: result.value.session, turns: result.value.turns, children: result.value.children };
   } catch (error) {
-    return {
-      ...base,
-      unavailable: true,
-      unavailableReason: error?.message || "read-failed",
-      turns: [],
-      children: [],
-    };
+    if (isAbortError(error)) throw error;
+    return { ...base, unavailable: true, unavailableReason: error?.message || "read-failed", turns: [], children: [] };
   }
 }
 
@@ -978,7 +1062,10 @@ async function sessionFromFilePath(context, filePath, options = {}) {
     // The caller handles unreadable files when it tries to open the detail.
   }
   const id = sessionIdFromFile(filePath);
-  const events = await readJsonl(filePath, { maxLines: 40 }).catch(() => []);
+  const events = await readJsonl(filePath, { maxLines: 40, maxBytes: 128 * 1024, signal: options.signal }).catch((error) => {
+    if (isAbortError(error)) throw error;
+    return [];
+  });
   const meta = sessionMetaFromEvents(events);
   return withFileStat(
     withSubagentMeta({
@@ -1011,14 +1098,20 @@ async function sessionFromFilePath(context, filePath, options = {}) {
   );
 }
 
-async function getSessionMarkdown(context, id) {
-  const session = await getSessionById(context, id);
+async function getSessionMarkdown(context, id, options = {}) {
+  throwIfRequestAborted(options.signal);
+  const session = await getSessionById(context, id, { signal: options.signal });
   if (!session) return null;
-  const rawEvents = await readJsonlWithDiagnostics(session.path);
-  return renderConversationMarkdown(session, buildTurns(rawEvents));
+  const result = await context.sessionDetailCoordinator.read(session, {
+    cacheKey: `markdown:${context.source.id}:${id}`,
+    signal: options.signal,
+    derive: (rawEvents) => renderConversationMarkdown(session, buildTurns(rawEvents)),
+  });
+  return result.state === "ready" ? { markdown: result.value, readState: null } : { markdown: null, readState: result };
 }
 
-async function getThreadHierarchy(context, threadId) {
+async function getThreadHierarchy(context, threadId, options = {}) {
+  throwIfRequestAborted(options.signal);
   const edges = await context.threadStore.readSpawnEdges();
   const directEdges = edges.filter((edge) => edge.parentThreadId === threadId);
   const parentEdges = edges.filter((edge) => edge.childThreadId === threadId);
@@ -1032,6 +1125,7 @@ async function getThreadHierarchy(context, threadId) {
   const threads = await enrichThreadRowsFromFiles(
     context,
     await context.threadStore.readThreadRowsByIds([threadId, ...childIds, ...parentIds, ...siblingIds]),
+    options,
   );
   const modelOptions = sourceModelOptions(context);
   return {
@@ -1122,6 +1216,7 @@ function isReadOnlyApiPath(pathname) {
 async function route(req, res) {
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
   const pathname = url.pathname;
+  const requestSubscription = requestAbortSubscription(req, res);
   try {
     if (isReadOnlyApiPath(pathname) && !allowMethod(req, res, ["GET"])) return;
 
@@ -1233,15 +1328,16 @@ async function route(req, res) {
     if (sourceMarkdownMatch) {
       const context = getSourceContext(decodeURIComponent(sourceMarkdownMatch[1]));
       if (!context) return sendError(res, 404, "Data source not found");
-      const markdown = await getSessionMarkdown(context, decodeURIComponent(sourceMarkdownMatch[2]));
+      const markdown = await getSessionMarkdown(context, decodeURIComponent(sourceMarkdownMatch[2]), { signal: requestSubscription.signal });
       if (markdown == null) return sendError(res, 404, "Session not found");
-      return sendText(res, 200, markdown);
+      if (markdown.readState) return sendJson(res, 413, { error: "会话详情超过读取上限", code: markdown.readState.code, readState: markdown.readState });
+      return sendText(res, 200, markdown.markdown);
     }
     const sourceEventMatch = pathname.match(/^\/api\/sources\/([^/]+)\/sessions\/([^/]+)\/events\/(\d+)$/);
     if (sourceEventMatch) {
       const context = getSourceContext(decodeURIComponent(sourceEventMatch[1]));
       if (!context) return sendError(res, 404, "Data source not found");
-      const event = await getSessionEvent(context, decodeURIComponent(sourceEventMatch[2]), Number(sourceEventMatch[3]));
+      const event = await getSessionEvent(context, decodeURIComponent(sourceEventMatch[2]), Number(sourceEventMatch[3]), { signal: requestSubscription.signal });
       if (!event) return sendError(res, 404, "Event not found");
       return sendJson(res, 200, event);
     }
@@ -1251,6 +1347,7 @@ async function route(req, res) {
       if (!context) return sendError(res, 404, "Data source not found");
       const detail = await getSessionDetail(context, decodeURIComponent(sourceSessionMatch[2]), {
         evidenceRiskRules: parseEvidenceRiskRulesParam(url.searchParams),
+        signal: requestSubscription.signal,
       });
       if (!detail) return sendError(res, 404, "Session not found");
       return sendJson(res, 200, detail);
@@ -1264,7 +1361,7 @@ async function route(req, res) {
     if (queryViewMatch) {
       const context = resolveRequestSource(url);
       if (!context) return sendError(res, 404, "Data source not found");
-      const view = await querySessionView(context, decodeURIComponent(queryViewMatch[1]), url.searchParams, queryProjectionOptions(context, url));
+      const view = await querySessionView(context, decodeURIComponent(queryViewMatch[1]), url.searchParams, queryProjectionOptions(context, url), { signal: requestSubscription.signal });
       if (!view) return sendError(res, 404, "Session not found");
       return sendJson(res, 200, view);
     }
@@ -1272,7 +1369,7 @@ async function route(req, res) {
     if (queryEventsMatch) {
       const context = resolveRequestSource(url);
       if (!context) return sendError(res, 404, "Data source not found");
-      const events = await querySessionEvents(context, decodeURIComponent(queryEventsMatch[1]), url.searchParams, queryProjectionOptions(context, url));
+      const events = await querySessionEvents(context, decodeURIComponent(queryEventsMatch[1]), url.searchParams, queryProjectionOptions(context, url), { signal: requestSubscription.signal });
       if (!events) return sendError(res, 404, "Session not found");
       return sendJson(res, 200, events);
     }
@@ -1286,7 +1383,7 @@ async function route(req, res) {
     if (sourceQueryViewMatch) {
       const context = getSourceContext(decodeURIComponent(sourceQueryViewMatch[1]));
       if (!context) return sendError(res, 404, "Data source not found");
-      const view = await querySessionView(context, decodeURIComponent(sourceQueryViewMatch[2]), url.searchParams, { sourceId: context.source.id });
+      const view = await querySessionView(context, decodeURIComponent(sourceQueryViewMatch[2]), url.searchParams, { sourceId: context.source.id }, { signal: requestSubscription.signal });
       if (!view) return sendError(res, 404, "Session not found");
       return sendJson(res, 200, view);
     }
@@ -1294,7 +1391,7 @@ async function route(req, res) {
     if (sourceQueryEventsMatch) {
       const context = getSourceContext(decodeURIComponent(sourceQueryEventsMatch[1]));
       if (!context) return sendError(res, 404, "Data source not found");
-      const events = await querySessionEvents(context, decodeURIComponent(sourceQueryEventsMatch[2]), url.searchParams, { sourceId: context.source.id });
+      const events = await querySessionEvents(context, decodeURIComponent(sourceQueryEventsMatch[2]), url.searchParams, { sourceId: context.source.id }, { signal: requestSubscription.signal });
       if (!events) return sendError(res, 404, "Session not found");
       return sendJson(res, 200, events);
     }
@@ -1302,15 +1399,16 @@ async function route(req, res) {
     if (markdownMatch) {
       const context = resolveRequestSource(url);
       if (!context) return sendError(res, 404, "Data source not found");
-      const markdown = await getSessionMarkdown(context, decodeURIComponent(markdownMatch[1]));
+      const markdown = await getSessionMarkdown(context, decodeURIComponent(markdownMatch[1]), { signal: requestSubscription.signal });
       if (markdown == null) return sendError(res, 404, "Session not found");
-      return sendText(res, 200, markdown);
+      if (markdown.readState) return sendJson(res, 413, { error: "会话详情超过读取上限", code: markdown.readState.code, readState: markdown.readState });
+      return sendText(res, 200, markdown.markdown);
     }
     const eventMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/events\/(\d+)$/);
     if (eventMatch) {
       const context = resolveRequestSource(url);
       if (!context) return sendError(res, 404, "Data source not found");
-      const event = await getSessionEvent(context, decodeURIComponent(eventMatch[1]), Number(eventMatch[2]));
+      const event = await getSessionEvent(context, decodeURIComponent(eventMatch[1]), Number(eventMatch[2]), { signal: requestSubscription.signal });
       if (!event) return sendError(res, 404, "Event not found");
       return sendJson(res, 200, event);
     }
@@ -1320,6 +1418,7 @@ async function route(req, res) {
       if (!context) return sendError(res, 404, "Data source not found");
       const detail = await getSessionDetail(context, decodeURIComponent(sessionMatch[1]), {
         evidenceRiskRules: parseEvidenceRiskRulesParam(url.searchParams),
+        signal: requestSubscription.signal,
       });
       if (!detail) return sendError(res, 404, "Session not found");
       return sendJson(res, 200, detail);
@@ -1335,6 +1434,8 @@ async function route(req, res) {
       status,
       message: publicMessage,
     });
+  } finally {
+    requestSubscription.dispose();
   }
 }
 

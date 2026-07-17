@@ -123,55 +123,52 @@ export async function readJsonlWithDiagnostics(filePath, { maxLines = Infinity, 
   return items;
 }
 
-export async function readJsonlLine(filePath, targetIndex) {
+export async function readJsonlLine(filePath, targetIndex, { signal, maxBytes = Infinity, maxScan = Infinity } = {}) {
   if (!Number.isInteger(targetIndex) || targetIndex < 0) return null;
 
-  const stream = createReadStream(filePath, { encoding: "utf8" });
-  const reader = createInterface({ input: stream, crlfDelay: Infinity });
+  const { reader, close } = createJsonlReader(filePath, { signal, maxBytes });
   let index = 0;
   try {
     for await (const line of reader) {
+      throwIfAborted(signal);
       if (!line.trim()) continue;
-      if (index === targetIndex) {
-        return safeJsonParse(line);
-      }
+      if (index >= maxScan) return null;
+      if (index === targetIndex) return safeJsonParse(line);
       index += 1;
     }
   } finally {
-    await closeReader(reader, stream);
+    await close();
   }
   return null;
 }
 
-export async function readJsonlLineWithDiagnostics(filePath, targetIndex) {
+export async function readJsonlLineWithDiagnostics(filePath, targetIndex, { signal, maxBytes = Infinity, maxScan = Infinity } = {}) {
   if (!Number.isInteger(targetIndex) || targetIndex < 0) return null;
 
-  const stream = createReadStream(filePath, { encoding: "utf8" });
-  const reader = createInterface({ input: stream, crlfDelay: Infinity });
+  const { reader, close } = createJsonlReader(filePath, { signal, maxBytes });
   let index = 0;
   let lineNumber = 0;
   try {
     for await (const line of reader) {
+      throwIfAborted(signal);
       lineNumber += 1;
       if (!line.trim()) continue;
-      if (index === targetIndex) {
-        return parseJsonlRecord(line, index, lineNumber).event;
-      }
+      if (index >= maxScan) return null;
+      if (index === targetIndex) return parseJsonlRecord(line, index, lineNumber).event;
       index += 1;
     }
   } finally {
-    await closeReader(reader, stream);
+    await close();
   }
   return null;
 }
 
-export async function readJsonlRange(filePath, { start = 0, limit = 100, maxScan = 5000, predicate = null, includeInvalid = false } = {}) {
+export async function readJsonlRange(filePath, { start = 0, limit = 100, maxScan = 5000, maxBytes = Infinity, predicate = null, includeInvalid = false, signal } = {}) {
   const safeStart = Number.isInteger(start) && start > 0 ? start : 0;
   const safeLimit = Number.isInteger(limit) && limit > 0 ? limit : 100;
   const safeMaxScan = Number.isInteger(maxScan) && maxScan > 0 ? maxScan : 5000;
   const items = [];
-  const stream = createReadStream(filePath, { encoding: "utf8" });
-  const reader = createInterface({ input: stream, crlfDelay: Infinity });
+  const { reader, close } = createJsonlReader(filePath, { signal, maxBytes });
   let index = 0;
   let lineNumber = 0;
   let scanned = 0;
@@ -179,6 +176,7 @@ export async function readJsonlRange(filePath, { start = 0, limit = 100, maxScan
   let reachedEnd = true;
   try {
     for await (const line of reader) {
+      throwIfAborted(signal);
       lineNumber += 1;
       if (!line.trim()) continue;
       if (index < safeStart) {
@@ -189,7 +187,6 @@ export async function readJsonlRange(filePath, { start = 0, limit = 100, maxScan
         reachedEnd = false;
         break;
       }
-
       const record = parseJsonlRecord(line, index, lineNumber);
       lastIndex = index;
       scanned += 1;
@@ -201,7 +198,7 @@ export async function readJsonlRange(filePath, { start = 0, limit = 100, maxScan
       index += 1;
     }
   } finally {
-    await closeReader(reader, stream);
+    await close();
   }
   return {
     items,
