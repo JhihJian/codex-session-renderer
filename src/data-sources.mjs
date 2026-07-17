@@ -3,9 +3,10 @@ import path from "node:path";
 import os from "node:os";
 import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
-import { spawn } from "node:child_process";
+import * as tar from "tar";
 import { createConcurrencyGate, createSharedSubscriptionRegistry } from "./prompt-archive-coordinator.mjs";
 import { createDeadlineSignal, fetchWithDeadline, isAbortError, pipelineLimitedResponse, throwIfAborted } from "./remote-http.mjs";
+import { createByteLimitTransform, createContentBudget, snapshotBudgetError } from "./snapshot-budget.mjs";
 
 const defaultRemoteSnapshotRoot = path.join(os.homedir(), ".codex-session-renderer", "remote-snapshots");
 const safeIdPattern = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -26,7 +27,6 @@ function createDataSourceRegistry(options = {}) {
   const now = options.now || (() => new Date());
   const fsApi = options.fsApi || fs;
   const fetchImpl = options.fetchImpl || globalThis.fetch;
-  const spawnImpl = options.spawnImpl || spawn;
   const refreshLimits = remoteRefreshLimits(env);
   const refreshGate = options.refreshGate || createConcurrencyGate(refreshLimits.maxConcurrent);
   const refreshSubscriptions = options.refreshSubscriptions || createSharedSubscriptionRegistry();
@@ -87,7 +87,6 @@ function createDataSourceRegistry(options = {}) {
         await refreshRemoteSource(source, {
           fsApi,
           fetchImpl,
-          spawnImpl,
           now,
           signal,
           limits: refreshLimits,
@@ -115,6 +114,8 @@ function remoteRefreshLimits(env = process.env) {
   return {
     deadlineMs: positiveEnv(env, "CODEX_REMOTE_HTTP_DEADLINE_MS", 30_000, 300_000),
     snapshotMaxBytes: positiveEnv(env, "CODEX_REMOTE_SNAPSHOT_MAX_BYTES", 256 * 1024 * 1024, 2 * 1024 * 1024 * 1024),
+    snapshotMaxExpandedBytes: positiveEnv(env, "CODEX_REMOTE_SNAPSHOT_MAX_EXPANDED_BYTES", 512 * 1024 * 1024, 4 * 1024 * 1024 * 1024),
+    snapshotMaxFiles: positiveEnv(env, "CODEX_REMOTE_SNAPSHOT_MAX_FILES", 10_000, 100_000),
     maxConcurrent: positiveEnv(env, "CODEX_REMOTE_MAX_CONCURRENT_REFRESHES", 2, 16),
     maxGenerations: positiveEnv(env, "CODEX_REMOTE_MAX_SNAPSHOT_GENERATIONS", 2, 16),
   };
@@ -476,17 +477,19 @@ async function refreshRemoteSource(source, options = {}) {
   source.status.refreshing = true;
   source.status.error = null;
   source.status.startedAt = startedAt;
+  const deadline = createDeadlineSignal(options.signal, options.limits?.deadlineMs, "snapshot_deadline_exceeded");
+  const signal = deadline.signal;
 
   try {
-    throwIfAborted(options.signal);
+    throwIfAborted(signal);
     await fsApi.mkdir(source.snapshotRoot, { recursive: true });
     const stagingPath = path.join(source.snapshotRoot, `staging-${Date.now()}-${process.pid}`);
-    await fsApi.rm(stagingPath, { recursive: true, force: true });
+    await removeTree(stagingPath, fsApi);
     await fsApi.mkdir(stagingPath, { recursive: true });
 
     try {
-      await fetchRemoteSnapshotToDirectory(source, stagingPath, options);
-      throwIfAborted(options.signal);
+      await fetchRemoteSnapshotToDirectory(source, stagingPath, { ...options, signal });
+      throwIfAborted(signal);
       const codexHomePath = await findSnapshotCodexHome(stagingPath, source.definition.remoteCodexHome, fsApi);
       const snapshotMetadata = await readSnapshotMetadata(codexHomePath, fsApi);
       if (!source.definition.remoteCodexHome && snapshotMetadata?.codexHome) {
@@ -496,7 +499,7 @@ async function refreshRemoteSource(source, options = {}) {
       await publishSnapshot(source, codexHomePath, {
         fsApi,
         now,
-        signal: options.signal,
+        signal,
         maxGenerations: options.limits?.maxGenerations,
       });
       source.status.lastRefreshOk = true;
@@ -505,7 +508,7 @@ async function refreshRemoteSource(source, options = {}) {
       source.status.stale = false;
       source.status.error = null;
     } finally {
-      await fsApi.rm(stagingPath, { recursive: true, force: true });
+      await removeTree(stagingPath, fsApi);
     }
   } catch (error) {
     if (isAbortError(error)) throw error;
@@ -515,6 +518,7 @@ async function refreshRemoteSource(source, options = {}) {
     source.status.error = classifyRefreshError(error);
     await fsApi.mkdir(source.snapshotRoot, { recursive: true }).catch(() => {});
   } finally {
+    deadline.dispose();
     source.status.refreshing = false;
     source.status.completedAt = now().toISOString();
     await writeStatusFile(source, fsApi).catch(() => {});
@@ -561,6 +565,7 @@ async function copyCodexTree(sourcePath, targetPath, fsApi = fs, options = {}) {
         (options.inSessions && entry.name.endsWith(".jsonl") && (await shouldCopySessionFile(from, entry, options))))
     ) {
       await fsApi.mkdir(path.dirname(to), { recursive: true });
+      await options.beforeCopyFile?.(from, entry);
       await fsApi.copyFile(from, to);
       throwIfAborted(options.signal);
     }
@@ -576,15 +581,12 @@ async function downloadSnapshotArchive(source, stagingPath, options = {}) {
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   const fsApi = options.fsApi || fs;
   if (!fetchImpl) throw remoteRefreshError("transport_failed", "当前 Node 运行时缺少 fetch。");
-  const deadline = createDeadlineSignal(options.signal, options.limits?.deadlineMs, "snapshot_deadline_exceeded");
-  try {
   const response = await fetchWithDeadline(fetchImpl, source.definition.snapshotUrl, {
     headers: {
       authorization: `Bearer ${source.definition.token}`,
     },
   }, {
-    signal: deadline.signal,
-    timeoutCode: "snapshot_deadline_exceeded",
+    signal: options.signal,
   }).catch((error) => {
     if (isAbortError(error) || error?.code === "snapshot_deadline_exceeded") throw error;
     throw remoteRefreshError("unreachable", error?.message || "远端不可达。");
@@ -597,61 +599,117 @@ async function downloadSnapshotArchive(source, stagingPath, options = {}) {
   }
 
   const archivePath = path.join(stagingPath, "snapshot.tar");
-  await pipelineLimitedResponse(response, createWriteStream(archivePath), {
-    maxBytes: options.limits?.snapshotMaxBytes || 256 * 1024 * 1024,
-    code: "snapshot_too_large",
-    signal: deadline.signal,
-  });
-  await extractTarArchive(archivePath, stagingPath, source.definition.snapshotUrl, options.spawnImpl || spawn, deadline.signal);
-  await fsApi.rm(archivePath, { force: true });
-  } finally {
-    deadline.dispose();
-  }
-}
-
-async function extractTarArchive(archivePath, targetDir, sourceUrl, spawnImpl = spawn, signal) {
-  const tarArgs = ["-xf", archivePath, "-C", targetDir];
-  const lower = String(sourceUrl || archivePath).toLowerCase();
-  const useGunzip = lower.endsWith(".tgz") || lower.endsWith(".tar.gz");
-  if (!useGunzip) {
-    await runProcess(spawnImpl, "tar", tarArgs, "snapshot_failed", signal);
-    return;
-  }
-
-  const inflatedPath = `${archivePath}.inflated`;
-  await pipeline(createReadStream(archivePath), createGunzip(), createWriteStream(inflatedPath), { signal });
   try {
-    await runProcess(spawnImpl, "tar", ["-xf", inflatedPath, "-C", targetDir], "snapshot_failed", signal);
-  } finally {
-    await fs.rm(inflatedPath, { force: true });
+    await pipelineLimitedResponse(response, createWriteStream(archivePath), {
+      maxBytes: options.limits?.snapshotMaxBytes || 256 * 1024 * 1024,
+      code: "snapshot_too_large",
+      signal: options.signal,
+    });
+  } catch (error) {
+    throwIfAborted(options.signal);
+    throw error;
+  }
+  await extractTarArchive(archivePath, stagingPath, {
+    limits: options.limits,
+    signal: options.signal,
+  });
+  await fsApi.rm(archivePath, { force: true });
+}
+
+async function extractTarArchive(archivePath, targetDir, options = {}) {
+  const limits = options.limits || {};
+  const expandedBudget = createContentBudget({
+    maxBytes: limits.snapshotMaxExpandedBytes || 512 * 1024 * 1024,
+    maxFiles: limits.snapshotMaxFiles || 10_000,
+    bytesCode: "snapshot_expanded_too_large",
+    filesCode: "snapshot_too_many_files",
+  });
+  const seenPaths = new Set();
+  let archiveError = null;
+  let unpack;
+  const rejectArchive = (error) => {
+    archiveError ||= error;
+    unpack?.abort(archiveError);
+  };
+  unpack = tar.x({
+    cwd: targetDir,
+    strict: true,
+    preserveOwner: false,
+    noChmod: true,
+    onReadEntry(entry) {
+      try {
+        const entryPath = normalizeArchivePath(entry.path);
+        if (!isSafeArchivePath(entry.path, entryPath) || !isAllowedArchiveEntry(entryPath, entry.type)) {
+          throw snapshotBudgetError("snapshot_unsafe_archive", "快照包含不允许的文件或条目类型。");
+        }
+        if (seenPaths.has(entryPath)) {
+          throw snapshotBudgetError("snapshot_unsafe_archive", "快照包含重复文件路径。");
+        }
+        seenPaths.add(entryPath);
+        if (entry.type === "File") {
+          expandedBudget.addFile(entry.size, options.signal);
+        } else {
+          expandedBudget.addEntry(options.signal);
+        }
+      } catch (error) {
+        rejectArchive(error);
+      }
+    },
+    onwarn() {
+      rejectArchive(snapshotBudgetError("snapshot_invalid_archive", "快照归档格式无效。"));
+    },
+  });
+  const unpackClosed = new Promise((resolve) => unpack.once("close", resolve));
+  const streams = [createReadStream(archivePath)];
+  if (await isGzipArchive(archivePath)) streams.push(createGunzip());
+  streams.push(createByteLimitTransform({
+    maxBytes: limits.snapshotMaxExpandedBytes || 512 * 1024 * 1024,
+    code: "snapshot_expanded_too_large",
+    signal: options.signal,
+  }), unpack);
+  try {
+    await pipeline(...streams, { signal: options.signal });
+  } catch (error) {
+    if (!archiveError && !unpack.writableEnded) unpack.abort(error);
+    await unpackClosed;
+    if (archiveError) throw archiveError;
+    throwIfAborted(options.signal);
+    if (isAbortError(error) || String(error?.code || "").startsWith("snapshot_")) throw error;
+    throw remoteRefreshError("snapshot_invalid_archive", "快照归档格式无效。");
   }
 }
 
-function runProcess(spawnImpl, command, args, code, signal) {
-  return new Promise((resolve, reject) => {
-    const child = spawnImpl(command, args, { stdio: ["ignore", "ignore", "pipe"] });
-    const abort = () => child.kill?.("SIGTERM");
-    signal?.addEventListener("abort", abort, { once: true });
-    let stderr = "";
-    child.stderr?.setEncoding("utf8");
-    child.stderr?.on("data", (chunk) => {
-      stderr += chunk;
-    });
-    child.on("error", (error) => reject(remoteRefreshError(code, error?.message || `${command} 启动失败。`)));
-    child.on("close", (exitCode) => {
-      signal?.removeEventListener("abort", abort);
-      if (signal?.aborted) {
-        reject(Object.assign(new Error("The operation was aborted"), { name: "AbortError", code: "ABORT_ERR" }));
-        return;
-      }
-      if (exitCode === 0) {
-        resolve();
-      } else {
-        reject(remoteRefreshError(code, firstSafeLine(stderr) || `${command} 退出码 ${exitCode}`));
-      }
-    });
-  });
+function normalizeArchivePath(value) {
+  return String(value || "").replaceAll("\\", "/").replace(/^\.\//, "").replace(/\/$/, "");
 }
+
+function isSafeArchivePath(value, normalizedPath) {
+  const rawPath = String(value || "").replaceAll("\\", "/");
+  if (rawPath.startsWith("/") || /^[a-z]:/i.test(rawPath)) return false;
+  const segments = normalizedPath.split("/").filter(Boolean);
+  return !segments.includes("..") && segments.length <= 32;
+}
+
+function isAllowedArchiveEntry(entryPath, type) {
+  if (type !== "Directory" && type !== "File") return false;
+  if (!entryPath) return type === "Directory";
+  if (entryPath === "sessions" || entryPath.startsWith("sessions/")) {
+    return type === "Directory" || entryPath.endsWith(".jsonl");
+  }
+  return type === "File" && allowedSnapshotFiles.has(entryPath);
+}
+
+async function isGzipArchive(archivePath) {
+  const handle = await fs.open(archivePath, "r");
+  try {
+    const buffer = Buffer.alloc(2);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    return bytesRead === 2 && buffer[0] === 0x1f && buffer[1] === 0x8b;
+  } finally {
+    await handle.close();
+  }
+}
+
 
 async function findSnapshotCodexHome(stagingPath, remoteCodexHome, fsApi = fs) {
   if (await looksLikeCodexHome(stagingPath, fsApi)) return stagingPath;
@@ -727,29 +785,22 @@ async function publishSnapshot(source, codexHomePath, options = {}) {
   const generation = `snapshot-${Date.now()}-${process.pid}`;
   const nextPath = path.join(versionsPath, generation);
   const nextLink = path.join(source.snapshotRoot, `.current-${generation}`);
-  await fsApi.mkdir(versionsPath, { recursive: true });
-  await fsApi.rm(nextPath, { recursive: true, force: true });
-  await copyCodexTree(codexHomePath, nextPath, fsApi, { signal });
-  throwIfAborted(signal);
-  await validateSnapshot(nextPath, fsApi);
+  let committed = false;
   try {
+    await fsApi.mkdir(versionsPath, { recursive: true });
+    await fsApi.rm(nextPath, { recursive: true, force: true });
+    await copyCodexTree(codexHomePath, nextPath, fsApi, { signal });
+    throwIfAborted(signal);
+    await validateSnapshot(nextPath, fsApi);
     await fsApi.rm(nextLink, { force: true });
     await fsApi.symlink(path.relative(source.snapshotRoot, nextPath), nextLink, "dir");
-    try {
-      await fsApi.rename(nextLink, source.currentPath);
-    } catch (error) {
-      if (error?.code !== "EEXIST" && error?.code !== "ENOTEMPTY") throw error;
-      const legacyPath = path.join(source.snapshotRoot, `legacy-${generation}`);
-      await fsApi.rename(source.currentPath, legacyPath);
-      try {
-        await fsApi.rename(nextLink, source.currentPath);
-      } catch (publishError) {
-        await fsApi.rename(legacyPath, source.currentPath).catch(() => {});
-        throw publishError;
-      }
-    }
+    throwIfAborted(signal);
+    await fsApi.rename(nextLink, source.currentPath);
+    committed = true;
   } catch (error) {
     await fsApi.rm(nextLink, { force: true }).catch(() => {});
+    if (!committed) await fsApi.rm(nextPath, { recursive: true, force: true }).catch(() => {});
+    if (isAbortError(error) || String(error?.code || "").startsWith("snapshot_")) throw error;
     throw remoteRefreshError("local_snapshot_unavailable", error?.message || "本地快照发布失败。");
   }
   await pruneSnapshotGenerations(versionsPath, generation, maxGenerations, fsApi);
@@ -787,6 +838,21 @@ async function pathExists(filePath, fsApi = fs) {
   } catch {
     return false;
   }
+}
+
+async function removeTree(targetPath, fsApi = fs) {
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await fsApi.rm(targetPath, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      lastError = error;
+      if (error?.code !== "ENOTEMPTY" && error?.code !== "EBUSY") throw error;
+      await new Promise((resolve) => setTimeout(resolve, 10 * (attempt + 1)));
+    }
+  }
+  throw lastError;
 }
 
 function publicDataSource(source) {

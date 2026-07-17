@@ -1,10 +1,11 @@
-import { createReadStream, promises as fs } from "node:fs";
+import { createReadStream, createWriteStream, promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { pipeline } from "node:stream/promises";
 import { readJsonl } from "./jsonl-reader.mjs";
-import { createAbortError, throwIfAborted } from "./remote-http.mjs";
+import { createDeadlineSignal, throwIfAborted } from "./remote-http.mjs";
+import { createByteLimitTransform, createContentBudget } from "./snapshot-budget.mjs";
 import { createSnapshotBuildCoordinator } from "./snapshot-build-coordinator.mjs";
 import { sessionIdFromFile, sessionStartedFromFile, toIso } from "./session-events.mjs";
 import { createSqliteThreadStore, stripLongPathPrefix } from "./sqlite-threads.mjs";
@@ -22,6 +23,10 @@ function snapshotShareConfig(options = {}) {
     realtimeHours: Number(env.CODEX_SHARE_REALTIME_HOURS || 3),
     maxConcurrentBuilds: positiveEnv(env.CODEX_SHARE_MAX_CONCURRENT_BUILDS, 1, 8),
     maxQueuedBuilds: positiveEnv(env.CODEX_SHARE_MAX_QUEUED_BUILDS, 4, 32),
+    maxSourceBytes: positiveLimit(env.CODEX_SHARE_SNAPSHOT_MAX_SOURCE_BYTES, 256 * 1024 * 1024, 2 * 1024 * 1024 * 1024),
+    maxFiles: positiveLimit(env.CODEX_SHARE_SNAPSHOT_MAX_FILES, 10_000, 100_000),
+    maxArchiveBytes: positiveLimit(env.CODEX_SHARE_SNAPSHOT_MAX_ARCHIVE_BYTES, 300 * 1024 * 1024, 2 * 1024 * 1024 * 1024),
+    buildDeadlineMs: positiveLimit(env.CODEX_SHARE_SNAPSHOT_BUILD_DEADLINE_MS, 60_000, 300_000),
   };
 }
 
@@ -31,8 +36,14 @@ function positiveEnv(value, fallback, maximum) {
   return Math.min(Math.floor(number), maximum);
 }
 
+function positiveLimit(value, fallback, maximum) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return fallback;
+  return Math.min(Math.floor(number), maximum);
+}
+
 function createSnapshotShareHandler(options = {}) {
-  const config = options.config || snapshotShareConfig(options);
+  const config = { ...snapshotShareConfig(options), ...(options.config || {}) };
   const fsApi = options.fsApi || fs;
   const spawnImpl = options.spawnImpl || spawn;
   const now = options.now || (() => new Date());
@@ -65,6 +76,12 @@ function createSnapshotShareHandler(options = {}) {
           scope: url.searchParams.get("scope") || "realtime",
           since: url.searchParams.get("since") || "",
           realtimeHours: Number(url.searchParams.get("hours") || config.realtimeHours || 3),
+          limits: {
+            maxSourceBytes: config.maxSourceBytes,
+            maxFiles: config.maxFiles,
+            maxArchiveBytes: config.maxArchiveBytes,
+            deadlineMs: config.buildDeadlineMs,
+          },
           fsApi,
           spawnImpl,
           now,
@@ -175,36 +192,63 @@ async function createSnapshotArchive(options = {}) {
   const workDir = await fsApi.mkdtemp(path.join(tempRoot, "csr-share-"));
   const snapshotDir = path.join(workDir, "snapshot");
   const archivePath = path.join(workDir, "codex-snapshot.tar");
+  const limits = { ...defaultSnapshotShareLimits(), ...(options.limits || {}) };
+  const sourceBudget = createContentBudget({
+    maxBytes: limits.maxSourceBytes,
+    maxFiles: limits.maxFiles,
+    bytesCode: "snapshot_source_too_large",
+    filesCode: "snapshot_source_too_many_files",
+    status: 413,
+  });
+  const deadline = createDeadlineSignal(options.signal, limits.deadlineMs, "snapshot_build_deadline_exceeded");
+  const signal = deadline.signal;
 
   try {
-    throwIfAborted(options.signal);
+    throwIfAborted(signal);
     await copyCodexTree(codexHome, snapshotDir, fsApi, {
-      signal: options.signal,
+      signal,
       includeSessionFile: async (filePath) => scope === "all" || (await isFileChangedAfter(filePath, cutoffMs, fsApi)),
+      beforeCopyFile: async (filePath) => {
+        const stat = await (fsApi.stat || fs.stat)(filePath);
+        sourceBudget.addFile(stat.size, signal);
+      },
     });
-    await fsApi.writeFile(
-      path.join(snapshotDir, snapshotMetadataFile),
-      `${JSON.stringify(
-        {
-          format: "codex-session-renderer-snapshot",
-          createdAt: now().toISOString(),
-          codexHome,
-          host: os.hostname(),
-          scope,
-          cutoffAt: cutoffMs ? new Date(cutoffMs).toISOString() : null,
-        },
-        null,
-        2,
-      )}\n`,
-      "utf8",
-    );
+    const metadata = `${JSON.stringify(
+      {
+        format: "codex-session-renderer-snapshot",
+        createdAt: now().toISOString(),
+        codexHome,
+        host: os.hostname(),
+        scope,
+        cutoffAt: cutoffMs ? new Date(cutoffMs).toISOString() : null,
+      },
+      null,
+      2,
+    )}\n`;
+    sourceBudget.addFile(Buffer.byteLength(metadata), signal);
+    await fsApi.writeFile(path.join(snapshotDir, snapshotMetadataFile), metadata, "utf8");
     await validateSnapshot(snapshotDir, fsApi);
-    await runTar(spawnImpl, archivePath, snapshotDir, options.signal);
+    await runTar(spawnImpl, archivePath, snapshotDir, {
+      signal,
+      maxArchiveBytes: limits.maxArchiveBytes,
+    });
     return archivePath;
   } catch (error) {
     await fsApi.rm(workDir, { recursive: true, force: true }).catch(() => {});
+    if (error?.code === "snapshot_build_deadline_exceeded") error.status ||= 504;
     throw error;
+  } finally {
+    deadline.dispose();
   }
+}
+
+function defaultSnapshotShareLimits() {
+  return {
+    maxSourceBytes: 256 * 1024 * 1024,
+    maxFiles: 10_000,
+    maxArchiveBytes: 300 * 1024 * 1024,
+    deadlineMs: 60_000,
+  };
 }
 
 function normalizeSnapshotScope(value) {
@@ -422,29 +466,48 @@ function clampNumber(value, min, max, fallback) {
   return Math.max(min, Math.min(max, Math.trunc(number)));
 }
 
-function runTar(spawnImpl, archivePath, sourceDir, signal) {
-  return new Promise((resolve, reject) => {
-    const child = spawnImpl("tar", ["-cf", archivePath, "-C", sourceDir, "."], {
-      stdio: ["ignore", "ignore", "pipe"],
-    });
-    const abort = () => child.kill?.("SIGTERM");
-    signal?.addEventListener("abort", abort, { once: true });
-    let stderr = "";
-    child.stderr?.setEncoding("utf8");
-    child.stderr?.on("data", (chunk) => {
-      stderr += chunk;
-    });
-    child.on("error", (error) => reject(error));
+async function runTar(spawnImpl, archivePath, sourceDir, options = {}) {
+  const signal = options.signal;
+  const child = spawnImpl("tar", ["-cf", "-", "-C", sourceDir, "."], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const abort = () => child.kill?.("SIGTERM");
+  signal?.addEventListener("abort", abort, { once: true });
+  let stderr = "";
+  child.stderr?.setEncoding("utf8");
+  child.stderr?.on("data", (chunk) => {
+    stderr += chunk;
+  });
+  const closed = new Promise((resolve, reject) => {
+    child.on("error", reject);
     child.on("close", (exitCode) => {
-      signal?.removeEventListener("abort", abort);
-      if (signal?.aborted) return reject(createAbortError());
-      if (exitCode === 0) {
-        resolve();
-      } else {
-        reject(new Error(firstLine(stderr) || `tar exited with ${exitCode}`));
-      }
+      if (exitCode === 0) resolve();
+      else reject(new Error(firstLine(stderr) || `tar exited with ${exitCode}`));
     });
   });
+  try {
+    await Promise.all([
+      pipeline(
+        child.stdout,
+        createByteLimitTransform({
+          maxBytes: options.maxArchiveBytes,
+          code: "snapshot_archive_too_large",
+          status: 413,
+          signal,
+        }),
+        createWriteStream(archivePath),
+        { signal },
+      ),
+      closed,
+    ]);
+  } catch (error) {
+    child.kill?.("SIGTERM");
+    await closed.catch(() => {});
+    throwIfAborted(signal);
+    throw error;
+  } finally {
+    signal?.removeEventListener("abort", abort);
+  }
 }
 
 function firstLine(value) {

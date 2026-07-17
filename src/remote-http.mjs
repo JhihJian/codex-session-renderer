@@ -13,7 +13,9 @@ function isAbortError(error) {
 }
 
 function throwIfAborted(signal) {
-  if (signal?.aborted) throw createAbortError();
+  if (!signal?.aborted) return;
+  if (signal.reason?.code && signal.reason.code !== "ABORT_ERR") throw signal.reason;
+  throw createAbortError();
 }
 
 function createDeadlineSignal(signal, deadlineMs, timeoutCode = "remote_deadline_exceeded") {

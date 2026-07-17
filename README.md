@@ -161,20 +161,26 @@ npm run share
 
 ### 传输与建包边界
 
-远端 HTTP 快照、历史索引和健康检查都使用同一请求 deadline；快照响应会先检查 `Content-Length`，再对实际流式字节计数，因此没有长度头的 chunked 响应也不能绕过上限。刷新请求断开会解除该调用的订阅；同一远端快照根目录的调用会共享一次下载，只有最后一个订阅取消时才会停止下载、解压、子进程和临时目录。不同数据源通过服务实例级门控限制并发。取消是中性终止，不会将上一份正常快照标记成失败，也不会覆盖它。
+远端 HTTP 快照、历史索引和健康检查都使用同一请求 deadline；快照刷新会把该 deadline 覆盖到下载、解包、校验、生成版本及原子发布准备阶段。快照响应会先检查 `Content-Length`，再对实际流式字节计数，因此没有长度头的 chunked 响应也不能绕过上限。查看端还会用受限流式 tar 解析器限制展开内容，只接受 `sessions/**/*.jsonl`、`state_5.sqlite`、`session_index.jsonl` 和快照元数据，拒绝链接、路径逃逸、重复文件和其他条目。刷新请求断开会解除该调用的订阅；同一远端快照根目录的调用会共享一次下载，只有最后一个订阅取消时才会停止下载、解压和 staging 临时目录。不同数据源通过服务实例级门控限制并发。预算拒绝或取消会清理 staging/未提交版本，已有 `current` 快照保持不变。
 
 - `CODEX_REMOTE_HTTP_DEADLINE_MS=30000`：远端快照、索引、健康检查的总 deadline，范围为 `1` 至 `300000` 毫秒。
-- `CODEX_REMOTE_SNAPSHOT_MAX_BYTES=268435456`：下载快照压缩包的声明和实际字节上限，最大 2 GiB。
+- `CODEX_REMOTE_SNAPSHOT_MAX_BYTES=268435456`：下载快照压缩包的声明和实际字节上限，最大 2 GiB；这是网络传输包大小，不是解包后大小。
+- `CODEX_REMOTE_SNAPSHOT_MAX_EXPANDED_BYTES=536870912`：下载包解码、解压并展开后允许的总内容/归档流字节上限，最大 4 GiB；用于阻断压缩炸弹。
+- `CODEX_REMOTE_SNAPSHOT_MAX_FILES=10000`：下载快照可展开的归档条目（常规文件和目录）总数上限，范围为 `1` 至 `100000`。
 - `CODEX_REMOTE_INDEX_MAX_BYTES=2097152`、`CODEX_REMOTE_HEALTH_MAX_BYTES=262144`：历史索引与健康检查 JSON 的声明和实际字节上限。
 - `CODEX_REMOTE_MAX_CONCURRENT_REFRESHES=2`：查看端跨数据源同时刷新上限，范围为 `1` 至 `16`。
 - `CODEX_REMOTE_MAX_SNAPSHOT_GENERATIONS=2`：本机缓存保留的完整快照版本数，范围为 `1` 至 `16`。
 
 本机快照以不可变 `versions/snapshot-*` 目录保存，`current` 是原子替换的目录链接。读取者只能在一个完整旧版本或完整新版本中打开文件，发布失败和下载失败都不改变 `current`。发布后最多保留配置数量的完整版本，默认当前版本和上一版本，避免缓存无限增长；应把快照根目录放在有容量监控的私密磁盘中。
 
-共享端把等价的 `scope`、`since`、`hours` 请求合并为一次建包，每个客户端各自流式读取同一个完成的 tar；建包完成前达到服务并发或队列边界会返回 `503` 和 `Retry-After`。客户端断开会释放租约，最后一个客户端离开时会中止建包并清理临时目录。
+共享端把等价的 `scope`、`since`、`hours` 请求合并为一次建包，每个客户端各自流式读取同一个完成的 tar；`scope=all` 也必须通过同一组内容预算。建包完成前达到服务并发或队列边界会返回 `503` 和 `Retry-After`；源内容、文件数或 tar 产物超额会返回 `413`，建包 deadline 超时返回 `504`。客户端断开会释放租约，最后一个客户端离开时会中止建包并清理临时目录。
 
 - `CODEX_SHARE_MAX_CONCURRENT_BUILDS=1`：共享端同时建包数，范围为 `1` 至 `8`。
 - `CODEX_SHARE_MAX_QUEUED_BUILDS=4`：共享端等待建包数，范围为 `0` 至 `32`。
+- `CODEX_SHARE_SNAPSHOT_MAX_SOURCE_BYTES=268435456`：被选中并复制进快照的源文件总字节上限，最大 2 GiB；`state_5.sqlite`、索引和元数据也计入。
+- `CODEX_SHARE_SNAPSHOT_MAX_FILES=10000`：被选中并复制进快照的常规文件数上限，范围为 `1` 至 `100000`。
+- `CODEX_SHARE_SNAPSHOT_MAX_ARCHIVE_BYTES=314572800`：生成 tar 的总字节上限，最大 2 GiB；打包以受限流式写入，超过上限立即中止。
+- `CODEX_SHARE_SNAPSHOT_BUILD_DEADLINE_MS=60000`：复制、写元数据、校验和打包的总 deadline，范围为 `1` 至 `300000` 毫秒。
 
 如果要改端口或实时窗口：
 

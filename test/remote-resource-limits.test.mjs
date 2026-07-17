@@ -57,14 +57,32 @@ test("remote HTTP snapshot rejects declared and chunked bodies above the configu
   }
 });
 
+test("remote HTTP deadline classifies a stalled response body", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "csr-sources-http-body-deadline-"));
+  try {
+    const registry = createDataSourceRegistry({
+      env: remoteHttpEnv(dir, { CODEX_REMOTE_HTTP_DEADLINE_MS: "20" }),
+      homeDir: dir,
+      fetchImpl: async () => new Response(new ReadableStream({ start() {} }), { status: 200 }),
+    });
+    const result = await registry.refreshSource("remote");
+    assert.equal(result.ok, false);
+    assert.equal(registry.getSource("remote").status.error.code, "snapshot_deadline_exceeded");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("remote HTTP deadline and final subscriber cancellation stop transport", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "csr-sources-http-cancel-"));
   try {
     let aborted = 0;
+    let transports = 0;
     const registry = createDataSourceRegistry({
       env: remoteHttpEnv(dir, { CODEX_REMOTE_HTTP_DEADLINE_MS: "20" }),
       homeDir: dir,
       fetchImpl: async (url, options) => new Promise((resolve, reject) => {
+        transports += 1;
         options.signal.addEventListener("abort", () => {
           aborted += 1;
           reject(options.signal.reason);
@@ -79,7 +97,7 @@ test("remote HTTP deadline and final subscriber cancellation stop transport", as
     const second = new AbortController();
     const one = registry.refreshSource("remote", { signal: first.signal });
     const two = registry.refreshSource("remote", { signal: second.signal });
-    await waitFor(() => aborted === 1, 100);
+    await waitFor(() => transports === 2, 100);
     first.abort();
     await assert.rejects(one, { name: "AbortError" });
     assert.equal(aborted, 1);
