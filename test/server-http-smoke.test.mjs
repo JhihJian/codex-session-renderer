@@ -4,6 +4,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { remoteSourceVersion } from "../src/data-sources.mjs";
 
 const sessionId = "11111111-1111-1111-1111-111111111111";
 const envKeys = [
@@ -15,6 +16,7 @@ const envKeys = [
   "CODEX_REMOTE_SOURCE_ID",
   "CODEX_REMOTE_SNAPSHOT_URL",
   "CODEX_REMOTE_SNAPSHOT_PATH",
+  "CODEX_REMOTE_SNAPSHOT_ROOT",
   "CODEX_REMOTE_REMOTE_A_SNAPSHOT_ROOT",
   "PI_AGENT_SESSIONS_ROOT",
 ];
@@ -90,6 +92,17 @@ await fs.writeFile(
   `${JSON.stringify({ id: sessionId, thread_name: "Remote HTTP smoke 会话", updated_at: "2026-07-08T10:00:06.000Z" })}\n`,
   "utf8",
 );
+await fs.writeFile(
+  path.join(remoteSnapshotRoot, ".codex-session-renderer-source.json"),
+  `${JSON.stringify({
+    status: {
+      sourceVersion: remoteSourceVersion({ snapshotUrl: "", snapshotPath: "", remoteCodexHome: "" }, remoteSnapshotRoot),
+      lastRefreshOk: true,
+    },
+  })}\n`,
+  "utf8",
+);
+await fs.writeFile(path.join(remoteCodexHome, ".codex-session-renderer-snapshot-source.json"), `${JSON.stringify({ schema: "remote-snapshot-source-v1", sourceVersion: remoteSourceVersion({ snapshotUrl: "", snapshotPath: "", remoteCodexHome: "" }, remoteSnapshotRoot) })}\n`, "utf8");
 const oldFileTime = new Date(Date.now() - 48 * 60 * 60 * 1000);
 await fs.utimes(sessionPath, oldFileTime, oldFileTime);
 await fs.utimes(remoteSessionPath, oldFileTime, oldFileTime);
@@ -164,6 +177,7 @@ process.env.CODEX_REMOTE_PEERS = "";
 process.env.CODEX_REMOTE_SOURCE_ID = "";
 process.env.CODEX_REMOTE_SNAPSHOT_URL = "";
 process.env.CODEX_REMOTE_SNAPSHOT_PATH = "";
+process.env.CODEX_REMOTE_SNAPSHOT_ROOT = path.join(tempRoot, ".codex-session-renderer", "remote-snapshots");
 process.env.CODEX_REMOTE_REMOTE_A_SNAPSHOT_ROOT = remoteSnapshotRoot;
 process.env.PI_AGENT_SESSIONS_ROOT = piSessionsRoot;
 
@@ -458,6 +472,66 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   const limitedEvents = await requestJson(baseUrl, `/api/sources/local/query/sessions/${limitedId}/events?limit=2`);
   assert.equal(limitedEvents.response.status, 200);
   assert.equal(limitedEvents.body.events.length, 2);
+
+  const createPeer = await requestJson(baseUrl, "/api/peers", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id: "office", label: "Office A", url: "http://192.168.1.20:4791", token: "office-token" }),
+  });
+  assert.equal(createPeer.response.status, 200);
+  assert.equal(createPeer.body.configuration.result, "source_changed");
+  assert.equal(createPeer.body.configuration.snapshotRefreshRequired, true);
+  assert.match(createPeer.body.configuration.sourceVersion, /^remote-v1-/);
+  assert.doesNotMatch(JSON.stringify(createPeer.body), /office-token/);
+
+  const managedSnapshotRoot = path.join(tempRoot, ".codex-session-renderer", "remote-snapshots", "office");
+  const managedCurrent = path.join(managedSnapshotRoot, "current");
+  const managedSessionDir = path.join(managedCurrent, "sessions", "2026", "07", "08");
+  const managedSessionPath = path.join(managedSessionDir, path.basename(sessionPath));
+  await fs.mkdir(managedSessionDir, { recursive: true });
+  await fs.copyFile(sessionPath, managedSessionPath);
+  await fs.utimes(managedSessionPath, oldFileTime, oldFileTime);
+  await fs.writeFile(path.join(managedCurrent, "session_index.jsonl"), await fs.readFile(path.join(codexHome, "session_index.jsonl"), "utf8"), "utf8");
+  await fs.writeFile(
+    path.join(managedSnapshotRoot, ".codex-session-renderer-source.json"),
+    `${JSON.stringify({ status: { sourceVersion: createPeer.body.configuration.sourceVersion, lastRefreshOk: true } })}\n`,
+    "utf8",
+  );
+  await fs.writeFile(path.join(managedCurrent, ".codex-session-renderer-snapshot-source.json"), `${JSON.stringify({ schema: "remote-snapshot-source-v1", sourceVersion: createPeer.body.configuration.sourceVersion })}\n`, "utf8");
+  const sameSourceReload = await requestJson(baseUrl, "/api/peers/office", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ label: "Office renamed", url: "http://192.168.1.20:4791" }),
+  });
+  assert.equal(sameSourceReload.response.status, 200);
+  assert.equal(sameSourceReload.body.configuration.result, "source_unchanged");
+  assert.equal(sameSourceReload.body.configuration.snapshotRefreshRequired, false);
+  const sameSourceSessions = await requestJson(baseUrl, "/api/sources/office/sessions?scope=history");
+  assert.equal(sameSourceSessions.response.status, 200);
+  assert.equal(sameSourceSessions.body.sessions[0].id, sessionId);
+
+  const changePeer = await requestJson(baseUrl, "/api/peers/office", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ label: "Office B", url: "http://192.168.1.21:4791", token: "rotated-office-token" }),
+  });
+  assert.equal(changePeer.response.status, 200);
+  assert.equal(changePeer.body.configuration.result, "source_changed");
+  assert.equal(changePeer.body.configuration.snapshotRefreshRequired, true);
+  assert.notEqual(changePeer.body.configuration.sourceVersion, createPeer.body.configuration.sourceVersion);
+  assert.doesNotMatch(JSON.stringify(changePeer.body), /rotated-office-token/);
+  const changedSourceSessions = await requestJson(baseUrl, "/api/sources/office/sessions?scope=history");
+  assert.equal(changedSourceSessions.response.status, 409);
+  assert.equal(changedSourceSessions.body.details.code, "source_snapshot_changed");
+  const changedSourceMarkdown = await requestJson(baseUrl, `/api/sources/office/sessions/${sessionId}/markdown`);
+  assert.equal(changedSourceMarkdown.response.status, 409);
+  assert.equal(changedSourceMarkdown.body.details.code, "source_snapshot_changed");
+
+  const removePeer = await requestJson(baseUrl, "/api/peers/office", { method: "DELETE" });
+  assert.equal(removePeer.response.status, 200);
+  assert.equal(removePeer.body.configuration.result, "source_removed");
+  const removedSourceSessions = await requestJson(baseUrl, "/api/sources/office/sessions");
+  assert.equal(removedSourceSessions.response.status, 404);
 
   const peers = await requestJson(baseUrl, "/api/peers");
   assert.equal(peers.response.status, 200);

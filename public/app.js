@@ -744,6 +744,7 @@ function renderSourceStatus() {
   if (source.kind === "remote") parts.push("实时快照默认只补最近 3 小时，拉取会写入本机缓存");
   if (status.refreshing) parts.push("正在拉取远端快照");
   if (status.lastSuccessfulRefreshAt) parts.push(`最近成功 ${formatDate(status.lastSuccessfulRefreshAt)}`);
+  if (source.kind === "remote" && status.needsRefresh) parts.push("需要拉取新快照；旧快照不会用于当前来源");
   if (status.stale) parts.push("正在浏览旧快照");
   if (status.error?.message) parts.push(status.error.message);
   if (source.kind === "remote" && !status.snapshotAvailable) parts.push("尚无可用快照");
@@ -1277,14 +1278,32 @@ async function savePeerFromForm(event) {
     state.selectedPeerId = data.peer?.id || existingId || null;
     renderSourceControls();
     renderPeerManager();
-    setPeerStatus("已保存");
-    showToast("远端数据源配置已保存；访问令牌只保存在本机");
+    await finishPeerSave(data);
   } catch (error) {
     setPeerStatus(`保存失败：${error.message}`);
   } finally {
     state.peerSaving = false;
     syncPeerEditorState();
   }
+}
+
+async function finishPeerSave(data) {
+  const sourceChanged = data.configuration?.sourceChanged === true;
+  const selectedSourceChanged = sourceChanged && state.selectedSourceId === state.selectedPeerId;
+  if (selectedSourceChanged) {
+    state.sessions = [];
+    state.filteredSessions = [];
+    state.remoteIndexSessions = [];
+    clearSelectedSession();
+  }
+  if (!sourceChanged) {
+    setPeerStatus("已保存；实际来源未变更，现有快照可继续使用");
+    showToast("远端数据源配置已保存；实际来源未变更，访问令牌只保存在本机");
+    return;
+  }
+  setPeerStatus("来源已变更；旧快照已隔离，需要拉取新快照");
+  showToast("远端来源已变更，旧快照已隔离；请拉取新快照");
+  if (selectedSourceChanged) await loadSessions();
 }
 
 async function testSelectedPeer() {
@@ -1336,7 +1355,10 @@ async function deleteSelectedPeer() {
     state.sources = data.sources || state.sources.filter((source) => source.id !== id);
     state.peerLoadError = "";
     state.peerLoading = false;
-    if (state.selectedSourceId === id) state.selectedSourceId = "local";
+    if (state.selectedSourceId === id) {
+      state.selectedSourceId = "local";
+      clearSelectedSession();
+    }
     state.selectedPeerId = state.peers[0]?.id || null;
     renderSourceControls();
     renderPeerManager();
@@ -2511,6 +2533,20 @@ function renderSessionList() {
   const filter = els.sessionTypeFilter.value;
   syncSessionTimeFilter();
   const remoteHistory = isRemoteHistoryIndexMode();
+  const source = selectedSource();
+  if (source?.kind === "remote" && source.status?.needsRefresh && !remoteHistory) {
+    state.filteredSessions = [];
+    els.sessionCount.textContent = "0";
+    els.sessionList.innerHTML = renderSessionListActionEmptyState(
+      "需要拉取新快照",
+      "远端来源已变更或尚未完成首次拉取。旧来源的会话、归档和导出不会用于当前来源。",
+      [{ action: "refresh-remote", label: "拉取远端快照" }],
+    );
+    bindSessionListEmptyActions();
+    renderStatusbar();
+    syncExportButtons();
+    return;
+  }
   if (state.sessionsLoading && state.sessions.length === 0 && state.remoteIndexSessions.length === 0) {
     state.filteredSessions = [];
     els.sessionCount.textContent = "0";
@@ -2665,6 +2701,8 @@ function bindSessionListEmptyActions(container = els.sessionList) {
         returnToRealtimeSessions();
       } else if (action === "retry-remote-index") {
         void loadRemoteIndexForCurrentFilter();
+      } else if (action === "refresh-remote") {
+        void refreshSelectedSource();
       } else if (action === "retry-prompts") {
         void loadPromptArchive();
       } else if (action === "clear-session-filters") {

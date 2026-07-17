@@ -26,7 +26,11 @@ test("remote data source copy keeps saved-test and index-only boundaries explici
   assert.match(app, /会话或数据源已切换，已取消本次 Markdown 下载/);
   assert.match(app, /测试不可用：/);
   assert.match(app, /本机已拉取的缓存快照不会随此操作删除/);
+  assert.match(app, /需要拉取新快照/);
+  assert.match(app, /旧来源的会话、归档和导出不会用于当前来源/);
   assert.match(readme, /页面管理的数据源访问令牌保存在本机私有/);
+  assert.match(readme, /来源版本/);
+  assert.match(readme, /source_snapshot_changed/);
   assert.match(readme, /查询参数/);
   assert.match(readme, /高级环境变量模式从运行时环境读取 token/);
   assert.match(readme, /旧版本留下的非法证据风险规则/);

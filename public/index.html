@@ -204,12 +204,12 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <dialog class="peer-dialog" id="peerDialog">
+    <dialog class="peer-dialog" id="peerDialog" aria-labelledby="peerDialogTitle">
       <form class="peer-panel" id="peerForm" method="dialog">
         <div class="peer-panel-header">
           <div>
             <p class="eyebrow">数据源</p>
-            <h2>远端数据源</h2>
+            <h2 id="peerDialogTitle">远端数据源</h2>
           </div>
           <button class="icon-button" id="closePeerDialogButton" type="button" title="关闭" aria-label="关闭">×</button>
         </div>
@@ -245,12 +245,12 @@
       </form>
     </dialog>
 
-    <dialog class="peer-dialog settings-dialog" id="settingsDialog">
+    <dialog class="peer-dialog settings-dialog" id="settingsDialog" aria-labelledby="settingsDialogTitle">
       <form class="peer-panel settings-panel" id="settingsForm" method="dialog" novalidate>
         <div class="peer-panel-header">
           <div>
             <p class="eyebrow">展示规则</p>
-            <h2>展示规则设置</h2>
+            <h2 id="settingsDialogTitle">展示规则设置</h2>
           </div>
           <button class="icon-button" id="closeSettingsDialogButton" type="button" title="关闭" aria-label="关闭">×</button>
         </div>

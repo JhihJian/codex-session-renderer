@@ -19,13 +19,14 @@ function defaultConfigPath(homeDir = os.homedir()) {
 function createRendererConfigStore(options = {}) {
   const fsApi = options.fsApi || fs;
   const configPath = options.configPath || defaultConfigPath(options.homeDir || os.homedir());
+  const onCommittedMutation = options.onCommittedMutation || null;
   let mutationQueue = Promise.resolve();
 
   async function readConfig() {
     return normalizeConfig(await readConfigFile(configPath, fsApi));
   }
 
-  async function writeConfig(config) {
+  async function writeConfig(config, onCommitted = null) {
     const normalized = normalizeConfig(config);
     const directory = path.dirname(configPath);
     const temporaryPath = `${configPath}.${randomUUID()}.tmp`;
@@ -35,7 +36,7 @@ function createRendererConfigStore(options = {}) {
       await fsApi.writeFile(temporaryPath, `${JSON.stringify(normalized, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
       await fsApi.chmod(temporaryPath, 0o600);
       await fsApi.rename(temporaryPath, configPath);
-      await fsApi.chmod(configPath, 0o600);
+      onCommitted?.();
     } finally {
       await fsApi.rm(temporaryPath, { force: true });
     }
@@ -56,6 +57,7 @@ function createRendererConfigStore(options = {}) {
   function upsertPeer(input) {
     return queueMutation(async () => {
       const config = await readConfig();
+      const previousConfig = normalizeConfig(config);
       const normalizedUrl = normalizePeerUrl(input.url);
       const requestedId = normalizeSourceId(input.id || input.label || normalizedUrl);
       const index = config.peers.findIndex((item) => item.id === requestedId);
@@ -69,7 +71,7 @@ function createRendererConfigStore(options = {}) {
       } else {
         config.peers.push(peer);
       }
-      await writeConfig(config);
+      await writeConfig(config, () => notifyCommittedMutation({ previous: previousConfig, next: normalizeConfig(config) }));
       return publicPeer(config.peers.find((item) => item.id === peer.id));
     });
   }
@@ -80,7 +82,8 @@ function createRendererConfigStore(options = {}) {
       const config = await readConfig();
       const nextPeers = config.peers.filter((peer) => peer.id !== sourceId);
       if (nextPeers.length === config.peers.length) return false;
-      await writeConfig({ ...config, peers: nextPeers });
+      const mutation = { previous: normalizeConfig(config), next: { ...config, peers: nextPeers } };
+      await writeConfig({ ...config, peers: nextPeers }, () => notifyCommittedMutation(mutation));
       return true;
     });
   }
@@ -93,6 +96,11 @@ function createRendererConfigStore(options = {}) {
     upsertPeer,
     writeConfig: (config) => queueMutation(() => writeConfig(config)),
   };
+
+  function notifyCommittedMutation(mutation) {
+    const result = onCommittedMutation?.(mutation);
+    if (result?.then) throw new Error("配置来源围栏更新不得异步让出。");
+  }
 }
 
 async function readConfigFile(filePath, fsApi = fs) {

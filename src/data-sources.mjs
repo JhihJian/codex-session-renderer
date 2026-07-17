@@ -1,4 +1,5 @@
-import { createReadStream, createWriteStream, existsSync, readFileSync, promises as fs } from "node:fs";
+import { chmodSync, createReadStream, createWriteStream, existsSync, lstatSync, readFileSync, readdirSync, renameSync, promises as fs } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import os from "node:os";
 import { pipeline } from "node:stream/promises";
@@ -7,10 +8,12 @@ import * as tar from "tar";
 import { createConcurrencyGate, createSharedSubscriptionRegistry } from "./prompt-archive-coordinator.mjs";
 import { createDeadlineSignal, fetchWithDeadline, isAbortError, pipelineLimitedResponse, throwIfAborted } from "./remote-http.mjs";
 import { createByteLimitTransform, createContentBudget, snapshotBudgetError } from "./snapshot-budget.mjs";
+import { createSnapshotRootCommitCoordinator } from "./snapshot-root-commit-coordinator.mjs";
 
-const defaultRemoteSnapshotRoot = path.join(os.homedir(), ".codex-session-renderer", "remote-snapshots");
+
 const safeIdPattern = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const snapshotStatusFile = ".codex-session-renderer-source.json";
+const snapshotProvenanceFile = ".codex-session-renderer-snapshot-source.json";
 const snapshotMetadataFile = ".codex-session-renderer-snapshot.json";
 const allowedSnapshotFiles = new Set(["state_5.sqlite", "session_index.jsonl", snapshotMetadataFile]);
 const piAgentSourceId = "pi-agent";
@@ -27,31 +30,29 @@ function createDataSourceRegistry(options = {}) {
   const now = options.now || (() => new Date());
   const fsApi = options.fsApi || fs;
   const fetchImpl = options.fetchImpl || globalThis.fetch;
+  const isUnix = isUnixPlatform(options);
   const refreshLimits = remoteRefreshLimits(env);
   const refreshGate = options.refreshGate || createConcurrencyGate(refreshLimits.maxConcurrent);
   const refreshSubscriptions = options.refreshSubscriptions || createSharedSubscriptionRegistry();
+  const sourceIdentityRegistry = options.sourceIdentityRegistry || new Map();
+  const snapshotCommitCoordinator = options.snapshotCommitCoordinator || createSnapshotRootCommitCoordinator();
   const localCodexHome = path.resolve(env.CODEX_HOME || path.join(homeDir, ".codex"));
-  const remoteSnapshotRoot = path.resolve(env.CODEX_REMOTE_SNAPSHOT_ROOT || defaultRemoteSnapshotRoot);
+  const remoteSnapshotRoot = path.resolve(env.CODEX_REMOTE_SNAPSHOT_ROOT || path.join(homeDir, ".codex-session-renderer", "remote-snapshots"));
   const remoteDefinitions = [...parseConfigRemoteDefinitions(options.config), ...parseRemoteDefinitions(env)];
   const piAgentDefinition = parsePiAgentDefinition(env, homeDir);
 
-  const sources = new Map();
-
-  const localSource = createLocalDataSource({ codexHome: localCodexHome });
-  sources.set(localSource.id, localSource);
-
-  for (const definition of remoteDefinitions) {
-    const source = createRemoteDataSource({
-      definition,
-      remoteSnapshotRoot,
-      now,
-    });
-    sources.set(source.id, source);
-  }
-  if (piAgentDefinition && !sources.has(piAgentSourceId)) {
-    const source = createPiAgentDataSource(piAgentDefinition);
-    sources.set(source.id, source);
-  }
+  const sources = buildDataSources({
+    localCodexHome,
+    remoteDefinitions,
+    remoteSnapshotRoot,
+    piAgentDefinition,
+    now,
+    sourceIdentityRegistry,
+    snapshotCommitCoordinator,
+    renameCurrent: options.renameCurrent || renameSync,
+    beforeFinalCurrentPublish: options.beforeFinalCurrentPublish,
+    isUnix,
+  });
 
   function listSources() {
     return [...sources.values()].map((source) => publicDataSource(source));
@@ -82,7 +83,7 @@ function createDataSourceRegistry(options = {}) {
       };
     }
 
-    const refreshPromise = refreshSubscriptions.subscribe(source.snapshotRoot, async (signal) => {
+    const refreshPromise = refreshSubscriptions.subscribe(`${source.snapshotRoot}:${source.sourceVersion}`, async (signal) => {
       await refreshGate.run(async () => {
         await refreshRemoteSource(source, {
           fsApi,
@@ -90,11 +91,18 @@ function createDataSourceRegistry(options = {}) {
           now,
           signal,
           limits: refreshLimits,
+          isUnix,
         });
       }, signal);
+      if (!source.isCurrent()) {
+        const error = sourceConfigurationChangedError();
+        error.status = 409;
+        markRefreshFailure(source, error);
+      }
       return {
-        ok: source.status.lastRefreshOk === true,
-        status: source.status.lastRefreshOk === true ? 200 : 502,
+        ok: source.isCurrent() && source.status.lastRefreshOk === true,
+        status: source.isCurrent() ? (source.status.lastRefreshOk === true ? 200 : source.status.lastRefreshStatus || 502) : 409,
+        error: source.isCurrent() ? undefined : safeRemoteError("source_configuration_changed", "远端来源配置已变更；本次旧快照拉取已取消。"),
         source: publicDataSource(source),
       };
     }, options.signal);
@@ -108,6 +116,22 @@ function createDataSourceRegistry(options = {}) {
     refreshSource,
     refreshLimits,
   };
+}
+
+function buildDataSources(options) {
+  const sources = new Map();
+  const localSource = createLocalDataSource({ codexHome: options.localCodexHome });
+  sources.set(localSource.id, localSource);
+  for (const definition of options.remoteDefinitions) {
+    const source = createRemoteDataSource({ definition, ...options });
+    sources.set(source.id, source);
+  }
+  if (options.piAgentDefinition && !sources.has(piAgentSourceId)) {
+    const source = createPiAgentDataSource(options.piAgentDefinition);
+    sources.set(source.id, source);
+  }
+  synchronizeSourceIdentityRegistry(options.sourceIdentityRegistry, sources);
+  return sources;
 }
 
 function remoteRefreshLimits(env = process.env) {
@@ -154,11 +178,19 @@ function createLocalDataSource({ codexHome }) {
   };
 }
 
-function createRemoteDataSource({ definition, remoteSnapshotRoot, now }) {
+function createRemoteDataSource({ definition, remoteSnapshotRoot, now, sourceIdentityRegistry, snapshotCommitCoordinator, renameCurrent, beforeFinalCurrentPublish, isUnix }) {
   const snapshotRoot = path.resolve(definition.snapshotRoot || path.join(remoteSnapshotRoot, definition.id));
   const codexHome = path.join(snapshotRoot, "current");
+  tightenExistingSnapshotPermissions(snapshotRoot, isUnix);
   const snapshotMetadata = readSnapshotMetadataSync(codexHome);
   const originalCodexHome = definition.remoteCodexHome || snapshotMetadata?.codexHome || codexHome;
+  const sourceVersion = remoteSourceVersion(definition, snapshotRoot);
+  const status = initialRemoteSourceStatus({
+    sourceVersion,
+    currentPath: codexHome,
+    persisted: readPersistedStatus(path.join(snapshotRoot, snapshotStatusFile)),
+    provenance: readSnapshotProvenanceSync(codexHome),
+  });
   const source = {
     id: definition.id,
     label: definition.label || definition.id,
@@ -170,6 +202,7 @@ function createRemoteDataSource({ definition, remoteSnapshotRoot, now }) {
       snapshotPathConfigured: Boolean(definition.snapshotPath),
       peerUrl: definition.peerUrl || null,
       managed: definition.managed === true,
+      sourceVersion,
     },
     codexHome,
     originalCodexHome,
@@ -179,26 +212,105 @@ function createRemoteDataSource({ definition, remoteSnapshotRoot, now }) {
     snapshotRoot,
     currentPath: codexHome,
     definition,
-    status: {
-      configured: true,
-      refreshable: true,
-      refreshing: false,
-      lastRefreshOk: null,
-      lastSuccessfulRefreshAt: null,
-      stale: false,
-      snapshotAvailable: false,
-      error: null,
-    },
+    sourceVersion,
+    snapshotCommitCoordinator,
+    renameCurrent,
+    beforeFinalCurrentPublish,
+    isUnix,
+    isCurrent: () => sourceIdentityRegistry.get(definition.id) === sourceVersion,
+    status,
   };
   source.statusFile = path.join(snapshotRoot, snapshotStatusFile);
-  const persisted = readPersistedStatus(source.statusFile);
-  source.status.lastRefreshOk = persisted?.status?.lastRefreshOk ?? null;
-  source.status.lastSuccessfulRefreshAt = persisted?.status?.lastSuccessfulRefreshAt ?? null;
-  source.status.error = persisted?.status?.error ?? null;
-  source.status.snapshotAvailable = existsSync(source.currentPath);
-  source.status.stale = source.status.snapshotAvailable && source.status.lastRefreshOk === false;
   source.status.loadedAt = now().toISOString();
   return source;
+}
+
+function isUnixPlatform(options) {
+  return options.isUnix ?? process.platform !== "win32";
+}
+
+function initialRemoteSourceStatus({ sourceVersion, currentPath, persisted, provenance }) {
+  const status = {
+    configured: true,
+    refreshable: true,
+    refreshing: false,
+    lastRefreshOk: null,
+    lastSuccessfulRefreshAt: null,
+    stale: false,
+    snapshotAvailable: false,
+    needsRefresh: true,
+    sourceVersion,
+    error: null,
+  };
+  if (!snapshotMatchesCurrentSource(currentPath, provenance, sourceVersion)) {
+    status.error = unavailableSnapshotError(existsSync(currentPath));
+    return status;
+  }
+  return statusForMatchingSnapshot(status, persisted, sourceVersion);
+}
+
+function snapshotMatchesCurrentSource(currentPath, provenance, sourceVersion) {
+  return existsSync(currentPath) && provenance?.sourceVersion === sourceVersion;
+}
+
+function unavailableSnapshotError(currentExists) {
+  return currentExists
+    ? safeRemoteError("snapshot_source_changed", "远端来源已变更，需要拉取新快照。")
+    : safeRemoteError("snapshot_required", "尚未拉取远端快照。");
+}
+
+function statusForMatchingSnapshot(status, persisted, sourceVersion) {
+  if (persistedStatusSourceVersion(persisted) === sourceVersion) {
+    status.lastRefreshOk = persisted?.status?.lastRefreshOk ?? null;
+    status.lastSuccessfulRefreshAt = persisted?.status?.lastSuccessfulRefreshAt ?? null;
+    status.error = persisted?.status?.error ?? null;
+    status.snapshotAvailable = true;
+    status.needsRefresh = false;
+    status.stale = status.lastRefreshOk === false;
+    return status;
+  }
+  status.snapshotAvailable = true;
+  status.needsRefresh = false;
+  status.stale = true;
+  status.error = safeRemoteError("snapshot_status_recovered", "快照状态文件不可用，已从完整同源快照安全恢复。");
+  return status;
+}
+
+function persistedStatusSourceVersion(persisted) {
+  return persisted?.status?.sourceVersion || persisted?.sourceVersion || "";
+}
+
+function synchronizeSourceIdentityRegistry(sourceIdentityRegistry, sources) {
+  const remoteSources = [...sources.values()].filter((source) => source.kind === "remote");
+  const activeIds = new Set(remoteSources.map((source) => source.id));
+  for (const sourceId of sourceIdentityRegistry.keys()) {
+    if (!activeIds.has(sourceId)) sourceIdentityRegistry.delete(sourceId);
+  }
+  for (const source of remoteSources) sourceIdentityRegistry.set(source.id, source.sourceVersion);
+}
+
+function remoteSourceVersion(definition, snapshotRoot) {
+  const identity = {
+    schema: "remote-source-v1",
+    snapshotUrl: normalizeSourceIdentityUrl(definition.snapshotUrl),
+    snapshotPath: definition.snapshotPath ? path.resolve(definition.snapshotPath) : "",
+    remoteCodexHome: normalizeRemoteCodexHome(definition.remoteCodexHome),
+    snapshotRoot: path.resolve(snapshotRoot),
+  };
+  return `remote-v1-${createHash("sha256").update(JSON.stringify(identity)).digest("hex").slice(0, 20)}`;
+}
+
+function normalizeSourceIdentityUrl(value) {
+  if (!value) return "";
+  try {
+    return new URL(String(value)).toString();
+  } catch {
+    return String(value).trim();
+  }
+}
+
+function normalizeRemoteCodexHome(value) {
+  return String(value || "").trim().replaceAll("\\", "/").replace(/\/+$/, "");
 }
 
 function parseRemoteDefinitions(env = process.env) {
@@ -476,53 +588,81 @@ async function refreshRemoteSource(source, options = {}) {
   const startedAt = now().toISOString();
   source.status.refreshing = true;
   source.status.error = null;
+  source.status.lastRefreshStatus = null;
   source.status.startedAt = startedAt;
   const deadline = createDeadlineSignal(options.signal, options.limits?.deadlineMs, "snapshot_deadline_exceeded");
   const signal = deadline.signal;
 
   try {
+    assertSourceIdentityCurrent(source);
     throwIfAborted(signal);
-    await fsApi.mkdir(source.snapshotRoot, { recursive: true });
-    const stagingPath = path.join(source.snapshotRoot, `staging-${Date.now()}-${process.pid}`);
+    await createPrivateDirectory(source.snapshotRoot, fsApi, options.isUnix);
+    const stagingPath = path.join(source.snapshotRoot, `staging-${source.sourceVersion}-${Date.now()}-${process.pid}`);
     await removeTree(stagingPath, fsApi);
-    await fsApi.mkdir(stagingPath, { recursive: true });
+    await createPrivateDirectory(stagingPath, fsApi, options.isUnix);
 
     try {
-      await fetchRemoteSnapshotToDirectory(source, stagingPath, { ...options, signal });
-      throwIfAborted(signal);
-      const codexHomePath = await findSnapshotCodexHome(stagingPath, source.definition.remoteCodexHome, fsApi);
-      const snapshotMetadata = await readSnapshotMetadata(codexHomePath, fsApi);
-      if (!source.definition.remoteCodexHome && snapshotMetadata?.codexHome) {
-        updateSourceOriginalCodexHome(source, snapshotMetadata.codexHome);
-      }
-      await validateSnapshot(codexHomePath, fsApi);
-      await publishSnapshot(source, codexHomePath, {
-        fsApi,
-        now,
-        signal,
-        maxGenerations: options.limits?.maxGenerations,
-      });
-      source.status.lastRefreshOk = true;
-      source.status.lastSuccessfulRefreshAt = now().toISOString();
-      source.status.snapshotAvailable = true;
-      source.status.stale = false;
-      source.status.error = null;
+      await refreshAndPublishSource(source, stagingPath, { ...options, now, signal });
+      markRefreshSuccess(source, now);
     } finally {
       await removeTree(stagingPath, fsApi);
     }
   } catch (error) {
     if (isAbortError(error)) throw error;
-    source.status.lastRefreshOk = false;
-    source.status.snapshotAvailable = await pathExists(source.currentPath, fsApi);
-    source.status.stale = source.status.snapshotAvailable;
-    source.status.error = classifyRefreshError(error);
-    await fsApi.mkdir(source.snapshotRoot, { recursive: true }).catch(() => {});
+    markRefreshFailure(source, error);
+    await createPrivateDirectory(source.snapshotRoot, fsApi, options.isUnix).catch(() => {});
   } finally {
     deadline.dispose();
-    source.status.refreshing = false;
-    source.status.completedAt = now().toISOString();
-    await writeStatusFile(source, fsApi).catch(() => {});
+    await finishRemoteRefresh(source, fsApi, now);
   }
+}
+
+async function refreshAndPublishSource(source, stagingPath, options) {
+  await fetchRemoteSnapshotToDirectory(source, stagingPath, options);
+  assertSourceIdentityCurrent(source);
+  throwIfAborted(options.signal);
+  const codexHomePath = await findSnapshotCodexHome(stagingPath, source.definition.remoteCodexHome, options.fsApi || fs);
+  const snapshotMetadata = await readSnapshotMetadata(codexHomePath, options.fsApi || fs);
+  if (!source.definition.remoteCodexHome && snapshotMetadata?.codexHome) updateSourceOriginalCodexHome(source, snapshotMetadata.codexHome);
+  await validateSnapshot(codexHomePath, options.fsApi || fs);
+  assertSourceIdentityCurrent(source);
+  await publishSnapshot(source, codexHomePath, options);
+}
+
+function markRefreshSuccess(source, now) {
+  source.status.lastRefreshOk = true;
+  source.status.lastSuccessfulRefreshAt = now().toISOString();
+  source.status.snapshotAvailable = true;
+  source.status.needsRefresh = false;
+  source.status.stale = false;
+  source.status.error = null;
+}
+
+function markRefreshFailure(source, error) {
+  source.status.lastRefreshOk = false;
+  source.status.lastRefreshStatus = error?.status || (error?.code === "source_configuration_changed" ? 409 : 502);
+  const sourceChanged = error?.code === "source_configuration_changed";
+  source.status.snapshotAvailable = sourceChanged ? false : source.status.snapshotAvailable && source.isCurrent();
+  source.status.needsRefresh = !source.status.snapshotAvailable;
+  source.status.stale = !sourceChanged && source.status.snapshotAvailable;
+  source.status.error = classifyRefreshError(error);
+}
+
+async function finishRemoteRefresh(source, fsApi, now) {
+  source.status.refreshing = false;
+  source.status.completedAt = now().toISOString();
+  if (source.isCurrent()) await writeStatusFile(source, fsApi).catch(() => {});
+}
+
+function assertSourceIdentityCurrent(source) {
+  if (source.isCurrent()) return;
+  const error = sourceConfigurationChangedError();
+  error.status = 409;
+  throw error;
+}
+
+function sourceConfigurationChangedError() {
+  return remoteRefreshError("source_configuration_changed", "远端来源配置已变更；本次旧快照拉取已取消。");
 }
 
 async function fetchRemoteSnapshotToDirectory(source, stagingPath, options = {}) {
@@ -550,7 +690,7 @@ async function copySnapshotTree(sourcePath, stagingPath, fsApi = fs, options = {
 
 async function copyCodexTree(sourcePath, targetPath, fsApi = fs, options = {}) {
   throwIfAborted(options.signal);
-  await fsApi.mkdir(targetPath, { recursive: true });
+  await createPrivateDirectory(targetPath, fsApi, options.isUnix);
   const entries = await fsApi.readdir(sourcePath, { withFileTypes: true });
   for (const entry of entries) {
     throwIfAborted(options.signal);
@@ -564,9 +704,10 @@ async function copyCodexTree(sourcePath, targetPath, fsApi = fs, options = {}) {
       (allowedSnapshotFiles.has(entry.name) ||
         (options.inSessions && entry.name.endsWith(".jsonl") && (await shouldCopySessionFile(from, entry, options))))
     ) {
-      await fsApi.mkdir(path.dirname(to), { recursive: true });
+      await createPrivateDirectory(path.dirname(to), fsApi, options.isUnix);
       await options.beforeCopyFile?.(from, entry);
       await fsApi.copyFile(from, to);
+      await setPrivateMode(to, 0o600, fsApi, options.isUnix);
       throwIfAborted(options.signal);
     }
   }
@@ -600,7 +741,7 @@ async function downloadSnapshotArchive(source, stagingPath, options = {}) {
 
   const archivePath = path.join(stagingPath, "snapshot.tar");
   try {
-    await pipelineLimitedResponse(response, createWriteStream(archivePath), {
+    await pipelineLimitedResponse(response, createWriteStream(archivePath, { mode: 0o600 }), {
       maxBytes: options.limits?.snapshotMaxBytes || 256 * 1024 * 1024,
       code: "snapshot_too_large",
       signal: options.signal,
@@ -613,6 +754,7 @@ async function downloadSnapshotArchive(source, stagingPath, options = {}) {
     limits: options.limits,
     signal: options.signal,
   });
+  await tightenSnapshotTree(stagingPath, fsApi, options.isUnix);
   await fsApi.rm(archivePath, { force: true });
 }
 
@@ -771,6 +913,14 @@ function readSnapshotMetadataSync(codexHomePath) {
   }
 }
 
+function readSnapshotProvenanceSync(codexHomePath) {
+  try {
+    return JSON.parse(readFileSync(path.join(codexHomePath, snapshotProvenanceFile), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
 function updateSourceOriginalCodexHome(source, originalCodexHome) {
   source.originalCodexHome = originalCodexHome;
   source.origin.remoteCodexHome = originalCodexHome;
@@ -782,20 +932,28 @@ async function publishSnapshot(source, codexHomePath, options = {}) {
   const signal = options.signal;
   const maxGenerations = options.maxGenerations || 2;
   const versionsPath = path.join(source.snapshotRoot, "versions");
-  const generation = `snapshot-${Date.now()}-${process.pid}`;
+  const generation = `snapshot-${source.sourceVersion}-${Date.now()}-${process.pid}`;
   const nextPath = path.join(versionsPath, generation);
   const nextLink = path.join(source.snapshotRoot, `.current-${generation}`);
   let committed = false;
   try {
-    await fsApi.mkdir(versionsPath, { recursive: true });
+    assertSourceIdentityCurrent(source);
+    await createPrivateDirectory(versionsPath, fsApi, options.isUnix);
     await fsApi.rm(nextPath, { recursive: true, force: true });
-    await copyCodexTree(codexHomePath, nextPath, fsApi, { signal });
+    await copyCodexTree(codexHomePath, nextPath, fsApi, { signal, isUnix: options.isUnix });
+    await writeSnapshotProvenance(nextPath, source, fsApi, options.isUnix);
     throwIfAborted(signal);
     await validateSnapshot(nextPath, fsApi);
     await fsApi.rm(nextLink, { force: true });
     await fsApi.symlink(path.relative(source.snapshotRoot, nextPath), nextLink, "dir");
     throwIfAborted(signal);
-    await fsApi.rename(nextLink, source.currentPath);
+    // A test hook can yield here. The final identity check and pointer replacement cannot.
+    await source.beforeFinalCurrentPublish?.(source);
+    source.snapshotCommitCoordinator.run(source.snapshotRoot, () => {
+      assertSourceIdentityCurrent(source);
+      throwIfAborted(signal);
+      source.renameCurrent(nextLink, source.currentPath);
+    });
     committed = true;
   } catch (error) {
     await fsApi.rm(nextLink, { force: true }).catch(() => {});
@@ -819,8 +977,58 @@ async function pruneSnapshotGenerations(versionsPath, currentGeneration, maxGene
 }
 
 async function writeStatusFile(source, fsApi = fs) {
-  const status = publicDataSource(source);
-  await fsApi.writeFile(source.statusFile, `${JSON.stringify(status, null, 2)}\n`, "utf8");
+  await createPrivateDirectory(source.snapshotRoot, fsApi, source.isUnix);
+  const temporaryPath = `${source.statusFile}.${randomUUID()}.tmp`;
+  try {
+    await fsApi.writeFile(temporaryPath, `${JSON.stringify(publicDataSource(source), null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    await setPrivateMode(temporaryPath, 0o600, fsApi, source.isUnix);
+    await fsApi.rename(temporaryPath, source.statusFile);
+    await setPrivateMode(source.statusFile, 0o600, fsApi, source.isUnix);
+  } finally {
+    await fsApi.rm(temporaryPath, { force: true }).catch(() => {});
+  }
+}
+
+async function writeSnapshotProvenance(snapshotPath, source, fsApi, isUnix) {
+  const provenancePath = path.join(snapshotPath, snapshotProvenanceFile);
+  const provenance = {
+    schema: "remote-snapshot-source-v1",
+    sourceVersion: source.sourceVersion,
+  };
+  await fsApi.writeFile(provenancePath, `${JSON.stringify(provenance)}\n`, { encoding: "utf8", mode: 0o600 });
+  await setPrivateMode(provenancePath, 0o600, fsApi, isUnix);
+}
+
+async function createPrivateDirectory(directory, fsApi, isUnix) {
+  await fsApi.mkdir(directory, { recursive: true, mode: 0o700 });
+  await setPrivateMode(directory, 0o700, fsApi, isUnix);
+}
+
+async function setPrivateMode(filePath, mode, fsApi, isUnix) {
+  if (!isUnix || typeof fsApi.chmod !== "function") return;
+  await fsApi.chmod(filePath, mode);
+}
+
+function tightenExistingSnapshotPermissions(snapshotRoot, isUnix) {
+  if (!isUnix || !existsSync(snapshotRoot)) return;
+  const tighten = (entryPath) => {
+    const entry = lstatSync(entryPath);
+    if (entry.isSymbolicLink()) return;
+    chmodSync(entryPath, entry.isDirectory() ? 0o700 : 0o600);
+    if (!entry.isDirectory()) return;
+    for (const child of readdirSync(entryPath)) tighten(path.join(entryPath, child));
+  };
+  tighten(snapshotRoot);
+}
+
+async function tightenSnapshotTree(snapshotRoot, fsApi, isUnix) {
+  const entries = await fsApi.readdir(snapshotRoot, { withFileTypes: true });
+  await createPrivateDirectory(snapshotRoot, fsApi, isUnix);
+  for (const entry of entries) {
+    const entryPath = path.join(snapshotRoot, entry.name);
+    if (entry.isDirectory()) await tightenSnapshotTree(entryPath, fsApi, isUnix);
+    else if (entry.isFile()) await setPrivateMode(entryPath, 0o600, fsApi, isUnix);
+  }
 }
 
 function readPersistedStatus(statusFile) {
@@ -872,6 +1080,8 @@ function publicDataSource(source) {
       lastSuccessfulRefreshAt: source.status.lastSuccessfulRefreshAt,
       stale: source.status.stale,
       snapshotAvailable: source.status.snapshotAvailable,
+      needsRefresh: source.status.needsRefresh === true,
+      sourceVersion: source.status.sourceVersion || source.sourceVersion || null,
       error: source.status.error,
     },
   };
@@ -920,6 +1130,7 @@ export {
   parseRemoteDefinitions,
   piAgentSourceId,
   publicDataSource,
+  remoteSourceVersion,
   remoteRefreshLimits,
   remoteUrlQueryMessage,
   remoteUrlUserinfoMessage,

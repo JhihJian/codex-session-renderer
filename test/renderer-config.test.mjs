@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createRendererConfigStore, normalizePeerInput, publicPeer } from "../src/renderer-config.mjs";
@@ -67,6 +67,44 @@ test("renderer config serializes concurrent peer writes", async () => {
       store.upsertPeer({ id: "lab", url: "192.168.1.21:4791", token: "lab-token" }),
     ]);
     assert.deepEqual((await store.listPeers()).map((peer) => peer.id).sort(), ["lab", "office"]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("failed config replacement does not commit the source-fence callback", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "csr-config-transaction-"));
+  try {
+    const configPath = path.join(dir, "config.json");
+    const initial = createRendererConfigStore({ configPath });
+    await initial.upsertPeer({ id: "office", label: "Office", url: "192.168.1.20:4791", token: "office-token" });
+    let committed = 0;
+    const failingFs = {
+      chmod,
+      mkdir,
+      readFile,
+      rm,
+      writeFile,
+      async rename(from, to) {
+        if (to === configPath) throw new Error("simulated config replacement failure");
+        await rename(from, to);
+      },
+    };
+    const store = createRendererConfigStore({
+      configPath,
+      fsApi: failingFs,
+      onCommittedMutation: () => {
+        committed += 1;
+      },
+    });
+
+    await assert.rejects(
+      store.upsertPeer({ id: "office", label: "Changed", url: "192.168.1.20:4791", token: "" }),
+      /simulated config replacement failure/,
+    );
+    assert.equal(committed, 0);
+    assert.equal((await initial.readConfig()).peers[0].label, "Office");
+    assert.equal((await initial.readConfig()).peers[0].token, "office-token");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

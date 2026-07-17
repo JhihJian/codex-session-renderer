@@ -97,7 +97,7 @@
   },
   "src/data-sources.mjs": {
     "complexity": {
-      "count": 2
+      "count": 1
     },
     "max-lines": {
       "count": 1

@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildAuditChain } from "./src/audit-chain.mjs";
@@ -8,6 +9,7 @@ import { createDataSourceRegistry, sanitizeErrorMessage } from "./src/data-sourc
 import { evidenceRiskRulesFingerprint, normalizeEvidenceRiskRules, validateEvidenceRiskRules } from "./src/evidence-risk-rules.mjs";
 import { sendError, sendJson, sendText, serveStaticFile } from "./src/http-response.mjs";
 import { createRendererConfigStore } from "./src/renderer-config.mjs";
+import { createSnapshotRootCommitCoordinator } from "./src/snapshot-root-commit-coordinator.mjs";
 import { createDeadlineSignal, fetchWithDeadline, isAbortError as isRemoteAbortError, readLimitedResponseText } from "./src/remote-http.mjs";
 import { createSessionDetailCoordinator } from "./src/session-detail-coordinator.mjs";
 import { readJsonl, readJsonlLineWithDiagnostics, readJsonlRange } from "./src/jsonl-reader.mjs";
@@ -78,9 +80,17 @@ const remoteHttpLimits = {
 const sessionReadGate = createConcurrencyGate(readPositiveEnv("CODEX_SESSION_DETAIL_MAX_CONCURRENT_READS", 4, 32));
 const remoteRefreshGate = createConcurrencyGate(readPositiveEnv("CODEX_REMOTE_MAX_CONCURRENT_REFRESHES", 2, 16));
 const remoteRefreshSubscriptions = createSharedSubscriptionRegistry();
-const configStore = createRendererConfigStore();
+const sourceIdentityRegistry = new Map();
+const snapshotCommitCoordinator = createSnapshotRootCommitCoordinator();
+const configStore = createRendererConfigStore({ onCommittedMutation: invalidateChangedManagedSourceVersions });
 let rendererConfig = await configStore.readConfig();
-let dataSources = createDataSourceRegistry({ config: rendererConfig, refreshGate: remoteRefreshGate, refreshSubscriptions: remoteRefreshSubscriptions });
+let dataSources = createDataSourceRegistry({
+  config: rendererConfig,
+  refreshGate: remoteRefreshGate,
+  refreshSubscriptions: remoteRefreshSubscriptions,
+  sourceIdentityRegistry,
+  snapshotCommitCoordinator,
+});
 const sourceContexts = new Map();
 
 function readPositiveEnv(name, fallback, maximum) {
@@ -102,8 +112,51 @@ function sessionDetailCoordinatorOptions() {
 
 async function reloadDataSources() {
   rendererConfig = await configStore.readConfig();
-  dataSources = createDataSourceRegistry({ config: rendererConfig, refreshGate: remoteRefreshGate, refreshSubscriptions: remoteRefreshSubscriptions });
+  dataSources = createDataSourceRegistry({
+    config: rendererConfig,
+    refreshGate: remoteRefreshGate,
+    refreshSubscriptions: remoteRefreshSubscriptions,
+    sourceIdentityRegistry,
+    snapshotCommitCoordinator,
+  });
   sourceContexts.clear();
+}
+
+function invalidateChangedManagedSourceVersions({ previous = {}, next = {} } = {}) {
+  const previousPeers = new Map((previous.peers || []).map((peer) => [peer.id, peer]));
+  const nextPeers = new Map((next.peers || []).map((peer) => [peer.id, peer]));
+  const sourceIds = new Set([...previousPeers.keys(), ...nextPeers.keys()]);
+  for (const sourceId of sourceIds) {
+    const before = previousPeers.get(sourceId);
+    const after = nextPeers.get(sourceId);
+    if (!before || !after || before.url !== after.url || before.enabled !== after.enabled) {
+      const source = dataSources.getSource(sourceId);
+      const fallbackRoot = path.join(
+        process.env.CODEX_REMOTE_SNAPSHOT_ROOT || path.join(os.homedir(), ".codex-session-renderer", "remote-snapshots"),
+        sourceId,
+      );
+      snapshotCommitCoordinator.run(source?.snapshotRoot || fallbackRoot, () => sourceIdentityRegistry.delete(sourceId));
+    }
+  }
+}
+
+function remoteSourceVersions() {
+  return new Map(
+    dataSources.listSources()
+      .filter((source) => source.kind === "remote")
+      .map((source) => [source.id, source.status?.sourceVersion || null]),
+  );
+}
+
+function sourceConfigurationChange(previousVersion, source, { deleted = false } = {}) {
+  const sourceVersion = source?.status?.sourceVersion || null;
+  const sourceChanged = deleted || previousVersion == null || sourceVersion == null || previousVersion !== sourceVersion;
+  return {
+    result: deleted ? "source_removed" : sourceChanged ? "source_changed" : "source_unchanged",
+    sourceChanged,
+    sourceVersion,
+    snapshotRefreshRequired: source?.status?.needsRefresh === true,
+  };
 }
 
 function getSourceContext(sourceId = "local") {
@@ -138,6 +191,17 @@ function sourceModelOptions(context) {
     dataSourceKind: context.source.kind,
     originalCodexHome: context.originalCodexHome,
   };
+}
+
+function assertSourceSnapshotReadable(context) {
+  const source = context?.source;
+  if (source?.kind !== "remote") return;
+  if (source.isCurrent?.() && source.status?.snapshotAvailable) return;
+  const sourceChanged = source.isCurrent?.() === false || source.status?.error?.code === "snapshot_source_changed";
+  const error = new Error(sourceChanged ? "远端来源已变更，需要拉取新快照。" : "尚未拉取远端快照。");
+  error.status = 409;
+  error.code = sourceChanged ? "source_snapshot_changed" : "snapshot_refresh_required";
+  throw error;
 }
 
 function throwIfRequestAborted(signal) {
@@ -282,6 +346,7 @@ function sessionMatchesCatalogBounds(session, bounds) {
 }
 
 async function listSessions(context, options = {}) {
+  assertSourceSnapshotReadable(context);
   throwIfRequestAborted(options.signal);
   const scope = normalizeSessionCatalogScope(options.scope || "all");
   const bounds = sessionCatalogBounds(scope);
@@ -447,6 +512,7 @@ async function enrichThreadRowsFromFiles(context, threads, options = {}) {
 }
 
 async function getSessionById(context, id, options = {}) {
+  assertSourceSnapshotReadable(context);
   throwIfRequestAborted(options.signal);
   const cached = context.sessionCache?.find((session) => session.id === id);
   if (cached) return cached;
@@ -469,6 +535,7 @@ async function getSessionById(context, id, options = {}) {
 }
 
 async function listAllSessionsForQuery(context) {
+  assertSourceSnapshotReadable(context);
   const now = Date.now();
   if (context.allSessionCache && now - context.allSessionCacheTime < 3000) return context.allSessionCache;
 
@@ -1269,9 +1336,16 @@ async function route(req, res) {
         return sendJson(res, 200, { peers: await configStore.listPeers(), sources: dataSources.listSources() });
       }
       if (req.method === "POST") {
+        const previousVersions = remoteSourceVersions();
         const peer = await configStore.upsertPeer(await readJsonBody(req));
         await reloadDataSources();
-        return sendJson(res, 200, { peer, peers: await configStore.listPeers(), sources: dataSources.listSources() });
+        const source = dataSources.getSource(peer.id);
+        return sendJson(res, 200, {
+          peer,
+          peers: await configStore.listPeers(),
+          sources: dataSources.listSources(),
+          configuration: sourceConfigurationChange(previousVersions.get(peer.id), source),
+        });
       }
       return sendError(res, 405, "Method not allowed");
     }
@@ -1279,14 +1353,27 @@ async function route(req, res) {
     if (peerMatch) {
       const peerId = decodeURIComponent(peerMatch[1]);
       if (req.method === "PUT") {
+        const previousVersions = remoteSourceVersions();
         const peer = await configStore.upsertPeer({ ...(await readJsonBody(req)), id: peerId });
         await reloadDataSources();
-        return sendJson(res, 200, { peer, peers: await configStore.listPeers(), sources: dataSources.listSources() });
+        const source = dataSources.getSource(peer.id);
+        return sendJson(res, 200, {
+          peer,
+          peers: await configStore.listPeers(),
+          sources: dataSources.listSources(),
+          configuration: sourceConfigurationChange(previousVersions.get(peer.id), source),
+        });
       }
       if (req.method === "DELETE") {
+        const previousVersions = remoteSourceVersions();
         const deleted = await configStore.deletePeer(peerId);
         await reloadDataSources();
-        return sendJson(res, deleted ? 200 : 404, { ok: deleted, peers: await configStore.listPeers(), sources: dataSources.listSources() });
+        return sendJson(res, deleted ? 200 : 404, {
+          ok: deleted,
+          peers: await configStore.listPeers(),
+          sources: dataSources.listSources(),
+          configuration: deleted ? sourceConfigurationChange(previousVersions.get(peerId), null, { deleted: true }) : null,
+        });
       }
       return sendError(res, 405, "Method not allowed");
     }

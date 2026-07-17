@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { renameSync } from "node:fs";
 import { access, copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -9,8 +10,10 @@ import {
   parseConfigRemoteDefinitions,
   parseRemoteDefinitions,
   publicDataSource,
+  remoteSourceVersion,
   sanitizeErrorMessage,
 } from "../src/data-sources.mjs";
+
 
 test("createDataSourceRegistry keeps local source compatible when remote is not configured", () => {
   const registry = createDataSourceRegistry({
@@ -266,6 +269,24 @@ test("createDataSourceRegistry includes peers from persisted renderer config", (
   assert.equal(source.origin.managed, true);
 });
 
+test("remote source version covers the actual snapshot origin without including tokens or labels", () => {
+  const base = {
+    snapshotUrl: "https://office.example.test/api/codex-snapshot.tar?scope=realtime",
+    snapshotPath: "/mnt/office/.codex",
+    remoteCodexHome: "/root/.codex",
+    token: "first-secret-token",
+    label: "Office A",
+  };
+  const version = remoteSourceVersion(base, "/var/lib/codex-snapshots/office");
+
+  assert.equal(version, remoteSourceVersion({ ...base, token: "rotated-secret-token", label: "Office renamed" }, "/var/lib/codex-snapshots/office"));
+  assert.notEqual(version, remoteSourceVersion({ ...base, snapshotUrl: "https://lab.example.test/api/codex-snapshot.tar?scope=realtime" }, "/var/lib/codex-snapshots/office"));
+  assert.notEqual(version, remoteSourceVersion({ ...base, snapshotPath: "/mnt/lab/.codex" }, "/var/lib/codex-snapshots/office"));
+  assert.notEqual(version, remoteSourceVersion({ ...base, remoteCodexHome: "/home/codex/.codex" }, "/var/lib/codex-snapshots/office"));
+  assert.notEqual(version, remoteSourceVersion(base, "/var/lib/codex-snapshots/lab"));
+  assert.doesNotMatch(version, /secret|office|token/i);
+});
+
 test("remote snapshot refresh publishes current atomically and keeps previous snapshot after failure", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "csr-sources-"));
   try {
@@ -379,6 +400,10 @@ test("remote snapshot refresh reuses one in-flight refresh for the same source",
       },
       fsApi,
       homeDir: dir,
+      renameCurrent(from, to) {
+        currentPublishes += 1;
+        renameSync(from, to);
+      },
     });
 
     const firstRefresh = registry.refreshSource("remote");
@@ -459,6 +484,10 @@ test("remote snapshot refresh clears failed in-flight refresh before later retry
       },
       fsApi,
       homeDir: dir,
+      renameCurrent(from, to) {
+        currentPublishes += 1;
+        renameSync(from, to);
+      },
     });
 
     const firstRefresh = registry.refreshSource("remote");
