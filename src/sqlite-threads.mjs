@@ -15,28 +15,22 @@ function defaultSqliteCandidates(env = process.env, homeDir = os.homedir()) {
 }
 
 function createSqliteThreadStore(options) {
-  const {
-    stateDbPath,
-    maxListSessions = 800,
-    sqliteCandidates = defaultSqliteCandidates(),
-    runCommand = execFileAsync,
-  } = options;
-
-  async function runSqliteJson(query, maxBuffer) {
+  const { stateDbPath, maxListSessions = 800, sqliteCandidates = defaultSqliteCandidates(), runCommand = execFileAsync } = options;
+  async function runSqliteJson(query, maxBuffer, signal) {
     const dbUrl = `file:${stateDbPath.replaceAll("\\", "/")}?mode=ro`;
     let lastError = null;
     for (const sqlite of sqliteCandidates) {
       try {
-        const { stdout } = await runCommand(sqlite, ["-readonly", "-json", dbUrl, query], { maxBuffer });
+        const { stdout } = await runCommand(sqlite, ["-readonly", "-json", dbUrl, query], { maxBuffer, signal });
         return stdout;
       } catch (error) {
+        if (error?.name === "AbortError" || error?.code === "ABORT_ERR") throw error;
         lastError = error;
       }
     }
     throw lastError || new Error("sqlite3 is not available");
   }
-
-  async function readThreads({ sinceMs = null, beforeMs = null } = {}) {
+  async function readThreads({ sinceMs = null, beforeMs = null, limit = maxListSessions, signal } = {}) {
     const conditions = ["id not in (select child_thread_id from thread_spawn_edges where child_thread_id is not null)"];
     if (Number.isFinite(sinceMs)) conditions.push(`updated_at_ms >= ${Math.trunc(sinceMs)}`);
     if (Number.isFinite(beforeMs)) conditions.push(`(updated_at_ms < ${Math.trunc(beforeMs)} or updated_at_ms is null)`);
@@ -48,17 +42,16 @@ function createSqliteThreadStore(options) {
       "from threads",
       `where ${conditions.join(" and ")}`,
       "order by updated_at_ms desc limit",
-      String(maxListSessions),
+      String(Math.min(maxListSessions, Math.max(1, Math.floor(Number(limit) || maxListSessions)))),
     ].join(" ");
-
     try {
-      const stdout = await runSqliteJson(query, 30 * 1024 * 1024);
+      const stdout = await runSqliteJson(query, 30 * 1024 * 1024, signal);
       return threadRowsToMap(JSON.parse(stdout || "[]"));
-    } catch {
+    } catch (error) {
+      if (error?.name === "AbortError" || error?.code === "ABORT_ERR") throw error;
       return new Map();
     }
   }
-
   async function readAllThreads() {
     const query = [
       "select",
@@ -69,7 +62,6 @@ function createSqliteThreadStore(options) {
       "order by updated_at_ms desc limit",
       String(maxListSessions),
     ].join(" ");
-
     try {
       const stdout = await runSqliteJson(query, 30 * 1024 * 1024);
       return threadRowsToMap(JSON.parse(stdout || "[]"));
@@ -77,7 +69,6 @@ function createSqliteThreadStore(options) {
       return new Map();
     }
   }
-
   async function readThreadRowsByIds(ids) {
     const uniqueIds = [...new Set(ids.filter(Boolean))];
     if (uniqueIds.length === 0) return new Map();
@@ -90,7 +81,6 @@ function createSqliteThreadStore(options) {
       "from threads where id in",
       `(${quotedIds})`,
     ].join(" ");
-
     try {
       const stdout = await runSqliteJson(query, 10 * 1024 * 1024);
       return threadRowsToMap(JSON.parse(stdout || "[]"));

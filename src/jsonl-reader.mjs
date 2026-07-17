@@ -54,35 +54,62 @@ async function closeReader(reader, stream) {
   stream.destroy();
 }
 
-export async function readJsonl(filePath, { maxLines = Infinity } = {}) {
+function abortError() {
+  const error = new Error("The operation was aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw abortError();
+}
+
+function createJsonlReader(filePath, { signal, maxBytes = Infinity } = {}) {
+  throwIfAborted(signal);
+  const streamOptions = { encoding: "utf8" };
+  if (Number.isFinite(maxBytes)) streamOptions.end = Math.max(0, Math.floor(maxBytes) - 1);
+  const stream = createReadStream(filePath, streamOptions);
+  const reader = createInterface({ input: stream, crlfDelay: Infinity });
+  const onAbort = () => stream.destroy(abortError());
+  signal?.addEventListener("abort", onAbort, { once: true });
+  return {
+    reader,
+    close: async () => {
+      signal?.removeEventListener("abort", onAbort);
+      await closeReader(reader, stream);
+    },
+  };
+}
+
+export async function readJsonl(filePath, { maxLines = Infinity, maxBytes = Infinity, signal } = {}) {
   const items = [];
   if (maxLines <= 0) return items;
 
-  const stream = createReadStream(filePath, { encoding: "utf8" });
-  const reader = createInterface({ input: stream, crlfDelay: Infinity });
+  const { reader, close } = createJsonlReader(filePath, { signal, maxBytes });
   try {
     for await (const line of reader) {
+      throwIfAborted(signal);
       if (items.length >= maxLines) break;
       if (!line.trim()) continue;
       const obj = safeJsonParse(line);
       if (obj) items.push(obj);
     }
   } finally {
-    await closeReader(reader, stream);
+    await close();
   }
   return items;
 }
 
-export async function readJsonlWithDiagnostics(filePath, { maxLines = Infinity } = {}) {
+export async function readJsonlWithDiagnostics(filePath, { maxLines = Infinity, maxBytes = Infinity, signal } = {}) {
   const items = [];
   if (maxLines <= 0) return items;
 
-  const stream = createReadStream(filePath, { encoding: "utf8" });
-  const reader = createInterface({ input: stream, crlfDelay: Infinity });
+  const { reader, close } = createJsonlReader(filePath, { signal, maxBytes });
   let index = 0;
   let lineNumber = 0;
   try {
     for await (const line of reader) {
+      throwIfAborted(signal);
       lineNumber += 1;
       if (!line.trim()) continue;
       if (items.length >= maxLines) break;
@@ -91,7 +118,7 @@ export async function readJsonlWithDiagnostics(filePath, { maxLines = Infinity }
       index += 1;
     }
   } finally {
-    await closeReader(reader, stream);
+    await close();
   }
   return items;
 }

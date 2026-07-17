@@ -83,7 +83,9 @@ Codex 有时会把机器上下文写进用户消息，例如 `AGENTS.md instruct
 
 `src/session-prompts.mjs` 基于 `buildTurns()` 提取根会话中第一个有效的 `user-message`，作为任务归档的 `promptText`。因此首个提示词遵循与阅读视图相同的机器上下文清理、fork replay 前缀抑制、事件回声去重和中断续跑处理口径；会话标题不作为提示词回退值，`compacted` / `context_compacted` 的 `replacement_history` 也不视为新的用户输入。
 
-归档条目的身份是 `sourceId + sessionId`，项目键是 `sourceId + cwd`，没有 `cwd` 的会话进入“无项目”。条目同时保存 `promptPreview`、`promptTimestamp`、`promptEventIndex`、`promptTurnId`、安全附件摘要和 `promptState`。状态包括 `found`、`image-only`、`empty`、`unavailable` 和 `error`。这是只读运行时派生数据，不会写回 Codex 文件或单独数据库；服务端按 `recent24h`、`history` 和 `all` 分时间桶缓存，并按会话文件签名复用已提取结果；只有新增或发生变化的会话才会重新解析 JSONL。
+归档条目的身份是 `sourceId + sessionId`，项目键是 `sourceId + cwd`，没有 `cwd` 的会话进入“无项目”。条目同时保存 `promptPreview`、`promptTimestamp`、`promptEventIndex`、`promptTurnId`、安全附件摘要、`promptTruncated`、`promptLimitReason` 和 `promptState`。状态包括 `found`、`image-only`、`empty`、`unavailable`、`too_large`、`changing` 和 `error`。`too_large` 与 `changing` 不返回正文，因此不会把超限或读取中变化文件的敏感内容带入响应。
+
+归档协调器以读取前后的真实文件签名（路径、大小、`mtimeMs`、`ctimeMs`）为缓存和 in-flight 去重边界。同一签名可由多个请求共享；每个请求是独立订阅，取消一个订阅不会打断其余订阅，最后一个订阅取消才中止底层流。读取后签名变化时立即返回 `changing` 且不缓存，后续请求会以新签名建立新的共享读取。缓存最多保留 400 个会话当前版本。首次归档的会话发现和响应一次最多处理 200 个会话，整个服务实例共享 4 路并发；每个文件最多读取 2 MiB 或 20,000 条非空 JSONL 记录，提示词正文上限为 12,000 字符。任何上限命中都返回 `too_large` 且不返回正文。前端在切换数据源、时间分类、刷新或离开归档时发出取消；HTTP 客户端断开也会取消其订阅。
 
 `turn_aborted` 会终止当前 turn 并标记为 `aborted`。如果一个没有工具或助手输出的 aborted turn 后面紧跟相同首条请求的续跑 turn，默认阅读会压掉前一个空 aborted turn 里的重复请求，但保留 aborted 状态本身。
 

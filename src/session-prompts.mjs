@@ -2,6 +2,12 @@ import { buildTurns, firstLine } from "./session-events.mjs";
 import { cleanUserMessageText } from "./user-message-cleanup.mjs";
 
 const defaultPromptPreviewLimit = 280;
+const defaultArchiveTextLimit = 280;
+
+function archiveText(value, limit = defaultArchiveTextLimit) {
+  const text = String(value || "").trim();
+  return text.length > limit ? `${text.slice(0, limit - 1)}...` : text;
+}
 
 function extractFirstPrompt(events, options = {}) {
   const turns = buildTurns(events || []);
@@ -49,18 +55,21 @@ function promptProjectLabel(cwd) {
 function buildPromptArchiveEntry(session, prompt, options = {}) {
   const sourceId = session?.sourceId || options.sourceId || "local";
   const cwd = session?.cwd || null;
+  const hideTitle = prompt?.state === "too_large" || prompt?.state === "changing";
   return {
     id: `${sourceId}:${session?.id || ""}`,
     sourceId,
     sourceLabel: session?.sourceLabel || options.sourceLabel || null,
     sessionId: session?.id || null,
-    sessionTitle: session?.title || "未命名会话",
+    sessionTitle: hideTitle ? "未命名会话" : archiveText(session?.title || "未命名会话"),
     cwd,
     projectKey: `${sourceId}:${promptProjectKey(cwd)}`,
     projectLabel: promptProjectLabel(cwd),
     promptState: prompt?.state || "empty",
     promptText: prompt?.text || null,
     promptPreview: prompt?.preview || null,
+    promptTruncated: Boolean(prompt?.truncated),
+    promptLimitReason: prompt?.limitReason || null,
     promptTimestamp: prompt?.timestamp || null,
     promptEventIndex: prompt?.sourceIndex ?? null,
     promptMessageId: prompt?.messageId || null,
@@ -76,7 +85,9 @@ function buildPromptArchiveEntry(session, prompt, options = {}) {
 }
 
 export {
+  archiveText,
   buildPromptArchiveEntry,
+  defaultArchiveTextLimit,
   defaultPromptPreviewLimit,
   extractFirstPrompt,
   promptProjectKey,

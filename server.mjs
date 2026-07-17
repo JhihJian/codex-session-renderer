@@ -35,7 +35,8 @@ import {
 } from "./src/session-events.mjs";
 import { dedupeSessionFileRecords, sessionFileRoots } from "./src/session-catalog.mjs";
 import { normalizeSessionEvent } from "./src/session-normalizer.mjs";
-import { buildPromptArchiveEntry, extractFirstPrompt, promptProjectKey } from "./src/session-prompts.mjs";
+import { promptProjectKey } from "./src/session-prompts.mjs";
+import { createAbortError, createConcurrencyGate, createPromptArchiveCoordinator, isAbortError } from "./src/prompt-archive-coordinator.mjs";
 import {
   compactSessionForList,
   publicThreadMeta,
@@ -71,6 +72,7 @@ const configStore = createRendererConfigStore();
 let rendererConfig = await configStore.readConfig();
 let dataSources = createDataSourceRegistry({ config: rendererConfig });
 const sourceContexts = new Map();
+const promptArchiveReadGate = createConcurrencyGate(4);
 
 async function reloadDataSources() {
   rendererConfig = await configStore.readConfig();
@@ -97,9 +99,7 @@ function getSourceContext(sourceId = "local") {
     allSessionCache: null,
     allSessionCacheTime: 0,
     sessionDetailCache: new Map(),
-    promptArchiveEntryCache: new Map(),
-    promptArchiveScopeCache: new Map(),
-    promptArchiveInFlight: new Map(),
+    promptArchiveCoordinator: createPromptArchiveCoordinator({ readGate: promptArchiveReadGate }),
   };
   sourceContexts.set(source.id, context);
   return context;
@@ -112,6 +112,10 @@ function sourceModelOptions(context) {
     dataSourceKind: context.source.kind,
     originalCodexHome: context.originalCodexHome,
   };
+}
+
+function throwIfRequestAborted(signal) {
+  if (signal?.aborted) throw createAbortError();
 }
 
 function analysisEventFromRaw(event, index) {
@@ -150,12 +154,11 @@ function invalidateSourceContext(sourceId) {
   context.allSessionCache = null;
   context.allSessionCacheTime = 0;
   context.sessionDetailCache.clear();
-  context.promptArchiveEntryCache.clear();
-  context.promptArchiveScopeCache.clear();
-  context.promptArchiveInFlight.clear();
+  context.promptArchiveCoordinator = createPromptArchiveCoordinator({ readGate: promptArchiveReadGate });
 }
 
 async function* walkJsonl(dir, options = {}) {
+  if (options.signal?.aborted) throw createAbortError();
   let entries;
   try {
     entries = await fs.readdir(dir, { withFileTypes: true });
@@ -163,6 +166,7 @@ async function* walkJsonl(dir, options = {}) {
     return;
   }
   for (const entry of entries) {
+    if (options.signal?.aborted) throw createAbortError();
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       if (options.sinceMs != null && datedDirectoryEndsBefore(fullPath, options.sinceMs)) continue;
@@ -187,6 +191,7 @@ async function collectSessionFileRecords(context, options = {}) {
   const records = [];
   for (const entry of sessionFileRoots(context.codexHome, context.sessionsRoot)) {
     for await (const filePath of walkJsonl(entry.root, options)) {
+      if (options.signal?.aborted) throw createAbortError();
       let stat;
       try {
         stat = await fs.stat(filePath);
@@ -201,15 +206,21 @@ async function collectSessionFileRecords(context, options = {}) {
         archived: entry.archived,
         stat,
       });
+      if (records.length >= (options.maxRecords || maxListSessions)) return dedupeSessionFileRecords(records);
     }
   }
   return dedupeSessionFileRecords(records);
 }
 
-async function readIndex(context) {
+async function readIndex(context, options = {}) {
   const byId = new Map();
   try {
-    const rows = await readJsonl(context.sessionIndexPath);
+    const readRows = () => readJsonl(context.sessionIndexPath, {
+      maxLines: options.maxRecords || maxListSessions,
+      maxBytes: 64 * 1024,
+      signal: options.signal,
+    });
+    const rows = options.readGate ? await options.readGate.run(readRows, options.signal) : await readRows();
     for (const row of rows) {
       if (!row?.id) continue;
       byId.set(row.id, {
@@ -218,7 +229,8 @@ async function readIndex(context) {
         updatedAt: toIso(row.updated_at) || toIso(row.updatedAt),
       });
     }
-  } catch {
+  } catch (error) {
+    if (isAbortError(error)) throw error;
     // The session files themselves remain authoritative when the index is absent.
   }
   return byId;
@@ -244,51 +256,69 @@ function sessionMatchesCatalogBounds(session, bounds) {
 }
 
 async function listSessions(context, options = {}) {
+  throwIfRequestAborted(options.signal);
   const scope = normalizeSessionCatalogScope(options.scope || "all");
   const bounds = sessionCatalogBounds(scope);
   const now = Date.now();
   const cached = context.sessionCacheByScope.get(scope);
   if (cached && now - cached.time < 3000) return cached.sessions;
 
-  const threads = await context.threadStore.readThreads(bounds);
+  const threads = await context.threadStore.readThreads({
+    ...bounds,
+    limit: options.maxRecords || maxListSessions,
+    signal: options.signal,
+  });
   if (threads.size > 0) {
-    const spawnEdges = await context.threadStore.readSpawnEdges();
     const sessions = [];
     for (const thread of threads.values()) {
+      throwIfRequestAborted(options.signal);
       const session = sessionFromThread(thread, context.codexHome, sourceModelOptions(context));
-      if (await sessionFileExists(session)) sessions.push(session);
+      if (await sessionFileExists(session, options)) sessions.push(session);
     }
-    const rootSessions = rootSessionsOnly(sessions, spawnEdges);
+    const rootSessions = rootSessionsOnly(sessions, []);
     rootSessions.sort((a, b) => new Date(b.updatedAt || b.fileModifiedAt || 0) - new Date(a.updatedAt || a.fileModifiedAt || 0));
     const scopedSessions = rootSessions.filter((session) => sessionMatchesCatalogBounds(session, bounds));
-    context.sessionCache = scopedSessions.slice(0, maxListSessions);
-    context.sessionCacheTime = now;
-    context.sessionCacheByScope.set(scope, { sessions: context.sessionCache, time: now });
-    return context.sessionCache;
+    const results = scopedSessions.slice(0, options.maxRecords || maxListSessions);
+    if (!options.maxRecords) {
+      context.sessionCache = results;
+      context.sessionCacheTime = now;
+      context.sessionCacheByScope.set(scope, { sessions: context.sessionCache, time: now });
+    }
+    return results;
   }
 
-  const sessions = await listFileSessions(context, bounds);
+  const sessions = await listFileSessions(context, bounds, options);
   const rootSessions = rootSessionsOnly(sessions, spawnEdgesFromSessions(sessions));
   rootSessions.sort((a, b) => new Date(b.updatedAt || b.fileModifiedAt) - new Date(a.updatedAt || a.fileModifiedAt));
-  context.sessionCache = rootSessions.slice(0, maxListSessions);
-  context.sessionCacheTime = now;
-  context.sessionCacheByScope.set(scope, { sessions: context.sessionCache, time: now });
-  return context.sessionCache;
+  const results = rootSessions.slice(0, options.maxRecords || maxListSessions);
+  if (!options.maxRecords) {
+    context.sessionCache = results;
+    context.sessionCacheTime = now;
+    context.sessionCacheByScope.set(scope, { sessions: context.sessionCache, time: now });
+  }
+  return results;
 }
 
-async function listFileSessions(context, bounds = {}) {
-  const index = bounds.sinceMs == null ? await readIndex(context) : new Map();
-  const files = await collectSessionFileRecords(context, bounds);
+async function listFileSessions(context, bounds = {}, options = {}) {
+  const index = bounds.sinceMs == null ? await readIndex(context, options) : new Map();
+  const files = await collectSessionFileRecords(context, { ...bounds, ...options });
 
   const sessions = [];
   for (const record of files) {
+    throwIfRequestAborted(options.signal);
     const { filePath, stat } = record;
     const id = sessionIdFromFile(filePath);
     const indexed = index.get(id);
     let events = [];
     try {
-      events = await readJsonl(filePath, { maxLines: bounds.beforeMs != null ? 1 : 40 });
-    } catch {
+      const readMeta = () => readJsonl(filePath, {
+        maxLines: bounds.beforeMs != null ? 1 : 40,
+        maxBytes: 64 * 1024,
+        signal: options.signal,
+      });
+      events = options.readGate ? await options.readGate.run(readMeta, options.signal) : await readMeta();
+    } catch (error) {
+      if (isAbortError(error)) throw error;
       // Keep the unreadable file visible in diagnostics.
     }
     const meta = sessionMetaFromEvents(events);
@@ -430,10 +460,12 @@ async function listAllSessionsForQuery(context) {
   return context.allSessionCache;
 }
 
-async function sessionFileExists(session) {
+async function sessionFileExists(session, options = {}) {
   if (!session?.path) return false;
+  if (options.signal?.aborted) throw createAbortError();
   try {
     const stat = await fs.stat(session.path);
+    if (options.signal?.aborted) throw createAbortError();
     return stat.isFile();
   } catch {
     return false;
@@ -460,26 +492,28 @@ async function querySessions(context, params, projectionOptions = {}) {
   };
 }
 
-async function listPromptArchive(context, scope = "recent24h") {
+async function listPromptArchive(context, scope = "recent24h", options = {}) {
   const normalizedScope = normalizeSessionCatalogScope(scope);
-  const sessions = await listSessions(context, { scope: normalizedScope });
-  const cacheKey = sessions.map(promptSessionCacheSignature).join("\n");
-  const cachedScope = context.promptArchiveScopeCache.get(normalizedScope);
-  if (cachedScope?.key === cacheKey) return cachedScope.entries;
-
-  const entries = await Promise.all(sessions.map((session) => getPromptArchiveEntry(context, session)));
+  const sessions = await listSessions(context, {
+    scope: normalizedScope,
+    signal: options.signal,
+    maxRecords: context.promptArchiveCoordinator.limits.maxSessions,
+    readGate: promptArchiveReadGate,
+  });
+  const result = await context.promptArchiveCoordinator.list(sessions, { signal: options.signal });
+  const entries = result.entries;
   entries.sort((left, right) => promptEntryTimeMs(right) - promptEntryTimeMs(left));
-  context.promptArchiveScopeCache.set(normalizedScope, { key: cacheKey, entries });
-  return entries;
+  return { entries, truncated: result.truncated };
 }
 
-async function queryPromptArchive(context, params) {
+async function queryPromptArchive(context, params, options = {}) {
   const scope = normalizeSessionCatalogScope(params.get("scope") || "recent24h");
   const q = String(params.get("q") || "").trim().toLowerCase();
   const project = String(params.get("project") || "").trim();
   const status = String(params.get("status") || "all").trim();
-  const limit = Math.max(1, Math.min(1000, Number(params.get("limit")) || 800));
-  const entries = (await listPromptArchive(context, scope)).filter((entry) => {
+  const limit = Math.max(1, Math.min(context.promptArchiveCoordinator.limits.maxSessions, Number(params.get("limit")) || context.promptArchiveCoordinator.limits.maxSessions));
+  const archive = await listPromptArchive(context, scope, options);
+  const entries = archive.entries.filter((entry) => {
     if (project && entry.projectKey !== project && promptProjectKey(entry.cwd) !== project) return false;
     if (status !== "all" && entry.promptState !== status) return false;
     if (!q) return true;
@@ -497,46 +531,13 @@ async function queryPromptArchive(context, params) {
       total: entries.length,
       returned: Math.min(entries.length, limit),
       limit,
-      truncated: entries.length > limit,
+      truncated: archive.truncated || entries.length > limit,
     },
     projects: projectSummaries(entries),
     serverTime: new Date().toISOString(),
   };
 }
 
-function promptSessionCacheSignature(session) {
-  return [session?.id || "", session?.path || "", session?.sizeBytes ?? "", session?.fileModifiedAt || "", session?.updatedAt || ""].join(":");
-}
-
-async function getPromptArchiveEntry(context, session) {
-  const cacheKey = `${context.source.id}:${session?.id || ""}`;
-  const signature = promptSessionCacheSignature(session);
-  const cached = context.promptArchiveEntryCache.get(cacheKey);
-  if (cached?.signature === signature) return cached.entry;
-  const inFlight = context.promptArchiveInFlight.get(cacheKey);
-  if (inFlight) return inFlight;
-
-  const task = (async () => {
-    let entry;
-    if (!session?.path) {
-      entry = buildPromptArchiveEntry(session, { state: "unavailable", attachments: [] });
-    } else {
-      try {
-        entry = buildPromptArchiveEntry(session, extractFirstPrompt(await readJsonlWithDiagnostics(session.path)));
-      } catch {
-        entry = buildPromptArchiveEntry(session, { state: "error", attachments: [] });
-      }
-    }
-    context.promptArchiveEntryCache.set(cacheKey, { signature, entry });
-    return entry;
-  })();
-  context.promptArchiveInFlight.set(cacheKey, task);
-  try {
-    return await task;
-  } finally {
-    context.promptArchiveInFlight.delete(cacheKey);
-  }
-}
 
 function projectSummaries(entries) {
   const groups = new Map();
@@ -1085,6 +1086,25 @@ function allowMethod(req, res, methods) {
   return false;
 }
 
+function requestAbortSubscription(req, res) {
+  const controller = new AbortController();
+  const abort = () => {
+    if (!controller.signal.aborted) controller.abort();
+  };
+  const onResponseClose = () => {
+    if (!res.writableEnded) abort();
+  };
+  req.once("aborted", abort);
+  res.once("close", onResponseClose);
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      req.removeListener("aborted", abort);
+      res.removeListener("close", onResponseClose);
+    },
+  };
+}
+
 function isReadOnlyApiPath(pathname) {
   return (
     pathname === "/api/health" ||
@@ -1170,7 +1190,14 @@ async function route(req, res) {
     if (sourcePromptsMatch) {
       const context = getSourceContext(decodeURIComponent(sourcePromptsMatch[1]));
       if (!context) return sendError(res, 404, "Data source not found");
-      return sendJson(res, 200, await queryPromptArchive(context, url.searchParams));
+      const subscription = requestAbortSubscription(req, res);
+      try {
+        const archive = await queryPromptArchive(context, url.searchParams, { signal: subscription.signal });
+        if (!subscription.signal.aborted && !res.destroyed) return sendJson(res, 200, archive);
+        return undefined;
+      } finally {
+        subscription.dispose();
+      }
     }
     if (sourceRefreshMatch) {
       if (req.method !== "POST") return sendError(res, 405, "Method not allowed");
@@ -1299,6 +1326,7 @@ async function route(req, res) {
     }
     return serveStatic(req, res, pathname);
   } catch (error) {
+    if (isAbortError(error) || res.destroyed) return undefined;
     const status = error?.status || 500;
     const publicMessage = status >= 500 && !isRemoteServiceError(error) ? "Internal server error" : sanitizeErrorMessage(error?.message || "Bad request");
     return sendError(res, status, publicMessage, {

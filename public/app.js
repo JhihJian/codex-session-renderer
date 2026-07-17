@@ -71,6 +71,7 @@ const state = {
   promptArchiveError: "",
   promptArchiveRequestKey: "",
   promptArchiveRequestSeq: 0,
+  promptArchiveAbortController: null,
   promptArchiveScope: "",
   promptArchiveLoaded: false,
   promptArchiveProject: "all",
@@ -779,6 +780,7 @@ function selectSidebarMode(mode) {
     renderAll();
     return;
   }
+  if (next !== "prompts") cancelPromptArchiveRequest();
   state.sidebarMode = next;
   els.appShell.dataset.mode = next;
   els.appShell.dataset.panel = next === "prompts" ? "thread" : "sessions";
@@ -802,6 +804,9 @@ async function loadPromptArchive({ force = false } = {}) {
     renderAll();
     return;
   }
+  cancelPromptArchiveRequest();
+  const controller = new AbortController();
+  state.promptArchiveAbortController = controller;
   const requestKey = `prompts:${++state.promptArchiveRequestSeq}:${sourceId}:${scope}`;
   state.promptArchiveRequestKey = requestKey;
   state.promptArchiveLoading = true;
@@ -813,23 +818,30 @@ async function loadPromptArchive({ force = false } = {}) {
   state.promptArchiveProject = "all";
   renderAll();
   try {
-    const data = await fetchJson(promptArchiveUrl(sourceId, scope));
+    const data = await fetchJson(promptArchiveUrl(sourceId, scope), { signal: controller.signal });
     if (state.promptArchiveRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
     state.promptArchive = data.entries || [];
     state.promptArchiveProjects = data.projects || [];
     state.promptArchiveLoaded = true;
     state.promptArchiveError = "";
   } catch (error) {
+    if (isAbortError(error)) return;
     if (state.promptArchiveRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
     state.promptArchive = [];
     state.promptArchiveProjects = [];
     state.promptArchiveError = error.message;
   } finally {
+    if (state.promptArchiveAbortController === controller) state.promptArchiveAbortController = null;
     if (state.promptArchiveRequestKey === requestKey && state.selectedSourceId === sourceId) {
       state.promptArchiveLoading = false;
       renderAll();
     }
   }
+}
+
+function cancelPromptArchiveRequest() {
+  state.promptArchiveAbortController?.abort();
+  state.promptArchiveAbortController = null;
 }
 
 function promptArchiveScope() {
@@ -1040,6 +1052,7 @@ function clearSelectedSession() {
 
 async function selectSource(sourceId) {
   if (!sourceId || sourceId === state.selectedSourceId) return;
+  cancelPromptArchiveRequest();
   state.selectedSourceId = sourceId;
   state.sessions = [];
   state.filteredSessions = [];
@@ -1064,6 +1077,7 @@ async function selectSource(sourceId) {
 async function refreshSelectedSource() {
   const source = selectedSource();
   if (!source?.status?.refreshable) return;
+  cancelPromptArchiveRequest();
   els.refreshRemoteButton.disabled = true;
   els.refreshRemoteButton.textContent = "正在拉取快照";
   try {
@@ -2459,6 +2473,8 @@ function promptArchiveStateLabel(value) {
   if (value === "found") return "已找到首个任务";
   if (value === "image-only") return "仅图片附件";
   if (value === "unavailable") return "正文不可用";
+  if (value === "too_large") return "内容超过归档读取上限";
+  if (value === "changing") return "文件读取时仍在变化";
   if (value === "error") return "读取失败";
   return "未找到明确任务";
 }
@@ -8721,6 +8737,7 @@ async function fetchJson(url, options = {}) {
   try {
     response = await fetch(url, { cache: "no-store", ...options });
   } catch (error) {
+    if (error?.name === "AbortError") throw error;
     throw new Error(requestFailedMessage(error));
   }
   if (!response.ok) {
@@ -8728,6 +8745,10 @@ async function fetchJson(url, options = {}) {
     throw new Error(errorText(text, response.statusText, response.status));
   }
   return response.json();
+}
+
+function isAbortError(error) {
+  return error?.name === "AbortError";
 }
 
 async function fetchText(url) {

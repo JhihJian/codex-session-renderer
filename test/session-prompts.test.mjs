@@ -78,3 +78,12 @@ test("buildPromptArchiveEntry keeps source/session identity and project grouping
   assert.equal(entry.promptText, "完整任务");
   assert.equal(promptProjectKey("D:\\work\\App\\"), "d:/work/app");
 });
+
+test("buildPromptArchiveEntry hides user-derived titles for bounded archive states", () => {
+  const entry = buildPromptArchiveEntry(
+    { id: "session-1", sourceId: "local", title: "这是不应在超限结果中返回的用户正文" },
+    { state: "too_large", limitReason: "prompt_too_long" },
+  );
+  assert.equal(entry.sessionTitle, "未命名会话");
+  assert.equal(entry.promptText, null);
+});
