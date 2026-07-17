@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -18,6 +19,7 @@ function defaultConfigPath(homeDir = os.homedir()) {
 function createRendererConfigStore(options = {}) {
   const fsApi = options.fsApi || fs;
   const configPath = options.configPath || defaultConfigPath(options.homeDir || os.homedir());
+  let mutationQueue = Promise.resolve();
 
   async function readConfig() {
     return normalizeConfig(await readConfigFile(configPath, fsApi));
@@ -25,8 +27,18 @@ function createRendererConfigStore(options = {}) {
 
   async function writeConfig(config) {
     const normalized = normalizeConfig(config);
-    await fsApi.mkdir(path.dirname(configPath), { recursive: true });
-    await fsApi.writeFile(configPath, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
+    const directory = path.dirname(configPath);
+    const temporaryPath = `${configPath}.${randomUUID()}.tmp`;
+    await fsApi.mkdir(directory, { recursive: true, mode: 0o700 });
+    await fsApi.chmod(directory, 0o700);
+    try {
+      await fsApi.writeFile(temporaryPath, `${JSON.stringify(normalized, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+      await fsApi.chmod(temporaryPath, 0o600);
+      await fsApi.rename(temporaryPath, configPath);
+      await fsApi.chmod(configPath, 0o600);
+    } finally {
+      await fsApi.rm(temporaryPath, { force: true });
+    }
     return normalized;
   }
 
@@ -35,33 +47,42 @@ function createRendererConfigStore(options = {}) {
     return config.peers.map(publicPeer);
   }
 
-  async function upsertPeer(input) {
-    const config = await readConfig();
-    const normalizedUrl = normalizePeerUrl(input.url);
-    const requestedId = normalizeSourceId(input.id || input.label || normalizedUrl);
-    const index = config.peers.findIndex((item) => item.id === requestedId);
-    const peer = normalizePeerInput({ ...input, url: normalizedUrl, requireToken: index < 0 });
-    if (index >= 0) {
-      const previous = config.peers[index];
-      config.peers[index] = {
-        ...previous,
-        ...peer,
-        token: peer.token || previous.token || "",
-      };
-    } else {
-      config.peers.push(peer);
-    }
-    await writeConfig(config);
-    return publicPeer(config.peers.find((item) => item.id === peer.id));
+  function queueMutation(operation) {
+    const result = mutationQueue.then(operation);
+    mutationQueue = result.catch(() => {});
+    return result;
   }
 
-  async function deletePeer(id) {
-    const sourceId = normalizeSourceId(id);
-    const config = await readConfig();
-    const nextPeers = config.peers.filter((peer) => peer.id !== sourceId);
-    if (nextPeers.length === config.peers.length) return false;
-    await writeConfig({ ...config, peers: nextPeers });
-    return true;
+  function upsertPeer(input) {
+    return queueMutation(async () => {
+      const config = await readConfig();
+      const normalizedUrl = normalizePeerUrl(input.url);
+      const requestedId = normalizeSourceId(input.id || input.label || normalizedUrl);
+      const index = config.peers.findIndex((item) => item.id === requestedId);
+      const peer = normalizePeerInput({ ...input, url: normalizedUrl, requireToken: index < 0 });
+      if (index >= 0) {
+        const previous = config.peers[index];
+        if (!peer.token && previous.token && peer.url !== previous.url) {
+          throw validationError("token", "修改远端地址时必须重新填写访问令牌。");
+        }
+        config.peers[index] = { ...previous, ...peer, token: peer.token || previous.token || "" };
+      } else {
+        config.peers.push(peer);
+      }
+      await writeConfig(config);
+      return publicPeer(config.peers.find((item) => item.id === peer.id));
+    });
+  }
+
+  function deletePeer(id) {
+    return queueMutation(async () => {
+      const sourceId = normalizeSourceId(id);
+      const config = await readConfig();
+      const nextPeers = config.peers.filter((peer) => peer.id !== sourceId);
+      if (nextPeers.length === config.peers.length) return false;
+      await writeConfig({ ...config, peers: nextPeers });
+      return true;
+    });
   }
 
   return {
@@ -70,13 +91,16 @@ function createRendererConfigStore(options = {}) {
     listPeers,
     readConfig,
     upsertPeer,
-    writeConfig,
+    writeConfig: (config) => queueMutation(() => writeConfig(config)),
   };
 }
 
 async function readConfigFile(filePath, fsApi = fs) {
   try {
-    return JSON.parse(await fsApi.readFile(filePath, "utf8"));
+    const config = JSON.parse(await fsApi.readFile(filePath, "utf8"));
+    await fsApi.chmod(path.dirname(filePath), 0o700);
+    await fsApi.chmod(filePath, 0o600);
+    return config;
   } catch (error) {
     if (error?.code === "ENOENT") return {};
     throw error;

@@ -5,7 +5,7 @@ Description=Codex session renderer
 Type=simple
 WorkingDirectory=/data/dev/codex-session-renderer
 Environment=NODE_ENV=production
-Environment=HOST=0.0.0.0
+Environment=HOST=127.0.0.1
 Environment=PORT=4789
 Environment=CODEX_HOME=/home/jhihjian/.codex
 ExecStart=/home/jhihjian/.nvm/versions/node/v24.13.1/bin/node /data/dev/codex-session-renderer/server.mjs

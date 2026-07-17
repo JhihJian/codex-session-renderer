@@ -1,14 +1,25 @@
 import { createReadStream, promises as fs } from "node:fs";
 import path from "node:path";
 
-const jsonHeaders = {
-  "content-type": "application/json; charset=utf-8",
+const securityHeaders = {
   "cache-control": "no-store",
+  "content-security-policy": "default-src 'self'; base-uri 'none'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'",
+  "cross-origin-opener-policy": "same-origin",
+  "cross-origin-resource-policy": "same-origin",
+  "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+  "referrer-policy": "no-referrer",
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "DENY",
+};
+
+const jsonHeaders = {
+  ...securityHeaders,
+  "content-type": "application/json; charset=utf-8",
 };
 
 const textHeaders = {
+  ...securityHeaders,
   "content-type": "text/plain; charset=utf-8",
-  "cache-control": "no-store",
 };
 
 const staticTypes = new Map([
@@ -35,17 +46,17 @@ const publicErrorMessages = new Map([
   ["Unauthorized", "未授权访问"],
 ]);
 
-function send(res, status, headers, body) {
-  res.writeHead(status, headers);
+function send(res, status, headers, body, extraHeaders = {}) {
+  res.writeHead(status, { ...headers, ...extraHeaders });
   res.end(body);
 }
 
-function sendJson(res, status, body) {
-  send(res, status, jsonHeaders, JSON.stringify(body));
+function sendJson(res, status, body, extraHeaders = {}) {
+  send(res, status, jsonHeaders, JSON.stringify(body), extraHeaders);
 }
 
-function sendText(res, status, body) {
-  send(res, status, textHeaders, body);
+function sendText(res, status, body, extraHeaders = {}) {
+  send(res, status, textHeaders, body, extraHeaders);
 }
 
 function publicErrorMessage(message) {
@@ -53,8 +64,8 @@ function publicErrorMessage(message) {
   return publicErrorMessages.get(text) || text || "请求失败";
 }
 
-function sendError(res, status, message, details = null) {
-  sendJson(res, status, { error: publicErrorMessage(message), details });
+function sendError(res, status, message, details = null, extraHeaders = {}) {
+  sendJson(res, status, { error: publicErrorMessage(message), details }, extraHeaders);
 }
 
 function contentTypeForPath(filePath, types = staticTypes) {
@@ -89,7 +100,7 @@ async function serveStaticFile(res, publicDir, pathname, options = {}) {
   }
   if (!stat.isFile()) return sendError(res, 404, "Not found");
 
-  res.writeHead(200, { "content-type": contentTypeForPath(filePath, types), "cache-control": "no-store" });
+  res.writeHead(200, { ...jsonHeaders, "content-type": contentTypeForPath(filePath, types) });
   createStream(filePath).pipe(res);
 }
 

@@ -47,15 +47,18 @@ npm start
 
 默认路径不存在且未显式配置时，不会显示空的 Pi Agent 数据源；显式配置后即使目录暂不可读，也会在数据源状态中提示目录不存在。
 
-如需让局域网内其他设备访问，可把监听地址改为所有网卡：
+默认的 `127.0.0.1` / `::1` 监听不需要认证，适合仅在当前工作台浏览。非 loopback 监听（包括 `0.0.0.0`、`::` 和局域网 IP）必须同时设置运行时访问令牌 `CODEX_SESSION_RENDERER_TOKEN`，缺少令牌时服务会拒绝启动。令牌只从运行时环境读取，不会写入页面管理的数据源配置、API 响应或日志。
+
+如需让局域网内其他设备访问，可在当前终端设置随机令牌后启动：
 
 ```powershell
 $env:HOST='0.0.0.0'
 $env:PORT=4789
+$env:CODEX_SESSION_RENDERER_TOKEN='<随机且足够长的访问令牌>'
 npm start
 ```
 
-Linux 用户级 systemd 部署时同样设置 `Environment=HOST=0.0.0.0`。服务会读取部署机上的 Codex 会话数据；开放到局域网前应确认访问范围。
+局域网浏览器首次打开页面会出现 HTTP Basic 认证提示，用户名填写 `codex`，密码填写 `CODEX_SESSION_RENDERER_TOKEN` 的值；同源静态资源和 API 请求会复用已认证的浏览器会话。脚本客户端可使用 `curl -u "codex:$CODEX_SESSION_RENDERER_TOKEN"`，也可传递 `Authorization: Bearer <token>`。Basic/Bearer 凭据在明文 HTTP 上传输，局域网必须是受信任网络；跨不可信网络访问时，应在受信任的 HTTPS 反向代理之后部署。
 
 当前开发环境是 Windows；仓库内的 systemd 单元是 Linux 部署机示例。安装前按目标机器实际路径替换模板中的 `WorkingDirectory`、`CODEX_HOME`、`ExecStart` 等绝对路径，再复制到用户级 systemd 目录：
 
@@ -81,6 +84,30 @@ sudo systemctl daemon-reload
 ```
 
 启动后，本机访问 `http://127.0.0.1:4789/`，局域网访问使用当前设备的局域网地址，例如 `http://192.168.1.92:4789/`。
+
+仓库内的 systemd 模板默认保持 `HOST=127.0.0.1`，因此安装后仍是零配置本机访问。确需开放局域网时，令牌放入仅当前用户可读的 systemd 环境文件，再创建 drop-in，避免把令牌写进 unit 或仓库：
+
+```bash
+install -d -m 0700 ~/.config/codex-session-renderer
+umask 077
+printf 'CODEX_SESSION_RENDERER_TOKEN=%s\n' "$(openssl rand -hex 32)" > ~/.config/codex-session-renderer/access.env
+chmod 0600 ~/.config/codex-session-renderer/access.env
+mkdir -p ~/.config/systemd/user/codex-session-renderer.service.d
+cat > ~/.config/systemd/user/codex-session-renderer.service.d/lan.conf <<'EOF'
+[Service]
+Environment=HOST=0.0.0.0
+EnvironmentFile=%h/.config/codex-session-renderer/access.env
+EOF
+systemctl --user daemon-reload
+systemctl --user restart codex-session-renderer
+```
+
+验证局域网服务时，未带凭据必须返回 `401`，带凭据才可读取敏感会话：
+
+```bash
+curl -i http://127.0.0.1:4789/api/health
+curl -fsS -u "codex:$CODEX_SESSION_RENDERER_TOKEN" http://127.0.0.1:4789/api/health
+```
 
 ## 手动更新部署
 
@@ -147,7 +174,7 @@ npm start
 %USERPROFILE%\.codex-session-renderer\config.json
 ```
 
-该文件包含页面管理的数据源访问令牌，应按本机私密配置处理。页面 API 只返回 `hasToken`，不会把访问令牌回显给浏览器表单；编辑远端数据源时访问令牌留空表示保留原访问令牌，关闭或切换数据源前会提示未保存更改。远端地址不要把账号、密码、token 或其他认证信息写进地址里，也不要包含查询参数或片段，认证统一使用访问令牌（Bearer token）；程序会拒绝这类地址。远端数据源面板打开时会先显示“读取远端数据源中”，读取失败会在列表和状态区保留错误，不会伪装成“暂无远端数据源”。面板里的“测试已保存连接”只使用已保存配置和访问令牌向远端发起只读健康检查，当前表单草稿不会被测试，也不会保存配置或拉取快照；“移除本机配置”只删除本机保存的配置和访问令牌，不删除远端会话、远端快照或本机已拉取的缓存快照。
+该文件包含页面管理的数据源访问令牌，应按本机私密配置处理。在 Unix 上程序会将配置目录收紧为 `0700`、配置文件收紧为 `0600`，并通过临时文件原子替换写入；已有配置在下一次读取时也会尝试修正权限。页面 API 只返回 `hasToken`，不会把访问令牌回显给浏览器表单；编辑远端数据源时访问令牌留空表示保留原访问令牌，但更换已保存远端地址时必须重新填写令牌，避免把旧令牌发送到新地址。远端地址不要把账号、密码、token 或其他认证信息写进地址里，也不要包含查询参数或片段，认证统一使用访问令牌（Bearer token）；程序会拒绝这类地址。远端数据源面板打开时会先显示“读取远端数据源中”，读取失败会在列表和状态区保留错误，不会伪装成“暂无远端数据源”。面板里的“测试已保存连接”只使用已保存配置和访问令牌向远端发起只读健康检查，当前表单草稿不会被测试，也不会保存配置或拉取快照；“移除本机配置”只删除本机保存的配置和访问令牌，不删除远端会话、远端快照或本机已拉取的缓存快照。
 
 左侧时间分类的“实时 <3h”展示已同步到本机的可打开会话；本机列表首次加载最近 24 小时的轻量元数据，“更早”会话在切换分类后惰性加载，不会在首屏扫描或解析。拉取远端实时快照默认只补最近 3 小时。“近一天”和“更早”对于远端数据源会调用远端 `/api/codex-session-index` 做统一入口检索，只返回标题、时间、项目路径、模型等索引信息，不传历史正文。历史索引结果会在会话行标注“仅索引/未同步正文”，用于定位和搜索，不会被误当成已同步的可打开正文；点击这类行时页面会提示：历史正文需要远端扩大共享窗口或额外同步后再拉取，或者切回已有本地快照查看已同步会话。
 
@@ -352,7 +379,7 @@ npm run lint:fix
 - 远端数据源的正文只在拉取阶段访问配置好的实时快照 URL 或快照目录；普通会话列表、复核台、Markdown 导出和正文渲染都从本地 `current` 快照读取。拉取实时快照默认只补最近 3 小时。历史分类仅按需访问远端索引接口，索引只返回元数据，不包含会话正文；历史正文需要远端扩大共享窗口或额外同步后再拉取，或切回已有本地快照查看已同步会话。
 - 远端实时快照拉取使用 staging 目录构建，再原子切换到 `current`。共享服务的实时快照和 `copyCodexTree` 发布的远端快照只包含 `sessions/**/*.jsonl`、`state_5.sqlite`、`session_index.jsonl` 等允许文件，不包含 `archived_sessions`；本地文件回退扫描 `sessions` 与 `archived_sessions` 是另一条读取路径。拉取失败不会覆盖上一次成功快照。同一数据源的并发拉取会复用正在进行的任务，不同数据源仍可并行，避免并发发布 `staging/current/previous` 竞态。
 - 远端 SQLite 中的 `rollout_path` 会按配置的远端 Codex Home 映射到本地快照 Codex Home。
-- 本地工作台默认绑定 `127.0.0.1`，适合作为同机只读数据源；可通过 `HOST` 覆盖监听地址，当前用户级 systemd 模板设置 `HOST=0.0.0.0` 用于局域网访问。独立的 `npm run share` 快照接口始终要求 Bearer token。
+- 本地工作台默认绑定 `127.0.0.1`，适合作为同机只读数据源；显式 loopback 地址 `127.0.0.0/8` 和 `::1` 保持零配置，其他 `HOST` 值必须设置 `CODEX_SESSION_RENDERER_TOKEN`，服务启动时统一保护静态页与全部 API。独立的 `npm run share` 快照接口始终要求 Bearer token。
 - 前端使用原生 HTML/CSS/JavaScript，无构建步骤；Markdown 渲染通过本地 `markdown-it` 浏览器包完成。渲染层借鉴 `earendil-works/pi/packages/tui` 的大模型输出处理思路：进入 Markdown 前会统一 tab 宽度并修剪流式输出结尾的半截代码围栏，代码块带语言栏和复制按钮，长代码、列表和表格按容器稳定换行或滚动。
 - 顶栏设置入口提供“展示规则设置”，用户可在浏览器本地新增、启停或删除工具摘要规则、审计链执行聚合规则和证据风险规则；自定义规则优先于内置规则。设置页按“摘要规则 / 执行聚合 / 证据风险 / 结构化展示”分类切换，顶部概览主数字展示生效数量，辅助文字展示自定义/内置数量，当前分类只展示自己的编辑区和内置参考；证据风险页内容较长时只滚动编辑区，取消/保存 footer 固定在弹窗可见区域。结构化展示分类用只读说明列出命令输出结构化视图当前覆盖的命令类型和展示内容，便于判断哪些 `exec_command` 输出会被自动整理。摘要规则只影响审计链、复核台、原始事件列表标题和前端搜索，摘要规则名称仅用于本地管理；执行聚合规则只影响审计链执行链中连续执行节点的折叠展示，不改变服务端 `audit.nodes`、turn/item 轻量模型、`trace.root` 或原始事件；证据风险规则会随会话详情请求传给服务端，用于重新派生 `audit.nodes` 中的证据风险节点和风险计数。若浏览器 localStorage 里存在旧版本留下的非法证据风险规则，普通打开会话时前端会跳过这些非法覆盖，不再把它们序列化到详情请求；用户仍可在设置页看到并修正规则后保存。
 - 会话列表优先读取 SQLite `threads` 表，并在 SQLite 查询层排除 `thread_spawn_edges.child_thread_id` 对应的子代理线程，避免子代理在左侧会话列表独立展示；SQLite 不可用或列表查询失败时回退扫描 JSONL 文件。文件回退会同时扫描 `sessions` 和 `archived_sessions`，按 session id 去重，live 副本优先，只有没有 live 副本时才把 archived 副本作为可打开会话；同时会从 `session_meta.source.subagent.thread_spawn` 继续识别父子关系和子代理昵称，默认仍只展示根会话。
@@ -417,7 +444,7 @@ Audit Chain 是只读派生模型，不修改原始会话数据。服务端在�
 
 ## 本地 API
 
-只读 API 只接受 `GET`，错误方法统一返回 `405` JSON error。写接口保持各自声明的方法：远端数据源配置使用 `GET/POST/PUT/DELETE`，连通性测试和远端快照拉取使用 `POST`。静态文件当前只接受 `GET`，不单独支持 `HEAD`。通用错误响应保持 `{ "error": "<中文提示>", "details": ... }` 结构，前端优先展示中文 `error` 文案；例如 `405` 返回“请求方法不允许”，数据源、会话、事件不存在分别返回“数据源不存在”“会话不存在”“事件不存在”，无效 `evidenceRiskRules` 返回“evidenceRiskRules 参数无效”，静态 404 返回“未找到资源”。`details` 可保留调试字段，但不作为普通用户提示来源。
+只读 API 只接受 `GET`，错误方法统一返回 `405` JSON error。写接口保持各自声明的方法：远端数据源配置使用 `GET/POST/PUT/DELETE`，连通性测试和远端快照拉取使用 `POST`。静态文件当前只接受 `GET`，不单独支持 `HEAD`。非 loopback 监听下，静态页、所有读取 API 和全部写/远端操作 API 都要求 HTTP Basic（用户名 `codex`、密码为 `CODEX_SESSION_RENDERER_TOKEN`）或 `Authorization: Bearer <token>`；认证失败统一为 `401` 且不会进入路由。所有 JSON、文本、静态和错误响应均带 `Cache-Control: no-store`、CSP、`X-Content-Type-Options: nosniff`、点击劫持防护、严格 referrer 和权限策略响应头；不设置跨域放行头。通用错误响应保持 `{ "error": "<中文提示>", "details": ... }` 结构，前端优先展示中文 `error` 文案；例如 `405` 返回“请求方法不允许”，数据源、会话、事件不存在分别返回“数据源不存在”“会话不存在”“事件不存在”，无效 `evidenceRiskRules` 返回“evidenceRiskRules 参数无效”，静态 404 返回“未找到资源”。`details` 可保留调试字段，但不作为普通用户提示来源，也不返回异常堆栈或访问令牌。
 
 - `GET /api/health`：查看只读数据源和服务状态。
 - `GET /api/sources`：列出本机和远端数据源、快照拉取状态和脱敏失败原因。

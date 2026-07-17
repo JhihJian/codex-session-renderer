@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildAuditChain } from "./src/audit-chain.mjs";
+import { assertSecureListenConfig, createAccessControl, requireAuthorizedRequest } from "./src/access-control.mjs";
 import { createDataSourceRegistry, sanitizeErrorMessage } from "./src/data-sources.mjs";
 import { evidenceRiskRulesFingerprint, normalizeEvidenceRiskRules, validateEvidenceRiskRules } from "./src/evidence-risk-rules.mjs";
 import { sendError, sendJson, sendText, serveStaticFile } from "./src/http-response.mjs";
@@ -65,6 +66,7 @@ const maxListSessions = Number(process.env.CODEX_SESSION_RENDERER_LIMIT || 800);
 const recentSessionWindowMs = 24 * 60 * 60 * 1000;
 const port = Number(process.env.PORT || 4789);
 const host = process.env.HOST || "127.0.0.1";
+const accessToken = process.env.CODEX_SESSION_RENDERER_TOKEN || "";
 const configStore = createRendererConfigStore();
 let rendererConfig = await configStore.readConfig();
 let dataSources = createDataSourceRegistry({ config: rendererConfig });
@@ -1298,13 +1300,12 @@ async function route(req, res) {
     return serveStatic(req, res, pathname);
   } catch (error) {
     const status = error?.status || 500;
-    const publicMessage = status >= 500 && !isRemoteServiceError(error) ? "Internal server error" : error?.message || "Bad request";
+    const publicMessage = status >= 500 && !isRemoteServiceError(error) ? "Internal server error" : sanitizeErrorMessage(error?.message || "Bad request");
     return sendError(res, status, publicMessage, {
       name: error?.name,
       code: error?.code,
       status,
       message: publicMessage,
-      stack: process.env.NODE_ENV === "development" ? error?.stack : undefined,
     });
   }
 }
@@ -1321,13 +1322,22 @@ function queryProjectionOptions(context, url) {
 }
 
 function createRendererServer(options = {}) {
-  return createServer(options.route || route);
+  const listenHost = options.host || host;
+  const listenToken = options.token ?? accessToken;
+  assertSecureListenConfig({ host: listenHost, token: listenToken });
+  const requestRoute = options.route || route;
+  const accessControl = options.accessControl || createAccessControl({ host: listenHost, token: listenToken });
+  return createServer((req, res) => {
+    if (!requireAuthorizedRequest(req, res, accessControl)) return;
+    return requestRoute(req, res);
+  });
 }
 
 function startServer(options = {}) {
   const listenPort = options.port ?? port;
   const listenHost = options.host ?? host;
-  const server = createRendererServer(options);
+  const listenToken = options.token ?? accessToken;
+  const server = createRendererServer({ ...options, host: listenHost, token: listenToken });
   return server.listen(listenPort, listenHost, () => {
     console.log(`Codex session renderer: http://${listenHost}:${listenPort}/`);
     for (const source of dataSources.listSources()) {
@@ -1344,10 +1354,17 @@ function isDirectRun() {
 }
 
 if (isDirectRun()) {
-  startServer();
+  try {
+    startServer();
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 1;
+  }
 }
 
 export {
+  assertSecureListenConfig,
+  createAccessControl,
   createRendererServer,
   route,
   startServer,

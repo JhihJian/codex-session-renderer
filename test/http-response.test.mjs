@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { contentTypeForPath, resolveStaticFilePath } from "../src/http-response.mjs";
+import { contentTypeForPath, jsonHeaders, resolveStaticFilePath, textHeaders } from "../src/http-response.mjs";
 
 test("resolveStaticFilePath keeps static requests inside the public root", () => {
   const publicDir = path.resolve("public");
@@ -18,4 +18,14 @@ test("contentTypeForPath returns explicit UTF-8 types and binary fallback", () =
   assert.equal(contentTypeForPath("app.js"), "text/javascript; charset=utf-8");
   assert.equal(contentTypeForPath("styles.css"), "text/css; charset=utf-8");
   assert.equal(contentTypeForPath("asset.bin"), "application/octet-stream");
+});
+
+test("all normal response header sets disable browser caching and active-content escalation", () => {
+  for (const headers of [jsonHeaders, textHeaders]) {
+    assert.equal(headers["cache-control"], "no-store");
+    assert.match(headers["content-security-policy"], /frame-ancestors 'none'/);
+    assert.equal(headers["x-content-type-options"], "nosniff");
+    assert.equal(headers["x-frame-options"], "DENY");
+    assert.equal(headers["referrer-policy"], "no-referrer");
+  }
 });
