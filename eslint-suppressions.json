@@ -6,7 +6,7 @@
   },
   "public/app.js": {
     "complexity": {
-      "count": 47
+      "count": 48
     },
     "max-lines": {
       "count": 1
@@ -18,7 +18,7 @@
       "count": 1
     },
     "max-statements": {
-      "count": 5
+      "count": 6
     },
     "no-unused-vars": {
       "count": 21
@@ -146,6 +146,11 @@
     },
     "max-lines": {
       "count": 1
+    }
+  },
+  "src/session-prompts.mjs": {
+    "complexity": {
+      "count": 2
     }
   },
   "src/session-query.mjs": {

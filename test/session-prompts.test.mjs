@@ -1,0 +1,80 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { buildPromptArchiveEntry, extractFirstPrompt, promptProjectKey } from "../src/session-prompts.mjs";
+
+test("extractFirstPrompt keeps the first real user task and its source anchor", () => {
+  const prompt = extractFirstPrompt([
+    { type: "session_meta", payload: { cwd: "/work/app" } },
+    {
+      type: "event_msg",
+      payload: {
+        type: "user_message",
+        message: "AGENTS.md instructions\n<environment_context>machine</environment_context>\n\n## My request for Codex:\n请整理首个任务",
+      },
+    },
+    { type: "event_msg", payload: { type: "agent_message", message: "开始处理" } },
+    { type: "event_msg", payload: { type: "user_message", message: "后续补充" } },
+  ]);
+
+  assert.equal(prompt.state, "found");
+  assert.equal(prompt.text, "请整理首个任务");
+  assert.equal(prompt.sourceIndex, 1);
+  assert.equal(prompt.turnId, "turn-1");
+});
+
+test("extractFirstPrompt does not use compact replacement history as a new prompt", () => {
+  const prompt = extractFirstPrompt([
+    { type: "compacted", payload: { message: "压缩摘要", replacement_history: [{ role: "user", content: [{ text: "旧任务" }] }] } },
+    { type: "context_compacted", payload: {} },
+  ]);
+
+  assert.equal(prompt.state, "empty");
+  assert.equal(prompt.text, null);
+});
+
+test("extractFirstPrompt marks invalid JSONL diagnostics as a read failure when no prompt is available", () => {
+  const prompt = extractFirstPrompt([{ __jsonlDiagnostic: true, payload: { code: "invalid-json" } }]);
+
+  assert.equal(prompt.state, "error");
+  assert.equal(prompt.text, null);
+});
+
+test("extractFirstPrompt preserves safe image-only attachment evidence", () => {
+  const dataUri = "data:image/png;base64,YWJj";
+  const prompt = extractFirstPrompt([
+    {
+      type: "response_item",
+      payload: {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_image", image_url: { url: dataUri } }],
+      },
+    },
+  ]);
+
+  assert.equal(prompt.state, "image-only");
+  assert.equal(prompt.text, null);
+  assert.equal(prompt.attachments[0].redacted, true);
+  assert.equal(JSON.stringify(prompt).includes(dataUri), false);
+});
+
+test("buildPromptArchiveEntry keeps source/session identity and project grouping separate", () => {
+  const entry = buildPromptArchiveEntry(
+    {
+      id: "session-1",
+      sourceId: "remote-a",
+      sourceLabel: "远端 A",
+      title: "标题",
+      cwd: "D:\\work\\App\\",
+      updatedAt: "2026-07-17T10:00:00.000Z",
+      path: "D:\\work\\App\\session.jsonl",
+    },
+    { state: "found", text: "完整任务", preview: "完整任务", sourceIndex: 3 },
+  );
+
+  assert.equal(entry.id, "remote-a:session-1");
+  assert.equal(entry.projectKey, "remote-a:d:/work/app");
+  assert.equal(entry.projectLabel, "D:\\work\\App\\");
+  assert.equal(entry.promptText, "完整任务");
+  assert.equal(promptProjectKey("D:\\work\\App\\"), "d:/work/app");
+});

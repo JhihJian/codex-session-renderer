@@ -336,7 +336,10 @@ function bindEvents() {
       void loadHealthAndSources();
       return;
     }
-    void loadSessions({ keepSelection: true });
+    void loadSessions({ keepSelection: true }).then(() => {
+      if (state.sidebarMode === "prompts") return loadPromptArchive();
+      return undefined;
+    });
   });
   document.addEventListener("click", handleMarkdownCodeCopy);
   document.addEventListener("keydown", handleDialogEscapeKey);
@@ -767,6 +770,8 @@ function selectSidebarMode(mode) {
   const next = mode === "prompts" ? "prompts" : "sessions";
   state.sidebarMode = next;
   els.appShell.dataset.mode = next;
+  els.appShell.dataset.panel = next === "prompts" ? "thread" : "sessions";
+  if (els.promptArchiveControls) els.promptArchiveControls.hidden = next !== "prompts";
   [els.sessionsModeButton, els.promptsModeButton].forEach((button) => {
     if (!button) return;
     const active = button.dataset.sidebarMode === next;
@@ -1018,10 +1023,15 @@ async function selectSource(sourceId) {
   state.remoteIndexSessions = [];
   state.remoteIndexLoading = false;
   state.remoteIndexError = "";
+  state.promptArchive = [];
+  state.promptArchiveProjects = [];
+  state.promptArchiveError = "";
+  state.promptArchiveProject = "all";
   clearSelectedSession();
   renderSourceControls();
   renderAll();
   await loadSessions();
+  if (state.sidebarMode === "prompts") await loadPromptArchive();
 }
 
 async function refreshSelectedSource() {
@@ -1034,11 +1044,13 @@ async function refreshSelectedSource() {
     if (result.source) upsertSource(result.source);
     renderSourceControls();
     await loadSessions({ keepSelection: true });
+    if (state.sidebarMode === "prompts") await loadPromptArchive();
     showToast("远端快照已拉取到本机缓存；未修改远端");
   } catch (error) {
     await reloadSources();
     showToast(`拉取远端快照失败：${error.message}；远端未修改`);
     await loadSessions({ keepSelection: true });
+    if (state.sidebarMode === "prompts") await loadPromptArchive();
   } finally {
     renderSourceControls();
   }
@@ -2270,6 +2282,166 @@ function primeTraceExpansion(detail) {
   state.expandedAuditGroupIds = new Set();
 }
 
+function renderPromptArchiveSidebar() {
+  const projects = state.promptArchiveProjects || [];
+  els.sessionCount.textContent = String(state.promptArchive.length || 0);
+  if (state.promptArchiveLoading && !state.promptArchive.length) {
+    els.sessionList.innerHTML = emptyState("正在整理任务归档", "按项目读取每个会话的首个用户提示词。", []);
+    return;
+  }
+  if (state.promptArchiveError) {
+    els.sessionList.innerHTML = renderSessionListActionEmptyState("任务归档读取失败", state.promptArchiveError, [{ action: "retry-prompts", label: "重试" }]);
+    bindSessionListEmptyActions();
+    return;
+  }
+  if (!projects.length) {
+    els.sessionList.innerHTML = emptyState("暂无任务归档", "当前数据源中没有可读取的会话正文。", []);
+    return;
+  }
+  const active = state.promptArchiveProject;
+  els.sessionList.innerHTML = `
+    <button class="prompt-project-row${active === "all" ? " active" : ""}" type="button" data-prompt-project="all">
+      <span><strong>全部项目</strong><em>按最近更新排序</em></span><small>${state.promptArchive.length}</small>
+    </button>
+    ${projects
+      .map(
+        (project) => `
+          <button class="prompt-project-row${active === project.key ? " active" : ""}" type="button" data-prompt-project="${escapeAttr(project.key)}">
+            <span><strong>${escapeHtml(project.label)}</strong><em>${escapeHtml(project.cwd || "无工作目录")}</em></span><small>${project.count}</small>
+          </button>
+        `,
+      )
+      .join("")}
+  `;
+  els.sessionList.querySelectorAll("[data-prompt-project]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.promptArchiveProject = button.dataset.promptProject || "all";
+      renderAll();
+      els.promptArchiveContent?.focus({ preventScroll: true });
+    });
+  });
+}
+
+function renderPromptArchive() {
+  if (!els.promptArchiveContent) return;
+  if (state.sidebarMode !== "prompts") {
+    els.promptArchiveContent.hidden = true;
+    return;
+  }
+  els.promptArchiveContent.hidden = false;
+  const query = els.promptArchiveSearch?.value.trim().toLowerCase() || "";
+  const status = els.promptArchiveStatus?.value || "all";
+  const entries = state.promptArchive.filter((entry) => {
+    if (state.promptArchiveProject !== "all" && entry.projectKey !== state.promptArchiveProject) return false;
+    if (status !== "all" && entry.promptState !== status) return false;
+    if (!query) return true;
+    return [entry.sessionTitle, entry.promptText, entry.cwd, entry.sessionId, entry.sourceLabel, entry.status]
+      .filter(Boolean)
+      .join("\n")
+      .toLowerCase()
+      .includes(query);
+  });
+  if (state.promptArchiveLoading && !state.promptArchive.length) {
+    els.promptArchiveContent.innerHTML = emptyState("正在整理任务归档", "按项目读取每个会话的首个用户提示词。", []);
+    return;
+  }
+  if (state.promptArchiveError) {
+    els.promptArchiveContent.innerHTML = renderSessionListActionEmptyState("任务归档读取失败", state.promptArchiveError, [{ action: "retry-prompts", label: "重试" }]);
+    bindSessionListEmptyActions(els.promptArchiveContent);
+    return;
+  }
+  if (!entries.length) {
+    els.promptArchiveContent.innerHTML = emptyState("没有匹配的任务", "调整搜索、项目或提示词状态筛选。", []);
+    return;
+  }
+  const groups = groupPromptArchiveEntries(entries);
+  els.promptArchiveContent.innerHTML = `
+    <div class="prompt-archive-shell">
+      <header class="prompt-archive-header">
+        <div>
+          <p class="eyebrow">任务归档</p>
+          <h2>${escapeHtml(`${entries.length} 条首个任务提示词`)}</h2>
+          <p class="prompt-archive-note">按工作目录整理。提示词来自会话正文，标题仅作为会话元信息。</p>
+        </div>
+        <div class="prompt-archive-summary" aria-label="任务归档统计">
+          <strong>${groups.length}</strong><span>个项目</span>
+        </div>
+      </header>
+      ${groups.map(renderPromptArchiveGroup).join("")}
+    </div>
+  `;
+  els.promptArchiveContent.querySelectorAll("[data-prompt-session-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const entry = state.promptArchive.find((candidate) => candidate.sessionId === button.dataset.promptSessionId);
+      if (!entry) return;
+      state.sidebarMode = "sessions";
+      state.promptArchiveProject = entry.projectKey;
+      els.appShell.dataset.mode = "sessions";
+      els.appShell.dataset.panel = "thread";
+      if (els.promptArchiveControls) els.promptArchiveControls.hidden = true;
+      syncSidebarModeTabs();
+      selectSession(entry.sessionId);
+    });
+  });
+}
+
+function groupPromptArchiveEntries(entries) {
+  const groups = new Map();
+  for (const entry of entries) {
+    const group = groups.get(entry.projectKey) || { key: entry.projectKey, label: entry.projectLabel, cwd: entry.cwd, entries: [] };
+    group.entries.push(entry);
+    groups.set(entry.projectKey, group);
+  }
+  return [...groups.values()];
+}
+
+function renderPromptArchiveGroup(group) {
+  return `
+    <section class="prompt-archive-group">
+      <div class="prompt-archive-group-head"><div><strong>${escapeHtml(group.label)}</strong><span>${escapeHtml(group.cwd || "无工作目录")}</span></div><small>${group.entries.length}</small></div>
+      <div class="prompt-archive-list">${group.entries.map(renderPromptArchiveEntry).join("")}</div>
+    </section>
+  `;
+}
+
+function renderPromptArchiveEntry(entry) {
+  const stateLabel = promptArchiveStateLabel(entry.promptState);
+  const promptBody = entry.promptText || stateLabel;
+  const attachmentLabel = entry.attachments?.length ? ` · ${entry.attachments.length} 个附件` : "";
+  const eventAnchor = Number.isInteger(entry.promptEventIndex) ? `事件 #${entry.promptEventIndex}` : "未定位事件";
+  return `
+    <article class="prompt-archive-entry${entry.promptState !== "found" ? " is-muted" : ""}">
+      <div class="prompt-archive-entry-head">
+        <div><strong>${escapeHtml(entry.sessionTitle)}</strong><span>${escapeHtml(formatDate(entry.updatedAt || entry.startedAt) || "未知时间")}</span></div>
+        <span class="prompt-archive-status" data-state="${escapeAttr(entry.promptState)}">${escapeHtml(stateLabel + attachmentLabel)}</span>
+      </div>
+      <details class="prompt-archive-text"${entry.promptState === "found" ? " open" : ""}>
+        <summary>${escapeHtml(entry.promptPreview || promptBody)}</summary>
+        ${entry.promptText ? `<div class="prompt-archive-full-text">${escapeHtml(entry.promptText)}</div>` : `<div class="prompt-archive-empty-text">${escapeHtml(promptBody)}</div>`}
+      </details>
+      <div class="prompt-archive-entry-meta"><span>${escapeHtml(entry.sourceLabel || "当前数据源")}</span><span>${escapeHtml(entry.cwd || "无项目")}</span><span>${escapeHtml(eventAnchor)}</span><button class="ghost-button small" type="button" data-prompt-session-id="${escapeAttr(entry.sessionId)}">打开原会话</button></div>
+    </article>
+  `;
+}
+
+function promptArchiveStateLabel(value) {
+  if (value === "found") return "已找到首个任务";
+  if (value === "image-only") return "仅图片附件";
+  if (value === "unavailable") return "正文不可用";
+  if (value === "error") return "读取失败";
+  return "未找到明确任务";
+}
+
+function syncSidebarModeTabs() {
+  [els.sessionsModeButton, els.promptsModeButton].forEach((button) => {
+    if (!button) return;
+    const active = button.dataset.sidebarMode === state.sidebarMode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+    button.tabIndex = active ? 0 : -1;
+  });
+}
+
 function renderSessionList() {
   if (state.sidebarMode === "prompts") {
     renderPromptArchiveSidebar();
@@ -2427,14 +2599,16 @@ function renderSessionListActionEmptyState(title, subtitle, actions = []) {
   return `<div class="empty-state"><div><strong>${escapeHtml(title)}</strong><br /><span>${escapeHtml(subtitle)}</span>${actionHtml}</div></div>`;
 }
 
-function bindSessionListEmptyActions() {
-  els.sessionList.querySelectorAll("[data-session-empty-action]").forEach((button) => {
+function bindSessionListEmptyActions(container = els.sessionList) {
+  container.querySelectorAll("[data-session-empty-action]").forEach((button) => {
     button.addEventListener("click", () => {
       const action = button.dataset.sessionEmptyAction;
       if (action === "return-realtime") {
         returnToRealtimeSessions();
       } else if (action === "retry-remote-index") {
         void loadRemoteIndexForCurrentFilter();
+      } else if (action === "retry-prompts") {
+        void loadPromptArchive();
       } else if (action === "clear-session-filters") {
         els.sessionSearch.value = "";
         els.sessionTypeFilter.value = "all";
@@ -2714,6 +2888,11 @@ function sessionListTimeMs(session) {
 }
 
 function renderThreadHeader() {
+  if (state.sidebarMode === "prompts") {
+    els.sessionTitle.textContent = "任务归档";
+    els.sessionMetaLabel.textContent = `${selectedSource()?.label || "当前数据源"} · 只读派生索引`;
+    return;
+  }
   const session = state.detail?.session;
   if (!session) {
     const placeholder = sessionPlaceholderState();
@@ -2728,6 +2907,10 @@ function renderThreadHeader() {
 }
 
 function renderStats() {
+  if (state.sidebarMode === "prompts") {
+    els.statsStrip.innerHTML = "";
+    return;
+  }
   const stats = state.detail?.stats;
   if (!stats) {
     els.statsStrip.innerHTML = "";
@@ -2946,6 +3129,14 @@ function renderStatusbar() {
     syncExportButtons();
     return;
   }
+  if (state.sidebarMode === "prompts") {
+    els.statusSource.textContent = `数据源：${source?.label || source?.id || "未选择"} · 任务归档`;
+    els.statusSession.textContent = state.promptArchiveLoading ? "正在整理首个任务提示词" : "首个任务提示词只读归档";
+    els.statusEvents.textContent = `${state.promptArchive.length || 0} 条归档 · ${state.promptArchiveProjects.length || 0} 个项目`;
+    els.statusUpdated.textContent = state.promptArchiveError ? "归档读取失败，可重试" : "点击条目打开原会话";
+    syncExportButtons();
+    return;
+  }
   const sourceKind = source?.kind === "remote" ? "远端快照" : "本机只读";
   const sourceLabelText = source?.label || source?.id || "未选择";
   els.statusSource.textContent = `数据源：${sourceLabelText} · ${sourceKind}`;
@@ -3008,6 +3199,16 @@ function syncStatusbarDataStatus(source = selectedSource()) {
 }
 
 function renderMainContent() {
+  if (state.sidebarMode === "prompts") {
+    els.promptArchiveContent.hidden = false;
+    renderPromptArchive();
+    [els.threadContent, els.compactContent, els.terminalContent, els.auditContent, els.statsContent, els.traceContent, els.rawContent].forEach((container) => {
+      if (container) container.hidden = true;
+    });
+    renderInspector();
+    return;
+  }
+  els.promptArchiveContent.hidden = true;
   syncViewControls();
   const placeholder = sessionPlaceholderState();
   if (placeholder) {
@@ -8447,6 +8648,10 @@ function sourceSessionsUrl(sourceId = state.selectedSourceId, scope = "all") {
   if (scope && scope !== "all") params.set("scope", scope);
   const query = params.toString();
   return `/api/sources/${encodeURIComponent(sourceId)}/sessions${query ? `?${query}` : ""}`;
+}
+
+function promptArchiveUrl(sourceId = state.selectedSourceId) {
+  return `/api/sources/${encodeURIComponent(sourceId)}/prompts?limit=800`;
 }
 
 function remoteIndexUrl(sourceId = state.selectedSourceId) {

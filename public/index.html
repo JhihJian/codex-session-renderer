@@ -45,6 +45,11 @@
           <span class="count-pill" id="sessionCount">0</span>
         </div>
 
+        <div class="sidebar-mode-switch" role="tablist" aria-label="工作台模块">
+          <button class="sidebar-mode-tab active" id="sessionsModeButton" type="button" role="tab" aria-selected="true" data-sidebar-mode="sessions">会话</button>
+          <button class="sidebar-mode-tab" id="promptsModeButton" type="button" role="tab" aria-selected="false" tabindex="-1" data-sidebar-mode="prompts">任务归档</button>
+        </div>
+
         <div class="control-stack">
           <label class="field-label" for="sourceSelect">数据源</label>
           <div class="source-row">
@@ -58,7 +63,7 @@
 
           <label class="field-label" for="sessionTimeFilter">时间分类</label>
           <div class="segmented-control" id="sessionTimeFilter" role="tablist" aria-label="时间分类">
-            <button class="segment-button active" type="button" role="tab" aria-selected="true" data-session-time="realtime" title="实时：最近 3 小时内已同步到本机快照的会话" aria-label="实时，小于 3 小时">实时 &lt;3h</button>
+            <button class="segment-button active" type="button" role="tab" aria-selected="true" data-session-time="realtime" title="实时：最近 3 小时内已同步到本机快照的会话；首屏会先读取最近 24 小时元数据" aria-label="实时，小于 3 小时">实时 &lt;3h</button>
             <button class="segment-button" type="button" role="tab" aria-selected="false" tabindex="-1" data-session-time="day" title="近一天：远端数据源显示历史索引，不含正文" aria-label="近一天，历史索引">近一天</button>
             <button class="segment-button" type="button" role="tab" aria-selected="false" tabindex="-1" data-session-time="earlier" title="更早：远端数据源显示历史索引，不含正文" aria-label="更早，历史索引">更早</button>
           </div>
@@ -71,6 +76,19 @@
             <option value="error">标题/路径含错误词</option>
             <option value="tool">标题/路径含工具词</option>
           </select>
+
+          <div class="prompt-archive-controls" id="promptArchiveControls" hidden>
+            <label class="field-label" for="promptArchiveSearch">搜索任务提示词</label>
+            <input class="text-input" id="promptArchiveSearch" type="search" autocomplete="off" placeholder="提示词、会话标题、项目..." />
+            <label class="field-label" for="promptArchiveStatus">提示词状态</label>
+            <select class="select-input" id="promptArchiveStatus">
+              <option value="all">全部状态</option>
+              <option value="found">已找到首个任务</option>
+              <option value="image-only">仅图片附件</option>
+              <option value="empty">未找到明确任务</option>
+              <option value="error">读取失败</option>
+            </select>
+          </div>
         </div>
 
         <div class="session-list" id="sessionList" role="list"></div>
@@ -119,6 +137,8 @@
         </section>
 
         <section class="stats-strip" id="statsStrip" aria-label="会话统计"></section>
+
+        <section class="prompt-archive-content" id="promptArchiveContent" tabindex="-1" hidden></section>
 
         <section class="thread-content" id="threadContent" tabindex="-1" hidden></section>
         <section class="compact-content" id="compactContent" tabindex="-1"></section>

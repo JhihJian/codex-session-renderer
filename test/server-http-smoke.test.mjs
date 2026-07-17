@@ -258,6 +258,26 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   assert.equal(list.body.sessions[0].id, sessionId);
   assert.equal(list.body.sessions[0].title, "HTTP smoke 会话");
 
+  const prompts = await requestJson(baseUrl, "/api/sources/local/prompts");
+  assert.equal(prompts.response.status, 200);
+  assert.equal(prompts.body.entries.length, 1);
+  assert.equal(prompts.body.entries[0].sessionId, sessionId);
+  assert.equal(prompts.body.entries[0].projectLabel, "D:\\github\\codex-session-renderer");
+  assert.equal(prompts.body.entries[0].promptState, "found");
+  assert.equal(prompts.body.entries[0].promptText, "请生成 HTTP smoke 测试");
+  assert.equal(prompts.body.entries[0].promptEventIndex, 2);
+  assert.equal(prompts.body.entries[0].id, `local:${sessionId}`);
+  const promptSearch = await requestJson(baseUrl, "/api/sources/local/prompts?q=smoke&status=found");
+  assert.equal(promptSearch.response.status, 200);
+  assert.equal(promptSearch.body.entries.length, 1);
+  const promptMiss = await requestJson(baseUrl, "/api/sources/local/prompts?q=不存在");
+  assert.equal(promptMiss.response.status, 200);
+  assert.equal(promptMiss.body.entries.length, 0);
+
+  const promptsPost = await requestJson(baseUrl, "/api/sources/local/prompts", { method: "POST" });
+  assert.equal(promptsPost.response.status, 405);
+  assert.equal(promptsPost.body.error, "请求方法不允许");
+
   const recentOnlyList = await requestJson(baseUrl, "/api/sources/local/sessions?scope=recent24h");
   assert.equal(recentOnlyList.response.status, 200);
   assert.equal(recentOnlyList.body.scope, "recent24h");

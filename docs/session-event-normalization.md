@@ -79,6 +79,12 @@ Codex 有时会把机器上下文写进用户消息，例如 `AGENTS.md instruct
 
 去重只针对明确的事件回声，例如同一条用户消息同时以 `event_msg user_message` 和 `response_item role=user` 写入；用户真实重复输入同一句话不会仅因文本相同被删除。
 
+## 首个任务提示词归档
+
+`src/session-prompts.mjs` 基于 `buildTurns()` 提取根会话中第一个有效的 `user-message`，作为任务归档的 `promptText`。因此首个提示词遵循与阅读视图相同的机器上下文清理、fork replay 前缀抑制、事件回声去重和中断续跑处理口径；会话标题不作为提示词回退值，`compacted` / `context_compacted` 的 `replacement_history` 也不视为新的用户输入。
+
+归档条目的身份是 `sourceId + sessionId`，项目键是 `sourceId + cwd`，没有 `cwd` 的会话进入“无项目”。条目同时保存 `promptPreview`、`promptTimestamp`、`promptEventIndex`、`promptTurnId`、安全附件摘要和 `promptState`。状态包括 `found`、`image-only`、`empty`、`unavailable` 和 `error`。这是只读运行时派生数据，不会写回 Codex 文件或单独数据库；服务端缓存只在当前数据源上下文中生效。
+
 `turn_aborted` 会终止当前 turn 并标记为 `aborted`。如果一个没有工具或助手输出的 aborted turn 后面紧跟相同首条请求的续跑 turn，默认阅读会压掉前一个空 aborted turn 里的重复请求，但保留 aborted 状态本身。
 
 ## 子代理回执
