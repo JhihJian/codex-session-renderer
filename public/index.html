@@ -22,7 +22,7 @@
 
         <nav class="mobile-tabs" role="tablist" aria-label="移动端工作台面板">
           <button class="mobile-tab" id="mobileSessionsTab" data-panel-target="sessions" type="button" role="tab" aria-controls="sessionsPanel" aria-selected="false">会话</button>
-          <button class="mobile-tab" id="mobileThreadTab" data-panel-target="thread" type="button" role="tab" aria-controls="threadPanel" aria-selected="true" aria-current="page">内容</button>
+          <button class="mobile-tab" id="mobileThreadTab" data-panel-target="thread" type="button" role="tab" aria-controls="threadPanel" aria-selected="true">内容</button>
           <button class="mobile-tab" id="mobileInspectorTab" data-panel-target="inspector" type="button" role="tab" aria-controls="inspectorPanel" aria-selected="false">复核</button>
         </nav>
 
@@ -36,7 +36,7 @@
         </div>
       </header>
 
-      <aside class="sidebar panel" id="sessionsPanel" role="tabpanel" aria-labelledby="mobileSessionsTab" aria-label="会话列表">
+      <aside class="sidebar panel" id="sessionsPanel" aria-label="会话列表">
         <div class="panel-header">
           <div>
             <p class="eyebrow">会话</p>
@@ -45,9 +45,9 @@
           <span class="count-pill" id="sessionCount">0</span>
         </div>
 
-        <div class="sidebar-mode-switch" role="tablist" aria-label="工作台模块">
-          <button class="sidebar-mode-tab active" id="sessionsModeButton" type="button" role="tab" aria-selected="true" data-sidebar-mode="sessions">会话</button>
-          <button class="sidebar-mode-tab" id="promptsModeButton" type="button" role="tab" aria-selected="false" tabindex="-1" data-sidebar-mode="prompts">任务归档</button>
+        <div class="sidebar-mode-switch" role="toolbar" aria-label="工作台模块">
+          <button class="sidebar-mode-tab active" id="sessionsModeButton" type="button" aria-pressed="true" data-sidebar-mode="sessions">会话</button>
+          <button class="sidebar-mode-tab" id="promptsModeButton" type="button" aria-pressed="false" data-sidebar-mode="prompts">任务归档</button>
         </div>
 
         <div class="control-stack">
@@ -62,10 +62,10 @@
           <input class="text-input" id="sessionSearch" type="search" autocomplete="off" placeholder="标题、路径、项目..." />
 
           <label class="field-label" for="sessionTimeFilter">时间分类</label>
-          <div class="segmented-control" id="sessionTimeFilter" role="tablist" aria-label="时间分类">
-            <button class="segment-button active" type="button" role="tab" aria-selected="true" data-session-time="realtime" title="实时：最近 3 小时内已同步到本机快照的会话；首屏会先读取最近 24 小时元数据" aria-label="实时，小于 3 小时">实时 &lt;3h</button>
-            <button class="segment-button" type="button" role="tab" aria-selected="false" tabindex="-1" data-session-time="day" title="近一天：远端数据源显示历史索引，不含正文" aria-label="近一天，历史索引">近一天</button>
-            <button class="segment-button" type="button" role="tab" aria-selected="false" tabindex="-1" data-session-time="earlier" title="更早：远端数据源显示历史索引，不含正文" aria-label="更早，历史索引">更早</button>
+          <div class="segmented-control" id="sessionTimeFilter" role="radiogroup" aria-label="时间分类">
+            <button class="segment-button active" type="button" role="radio" aria-checked="true" data-session-time="realtime" title="实时：最近 3 小时内已同步到本机快照的会话；首屏会先读取最近 24 小时元数据" aria-label="实时，小于 3 小时">实时 &lt;3h</button>
+            <button class="segment-button" type="button" role="radio" aria-checked="false" tabindex="-1" data-session-time="day" title="近一天：远端数据源显示历史索引，不含正文" aria-label="近一天，历史索引">近一天</button>
+            <button class="segment-button" type="button" role="radio" aria-checked="false" tabindex="-1" data-session-time="earlier" title="更早：远端数据源显示历史索引，不含正文" aria-label="更早，历史索引">更早</button>
           </div>
 
           <label class="field-label" for="sessionTypeFilter">会话类型</label>
@@ -94,7 +94,7 @@
         <div class="session-list" id="sessionList" role="list"></div>
       </aside>
 
-      <main class="thread-panel panel" id="threadPanel" role="tabpanel" aria-labelledby="mobileThreadTab" aria-label="会话内容">
+      <main class="thread-panel panel" id="threadPanel" aria-label="会话内容">
         <section class="thread-toolbar">
           <div class="thread-title-block">
             <p class="eyebrow" id="sessionMetaLabel">未选择</p>
@@ -141,12 +141,12 @@
         <section class="prompt-archive-content" id="promptArchiveContent" tabindex="-1" hidden></section>
 
         <section class="thread-content" id="threadContent" tabindex="-1" hidden></section>
-        <section class="compact-content" id="compactContent" tabindex="-1"></section>
+        <section class="compact-content" id="compactContent" role="tabpanel" aria-labelledby="compactViewButton" tabindex="-1"></section>
         <section class="terminal-content" id="terminalContent" tabindex="-1" hidden></section>
-        <section class="audit-content" id="auditContent" tabindex="-1" hidden></section>
-        <section class="stats-content" id="statsContent" tabindex="-1" hidden></section>
+        <section class="audit-content" id="auditContent" role="tabpanel" aria-labelledby="auditViewButton" tabindex="-1" hidden></section>
+        <section class="stats-content" id="statsContent" role="tabpanel" aria-labelledby="statsViewButton" tabindex="-1" hidden></section>
         <section class="trace-content" id="traceContent" tabindex="-1" hidden></section>
-        <section class="raw-content" id="rawContent" tabindex="-1" hidden></section>
+        <section class="raw-content" id="rawContent" role="tabpanel" aria-labelledby="rawViewButton" tabindex="-1" hidden></section>
       </main>
 
       <div
@@ -162,7 +162,7 @@
         tabindex="0"
       ></div>
 
-      <aside class="inspector panel" id="inspectorPanel" role="tabpanel" aria-labelledby="mobileInspectorTab" aria-label="复核台">
+      <aside class="inspector panel" id="inspectorPanel" aria-label="复核台">
         <div class="panel-header">
           <div>
             <p class="eyebrow">复核台</p>
@@ -174,10 +174,10 @@
         <section class="review-context" id="sessionDetails"></section>
 
         <div class="review-tabs" id="reviewTabs" role="tablist" aria-label="复核模式">
-          <button class="review-tab active" type="button" role="tab" aria-selected="true" data-review-tab="summary">摘要</button>
-          <button class="review-tab" type="button" role="tab" aria-selected="false" tabindex="-1" data-review-tab="evidence">证据</button>
-          <button class="review-tab" type="button" role="tab" aria-selected="false" tabindex="-1" data-review-tab="relations">关系</button>
-          <button class="review-tab" type="button" role="tab" aria-selected="false" tabindex="-1" data-review-tab="source">来源</button>
+          <button class="review-tab active" id="reviewTabSummary" type="button" role="tab" aria-selected="true" aria-controls="reviewPanelSummary" data-review-tab="summary">摘要</button>
+          <button class="review-tab" id="reviewTabEvidence" type="button" role="tab" aria-selected="false" aria-controls="reviewPanelEvidence" tabindex="-1" data-review-tab="evidence">证据</button>
+          <button class="review-tab" id="reviewTabRelations" type="button" role="tab" aria-selected="false" aria-controls="reviewPanelRelations" tabindex="-1" data-review-tab="relations">关系</button>
+          <button class="review-tab" id="reviewTabSource" type="button" role="tab" aria-selected="false" aria-controls="reviewPanelSource" tabindex="-1" data-review-tab="source">来源</button>
         </div>
 
         <section class="review-body" id="selectionDetails"></section>
@@ -285,6 +285,13 @@
               <button class="ghost-button" id="addSummaryRuleButton" type="button">新增规则</button>
               <button class="ghost-button" id="resetSummaryRulesButton" type="button">清空自定义</button>
             </div>
+            <div class="settings-section-reference">
+              <div class="section-title-row">
+                <h3>内置摘要规则</h3>
+                <span class="muted">只读参考</span>
+              </div>
+              <div class="default-rule-list" id="defaultSummaryRuleList"></div>
+            </div>
           </section>
 
           <section class="settings-section" id="settingsSectionStructured" role="tabpanel" aria-labelledby="settingsTabStructured" data-settings-panel="structured" hidden>
@@ -322,6 +329,13 @@
               <button class="ghost-button" id="addExecutionGroupRuleButton" type="button">新增聚合规则</button>
               <button class="ghost-button" id="resetExecutionGroupRulesButton" type="button">清空自定义</button>
             </div>
+            <div class="settings-section-reference">
+              <div class="section-title-row">
+                <h3>内置聚合规则</h3>
+                <span class="muted">只读参考</span>
+              </div>
+              <div class="default-rule-list" id="defaultExecutionGroupRuleList"></div>
+            </div>
           </section>
 
           <section class="settings-section" id="settingsSectionEvidence" role="tabpanel" aria-labelledby="settingsTabEvidence" data-settings-panel="evidence" hidden>
@@ -334,30 +348,13 @@
               <button class="ghost-button" id="addEvidenceRiskRuleButton" type="button">新增风险规则</button>
               <button class="ghost-button" id="resetEvidenceRiskRulesButton" type="button">恢复内置规则</button>
             </div>
-          </section>
-
-          <section class="settings-section" data-settings-panel="summary">
-            <div class="section-title-row">
-              <h3>内置摘要规则</h3>
-              <span class="muted">只读参考</span>
+            <div class="settings-section-reference">
+              <div class="section-title-row">
+                <h3>内置证据风险规则</h3>
+                <span class="muted">参考；上方保存后覆盖同名内置规则</span>
+              </div>
+              <div class="default-rule-list" id="defaultEvidenceRiskRuleList"></div>
             </div>
-            <div class="default-rule-list" id="defaultSummaryRuleList"></div>
-          </section>
-
-          <section class="settings-section" data-settings-panel="execution" hidden>
-            <div class="section-title-row">
-              <h3>内置聚合规则</h3>
-              <span class="muted">只读参考</span>
-            </div>
-            <div class="default-rule-list" id="defaultExecutionGroupRuleList"></div>
-          </section>
-
-          <section class="settings-section" data-settings-panel="evidence" hidden>
-            <div class="section-title-row">
-              <h3>内置证据风险规则</h3>
-              <span class="muted">参考；上方保存后覆盖同名内置规则</span>
-            </div>
-            <div class="default-rule-list" id="defaultEvidenceRiskRuleList"></div>
           </section>
         </div>
 

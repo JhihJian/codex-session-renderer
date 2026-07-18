@@ -82,6 +82,10 @@ const state = {
   promptArchiveProject: "all",
   promptArchivePage: null,
   remoteRefreshLoading: false,
+  alternateLocalSource: null,
+  alternateLocalSourceLoading: false,
+  alternateLocalSourceRequestKey: "",
+  alternateLocalSourceScope: "",
   workbenchStatus: { key: "initial", message: "等待首次加载" },
   lastAnnouncement: "",
 };
@@ -109,6 +113,7 @@ let sessionAbortController = null;
 let markdownAbortController = null;
 let rawDiagnosticAbortController = null;
 let rawEventAbortController = null;
+let alternateLocalSourceAbortController = null;
 const markdownCacheLimit = 700;
 const remoteIndexPageCacheLimit = 6;
 const remoteIndexPageLimit = 100;
@@ -598,12 +603,24 @@ function setMobilePanel(panel) {
 
 function syncMobilePanelNavigation() {
   const activePanel = els.appShell?.dataset.panel || "thread";
+  const mobile = mobilePanelLayoutActive();
   document.querySelectorAll("[data-panel-target]").forEach((button) => {
     const active = button.dataset.panelTarget === activePanel;
     button.setAttribute("aria-selected", active ? "true" : "false");
     button.tabIndex = active ? 0 : -1;
-    if (active) button.setAttribute("aria-current", "page");
-    else button.removeAttribute("aria-current");
+  });
+  [
+    [els.sessionsPanel, "mobileSessionsTab"],
+    [els.threadPanel, "mobileThreadTab"],
+    [els.inspectorPanel, "mobileInspectorTab"],
+  ].forEach(([panel, tabId]) => {
+    if (mobile) {
+      panel.setAttribute("role", "tabpanel");
+      panel.setAttribute("aria-labelledby", tabId);
+    } else {
+      panel.removeAttribute("role");
+      panel.removeAttribute("aria-labelledby");
+    }
   });
   syncPanelVisibilityState();
 }
@@ -871,8 +888,7 @@ function selectSidebarMode(mode) {
     if (!button) return;
     const active = button.dataset.sidebarMode === next;
     button.classList.toggle("active", active);
-    button.setAttribute("aria-selected", active ? "true" : "false");
-    button.tabIndex = active ? 0 : -1;
+    button.setAttribute("aria-pressed", active ? "true" : "false");
   });
   if (next === "prompts") void loadPromptArchive({ announce: true });
   renderAll();
@@ -952,6 +968,7 @@ function promptArchiveScope() {
 }
 
 async function loadSessions({ keepSelection = false, announce = false } = {}) {
+  cancelAlternateLocalSourceDiscovery();
   const sourceId = state.selectedSourceId;
   resetRemoteIndexState();
   const requestKey = `sessions:${++state.sessionsRequestSeq}:${sourceId}`;
@@ -982,6 +999,7 @@ async function loadSessions({ keepSelection = false, announce = false } = {}) {
     setBusy(false);
     renderSourceStatus();
     renderSessionList();
+    void discoverAlternateLocalSource();
     const nextSession =
       keepSelection && state.filteredSessions.some((session) => sessionKey(session) === state.selectedSessionKey)
         ? state.filteredSessions.find((session) => sessionKey(session) === state.selectedSessionKey)
@@ -1026,6 +1044,75 @@ function selectFirstVisibleSession() {
   const nextSession = state.filteredSessions[0];
   if (!nextSession || nextSession.remoteIndexOnly || state.filteredSessions.some((session) => sessionKey(session) === state.selectedSessionKey)) return;
   void selectSession(nextSession.id);
+}
+
+function cancelAlternateLocalSourceDiscovery({ clear = true } = {}) {
+  alternateLocalSourceAbortController?.abort();
+  alternateLocalSourceAbortController = null;
+  state.alternateLocalSourceLoading = false;
+  state.alternateLocalSourceRequestKey = "";
+  if (clear) {
+    state.alternateLocalSource = null;
+    state.alternateLocalSourceScope = "";
+  }
+}
+
+function alternateLocalSourceCandidate() {
+  return state.sources.find((source) => source.id !== state.selectedSourceId && source.kind === "pi-agent" && source.status?.snapshotAvailable !== false) || null;
+}
+
+function canDiscoverAlternateLocalSource() {
+  return Boolean(
+    state.sidebarMode === "sessions" &&
+      state.selectedSourceId === "local" &&
+      state.sessionTimeFilter === "realtime" &&
+      !els.sessionSearch.value.trim() &&
+      els.sessionTypeFilter.value === "all" &&
+      !state.sessionsLoading &&
+      !state.sessionsLoadError &&
+      !state.sessions.some((session) => sessionTimeBucket(session) === state.sessionTimeFilter) &&
+      alternateLocalSourceCandidate(),
+  );
+}
+
+function alternateLocalSourceDiscoveryCurrent(requestKey) {
+  return state.alternateLocalSourceRequestKey === requestKey && canDiscoverAlternateLocalSource();
+}
+
+function alternateLocalSourceResult(data, source) {
+  const visibleCount = (data.sessions || []).filter((session) => sessionTimeBucket(session) === state.sessionTimeFilter).length;
+  return visibleCount > 0 ? { id: source.id, label: data.source?.label || source.label || source.id } : null;
+}
+
+function alternateLocalSourceDiscoveryFailed(error, requestKey) {
+  return !isAbortError(error) && state.alternateLocalSourceRequestKey === requestKey;
+}
+
+async function discoverAlternateLocalSource() {
+  const source = alternateLocalSourceCandidate();
+  const scope = `${state.selectedSourceId}:${state.sessionTimeFilter}`;
+  if (!canDiscoverAlternateLocalSource() || state.alternateLocalSourceLoading || state.alternateLocalSourceScope === scope) return;
+  cancelAlternateLocalSourceDiscovery({ clear: false });
+  state.alternateLocalSourceScope = scope;
+  state.alternateLocalSourceLoading = true;
+  const controller = new AbortController();
+  alternateLocalSourceAbortController = controller;
+  const requestKey = `${scope}:${source.id}:${Date.now()}`;
+  state.alternateLocalSourceRequestKey = requestKey;
+  try {
+    const data = await fetchJson(sourceSessionsUrl(source.id, "recent24h"), { signal: controller.signal });
+    if (!alternateLocalSourceDiscoveryCurrent(requestKey)) return;
+    if (data.source) upsertSource(data.source);
+    state.alternateLocalSource = alternateLocalSourceResult(data, source);
+  } catch (error) {
+    if (alternateLocalSourceDiscoveryFailed(error, requestKey)) state.alternateLocalSource = null;
+  } finally {
+    if (alternateLocalSourceAbortController === controller) alternateLocalSourceAbortController = null;
+    if (state.alternateLocalSourceRequestKey === requestKey) {
+      state.alternateLocalSourceLoading = false;
+      renderSessionList();
+    }
+  }
 }
 
 async function loadHistoricalSessions({ announce = false } = {}) {
@@ -1091,7 +1178,7 @@ function setAriaBusy(element, busy) {
   element.setAttribute("aria-busy", busy ? "true" : "false");
 }
 
-async function selectSession(id, { announce = true } = {}) {
+async function selectSession(id, { announce = true, focusMobilePanel = true } = {}) {
   sessionAbortController?.abort();
   markdownAbortController?.abort();
   cancelRawDiagnosticRequest({ clear: true });
@@ -1136,7 +1223,7 @@ async function selectSession(id, { announce = true } = {}) {
     primeTraceExpansion(detail);
     setWorkbenchStatus(operationKey, `会话已加载：${firstLine(detail.session?.title || id, 54)}`, { announce });
     renderAll();
-    setMobilePanel("thread");
+    if (focusMobilePanel) setMobilePanel("thread");
   } catch (error) {
     if (state.sessionRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
     state.detail = null;
@@ -1207,6 +1294,7 @@ function clearSelectedSession() {
 async function selectSource(sourceId) {
   if (!sourceId || sourceId === state.selectedSourceId) return;
   cancelPromptArchiveRequest();
+  cancelAlternateLocalSourceDiscovery();
   state.selectedSourceId = sourceId;
   state.sessions = [];
   state.filteredSessions = [];
@@ -2683,14 +2771,7 @@ function renderPromptArchive() {
   els.promptArchiveContent.querySelectorAll("[data-prompt-session-id]").forEach((button) => {
     button.addEventListener("click", () => {
       const entry = state.promptArchive.find((candidate) => candidate.sessionId === button.dataset.promptSessionId);
-      if (!entry) return;
-      state.sidebarMode = "sessions";
-      state.promptArchiveProject = entry.projectKey;
-      els.appShell.dataset.mode = "sessions";
-      setMobilePanel("thread");
-      if (els.promptArchiveControls) els.promptArchiveControls.hidden = true;
-      syncSidebarModeTabs();
-      selectSession(entry.sessionId);
+      openPromptArchiveSession(entry);
     });
   });
   bindPromptArchivePagination();
@@ -2782,13 +2863,29 @@ function promptArchiveStateLabel(value) {
   return "未找到明确任务";
 }
 
+function openPromptArchiveSession(entry) {
+  if (!entry?.sessionId) return;
+  cancelPromptArchiveRequest();
+  state.sidebarMode = "sessions";
+  state.promptArchiveProject = entry.projectKey || "all";
+  els.appShell.dataset.mode = "sessions";
+  if (els.promptArchiveControls) els.promptArchiveControls.hidden = true;
+  syncSidebarModeTabs();
+  setMobilePanel("thread");
+  renderAll();
+  if (entry.sourceId && entry.sourceId !== state.selectedSourceId) {
+    void selectSource(entry.sourceId).then(() => selectSession(entry.sessionId, { focusMobilePanel: false }));
+    return;
+  }
+  void selectSession(entry.sessionId, { focusMobilePanel: false });
+}
+
 function syncSidebarModeTabs() {
   [els.sessionsModeButton, els.promptsModeButton].forEach((button) => {
     if (!button) return;
     const active = button.dataset.sidebarMode === state.sidebarMode;
     button.classList.toggle("active", active);
-    button.setAttribute("aria-selected", active ? "true" : "false");
-    button.tabIndex = active ? 0 : -1;
+    button.setAttribute("aria-pressed", active ? "true" : "false");
   });
 }
 
@@ -2899,7 +2996,15 @@ function renderSessionList() {
       remoteHistory
         ? "近一天/更早为远端历史索引，不含正文；实时快照默认只补最近 3 小时，历史正文需远端扩大共享窗口/额外同步，或切回已有本地快照。"
         : "调整搜索或过滤条件。";
-    els.sessionList.innerHTML = emptyState("没有匹配的会话", hint) + renderRemoteIndexPagination();
+    const actions = [];
+    if (canDiscoverAlternateLocalSource() && state.alternateLocalSource) {
+      actions.push({ action: "select-alternate-local-source", label: `切换查看 ${state.alternateLocalSource.label}` });
+    }
+    const emptyStateHtml = actions.length
+      ? renderSessionListActionEmptyState("没有匹配的会话", `当前本机 Codex 来源没有可显示会话。检测到 ${state.alternateLocalSource.label} 有可读会话，可切换查看。`, actions)
+      : emptyState("没有匹配的会话", hint);
+    els.sessionList.innerHTML = emptyStateHtml + renderRemoteIndexPagination();
+    bindSessionListEmptyActions();
     bindRemoteIndexPagination();
     renderStatusbar();
     syncExportButtons();
@@ -3026,6 +3131,8 @@ function bindSessionListEmptyActions(container = els.sessionList) {
         void refreshSelectedSource();
       } else if (action === "retry-prompts") {
         void loadPromptArchive();
+      } else if (action === "select-alternate-local-source" && state.alternateLocalSource) {
+        void selectSource(state.alternateLocalSource.id);
       } else if (action === "clear-session-filters") {
         els.sessionSearch.value = "";
         els.sessionTypeFilter.value = "all";
@@ -3179,7 +3286,7 @@ function syncSessionTimeFilter() {
     const active = button.dataset.sessionTime === state.sessionTimeFilter;
     const copy = sessionTimeFilterCopy(button.dataset.sessionTime || "realtime");
     button.classList.toggle("active", active);
-    button.setAttribute("aria-selected", active ? "true" : "false");
+    button.setAttribute("aria-checked", active ? "true" : "false");
     button.title = copy.title;
     button.setAttribute("aria-label", copy.ariaLabel);
     button.tabIndex = active ? 0 : -1;
@@ -7191,7 +7298,7 @@ function renderInspector() {
   const context = buildReviewContext();
   renderReviewHeader(context);
   renderReviewTabs();
-  els.selectionDetails.innerHTML = renderReviewBody(context);
+  els.selectionDetails.innerHTML = renderReviewPanels(context);
   els.inspectorActions.innerHTML = renderReviewActions(context);
   bindReviewBodyActions(context);
   bindReviewActions(context);
@@ -7204,7 +7311,7 @@ function renderInspector() {
     els.copyRawButton.title = `${label}（复制当前复核上下文）`;
     els.copyRawButton.setAttribute("aria-label", label);
   }
-  els.copyRawButton.disabled = !state.detail;
+  els.copyRawButton.disabled = !state.detail || context.kind === "prompt_archive";
 }
 
 function renderKeyEventGroups(events) {
@@ -7579,6 +7686,15 @@ function itemSelectionActions(item) {
 }
 
 function buildReviewContext() {
+  if (state.sidebarMode === "prompts") {
+    return reviewContextBase({
+      kind: "prompt_archive",
+      kindLabel: "任务归档",
+      title: "任务归档未打开会话",
+      summary: "当前正在浏览任务归档。打开原会话后，复核台会恢复为该会话的摘要、证据、关系和来源。",
+      metrics: { events: 0, evidence: 0, relations: 0 },
+    });
+  }
   if (!state.detail) {
     if (state.sessionLoading) {
       return reviewContextBase({
@@ -8022,11 +8138,22 @@ function setReviewTab(tab) {
   renderInspector();
 }
 
-function renderReviewBody(context) {
+function renderReviewPanels(context) {
+  const tabs = ["summary", "evidence", "relations", "source"];
+  return tabs
+    .map((tab) => {
+      const active = tab === state.reviewTab;
+      return `<section class="review-tab-panel" id="reviewPanel${tab[0].toUpperCase()}${tab.slice(1)}" role="tabpanel" aria-labelledby="reviewTab${tab[0].toUpperCase()}${tab.slice(1)}"${active ? "" : " hidden"}>${renderReviewBody(context, tab)}</section>`;
+    })
+    .join("");
+}
+
+function renderReviewBody(context, tab = state.reviewTab) {
+  if (context.kind === "prompt_archive") return renderReviewEmpty(context.title, context.summary);
   if (!state.detail) return renderReviewEmpty(context.title || "未选择会话", context.summary || "左侧选择会话后，复核台会显示会话概览。");
-  if (state.reviewTab === "evidence") return renderReviewEvidence(context);
-  if (state.reviewTab === "relations") return renderReviewRelations(context);
-  if (state.reviewTab === "source") return renderReviewSource(context);
+  if (tab === "evidence") return renderReviewEvidence(context);
+  if (tab === "relations") return renderReviewRelations(context);
+  if (tab === "source") return renderReviewSource(context);
   return renderReviewSummary(context);
 }
 
@@ -8350,7 +8477,7 @@ function renderReviewActions(context) {
 }
 
 function normalizeReviewActions(context) {
-  if (!state.detail) return [];
+  if (!state.detail || context.kind === "prompt_archive") return [];
   const referenceLabel = context.kind === "session" ? "复制会话引用" : "复制对象引用";
   const actions = [...(context.actions || [])];
   actions.forEach((action) => {

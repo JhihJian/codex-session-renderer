@@ -593,16 +593,18 @@ button {
   font-size: 11px;
 }
 
-.app-shell[data-mode="prompts"] {
-  grid-template-columns: minmax(236px, 276px) minmax(0, 1fr) 0;
-}
+@media (min-width: 821px) {
+  .app-shell[data-mode="prompts"] {
+    grid-template-columns: minmax(236px, 276px) minmax(0, 1fr) 0;
+  }
 
-.app-shell[data-mode="prompts"] .inspector,
-.app-shell[data-mode="prompts"] .inspector-resizer {
-  overflow: hidden;
-  border: 0;
-  opacity: 0;
-  pointer-events: none;
+  .app-shell[data-mode="prompts"] .inspector,
+  .app-shell[data-mode="prompts"] .inspector-resizer {
+    overflow: hidden;
+    border: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
 }
 
 .app-shell[data-mode="prompts"] .thread-toolbar,

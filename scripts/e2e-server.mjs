@@ -10,6 +10,9 @@ const tempRoot = await mkdtemp(path.join(os.tmpdir(), "csr-e2e-"));
 const codexHome = path.join(tempRoot, ".codex");
 const sessionDir = path.join(codexHome, "sessions", "isolated");
 const sessionPath = path.join(sessionDir, `rollout-2025-01-02T03-04-05-${sessionId}.jsonl`);
+const piSessionsRoot = path.join(tempRoot, ".pi", "agent", "sessions");
+const piSessionId = "44444444-4444-4444-8444-444444444444";
+const piSessionPath = path.join(piSessionsRoot, "e2e-pi-session.jsonl");
 const remoteCodexHome = path.join(tempRoot, "remote", ".codex");
 const remoteSessionDir = path.join(remoteCodexHome, "sessions", "isolated");
 const remoteToken = "e2e-remote-index-token";
@@ -18,6 +21,17 @@ await mkdir(sessionDir, { recursive: true });
 await writeFile(sessionPath, `${sessionEvents.map((event) => JSON.stringify(event)).join("\n")}\n`, "utf8");
 await writeFile(path.join(codexHome, "session_index.jsonl"), `${JSON.stringify({ id: sessionId, thread_name: sessionTitle })}\n`, "utf8");
 await utimes(sessionPath, new Date(), new Date());
+await mkdir(piSessionsRoot, { recursive: true });
+await writeFile(
+  piSessionPath,
+  `${[
+    { type: "session", version: 3, id: piSessionId, timestamp: new Date().toISOString(), cwd: "/workspace/pi-agent" },
+    { type: "session_info", id: "pi-info", timestamp: new Date().toISOString(), name: "Pi 可切换会话" },
+    { type: "message", id: "pi-user", timestamp: new Date().toISOString(), message: { role: "user", content: [{ type: "text", text: "Pi 来源可读会话" }] } },
+  ].map((event) => JSON.stringify(event)).join("\n")}\n`,
+  "utf8",
+);
+await utimes(piSessionPath, new Date(), new Date());
 await mkdir(remoteSessionDir, { recursive: true });
 const remoteIndexRows = [];
 for (let index = 1; index <= 101; index += 1) {
@@ -44,7 +58,7 @@ const remoteAddress = remoteServer.address();
 process.env.CODEX_HOME = codexHome;
 process.env.HOME = tempRoot;
 process.env.USERPROFILE = tempRoot;
-process.env.PI_AGENT_SESSIONS_ROOT = path.join(tempRoot, "missing-pi-sessions");
+process.env.PI_AGENT_SESSIONS_ROOT = piSessionsRoot;
 process.env.CODEX_SESSION_DETAIL_MAX_EVENTS = "4";
 process.env.CODEX_REMOTE_PEERS = `office|E2E 远端索引=http://127.0.0.1:${remoteAddress.port}`;
 process.env.CODEX_REMOTE_TOKEN = remoteToken;

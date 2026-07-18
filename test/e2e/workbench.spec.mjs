@@ -8,6 +8,31 @@ async function openWorkbench(page) {
   await expect(page.locator("#compactContent")).toBeVisible();
 }
 
+async function expectDesktopAccessibilityContracts(page, { sidebar, thread, inspector }) {
+  const timeFilters = page.locator("#sessionTimeFilter [role=radio]");
+  await timeFilters.first().focus();
+  await page.keyboard.press("End");
+  await expect(timeFilters.last()).toHaveAttribute("aria-checked", "true");
+  await expect(timeFilters.last()).toBeFocused();
+  await expect(page.locator("#sessionTimeFilter")).toHaveAttribute("role", "radiogroup");
+  await expect(page.locator(".sidebar-mode-switch")).toHaveAttribute("role", "toolbar");
+  await expect(page.locator("#sessionTimeFilter [role=tab]")).toHaveCount(0);
+  await expect(page.locator(".sidebar-mode-switch [role=tab]")).toHaveCount(0);
+  await expect(page.locator("#promptsModeButton")).toHaveAttribute("aria-pressed", "false");
+  await expect(sidebar).not.toHaveAttribute("role", "tabpanel");
+  await expect(thread).not.toHaveAttribute("role", "tabpanel");
+  await expect(inspector).not.toHaveAttribute("role", "tabpanel");
+}
+
+async function expectTabPanels(page, tabs) {
+  for (const tab of await tabs.all()) {
+    const panelId = await tab.getAttribute("aria-controls");
+    const panel = page.locator(`#${panelId}`);
+    await expect(panel).toHaveAttribute("role", "tabpanel");
+    await expect(panel).toHaveAttribute("aria-labelledby", await tab.getAttribute("id"));
+  }
+}
+
 function promptResponse(prompt, title = "当前任务", page = {}) {
   return {
     source: { id: "local", label: "本机 Codex Home", kind: "local" },
@@ -44,7 +69,7 @@ function promptResponse(prompt, title = "当前任务", page = {}) {
   };
 }
 
-test("桌面三栏、复核台调整与四个 tablist 同步", async ({ page }) => {
+test("桌面三栏、复核台调整与真实 tab/panel 契约同步", async ({ page }) => {
   await openWorkbench(page);
   const sidebar = page.locator("#sessionsPanel");
   const thread = page.locator("#threadPanel");
@@ -60,23 +85,21 @@ test("桌面三栏、复核台调整与四个 tablist 同步", async ({ page }) 
   await page.keyboard.press("ArrowLeft");
   await expect(resizer).toHaveAttribute("aria-valuenow", String(widthBefore + 24));
 
-  const timeTabs = page.locator("#sessionTimeFilter [role=tab]");
-  await timeTabs.first().focus();
-  await page.keyboard.press("End");
-  await expect(timeTabs.last()).toHaveAttribute("aria-selected", "true");
-  await expect(timeTabs.last()).toBeFocused();
+  await expectDesktopAccessibilityContracts(page, { sidebar, thread, inspector });
 
   const viewTabs = page.locator(".view-switch [role=tab]");
   await viewTabs.first().focus();
   await page.keyboard.press("ArrowRight");
   await expect(page.locator("#auditViewButton")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#auditContent")).toBeVisible();
+  await expectTabPanels(page, viewTabs);
 
   const reviewTabs = page.locator("#reviewTabs [role=tab]");
   await reviewTabs.first().focus();
   await page.keyboard.press("End");
   await expect(reviewTabs.last()).toHaveAttribute("aria-selected", "true");
   await expect(reviewTabs.last()).toBeFocused();
+  await expectTabPanels(page, reviewTabs);
 
   await page.locator("#settingsButton").click();
   const settingsTabs = page.locator("#settingsTabs [role=tab]");
@@ -84,6 +107,7 @@ test("桌面三栏、复核台调整与四个 tablist 同步", async ({ page }) 
   await page.keyboard.press("End");
   await expect(settingsTabs.last()).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#settingsSectionStructured")).toBeVisible();
+  await expectTabPanels(page, settingsTabs);
   await page.keyboard.press("Escape");
 });
 
@@ -96,13 +120,14 @@ test("窄屏使用流式复核区，移动端仅展示当前三面板", async ({
 
   await page.setViewportSize({ width: 390, height: 844 });
   const mobileTabs = page.locator(".mobile-tabs [role=tab]");
-  await expect(mobileTabs.nth(1)).toHaveAttribute("aria-current", "page");
+  await expect(mobileTabs.nth(1)).toHaveAttribute("aria-selected", "true");
   await page.locator("[data-panel-target=sessions]").click();
   await expect(page.locator("#sessionsPanel")).toBeVisible();
   await expect(page.locator("#threadPanel")).toBeHidden();
   await expect(mobileTabs.first()).toHaveAttribute("aria-selected", "true");
-  await expect(mobileTabs.first()).toHaveAttribute("aria-current", "page");
   await expect(mobileTabs.first()).toHaveAttribute("aria-controls", "sessionsPanel");
+  await expect(page.locator("#sessionsPanel")).toHaveAttribute("role", "tabpanel");
+  await expect(page.locator("#sessionsPanel")).toHaveAttribute("aria-labelledby", "mobileSessionsTab");
   await expect(page.locator("#threadPanel")).toHaveAttribute("aria-hidden", "true");
   await expect(page.locator("#threadPanel")).toHaveJSProperty("inert", true);
   await mobileTabs.first().focus();
@@ -187,6 +212,46 @@ test("任务归档取消加载，并隔离过期响应", async ({ page }) => {
   resolveStaleResponse();
   await staleSettled;
   await expect(page.locator("#promptArchiveContent").getByText("过期响应不得写入页面")).toHaveCount(0);
+});
+
+test("移动端任务归档可打开复核状态，退出后恢复会话复核", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openWorkbench(page);
+  await page.route("**/api/sources/local/prompts?*", async (route) => {
+    await route.fulfill({ json: promptResponse("归档复核状态", "移动端归档") });
+  });
+
+  await page.locator("[data-panel-target=sessions]").click();
+  await page.locator("#promptsModeButton").click();
+  await expect(page.locator("#promptArchiveContent")).toContainText("归档复核状态");
+  await page.locator("[data-panel-target=inspector]").click();
+  await expect(page.locator("#inspectorPanel")).toBeVisible();
+  await expect(page.locator("#inspectorPanel")).toHaveCSS("opacity", "1");
+  await expect(page.locator("#sessionDetails")).toContainText("任务归档未打开会话");
+  await expect(page.locator("#selectionDetails")).toContainText("当前正在浏览任务归档");
+  await expect(page.locator("#copyRawButton")).toBeDisabled();
+
+  await page.locator("[data-panel-target=sessions]").click();
+  await page.locator("#sessionsModeButton").click();
+  await page.locator("[data-panel-target=inspector]").click();
+  await expect(page.locator("#sessionDetails")).not.toContainText("任务归档未打开会话");
+  await expect(page.locator("#copyRawButton")).toBeEnabled();
+});
+
+test("本机 Codex 空列表会有界发现 Pi 可读会话并显式切换", async ({ page }) => {
+  await page.route("**/api/sources/local/sessions?*", async (route) => {
+    await route.fulfill({ json: { source: { id: "local", label: "本机 Codex Home", kind: "local" }, scope: "recent24h", sessions: [] } });
+  });
+  const piProbe = page.waitForRequest("**/api/sources/pi-agent/sessions?scope=recent24h");
+  await page.goto("/");
+  await expect(page.locator("#sourceSelect")).toHaveValue("local");
+  await piProbe;
+  await expect(page.locator("[data-session-empty-action=select-alternate-local-source]")).toHaveText("切换查看 Pi Agent Sessions");
+  const piSelection = page.waitForRequest("**/api/sources/pi-agent/sessions?scope=recent24h");
+  await page.locator("[data-session-empty-action=select-alternate-local-source]").click();
+  await piSelection;
+  await expect(page.locator("#sourceSelect")).toHaveValue("pi-agent");
+  await expect(page.locator("#sessionTitle")).toHaveText("Pi 可切换会话");
 });
 
 test("远端索引延迟、失败和状态公告保留可恢复结果", async ({ page }) => {
