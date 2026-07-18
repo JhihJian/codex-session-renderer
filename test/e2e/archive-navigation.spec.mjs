@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 const sessionId = "33333333-3333-4333-8333-333333333333";
+const longTitleSessionId = "88888888-8888-4888-8888-888888888888";
 const piGoalSessionId = "66666666-6666-4666-8666-666666666666";
 const codexGoalSessionId = "77777777-7777-4777-8777-777777777777";
 
@@ -188,6 +189,94 @@ test("从归档打开会话后，详情响应不会覆盖用户后续的移动�
   releaseDetail();
   await expect(page.locator("#sessionDetails")).not.toContainText("任务归档未打开会话");
   await expect(page.locator("#appShell")).toHaveAttribute("data-panel", "inspector");
+});
+
+test("普通会话迟到详情不会覆盖用户后续的移动复核导航", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  let releaseDetail;
+  const detailRelease = new Promise((resolve) => {
+    releaseDetail = resolve;
+  });
+  await page.route(`**/api/sources/local/sessions/${longTitleSessionId}*`, async (route) => {
+    await detailRelease;
+    await route.continue();
+  });
+
+  await page.locator("[data-panel-target=sessions]").click();
+  const requestedDetail = page.waitForRequest(`**/api/sources/local/sessions/${longTitleSessionId}*`);
+  await page.locator(`[data-session-id="${longTitleSessionId}"]`).click();
+  await requestedDetail;
+  await expect(page.locator("#appShell")).toHaveAttribute("data-panel", "thread");
+  await page.locator("[data-panel-target=inspector]").click();
+  releaseDetail();
+
+  await expect(page.locator("#threadPanel")).toHaveAttribute("aria-busy", "false");
+  await expect(page.locator("#compactContent")).toContainText("Chromium 长标题详情");
+  await expect(page.locator("#appShell")).toHaveAttribute("data-panel", "inspector");
+});
+
+test("普通会话详情完成后保持内容面板", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  let releaseDetail;
+  const detailRelease = new Promise((resolve) => {
+    releaseDetail = resolve;
+  });
+  await page.route(`**/api/sources/local/sessions/${longTitleSessionId}*`, async (route) => {
+    await detailRelease;
+    await route.continue();
+  });
+
+  await page.locator("[data-panel-target=sessions]").click();
+  const requestedDetail = page.waitForRequest(`**/api/sources/local/sessions/${longTitleSessionId}*`);
+  await page.locator(`[data-session-id="${longTitleSessionId}"]`).click();
+  await requestedDetail;
+  await expect(page.locator("#appShell")).toHaveAttribute("data-panel", "thread");
+  releaseDetail();
+
+  await expect(page.locator("#threadPanel")).toHaveAttribute("aria-busy", "false");
+  await expect(page.locator("#compactContent")).toContainText("Chromium 长标题详情");
+  await expect(page.locator("#appShell")).toHaveAttribute("data-panel", "thread");
+});
+
+test("远端历史索引仅作静态列表项，分页显示范围、末页并复用已访问页", async ({ page }) => {
+  await page.goto("/");
+  let remoteIndexRequests = 0;
+  page.on("request", (request) => {
+    if (request.url().includes("/api/sources/office/index?")) remoteIndexRequests += 1;
+  });
+
+  await page.locator("#sourceSelect").selectOption("office");
+  await page.locator("#sessionTimeFilter [data-session-time=earlier]").click();
+  await expect(page.locator("[data-remote-index-page-info]")).toHaveText("第 1 页 · 当前范围第 1-100 条 / 共 101 条");
+  await expect(page.locator("#sessionCount")).toHaveText("101");
+  const indexOnlyRows = page.locator("#sessionList .session-row.index-only");
+  await expect(indexOnlyRows).toHaveCount(100);
+  await expect(indexOnlyRows.first()).toBeVisible();
+  expect(await indexOnlyRows.evaluateAll((rows) => rows.every((row) => (
+    row.getAttribute("role") === "listitem" &&
+    !row.hasAttribute("tabindex") &&
+    !row.hasAttribute("aria-disabled") &&
+    !row.querySelector('[role="button"], [tabindex], [aria-disabled]')
+  )))).toBe(true);
+  await expect(indexOnlyRows.first()).toHaveAccessibleName(/仅索引，未同步正文，无法直接打开/);
+  await expect(page.locator("[data-remote-index-page-action=previous]")).toBeDisabled();
+
+  const secondPage = page.waitForRequest((request) => request.url().includes("/api/sources/office/index?") && request.url().includes("cursor=100"));
+  await page.locator("[data-remote-index-page-action=next]").click();
+  await secondPage;
+  await expect(page.locator("[data-remote-index-page-info]")).toHaveText("第 2 页 · 当前范围第 101-101 条 / 共 101 条");
+  await expect(page.locator("[data-remote-index-page-status]")).toHaveText("已到末页，无更多索引结果");
+  await expect(page.locator("[data-remote-index-page-action=next]")).toBeDisabled();
+  expect(remoteIndexRequests).toBe(2);
+
+  await page.locator("[data-remote-index-page-action=previous]").click();
+  await expect(page.locator("[data-remote-index-page-info]")).toHaveText("第 1 页 · 当前范围第 1-100 条 / 共 101 条");
+  expect(remoteIndexRequests).toBe(2);
+  await page.locator("#sessionTypeFilter").focus();
+  await page.keyboard.press("Tab");
+  await expect(page.locator("[data-remote-index-page-action=next]")).toBeFocused();
 });
 
 test("移动端归档响应在复核导航后会取消并提供重新整理入口", async ({ page }) => {

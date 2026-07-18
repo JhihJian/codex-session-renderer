@@ -24,6 +24,7 @@ const state = {
   remoteIndexFilterKey: "",
   remoteIndexPage: null,
   remoteIndexPages: new Map(),
+  mobilePanelNavigationVersion: 0,
   sessionLoading: false,
   sessionLoadError: "",
   sessionRequestKey: "",
@@ -518,10 +519,10 @@ function bindEvents() {
   });
   document.querySelectorAll("[data-panel-target]").forEach((button) => {
     button.addEventListener("click", () => {
-      setMobilePanel(button.dataset.panelTarget);
+      setMobilePanel(button.dataset.panelTarget, { userInitiated: true });
     });
   });
-  bindRovingTablist(document.querySelector(".mobile-tabs"), "[data-panel-target]", (button) => setMobilePanel(button.dataset.panelTarget));
+  bindRovingTablist(document.querySelector(".mobile-tabs"), "[data-panel-target]", (button) => setMobilePanel(button.dataset.panelTarget, { userInitiated: true }));
 }
 
 function bindRovingTablist(tablist, selector, activate) {
@@ -622,8 +623,9 @@ function mobilePanelTab(panel) {
   return document.querySelector(`[data-panel-target="${cssEscape(panel)}"]`);
 }
 
-function setMobilePanel(panel) {
+function setMobilePanel(panel, { userInitiated = false } = {}) {
   const next = ["sessions", "thread", "inspector"].includes(panel) ? panel : "thread";
+  if (userInitiated && els.appShell.dataset.panel !== next) state.mobilePanelNavigationVersion += 1;
   els.appShell.dataset.panel = next;
   syncMobilePanelNavigation();
 }
@@ -1259,7 +1261,7 @@ function setAriaBusy(element, busy) {
   element.setAttribute("aria-busy", busy ? "true" : "false");
 }
 
-async function selectSession(id, { announce = true, focusMobilePanel = true } = {}) {
+async function selectSession(id, { announce = true, focusMobilePanel = true, immediateMobilePanel = false } = {}) {
   sessionAbortController?.abort();
   markdownAbortController?.abort();
   cancelRawDiagnosticRequest({ clear: true });
@@ -1268,6 +1270,8 @@ async function selectSession(id, { announce = true, focusMobilePanel = true } = 
   const sourceId = state.selectedSourceId;
   const targetSession = findSessionSummary(id);
   const requestKey = `${sourceId}:${id}:${Date.now()}`;
+  const mobilePanelNavigationVersion = state.mobilePanelNavigationVersion;
+  if (immediateMobilePanel) setMobilePanel("thread");
   state.selectedSessionId = id;
   state.selectedSessionKey = sessionKey({ id, sourceId });
   state.sessionRequestKey = requestKey;
@@ -1305,7 +1309,7 @@ async function selectSession(id, { announce = true, focusMobilePanel = true } = 
     primeTraceExpansion(detail);
     setWorkbenchStatus(operationKey, `会话已加载：${selectedSessionDisplayTitle()}`, { announce });
     renderAll();
-    if (focusMobilePanel) setMobilePanel("thread");
+    if (focusMobilePanel && state.mobilePanelNavigationVersion === mobilePanelNavigationVersion) setMobilePanel("thread");
   } catch (error) {
     if (state.sessionRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
     state.detail = null;
@@ -3190,25 +3194,17 @@ function renderSessionList() {
       row.focus();
       return;
     }
-    selectSession(rowSessionId);
+    selectSession(rowSessionId, { immediateMobilePanel: true });
   };
-  els.sessionList.querySelectorAll("[data-session-id]").forEach((row) => {
+  els.sessionList.querySelectorAll('[data-session-id]:not([data-remote-index-only="true"])').forEach((row) => {
     row.addEventListener("click", (event) => {
       if (event.target.closest("a")) return;
-      if (row.dataset.remoteIndexOnly === "true") {
-        showToast(remoteIndexOnlyMessage());
-        return;
-      }
       activateSessionRow(row);
     });
     row.addEventListener("keydown", (event) => {
       if (event.target.closest("a")) return;
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
-      if (row.dataset.remoteIndexOnly === "true") {
-        showToast(remoteIndexOnlyMessage());
-        return;
-      }
       activateSessionRow(row);
     });
   });
@@ -3556,8 +3552,11 @@ function renderSessionRow(session, query) {
   const ariaLabel = session.remoteIndexOnly
     ? `${displayTitle}${truncation}，仅索引，未同步正文，无法直接打开`
     : `${displayTitle}${truncation}${active ? "，当前会话" : ""}`;
+  const rowSemantics = session.remoteIndexOnly
+    ? 'role="listitem"'
+    : `role="button" tabindex="0" ${active ? 'aria-current="true"' : ""}`;
   return `
-    <div class="session-row${active}${indexOnly}" role="button" tabindex="0" data-session-id="${escapeAttr(session.id)}" data-remote-index-only="${session.remoteIndexOnly ? "true" : "false"}" ${title ? `title="${escapeAttr(title)}"` : ""} aria-label="${escapeAttr(ariaLabel)}" ${active ? 'aria-current="true"' : ""} ${session.remoteIndexOnly ? 'aria-disabled="true"' : ""}>
+    <div class="session-row${active}${indexOnly}" ${rowSemantics} data-session-id="${escapeAttr(session.id)}" data-remote-index-only="${session.remoteIndexOnly ? "true" : "false"}" ${title ? `title="${escapeAttr(title)}"` : ""} aria-label="${escapeAttr(ariaLabel)}">
       <span class="agent-dot" data-agent="${escapeAttr(agentName.toLowerCase())}" aria-hidden="true"></span>
       <span class="session-title markdown-inline-title">${renderMarkdownTitle(displayTitle, query)}</span>
       <span class="session-date">${formatShortDate(session.updatedAt || session.fileModifiedAt)}</span>

@@ -380,35 +380,6 @@ test("任务归档续页变化后清空旧批并从首批恢复", async ({ page 
   expect(calls).toBe(3);
 });
 
-test("远端历史索引分页显示范围、末页并复用已访问页", async ({ page }) => {
-  await openWorkbench(page);
-  let remoteIndexRequests = 0;
-  page.on("request", (request) => {
-    if (request.url().includes("/api/sources/office/index?")) remoteIndexRequests += 1;
-  });
-
-  await page.locator("#sourceSelect").selectOption("office");
-  await page.locator("#sessionTimeFilter [data-session-time=earlier]").click();
-  await expect(page.locator("[data-remote-index-page-info]")).toHaveText("第 1 页 · 当前范围第 1-100 条 / 共 101 条");
-  await expect(page.locator("#sessionCount")).toHaveText("101");
-  await expect(page.locator("#sessionList .session-row.index-only").first()).toBeVisible();
-  await expect(page.locator("[data-remote-index-page-action=previous]")).toBeDisabled();
-
-  const secondPage = page.waitForRequest((request) => request.url().includes("/api/sources/office/index?") && request.url().includes("cursor=100"));
-  await page.locator("[data-remote-index-page-action=next]").click();
-  await secondPage;
-  await expect(page.locator("[data-remote-index-page-info]")).toHaveText("第 2 页 · 当前范围第 101-101 条 / 共 101 条");
-  await expect(page.locator("[data-remote-index-page-status]")).toHaveText("已到末页，无更多索引结果");
-  await expect(page.locator("[data-remote-index-page-action=next]")).toBeDisabled();
-  expect(remoteIndexRequests).toBe(2);
-
-  await page.locator("[data-remote-index-page-action=previous]").click();
-  await expect(page.locator("[data-remote-index-page-info]")).toHaveText("第 1 页 · 当前范围第 1-100 条 / 共 101 条");
-  expect(remoteIndexRequests).toBe(2);
-  await page.locator("#sessionList .session-row.index-only").first().click({ force: true });
-  await expect(page.locator("#toast")).toContainText("仅含标题、时间、路径等元数据");
-});
-
 test("远端历史索引版本变化后从首页恢复，不混合旧页", async ({ page }) => {
   await openWorkbench(page);
   await page.locator("#sourceSelect").selectOption("office");
