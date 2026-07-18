@@ -972,7 +972,7 @@ function remoteFailurePayload(error) {
 }
 
 function remoteHttpFailureStatus(status) {
-  return status === 401 || status === 403 ? status : 502;
+  return status === 401 || status === 403 || status === 409 ? status : 502;
 }
 
 async function readRemoteJson(response, { code, message, status = 502, maxBytes, signal }) {
@@ -1012,6 +1012,9 @@ async function queryRemoteSessionIndex(source, params, options = {}) {
     });
   if (response.status === 401 || response.status === 403) {
     throw createRemoteServiceError("remote_index_auth_failed", "远端索引认证失败。", response.status);
+  }
+  if (response.status === 409) {
+    throw createRemoteServiceError("index_snapshot_changed", "远端历史索引已变化，请重新开始定位。", 409);
   }
   if (!response.ok) {
     throw createRemoteServiceError(

@@ -1,14 +1,15 @@
 import { createReadStream, createWriteStream, promises as fs } from "node:fs";
+import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { pipeline } from "node:stream/promises";
-import { readJsonl } from "./jsonl-reader.mjs";
 import { createDeadlineSignal, throwIfAborted } from "./remote-http.mjs";
 import { createByteLimitTransform, createContentBudget } from "./snapshot-budget.mjs";
 import { createSnapshotBuildCoordinator } from "./snapshot-build-coordinator.mjs";
-import { sessionIdFromFile, sessionStartedFromFile, toIso } from "./session-events.mjs";
-import { createSqliteThreadStore, stripLongPathPrefix } from "./sqlite-threads.mjs";
+import { sessionStartedFromFile } from "./session-events.mjs";
+import { createSqliteThreadStore, sqlString } from "./sqlite-threads.mjs";
+import { indexSnapshotChangedError, readFileIndexPage, relativeCodexPath } from "./remote-session-index.mjs";
 import { copyCodexTree, snapshotMetadataFile, validateSnapshot } from "./data-sources.mjs";
 import { sendError, sendJson } from "./http-response.mjs";
 
@@ -27,6 +28,10 @@ function snapshotShareConfig(options = {}) {
     maxFiles: positiveLimit(env.CODEX_SHARE_SNAPSHOT_MAX_FILES, 10_000, 100_000),
     maxArchiveBytes: positiveLimit(env.CODEX_SHARE_SNAPSHOT_MAX_ARCHIVE_BYTES, 300 * 1024 * 1024, 2 * 1024 * 1024 * 1024),
     buildDeadlineMs: positiveLimit(env.CODEX_SHARE_SNAPSHOT_BUILD_DEADLINE_MS, 60_000, 300_000),
+    indexDeadlineMs: positiveLimit(env.CODEX_SHARE_INDEX_DEADLINE_MS, 10_000, 60_000),
+    indexSqliteMaxBytes: positiveLimit(env.CODEX_SHARE_INDEX_SQLITE_MAX_BYTES, 2 * 1024 * 1024, 16 * 1024 * 1024),
+    indexFallbackMaxEntries: positiveLimit(env.CODEX_SHARE_INDEX_FALLBACK_MAX_ENTRIES, 10_000, 100_000),
+    indexFallbackMaxBytes: positiveLimit(env.CODEX_SHARE_INDEX_FALLBACK_MAX_BYTES, 128 * 1024 * 1024, 1024 * 1024 * 1024),
   };
 }
 
@@ -93,12 +98,21 @@ function createSnapshotShareHandler(options = {}) {
       if (url.pathname === "/api/codex-session-index") {
         if (req.method !== "GET") return sendError(res, 405, "Method not allowed");
         if (!isAuthorizedSnapshotRequest(req, config.token)) return sendError(res, 401, "Unauthorized");
-        return sendJson(res, 200, await createSessionIndex({
-          codexHome: config.codexHome,
-          query: url.searchParams,
-          fsApi,
-          now,
-        }));
+        const subscription = requestAbortSubscription(req, res);
+        try {
+          const index = await createSessionIndex({
+            codexHome: config.codexHome,
+            query: url.searchParams,
+            fsApi,
+            now,
+            signal: subscription.signal,
+            limits: indexLimitsFromConfig(config),
+          });
+          if (!subscription.signal.aborted && !res.destroyed) return sendJson(res, 200, index);
+          return undefined;
+        } finally {
+          subscription.dispose();
+        }
       }
 
       return sendError(res, 404, "Not found");
@@ -275,25 +289,37 @@ async function createSessionIndex(options = {}) {
   const fsApi = options.fsApi || fs;
   const codexHome = path.resolve(options.codexHome || path.join(os.homedir(), ".codex"));
   const query = parseIndexQuery(options.query || new URLSearchParams());
-  const sessions = await readIndexSessions({ codexHome, fsApi, query });
-  const filtered = filterIndexSessions(sessions, query, options.now || (() => new Date()));
-  const start = query.cursor;
-  const end = start + query.limit;
-  return {
-    ok: true,
-    codexHome,
-    page: {
-      total: filtered.length,
-      limit: query.limit,
-      cursor: start,
-      nextCursor: end < filtered.length ? String(end) : null,
-    },
-    sessions: filtered.slice(start, end).map((session) => ({
-      ...session,
-      availableInSnapshot: false,
-      remoteIndexOnly: true,
-    })),
-  };
+  const limits = { ...defaultIndexLimits(), ...(options.limits || {}) };
+  const deadline = createDeadlineSignal(options.signal, limits.deadlineMs, "index_deadline_exceeded");
+  try {
+    throwIfAborted(deadline.signal);
+    const now = options.now || (() => new Date());
+    const sqlite = await readSqliteIndexPage({ codexHome, fsApi, query, now, limits, signal: deadline.signal, sqliteStore: options.sqliteStore });
+    const index = sqlite || await readFileIndexPage({ codexHome, fsApi, query, now, limits, signal: deadline.signal });
+    const snapshot = indexSnapshotToken({ query, kind: index.kind, version: index.version });
+    assertIndexSnapshot(query.snapshot, snapshot);
+    const end = query.cursor + query.limit;
+    return {
+      ok: true,
+      page: {
+        total: index.total,
+        limit: query.limit,
+        cursor: query.cursor,
+        nextCursor: end < index.total ? String(end) : null,
+        snapshot,
+      },
+      sessions: index.sessions.map((session) => ({
+        ...session,
+        availableInSnapshot: false,
+        remoteIndexOnly: true,
+      })),
+    };
+  } catch (error) {
+    if (error?.code === "index_deadline_exceeded") error.status ||= 504;
+    throw error;
+  } finally {
+    deadline.dispose();
+  }
 }
 
 function parseIndexQuery(params) {
@@ -303,22 +329,49 @@ function parseIndexQuery(params) {
     bucket: searchParams.get("bucket") || "all",
     limit: clampNumber(searchParams.get("limit"), 1, 500, 120),
     cursor: clampNumber(searchParams.get("cursor"), 0, Number.MAX_SAFE_INTEGER, 0),
+    snapshot: String(searchParams.get("snapshot") || ""),
   };
 }
 
-async function readIndexSessions({ codexHome, fsApi, query }) {
-  const sqliteSessions = await readSqliteIndexSessions({ codexHome, query });
-  if (sqliteSessions.length > 0) return sqliteSessions;
-  return readFileIndexSessions({ codexHome, fsApi });
+function defaultIndexLimits() {
+  return {
+    deadlineMs: 10_000,
+    sqliteMaxBytes: 2 * 1024 * 1024,
+    fallbackMaxEntries: 10_000,
+    fallbackMaxBytes: 128 * 1024 * 1024,
+  };
 }
 
-async function readSqliteIndexSessions({ codexHome, query }) {
-  const store = createSqliteThreadStore({
-    stateDbPath: path.join(codexHome, "state_5.sqlite"),
-    maxListSessions: Math.max(query.limit + query.cursor, 1000),
-  });
-  const threads = await store.readAllThreads();
-  return [...threads.values()].map((thread) => ({
+function indexLimitsFromConfig(config) {
+  return {
+    deadlineMs: config.indexDeadlineMs,
+    sqliteMaxBytes: config.indexSqliteMaxBytes,
+    fallbackMaxEntries: config.indexFallbackMaxEntries,
+    fallbackMaxBytes: config.indexFallbackMaxBytes,
+  };
+}
+
+async function readSqliteIndexPage({ codexHome, fsApi, query, now, limits, signal, sqliteStore }) {
+  const stateDbPath = path.join(codexHome, "state_5.sqlite");
+  const before = await indexFileSignature(stateDbPath, fsApi);
+  if (!before && !sqliteStore) return null;
+  const store = sqliteStore || createSqliteThreadStore({ stateDbPath });
+  try {
+    const page = await store.readThreadIndexPage({
+      conditions: sqliteIndexConditions(query, now().getTime()),
+      limit: query.limit,
+      cursor: query.cursor,
+      maxBuffer: limits.sqliteMaxBytes,
+      signal,
+    });
+    throwIfAborted(signal);
+    const after = await indexFileSignature(stateDbPath, fsApi);
+    if (before && after !== before) throw indexSnapshotChangedError();
+    return {
+      kind: "sqlite",
+      version: after || before || "injected-store",
+      total: page.total,
+      sessions: [...page.threads.values()].map((thread) => ({
     id: thread.id,
     title: thread.title || "未命名会话",
     cwd: thread.cwd || null,
@@ -335,130 +388,48 @@ async function readSqliteIndexSessions({ codexHome, query }) {
     startedAt: thread.createdAt || sessionStartedFromFile(thread.path),
     updatedAt: thread.updatedAt || null,
     fileModifiedAt: null,
-    sizeBytes: null,
-  }));
-}
-
-async function readFileIndexSessions({ codexHome, fsApi }) {
-  const index = await readSessionIndexFile(path.join(codexHome, "session_index.jsonl"));
-  const sessionsRoot = path.join(codexHome, "sessions");
-  const sessions = [];
-  for await (const filePath of walkJsonl(sessionsRoot, fsApi)) {
-    const stat = await fsApi.stat(filePath).catch(() => null);
-    if (!stat) continue;
-    const id = sessionIdFromFile(filePath);
-    const indexed = index.get(id);
-    sessions.push({
-      id,
-      title: indexed?.title || path.basename(filePath, ".jsonl"),
-      cwd: null,
-      model: null,
-      reasoningEffort: null,
-      source: null,
-      threadSource: null,
-      modelProvider: null,
-      archived: false,
-      agentNickname: null,
-      agentRole: null,
-      preview: null,
-      relativePath: relativeCodexPath(codexHome, filePath),
-      startedAt: sessionStartedFromFile(filePath),
-      updatedAt: indexed?.updatedAt || toIso(stat.mtime),
-      fileModifiedAt: toIso(stat.mtime),
-      sizeBytes: stat.size,
-    });
-  }
-  sessions.sort((left, right) => sessionTimeMs(right) - sessionTimeMs(left));
-  return sessions;
-}
-
-async function readSessionIndexFile(filePath) {
-  const byId = new Map();
-  try {
-    const rows = await readJsonl(filePath);
-    for (const row of rows) {
-      if (!row?.id) continue;
-      byId.set(row.id, {
-        title: row.thread_name || row.name || "未命名会话",
-        updatedAt: toIso(row.updated_at) || toIso(row.updatedAt),
-      });
-    }
-  } catch {
-    // JSONL files remain the fallback index.
-  }
-  return byId;
-}
-
-async function* walkJsonl(dir, fsApi = fs) {
-  let entries;
-  try {
-    entries = await fsApi.readdir(dir, { withFileTypes: true });
-  } catch {
-    return;
-  }
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      yield* walkJsonl(fullPath, fsApi);
-    } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
-      yield fullPath;
-    }
+        sizeBytes: null,
+      })),
+    };
+  } catch (error) {
+    if (error?.name === "AbortError" || error?.code === "ABORT_ERR" || error?.code === "index_snapshot_changed") throw error;
+    return null;
   }
 }
 
-function filterIndexSessions(sessions, query, now = () => new Date()) {
-  return sessions.filter((session) => {
-    if (query.bucket !== "all" && sessionTimeBucket(session, now().getTime()) !== query.bucket) return false;
-    if (query.q && !indexSearchText(session).includes(query.q)) return false;
-    return true;
-  });
-}
-
-function indexSearchText(session) {
-  return [
-    session.id,
-    session.title,
-    session.preview,
-    session.cwd,
-    session.relativePath,
-    session.model,
-    session.reasoningEffort,
-    session.source,
-    session.threadSource,
-    session.modelProvider,
-    session.agentNickname,
-    session.agentRole,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-}
-
-function sessionTimeBucket(session, nowMs = Date.now()) {
-  const timestamp = sessionTimeMs(session);
-  if (timestamp == null) return "earlier";
-  const ageMs = Math.max(0, Number(nowMs) - timestamp);
-  if (ageMs < 3 * 60 * 60 * 1000) return "realtime";
-  if (ageMs < 24 * 60 * 60 * 1000) return "day";
-  return "earlier";
-}
-
-function sessionTimeMs(session) {
-  for (const value of [session.updatedAt, session.fileModifiedAt, session.startedAt]) {
-    if (!value) continue;
-    const time = new Date(value).getTime();
-    if (Number.isFinite(time)) return time;
+function sqliteIndexConditions(query, nowMs) {
+  const time = "coalesce(updated_at_ms, created_at_ms)";
+  const conditions = ["rollout_path is not null and rollout_path <> ''", "id not in (select child_thread_id from thread_spawn_edges where child_thread_id is not null)"];
+  if (query.bucket === "realtime") conditions.push(`${time} >= ${Math.trunc(nowMs - 3 * 60 * 60 * 1000)}`);
+  if (query.bucket === "day") conditions.push(`${time} >= ${Math.trunc(nowMs - 24 * 60 * 60 * 1000)} and ${time} < ${Math.trunc(nowMs - 3 * 60 * 60 * 1000)}`);
+  if (query.bucket === "earlier") conditions.push(`(${time} < ${Math.trunc(nowMs - 24 * 60 * 60 * 1000)} or ${time} is null)`);
+  if (query.q) {
+    const searchable = ["id", "title", "first_user_message", "preview", "cwd", "rollout_path", "model", "reasoning_effort", "source", "thread_source", "model_provider", "agent_nickname", "agent_role"]
+      .map((field) => `coalesce(${field}, '')`)
+      .join(" || ' ' || ");
+    conditions.push(`instr(lower(${searchable}), ${sqlString(query.q)}) > 0`);
   }
-  return null;
+  return conditions;
 }
 
-function relativeCodexPath(codexHome, filePath) {
-  const normalizedHome = stripLongPathPrefix(codexHome || "");
-  const normalizedFile = stripLongPathPrefix(filePath || "");
-  if (!normalizedHome || !normalizedFile) return null;
-  const pathApi = normalizedHome.includes("\\") || normalizedFile.includes("\\") ? path.win32 : path;
-  return pathApi.relative(normalizedHome, normalizedFile).replaceAll("\\", "/");
+
+async function indexFileSignature(filePath, fsApi = fs) {
+  const stat = await fsApi.stat(filePath).catch(() => null);
+  return stat ? [stat.size, stat.mtimeMs, stat.ctimeMs].join(":") : null;
 }
+
+
+function indexSnapshotToken({ query, kind, version }) {
+  return createHash("sha256")
+    .update(JSON.stringify({ bucket: query.bucket, q: query.q, kind, version }))
+    .digest("base64url");
+}
+
+function assertIndexSnapshot(requestSnapshot, snapshot) {
+  if (!requestSnapshot || requestSnapshot === snapshot) return;
+  throw indexSnapshotChangedError();
+}
+
 
 function clampNumber(value, min, max, fallback) {
   const number = Number(value);

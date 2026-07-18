@@ -2316,7 +2316,7 @@ async function requestRemoteIndexPage({ sourceId, filterKey, cursor, options }) 
   renderSourceStatus();
   renderSessionList();
   try {
-    const data = await fetchJson(remoteIndexUrl(sourceId, cursor), { signal: controller.signal });
+    const data = await fetchJson(remoteIndexUrl(sourceId, cursor, options.snapshot || ""), { signal: controller.signal });
     if (state.remoteIndexRequestKey !== requestKey || state.remoteIndexFilterKey !== filterKey || state.selectedSourceId !== sourceId) return;
     if (data.source) upsertSource(data.source);
     const entry = {
@@ -2337,6 +2337,11 @@ async function requestRemoteIndexPage({ sourceId, filterKey, cursor, options }) 
   } catch (error) {
     if (isAbortError(error)) return;
     if (state.remoteIndexRequestKey !== requestKey || state.remoteIndexFilterKey !== filterKey || state.selectedSourceId !== sourceId) return;
+    if (error.status === 409 && error.code === "index_snapshot_changed") {
+      resetRemoteIndexState();
+      showToast("远端历史索引已更新，已从第一页重新开始定位。");
+      return loadRemoteIndexForCurrentFilter({ reset: true });
+    }
     state.remoteIndexSessions = [];
     state.remoteIndexPage = null;
     state.remoteIndexError = error.message;
@@ -2833,6 +2838,7 @@ function bindRemoteIndexPagination(container = els.sessionList) {
           cursor: entry.page.nextCursor,
           previousCursor: entry.cursor,
           pageNumber: entry.pageNumber + 1,
+          snapshot: entry.page.snapshot || "",
         });
       }
     });
@@ -9145,7 +9151,7 @@ function promptArchiveUrl(sourceId = state.selectedSourceId, scope = promptArchi
   return `/api/sources/${encodeURIComponent(sourceId)}/prompts?${params.toString()}`;
 }
 
-function remoteIndexUrl(sourceId = state.selectedSourceId, cursor = "0") {
+function remoteIndexUrl(sourceId = state.selectedSourceId, cursor = "0", snapshot = "") {
   const params = new URLSearchParams({
     bucket: state.sessionTimeFilter,
     limit: String(remoteIndexPageLimit),
@@ -9153,6 +9159,7 @@ function remoteIndexUrl(sourceId = state.selectedSourceId, cursor = "0") {
   });
   const query = els.sessionSearch.value.trim();
   if (query) params.set("q", query);
+  if (snapshot) params.set("snapshot", snapshot);
   return `/api/sources/${encodeURIComponent(sourceId)}/index?${params.toString()}`;
 }
 
@@ -9195,13 +9202,27 @@ async function fetchJson(url, options = {}) {
   }
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(errorText(text, response.statusText, response.status));
+    throw responseError(text, response.statusText, response.status);
   }
   return response.json();
 }
 
 function isAbortError(error) {
   return error?.name === "AbortError";
+}
+
+function responseError(text, fallback, status) {
+  let code = "";
+  try {
+    const parsed = JSON.parse(text);
+    code = parsed.details?.code || parsed.code || "";
+  } catch {
+    // The localized message remains the fallback for non-JSON errors.
+  }
+  const error = new Error(errorText(text, fallback, status));
+  error.status = status;
+  error.code = code;
+  return error;
 }
 
 async function fetchText(url, options = {}) {
@@ -9214,7 +9235,7 @@ async function fetchText(url, options = {}) {
   }
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(errorText(text, response.statusText, response.status));
+    throw responseError(text, response.statusText, response.status);
   }
   return response.text();
 }

@@ -196,6 +196,35 @@ test("远端历史索引分页显示范围、末页并复用已访问页", async
   await expect(page.locator("#toast")).toContainText("仅含标题、时间、路径等元数据");
 });
 
+test("远端历史索引版本变化后从首页恢复，不混合旧页", async ({ page }) => {
+  await openWorkbench(page);
+  await page.locator("#sourceSelect").selectOption("office");
+  await page.locator("#sessionTimeFilter [data-session-time=earlier]").click();
+  await expect(page.locator("[data-remote-index-page-info]")).toHaveText("第 1 页 · 当前范围第 1-100 条 / 共 101 条");
+  let rejectedContinuation = false;
+  await page.route("**/api/sources/office/index?*", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (!rejectedContinuation && url.searchParams.get("cursor") === "100") {
+      rejectedContinuation = true;
+      expect(url.searchParams.get("snapshot")).toMatch(/^[A-Za-z0-9_-]{20,}$/);
+      await route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "远端历史索引已变化，请重新开始定位。", details: { code: "index_snapshot_changed" } }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+  const restarted = page.waitForRequest((request) => request.url().includes("/api/sources/office/index?") && request.url().includes("cursor=0"));
+  await page.locator("[data-remote-index-page-action=next]").click();
+  await restarted;
+  await expect(page.locator("#toast")).toContainText("已从第一页重新开始定位");
+  await expect(page.locator("[data-remote-index-page-info]")).toHaveText("第 1 页 · 当前范围第 1-100 条 / 共 101 条");
+  expect(rejectedContinuation).toBe(true);
+});
+
 test("远端历史新查询取消旧请求且不写入过期页", async ({ page }) => {
   await openWorkbench(page);
   await page.locator("#sourceSelect").selectOption("office");

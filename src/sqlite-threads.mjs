@@ -88,7 +88,6 @@ function createSqliteThreadStore(options) {
       return new Map();
     }
   }
-
   async function readSpawnEdges() {
     const query = "select parent_thread_id,child_thread_id,status from thread_spawn_edges";
     try {
@@ -108,9 +107,38 @@ function createSqliteThreadStore(options) {
   return {
     readAllThreads,
     readSpawnEdges,
+    readThreadIndexPage: (options) => queryThreadIndexPage(runSqliteJson, options),
     readThreadRowsByIds,
     readThreads,
     runSqliteJson,
+  };
+}
+
+async function queryThreadIndexPage(runSqliteJson, { conditions, limit, cursor, signal, maxBuffer }) {
+  const where = conditions.length ? `where ${conditions.join(" and ")}` : "";
+  const normalizedLimit = Math.min(500, Math.max(1, Math.floor(Number(limit) || 120)));
+  const normalizedCursor = Math.max(0, Math.floor(Number(cursor) || 0));
+  const countQuery = `select count(*) as total from threads ${where}`;
+  const rowsQuery = [
+    "select",
+    "id,title,rollout_path,created_at,updated_at,created_at_ms,updated_at_ms,",
+    "source,thread_source,model_provider,cwd,archived,archived_at,",
+    "model,reasoning_effort,agent_nickname,agent_role,first_user_message,preview",
+    "from threads",
+    where,
+    "order by coalesce(updated_at_ms, created_at_ms) desc, id asc limit",
+    String(normalizedLimit),
+    "offset",
+    String(normalizedCursor),
+  ].filter(Boolean).join(" ");
+  const [countStdout, rowsStdout] = await Promise.all([
+    runSqliteJson(countQuery, maxBuffer, signal),
+    runSqliteJson(rowsQuery, maxBuffer, signal),
+  ]);
+  const total = Number(JSON.parse(countStdout || "[]")[0]?.total);
+  return {
+    total: Number.isSafeInteger(total) && total >= 0 ? total : 0,
+    threads: threadRowsToMap(JSON.parse(rowsStdout || "[]")),
   };
 }
 

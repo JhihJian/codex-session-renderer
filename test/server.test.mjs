@@ -138,6 +138,20 @@ test("remote index proxy preserves bounded page cursor metadata", async (t) => {
   assert.equal(body.sessions[0].sourceId, "office");
 });
 
+test("remote index preserves a controlled snapshot-change response", async (t) => {
+  const context = await withRemoteServer(t, async () => new Response(JSON.stringify({
+    error: "Internal server error",
+    details: { code: "index_snapshot_changed" },
+  }), { status: 409, headers: { "content-type": "application/json" } }));
+
+  const { response, body, text } = await requestJson(context, "/api/sources/office/index?cursor=100&snapshot=opaque");
+
+  assert.equal(response.status, 409);
+  assert.equal(body.error, "远端历史索引已变化，请重新开始定位。");
+  assert.equal(body.details.code, "index_snapshot_changed");
+  assertRedacted(text);
+});
+
 test("remote index non JSON response returns actionable error", async (t) => {
   const context = await withRemoteServer(t, async () => new Response("<html>not json</html>", { status: 200 }));
 

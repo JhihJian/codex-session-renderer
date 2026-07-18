@@ -21,7 +21,8 @@ function throwIfAborted(signal) {
 function createDeadlineSignal(signal, deadlineMs, timeoutCode = "remote_deadline_exceeded") {
   const controller = new AbortController();
   const abort = () => controller.abort(createAbortError());
-  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) abort();
+  else signal?.addEventListener("abort", abort, { once: true });
   const timer = Number.isFinite(deadlineMs) && deadlineMs > 0
     ? setTimeout(() => controller.abort(cappedError(timeoutCode, `远端请求超过 ${deadlineMs}ms 时限。`)), deadlineMs)
     : null;
