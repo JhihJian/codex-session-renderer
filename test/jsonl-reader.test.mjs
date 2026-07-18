@@ -50,6 +50,19 @@ test("readJsonlLine returns a parsed non-empty JSONL row by logical index", asyn
   }
 });
 
+test("readJsonlLine applies its independent logical scan boundary", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "csr-jsonl-line-limit-"));
+  try {
+    const file = path.join(dir, "sample.jsonl");
+    await writeFile(file, '{"id":"first"}\n{"id":"second"}\n{"id":"third"}\n', "utf8");
+
+    assert.equal(await readJsonlLine(file, 2, { maxScan: 2 }), null);
+    assert.deepEqual(await readJsonlLine(file, 2, { maxScan: 3 }), { id: "third" });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("readJsonlLineWithDiagnostics returns invalid row diagnostics by logical index", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "csr-jsonl-line-diag-"));
   try {

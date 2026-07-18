@@ -68,6 +68,7 @@ function parseSessionEventQuery(params) {
     to: dateParam(params, "to", "startedBefore"),
     includePayload: parseBoolean(params.get("includePayload"), false),
     includeRaw: parseBoolean(params.get("includeRaw"), false),
+    snapshot: stringParam(params, "snapshot"),
     fields: listParam(params, "fields"),
   };
 }

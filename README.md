@@ -18,10 +18,11 @@
 
 - `CODEX_SESSION_DETAIL_MAX_FILE_BYTES=8388608`：单个详情/导出读取最多 8 MiB。
 - `CODEX_SESSION_DETAIL_MAX_EVENTS=10000`：最多 10,000 条非空 JSONL 事件。
+- `CODEX_SESSION_DIAGNOSTIC_MAX_EVENT_SCAN=100000`：单条来源和有界诊断最多扫描 100,000 条非空 JSONL 事件（逻辑索引 `0` 至 `99,999`）；这是独立于完整详情构建事件数的随机访问预算，范围为 `1` 至 `500000`。
 - `CODEX_SESSION_DETAIL_MAX_CONCURRENT_READS=4`：整个服务实例最多 4 路会话 JSONL 读取（也与任务归档共享）。
 - `CODEX_SESSION_DETAIL_MAX_CACHE_ENTRIES=24`、`CODEX_SESSION_DETAIL_MAX_CACHE_BYTES=50331648`：稳定完整详情、compact 派生和 Markdown 的版本 LRU 最多 24 条且估算总量最多 48 MiB。
 
-命中详情边界时详情接口仍返回 `200`，但含 `complete: false` 与机器可识别的 `readState.code = session_read_limited`（或文件变化时 `session_file_changed`），`turns/events/compact/trace/audit` 都为空值，前端不会把部分内容当作完整会话。页面会给出既有原始事件分页诊断接口的链接；`/markdown` 则返回 `413` JSON 状态，绝不导出部分 Markdown。原始事件分页接口仍按请求的 `limit` / `maxScan` 做流式诊断，并受上述单次读取字节边界和服务并发闸门保护。
+命中详情边界时详情接口仍返回 `200`，但含 `complete: false` 与机器可识别的 `readState.code = session_read_limited`（或文件变化时 `session_file_changed`），`turns/events/compact/trace/audit` 都为空值，前端不会把部分内容当作完整会话。工作台的“原始事件”会切换为明确标记的有界诊断，保留当前会话和数据源语境；它只按页读取事件摘要，前进使用服务端游标、返回最多保留 6 页本地历史，完整原文仅在复核台“来源”页按需读取，并携带当前页快照令牌校验仍是同一文件版本。分页与单条来源共享独立的诊断索引上限，因此工作台实际显示的每条摘要都可按需回读；到达该上限会停止翻页，直接越界请求返回 `413/session_event_scan_limited`。切换视图、会话、数据源、刷新或重试会取消诊断及单事件请求，文件变化、快照变化和网络失败会清空旧页后提示重新开始，绝不混合不同文件版本的内容。`/markdown` 则返回 `413` JSON 状态，绝不导出部分 Markdown。原始事件分页接口仍按请求的 `limit` / `maxScan` 做流式诊断，并受上述单次读取字节边界和服务并发闸门保护。
 
 ## 数据来源
 
@@ -423,7 +424,7 @@ npm run lint:fix
 - 特殊会话样例覆盖 fork replay 前导重放、`turn_aborted` 续跑、真实重复用户输入、等待状态、图片附件和 encrypted reasoning 脱敏。
 - 无 SQLite 文件回退覆盖 `sessions`/`archived_sessions` 去重，避免同一 session id 同时出现在 live 和 archived 副本时重复展示。
 - 前端 HTML 高亮不会改写标签，Windows 路径缩短和下载文件名清理保持稳定。
-- Chromium 契约覆盖桌面三栏与复核台键盘调整、窄屏流式复核区和移动三面板；时间、主视图、复核和设置 tablist 的 roving focus / `aria-selected` 同步；隐藏面板的焦点迁移和设置 dialog 的 Escape/关闭按钮焦点恢复；以及任务归档加载取消和过期响应隔离。
+- Chromium 契约覆盖桌面三栏与复核台键盘调整、窄屏流式复核区和移动三面板；时间、主视图、复核和设置 tablist 的 roving focus / `aria-selected` 同步；隐藏面板的焦点迁移和设置 dialog 的 Escape/关闭按钮焦点恢复；任务归档加载取消；以及受限详情的工作台内有界诊断分页、按需完整来源和离开诊断后的取消/过期响应隔离。
 
 ## 设计说明
 
@@ -449,7 +450,7 @@ npm run lint:fix
   - 阅读视图：负责日常阅读，展示用户输入、每一条助手消息、Codex 上下文压缩摘要和子代理摘要；如果 `token_count` 提供可解析的 context window 或百分比，助手消息标签会以独立徽标显示当时的上下文占用率，超过 70% 时使用高占用提示样式。`compacted` / `context_compacted` 会以系统块显示压缩生成的替换摘要、窗口 ID 和“被替换的对话”范围，替换范围会优先展示覆盖的轮次、角色构成、原始问题预览和最后回复摘要，字符数与 turn id 仅作为辅助定位信息；原始消息标签旁会回标“被替换 N 条 / 事件编号”，用户消息只统计自身替换条目，助手消息统计自身以及按审计链执行层级挂到该助手消息下的工具/执行条目，点击后会保持在阅读视图并定位到对应压缩系统块；“被替换的对话”里的具体条目也可点击跳回原始消息或对应助手消息组。左侧“执行层级”目录会在对应轮次下显示“上下文压缩摘要 / 上下文压缩完成”节点，点击后直接跳到正文中的压缩系统块。完整来源仍可通过系统块里的“查看原始事件”打开。若父会话中有 `spawn_agent` 子代理，会按父子层级内嵌展示子代理自己的用户输入和每轮全部助手消息，并在目录中按“会话 -> 轮次 -> 压缩事件 -> 子代理 -> 子代理轮次”展示执行层级用于快速跳转；执行层级区域会尽量使用可用视口高度展示更多目录内容。
   - 审计链视图：负责复盘，以轮次为一级审计单元展示“目标、执行链、证据、验证、风险、缺口和最终回复”。每个轮次默认显示紧凑摘要，展开后显示“执行链”，并在需要时显示“未关联 / 原始事件复核”节点；执行链先把 `assistant-message` 投影为 `agent_message` 父行，并在可解析时用独立徽标展示该助手消息当时的上下文占用率，超过 70% 时使用高占用提示样式，再把工具、handoff、子代理和 lazy-child 执行节点挂到最近的助手消息下；没有可用助手正文时会生成“未记录正文”的助手占位父行，避免执行节点裸露。每个执行节点下内嵌行动、输出证据、验证、风险和缺口子层级；连续命中执行聚合规则的节点会折叠为可展开执行组，例如多次读取文件、列出目录会聚合为“执行组 · 收集文件与目录信息”。审计链节点按 `traceNodeId`、`itemRef`、`turnIndex` 挂载为状态徽标或证据行，无法可靠挂载的节点进入“未关联”区域。审计链顶部可开启“极简模式”，该模式把每轮渲染为“轮次信息 / 固定宽度纵向上下文占用条 / 伴随面板”三列：中间色条在同一列里上下连接，旁边保留 0% / 50% / 100% 刻度，轮次交界处只增加细分界线以保留会话连贯性；条内每个纯色色段代表一次可点击操作，色段高度按该操作约 token 量归一化，颜色表达操作类型，图内不显示文字，也不展示标题、摘要、工具参数或输出正文，未记录上下文占用的操作使用斜纹色段。右侧伴随面板默认展示该轮操作数、约 token、风险、验证状态和类型 token 分布；点击色段后，伴随面板切换为选中操作的类型、约 token、上下文占用、状态、来源和短摘要。右侧复核台继续负责解释当前轮次、执行节点、审计链节点、关联项或原始事件的可信度、证据、关系和来源。
   - 统计视图：负责事件类型分析，按当前内容搜索和类型过滤统计原始事件分类，展示事件类型数、约 token 总量、事件体积和最多类型，并用表格列出每类事件的数量、约 token、平均约 token、占比和体积。token 量是基于原始事件体积、payload 体积或预览文本长度的近似估算，用于扫描会话构成，不作为计费口径。
-  - 原始事件视图：负责诊断，保留原始事件查看能力；它把会话事件摘要提升为主视图，左侧按事件索引和分类浏览，右侧显示选中事件的结构化摘要和 Pretty JSON，事件列表与预览区各自独立滚动；当选中上下文压缩事件时，会优先展示压缩摘要正文、窗口信息、替换历史数量和被替换对话预览。完整原始内容仍通过单事件接口按需读取。
+  - 原始事件视图：负责诊断，保留原始事件查看能力；它把会话事件摘要提升为主视图，左侧按事件索引和分类浏览，右侧显示选中事件的结构化摘要和 Pretty JSON，事件列表与预览区各自独立滚动；当选中上下文压缩事件时，会优先展示压缩摘要正文、窗口信息、替换历史数量和被替换对话预览。详情受限时，同一视图改为有界诊断，不展示或累计完整 JSONL：列表只含服务端当前页摘要，前进以 `nextCursor` 获取下一页，返回只访问最多 6 页本地历史；服务端 `snapshot` 令牌必须随续页请求带回，变化后返回 `409/session_snapshot_changed`。读取到字节边界时会停止翻页并明确标记未读取的尾部。完整原始内容仍通过单事件接口按需读取。
 - 左栏始终保持为会话列表，默认展示“实时 <3h”分类；会话列表可按实时（3 小时内）、近一天（3 小时到 1 天）和更早（1 天以上或未知时间）切换，每个时间分类下再按工作目录聚合。首屏只加载最近 24 小时的本机会话元数据，切换“更早”后才加载历史列表；本机数据源各时间分类都可直接打开正文。远端数据源的“近一天/更早”为历史索引入口，只显示元数据，不包含正文，会话行会标注“仅索引/未同步正文”。阅读视图目录会体现每个子代理是在哪个轮次下启动的，子代理下继续递归展示自己的轮次。若未来出现子代理再 spawn 子代理，也会继续展开；若数据形成循环，会在目录中截断已出现过的线程以避免无限展开。
 - 执行树模型优先使用 `thread_spawn_edges` 作为父子线程强关系，使用 `threads.agent_nickname`、`threads.agent_role`、`threads.rollout_path` 展示子代理元数据；当线程行缺少昵称/角色时，会从子会话 JSONL 的 `session_meta.source.subagent.thread_spawn.agent_nickname` 和 `agent_role` 补齐。主界面不再单独暴露执行树视图，审计链和复核台按需展示执行节点。
 - JSONL 中的 `spawn_agent`、`wait_agent`、`subagent_notification` 用于把子代理节点锚定到父会话时间线中。
@@ -648,7 +649,10 @@ GET /api/query/sessions/:id/events?cursor=0&limit=100
     "scanned": 100,
     "returned": 100,
     "nextCursor": 100,
-    "hasMore": true
+    "hasMore": true,
+    "snapshot": "opaque-version-token",
+    "truncated": false,
+    "stopReason": null
   },
   "serverTime": "2026-06-25T08:10:00.000Z"
 }
@@ -669,8 +673,9 @@ GET /api/query/sessions/:id/events?cursor=0&limit=100
 - `includePayload=true`：返回完整 `payload`。
 - `includeRaw=true`：返回完整原始事件。
 - `fields=index,timestamp,kind,preview`：只返回指定字段；`index` 会始终保留。
+- `snapshot`：续页时带回上一响应 `page.snapshot`。令牌绑定数据源版本和文件签名，不含路径或正文；不匹配时返回 `409`，错误详情 `code` 为 `session_snapshot_changed`，调用方必须清空旧页并从头开始。
 
-注意：事件接口按 JSONL 逻辑行索引增量读取。使用筛选条件时，`page.nextCursor` 代表下一次应继续扫描的位置，不等于最后一个返回事件的 `index + 1`。查询路径会保留 JSONL 解析失败行的诊断事件，`kind` 为 `jsonl_parse_error`，包含行号、错误类别和安全预览。
+注意：事件接口按 JSONL 逻辑行索引增量读取。使用筛选条件时，`page.nextCursor` 代表下一次应继续扫描的位置，不等于最后一个返回事件的 `index + 1`。当受单次字节边界截断时，`page.hasMore` 为 `false`、`truncated` 为 `true` 且 `stopReason=raw_scan_byte_limit`；到达诊断索引上限时对应 `stopReason=raw_event_scan_limit`，两种情况都不会返回不前进的游标。查询路径和单条来源都受 `CODEX_SESSION_DIAGNOSTIC_MAX_EVENT_SCAN` 约束，故分页不会展示无法按需回读的事件；直接读取超过该上限的索引返回 `413/session_event_scan_limited`。查询路径会保留 JSONL 解析失败行的诊断事件，`kind` 为 `jsonl_parse_error`，包含行号、错误类别和安全预览。
 
 ## 已知边界
 

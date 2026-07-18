@@ -249,3 +249,12 @@ test("event query supports payload inclusion and cursor aliases", () => {
     title: "助手消息",
   });
 });
+
+test("event query keeps an opaque diagnostic snapshot token separate from payload projection", () => {
+  const query = parseSessionEventQuery(new URLSearchParams("cursor=7&snapshot=opaque-page-token"));
+
+  assert.equal(query.cursor, 7);
+  assert.equal(query.snapshot, "opaque-page-token");
+  assert.equal(query.includePayload, false);
+  assert.equal(query.includeRaw, false);
+});

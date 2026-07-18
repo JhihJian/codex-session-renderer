@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { remoteSourceVersion } from "../src/data-sources.mjs";
+import { assertBoundedDiagnosticEndpoints } from "./server-http-smoke-helpers.mjs";
 
 const sessionId = "11111111-1111-1111-1111-111111111111";
 const envKeys = [
@@ -18,6 +19,7 @@ const envKeys = [
   "CODEX_REMOTE_SNAPSHOT_PATH",
   "CODEX_REMOTE_SNAPSHOT_ROOT",
   "CODEX_REMOTE_REMOTE_A_SNAPSHOT_ROOT",
+  "CODEX_SESSION_DIAGNOSTIC_MAX_EVENT_SCAN",
   "PI_AGENT_SESSIONS_ROOT",
 ];
 const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
@@ -179,6 +181,7 @@ process.env.CODEX_REMOTE_SNAPSHOT_URL = "";
 process.env.CODEX_REMOTE_SNAPSHOT_PATH = "";
 process.env.CODEX_REMOTE_SNAPSHOT_ROOT = path.join(tempRoot, ".codex-session-renderer", "remote-snapshots");
 process.env.CODEX_REMOTE_REMOTE_A_SNAPSHOT_ROOT = remoteSnapshotRoot;
+process.env.CODEX_SESSION_DIAGNOSTIC_MAX_EVENT_SCAN = "10001";
 process.env.PI_AGENT_SESSIONS_ROOT = piSessionsRoot;
 
 const serverModuleUrl = `${pathToFileURL(path.resolve("server.mjs")).href}?httpSmoke=${Date.now()}`;
@@ -442,7 +445,7 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   assert.match(await markdown.text(), /# HTTP smoke 会话/);
 
   const limitedId = "33333333-3333-4333-8333-333333333333";
-  const limitedRows = Array.from({ length: 10_001 }, (_, index) => JSON.stringify({ type: "event_msg", payload: { type: "agent_message", message: `event-${index}` } })).join("\n") + "\n";
+  const limitedRows = Array.from({ length: 10_002 }, (_, index) => JSON.stringify({ type: "event_msg", payload: { type: "agent_message", message: `event-${index}` } })).join("\n") + "\n";
   const localLimitedPath = path.join(sessionDir, `rollout-2026-07-08T10-00-00-${limitedId}.jsonl`);
   const remoteLimitedPath = path.join(remoteSessionDir, `rollout-2026-07-08T10-00-00-${limitedId}.jsonl`);
   const piLimitedPath = path.join(piProjectDir, `2026-07-10T04-51-55-870Z_${limitedId}.jsonl`);
@@ -472,6 +475,7 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   const limitedEvents = await requestJson(baseUrl, `/api/sources/local/query/sessions/${limitedId}/events?limit=2`);
   assert.equal(limitedEvents.response.status, 200);
   assert.equal(limitedEvents.body.events.length, 2);
+  await assertBoundedDiagnosticEndpoints({ baseUrl, fs, limitedEvents, limitedId, requestJson, sessionDir });
 
   const createPeer = await requestJson(baseUrl, "/api/peers", {
     method: "POST",

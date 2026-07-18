@@ -18,6 +18,7 @@ process.env.CODEX_HOME = codexHome;
 process.env.HOME = tempRoot;
 process.env.USERPROFILE = tempRoot;
 process.env.PI_AGENT_SESSIONS_ROOT = path.join(tempRoot, "missing-pi-sessions");
+process.env.CODEX_SESSION_DETAIL_MAX_EVENTS = "4";
 process.env.HOST = "127.0.0.1";
 process.env.PORT = process.env.PORT || "4799";
 

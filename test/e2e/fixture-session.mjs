@@ -40,6 +40,11 @@ const sessionEvents = [
     type: "event_msg",
     payload: { type: "task_complete", last_agent_message: "验证完成。" },
   },
+  ...Array.from({ length: 105 }, (_, index) => ({
+    timestamp: `2025-01-02T03:05:${String(index % 60).padStart(2, "0")}.000Z`,
+    type: "event_msg",
+    payload: { type: "agent_message", message: `有界诊断分页样本 ${index + 1}` },
+  })),
 ];
 
 export { sessionEvents, sessionId, sessionTitle };

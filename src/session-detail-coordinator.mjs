@@ -11,6 +11,7 @@ const defaultSessionDetailLimits = {
   maxConcurrentReads: 4,
   maxFileBytes: 8 * 1024 * 1024,
   maxEvents: 10_000,
+  maxDiagnosticEventScan: 100_000,
   maxCacheEntries: 24,
   maxCacheBytes: 48 * 1024 * 1024,
 };
@@ -64,6 +65,7 @@ function createSessionDetailCoordinator(options = {}) {
     maxConcurrentReads: clampPositive(options.maxConcurrentReads, defaultSessionDetailLimits.maxConcurrentReads, 32),
     maxFileBytes: clampPositive(options.maxFileBytes, defaultSessionDetailLimits.maxFileBytes, 256 * 1024 * 1024),
     maxEvents: clampPositive(options.maxEvents, defaultSessionDetailLimits.maxEvents, 500_000),
+    maxDiagnosticEventScan: clampPositive(options.maxDiagnosticEventScan, defaultSessionDetailLimits.maxDiagnosticEventScan, 500_000),
     maxCacheEntries: clampPositive(options.maxCacheEntries, defaultSessionDetailLimits.maxCacheEntries, 2_000),
     maxCacheBytes: clampPositive(options.maxCacheBytes, defaultSessionDetailLimits.maxCacheBytes, 512 * 1024 * 1024),
   };

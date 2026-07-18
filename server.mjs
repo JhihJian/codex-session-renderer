@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -104,6 +105,7 @@ function sessionDetailCoordinatorOptions() {
     maxConcurrentReads: readPositiveEnv("CODEX_SESSION_DETAIL_MAX_CONCURRENT_READS", 4, 32),
     maxFileBytes: readPositiveEnv("CODEX_SESSION_DETAIL_MAX_FILE_BYTES", 8 * 1024 * 1024, 256 * 1024 * 1024),
     maxEvents: readPositiveEnv("CODEX_SESSION_DETAIL_MAX_EVENTS", 10_000, 500_000),
+    maxDiagnosticEventScan: readPositiveEnv("CODEX_SESSION_DIAGNOSTIC_MAX_EVENT_SCAN", 100_000, 500_000),
     maxCacheEntries: readPositiveEnv("CODEX_SESSION_DETAIL_MAX_CACHE_ENTRIES", 24, 2_000),
     maxCacheBytes: readPositiveEnv("CODEX_SESSION_DETAIL_MAX_CACHE_BYTES", 48 * 1024 * 1024, 512 * 1024 * 1024),
     readGate: sessionReadGate,
@@ -761,6 +763,62 @@ function limitedSessionDetail(context, session, stat, readState, id) {
   };
 }
 
+function eventDiagnosticSnapshot(context, signature) {
+  return createHash("sha256")
+    .update([context.source.id, context.source.status?.sourceVersion || "", signature].join("\u0000"))
+    .digest("base64url");
+}
+
+function diagnosticEventScanLimitError() {
+  const error = new Error("事件索引超过单条来源诊断读取上限。");
+  error.status = 413;
+  error.code = "session_event_scan_limited";
+  return error;
+}
+
+function assertEventDiagnosticSnapshot(requestSnapshot, snapshot) {
+  if (!requestSnapshot || requestSnapshot === snapshot) return;
+  const error = new Error("会话诊断快照已变化，请重新开始读取。");
+  error.status = 409;
+  error.code = "session_snapshot_changed";
+  throw error;
+}
+
+function diagnosticRangeMaxScan(query, maxDiagnosticEventScan) {
+  if (query.cursor >= maxDiagnosticEventScan) throw diagnosticEventScanLimitError();
+  return Math.min(query.maxScan, maxDiagnosticEventScan - query.cursor);
+}
+
+function diagnosticPageState(range, { query, maxDiagnosticEventScan, maxFileBytes, byteLimited, snapshot }) {
+  const eventScanLimited = range.nextCursor >= maxDiagnosticEventScan && !range.exhausted;
+  const byteScanLimited = byteLimited && range.exhausted;
+  return {
+    page: {
+      cursor: query.cursor,
+      limit: query.limit,
+      maxScan: query.maxScan,
+      scanned: range.scanned,
+      returned: range.items.length,
+      nextCursor: range.nextCursor,
+      hasMore: !range.exhausted && !eventScanLimited,
+      truncated: eventScanLimited || byteScanLimited,
+      stopReason: eventScanLimited ? "raw_event_scan_limit" : byteScanLimited ? "raw_scan_byte_limit" : null,
+      snapshot,
+    },
+    readState: eventScanLimited || byteLimited
+      ? {
+          state: "limited",
+          code: "session_read_limited",
+          reason: eventScanLimited ? "raw_event_scan_limit" : "raw_scan_byte_limit",
+          limits: {
+            maxFileBytes,
+            maxDiagnosticEventScan,
+          },
+        }
+      : null,
+  };
+}
+
 async function querySessionEvents(context, id, params, projectionOptions = {}, options = {}) {
   throwIfRequestAborted(options.signal);
   const session = await getSessionById(context, id, { signal: options.signal });
@@ -768,12 +826,16 @@ async function querySessionEvents(context, id, params, projectionOptions = {}, o
   const query = parseSessionEventQuery(params);
   const beforeStat = await fs.stat(session.path);
   const beforeSignature = fileSignature(session.path, beforeStat);
+  const snapshot = eventDiagnosticSnapshot(context, beforeSignature);
+  assertEventDiagnosticSnapshot(query.snapshot, snapshot);
+  const maxDiagnosticEventScan = context.sessionDetailCoordinator.limits.maxDiagnosticEventScan;
+  const maxScan = diagnosticRangeMaxScan(query, maxDiagnosticEventScan);
   const byteLimited = beforeStat.size > context.sessionDetailCoordinator.limits.maxFileBytes;
   const range = await context.sessionDetailCoordinator.readGate.run(
     () => readJsonlRange(session.path, {
       start: query.cursor,
       limit: query.limit,
-      maxScan: query.maxScan,
+      maxScan,
       maxBytes: context.sessionDetailCoordinator.limits.maxFileBytes,
       signal: options.signal,
       // The bounded stream can end in the middle of a JSON record; never turn that tail into a fake parse diagnostic.
@@ -790,27 +852,23 @@ async function querySessionEvents(context, id, params, projectionOptions = {}, o
     return {
       session: projectSessionForApi(withFileStat(session, stat), {}, projectionOptions),
       events: [],
-      page: { cursor: query.cursor, limit: query.limit, maxScan: query.maxScan, scanned: 0, returned: 0, nextCursor: query.cursor, hasMore: true },
+      page: { cursor: query.cursor, limit: query.limit, maxScan: query.maxScan, scanned: 0, returned: 0, nextCursor: query.cursor, hasMore: false, snapshot: null },
       readState: { state: "changing", code: "session_file_changed", reason: "file_changed_during_read" },
       serverTime: new Date().toISOString(),
     };
   }
   const sessionWithStat = withFileStat(session, stat);
+  const diagnosticState = diagnosticPageState(range, {
+    query,
+    maxDiagnosticEventScan,
+    maxFileBytes: context.sessionDetailCoordinator.limits.maxFileBytes,
+    byteLimited,
+    snapshot,
+  });
   return {
     session: projectSessionForApi(sessionWithStat, {}, projectionOptions),
     events: range.items.map(({ event, index }) => projectEventForApi(event, index, query)),
-    page: {
-      cursor: query.cursor,
-      limit: query.limit,
-      maxScan: query.maxScan,
-      scanned: range.scanned,
-      returned: range.items.length,
-      nextCursor: range.nextCursor,
-      hasMore: !range.exhausted || byteLimited,
-    },
-    readState: byteLimited
-      ? { state: "limited", code: "session_read_limited", reason: "raw_scan_byte_limit", limits: { maxFileBytes: context.sessionDetailCoordinator.limits.maxFileBytes } }
-      : null,
+    ...diagnosticState,
     serverTime: new Date().toISOString(),
   };
 }
@@ -840,11 +898,15 @@ async function getSessionEvent(context, id, index, options = {}) {
   if (!session?.path) return null;
   const beforeStat = await fs.stat(session.path);
   const beforeSignature = fileSignature(session.path, beforeStat);
+  const snapshot = eventDiagnosticSnapshot(context, beforeSignature);
+  assertEventDiagnosticSnapshot(options.snapshot, snapshot);
+  const maxDiagnosticEventScan = context.sessionDetailCoordinator.limits.maxDiagnosticEventScan;
+  if (index >= maxDiagnosticEventScan) throw diagnosticEventScanLimitError();
   const event = await context.sessionDetailCoordinator.readGate.run(
     () => readJsonlLineWithDiagnostics(session.path, index, {
       signal: options.signal,
       maxBytes: context.sessionDetailCoordinator.limits.maxFileBytes,
-      maxScan: context.sessionDetailCoordinator.limits.maxEvents,
+      maxScan: maxDiagnosticEventScan,
     }),
     options.signal,
   );
@@ -1453,7 +1515,7 @@ async function route(req, res) {
     if (sourceEventMatch) {
       const context = getSourceContext(decodeURIComponent(sourceEventMatch[1]));
       if (!context) return sendError(res, 404, "Data source not found");
-      const event = await getSessionEvent(context, decodeURIComponent(sourceEventMatch[2]), Number(sourceEventMatch[3]), { signal: requestSubscription.signal });
+      const event = await getSessionEvent(context, decodeURIComponent(sourceEventMatch[2]), Number(sourceEventMatch[3]), { signal: requestSubscription.signal, snapshot: url.searchParams.get("snapshot") || "" });
       if (!event) return sendError(res, 404, "Event not found");
       return sendJson(res, 200, event);
     }
@@ -1524,7 +1586,7 @@ async function route(req, res) {
     if (eventMatch) {
       const context = resolveRequestSource(url);
       if (!context) return sendError(res, 404, "Data source not found");
-      const event = await getSessionEvent(context, decodeURIComponent(eventMatch[1]), Number(eventMatch[2]), { signal: requestSubscription.signal });
+      const event = await getSessionEvent(context, decodeURIComponent(eventMatch[1]), Number(eventMatch[2]), { signal: requestSubscription.signal, snapshot: url.searchParams.get("snapshot") || "" });
       if (!event) return sendError(res, 404, "Event not found");
       return sendJson(res, 200, event);
     }

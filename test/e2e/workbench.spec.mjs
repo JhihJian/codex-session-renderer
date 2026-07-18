@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-const sessionTitle = "验证工作台的 Chromium 交互契约";
+const sessionTitle = /(?:验证工作台的 Chromium 交互契约|确定性 Chromium 验证会话)/;
 
 async function openWorkbench(page) {
   await page.goto("/");
@@ -165,4 +165,64 @@ test("任务归档取消加载，并隔离过期响应", async ({ page }) => {
   resolveStaleResponse();
   await staleSettled;
   await expect(page.locator("#promptArchiveContent").getByText("过期响应不得写入页面")).toHaveCount(0);
+});
+
+test("详情受限时在工作台内分页诊断，并按需读取完整来源", async ({ page }) => {
+  await openWorkbench(page);
+  await expect(page.locator("#compactContent")).toContainText("会话详情超过读取上限");
+  let fullEventReads = 0;
+  await page.route("**/api/sources/local/sessions/33333333-3333-4333-8333-333333333333/events/*", async (route) => {
+    fullEventReads += 1;
+    await route.continue();
+  });
+  const firstPage = page.waitForRequest((request) => request.url().includes("/api/sources/local/query/sessions/") && request.url().includes("/events?") && request.url().includes("cursor=0"));
+  await page.locator("#rawViewButton").click();
+  await firstPage;
+  await expect(page.locator("#rawContent")).toContainText("有界原始事件诊断");
+  await expect(page.locator("#rawContent")).toContainText("这不是完整会话");
+  await expect(page.locator("#rawContent [data-raw-event-index]").first()).toBeVisible();
+  expect(fullEventReads).toBe(0);
+
+  const firstIndex = await page.locator("#rawContent [data-raw-event-index]").first().getAttribute("data-raw-event-index");
+  await page.locator("#rawContent [data-raw-event-index]").first().click();
+  await page.locator("#reviewTabs [data-review-tab=source]").click();
+  const fullRead = page.waitForRequest((request) => request.url().includes(`/api/sources/local/sessions/33333333-3333-4333-8333-333333333333/events/${firstIndex}`) && request.url().includes("snapshot="));
+  await page.locator("#selectionDetails [data-review-source]").click();
+  await fullRead;
+  expect(fullEventReads).toBe(1);
+
+  const nextPage = page.waitForRequest((request) => request.url().includes("/api/sources/local/query/sessions/") && request.url().includes("/events?") && request.url().includes("cursor=100") && request.url().includes("snapshot="));
+  await page.locator("#rawContent [data-next-raw-page]").click();
+  await nextPage;
+  await expect(page.locator("#rawContent")).toContainText("第 2 页");
+  const laterIndex = await page.locator("#rawContent [data-raw-event-index]").first().getAttribute("data-raw-event-index");
+  await page.locator("#rawContent [data-raw-event-index]").first().click();
+  const laterRead = page.waitForRequest((request) => request.url().includes(`/api/sources/local/sessions/33333333-3333-4333-8333-333333333333/events/${laterIndex}`) && request.url().includes("snapshot="));
+  await page.locator("#selectionDetails [data-review-source]").click();
+  await laterRead;
+  expect(Number(laterIndex)).toBeGreaterThan(4);
+  expect(fullEventReads).toBe(2);
+  await page.locator("#rawContent [data-previous-raw-page]").click();
+  await expect(page.locator("#rawContent")).toContainText("第 1 页");
+});
+
+test("离开有界诊断会取消请求，过期页不会写回新视图", async ({ page }) => {
+  await openWorkbench(page);
+  let release;
+  const delayed = new Promise((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/sources/local/query/sessions/33333333-3333-4333-8333-333333333333/events?*", async (route) => {
+    await delayed;
+    await route.fulfill({ json: { events: [{ index: 99, kind: "event", preview: "过期诊断页" }], page: { cursor: 0, nextCursor: 1, hasMore: false, snapshot: "old" } } }).catch(() => {});
+  });
+  const request = page.waitForRequest("**/api/sources/local/query/sessions/33333333-3333-4333-8333-333333333333/events?*");
+  await page.locator("#rawViewButton").click();
+  await request;
+  const failed = page.waitForEvent("requestfailed", (candidate) => candidate.url().includes("/query/sessions/") && candidate.url().includes("/events?"));
+  await page.locator("#compactViewButton").click();
+  await failed;
+  release();
+  await expect(page.locator("#compactContent")).toContainText("会话详情超过读取上限");
+  await expect(page.locator("#rawContent")).not.toContainText("过期诊断页");
 });

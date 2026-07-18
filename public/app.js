@@ -36,6 +36,7 @@ const state = {
   expandedTraceNodeIds: new Set(),
   expandedAuditTurnKeys: new Set(),
   rawEventCache: new Map(),
+  rawDiagnostic: null,
   viewMode: "compact",
   auditMinimalMode: false,
   sessionTimeFilter: "realtime",
@@ -98,6 +99,8 @@ const {
 const markdownCache = new Map();
 let sessionAbortController = null;
 let markdownAbortController = null;
+let rawDiagnosticAbortController = null;
+let rawEventAbortController = null;
 const markdownCacheLimit = 700;
 const inspectorWidthStorageKey = "codexSessionRenderer.inspectorWidth.v1";
 const inspectorSideDockMedia = "(min-width: 1281px)";
@@ -500,6 +503,32 @@ function bindRovingTablist(tablist, selector, activate) {
     activate(next);
     next.focus({ preventScroll: true });
   });
+}
+
+function createRawDiagnosticState() {
+  return {
+    sessionKey: "",
+    pages: [],
+    pageIndex: 0,
+    snapshot: "",
+    loading: false,
+    error: "",
+    readState: null,
+    requestSeq: 0,
+  };
+}
+
+function cancelRawDiagnosticRequest({ clear = false } = {}) {
+  rawDiagnosticAbortController?.abort();
+  rawDiagnosticAbortController = null;
+  if (!state.rawDiagnostic) state.rawDiagnostic = createRawDiagnosticState();
+  state.rawDiagnostic.loading = false;
+  if (clear) state.rawDiagnostic = createRawDiagnosticState();
+}
+
+function cancelRawEventRequest() {
+  rawEventAbortController?.abort();
+  rawEventAbortController = null;
 }
 
 function syncPanelToggleLabels() {
@@ -962,6 +991,8 @@ function setBusy(isBusy) {
 async function selectSession(id) {
   sessionAbortController?.abort();
   markdownAbortController?.abort();
+  cancelRawDiagnosticRequest({ clear: true });
+  cancelRawEventRequest();
   sessionAbortController = new AbortController();
   const sourceId = state.selectedSourceId;
   const targetSession = findSessionSummary(id);
@@ -1017,6 +1048,8 @@ async function reloadSelectedSessionDetail() {
   const sessionId = state.selectedSessionId;
   const requestKey = `${sourceId}:${sessionId}:reload:${Date.now()}`;
   sessionAbortController?.abort();
+  cancelRawDiagnosticRequest({ clear: true });
+  cancelRawEventRequest();
   sessionAbortController = new AbortController();
   state.sessionRequestKey = requestKey;
   let detail;
@@ -1040,6 +1073,8 @@ async function reloadSelectedSessionDetail() {
 function clearSelectedSession() {
   sessionAbortController?.abort();
   markdownAbortController?.abort();
+  cancelRawDiagnosticRequest({ clear: true });
+  cancelRawEventRequest();
   sessionAbortController = null;
   markdownAbortController = null;
   state.selectedSessionId = null;
@@ -1090,6 +1125,8 @@ async function refreshSelectedSource() {
   const source = selectedSource();
   if (!source?.status?.refreshable) return;
   cancelPromptArchiveRequest();
+  cancelRawDiagnosticRequest({ clear: true });
+  cancelRawEventRequest();
   els.refreshRemoteButton.disabled = true;
   els.refreshRemoteButton.textContent = "正在拉取快照";
   try {
@@ -2285,7 +2322,12 @@ function renderAll() {
 }
 
 function setViewMode(mode) {
-  state.viewMode = normalizeViewMode(mode);
+  const nextMode = normalizeViewMode(mode);
+  if (state.viewMode === "raw" && nextMode !== "raw") {
+    cancelRawDiagnosticRequest();
+    cancelRawEventRequest();
+  }
+  state.viewMode = nextMode;
   syncViewControls();
   renderMainContent();
 }
@@ -3308,7 +3350,8 @@ function renderMainContent() {
   els.promptArchiveContent.hidden = true;
   syncViewControls();
   const placeholder = sessionPlaceholderState();
-  if (placeholder) {
+  const rawDiagnosticAvailable = state.viewMode === "raw" && state.detail?.complete === false;
+  if (placeholder && !rawDiagnosticAvailable) {
     renderSessionPlaceholder(placeholder.title, placeholder.subtitle, placeholder.diagnosticUrl);
     renderInspector();
     return;
@@ -6270,6 +6313,10 @@ function renderRawView() {
     els.rawContent.innerHTML = emptyState("选择一个会话", "原始事件视图展示会话级事件摘要和调试 JSON。");
     return;
   }
+  if (detail.complete === false) {
+    renderLimitedRawDiagnostic(detail);
+    return;
+  }
   const query = els.itemSearch.value.trim().toLowerCase();
   const typeFilter = els.itemTypeFilter.value;
   const events = (detail.events || []).filter((event) => rawEventMatches(event, query, typeFilter));
@@ -6320,6 +6367,211 @@ function renderRawView() {
   els.rawContent.querySelector("[data-copy-raw-session]")?.addEventListener("click", async () => {
     await copyWithToast(JSON.stringify(detailSummaryForRaw(detail), null, 2), sensitiveCopyToast("已复制会话事件摘要"));
   });
+}
+
+function renderLimitedRawDiagnostic(detail) {
+  const model = rawDiagnosticRenderModel(detail);
+  const { diagnostic, currentPage } = model;
+  const header = rawDiagnosticHeader(model);
+  if (!currentPage) {
+    els.rawContent.innerHTML = `${header}${rawDiagnosticEmptyMarkup(diagnostic)}`;
+    bindLimitedRawDiagnosticActions();
+    if (rawDiagnosticAwaitingFirstPage(diagnostic)) void loadRawDiagnosticPage({ restart: true });
+    return;
+  }
+  els.rawContent.innerHTML = rawDiagnosticResultsMarkup(model, header);
+  bindLimitedRawDiagnosticActions();
+}
+
+function rawDiagnosticRenderModel(detail) {
+  const diagnostic = state.rawDiagnostic || (state.rawDiagnostic = createRawDiagnosticState());
+  const currentPage = diagnostic.pages[diagnostic.pageIndex] || null;
+  const query = els.itemSearch.value.trim().toLowerCase();
+  const events = (currentPage?.events || []).filter((event) => rawEventMatches(event, query, els.itemTypeFilter.value));
+  return {
+    diagnostic,
+    currentPage,
+    events,
+    limits: currentPage?.readState?.limits || detail.readState?.limits || {},
+    query,
+    selected: selectedRawViewEvent(events, events),
+    session: detail.session || {},
+  };
+}
+
+function rawDiagnosticHeader({ diagnostic, currentPage, limits, session }) {
+  const stateNote = rawDiagnosticStateNote(diagnostic, currentPage, limits);
+  const header = `
+    <div class="raw-view-head raw-diagnostic-head">
+      <div>
+        <p class="eyebrow">有界原始事件诊断</p>
+        <h3>${escapeHtml(session.title || selectedSessionDisplayTitle())}</h3>
+        <p>数据源：${escapeHtml(session.sourceLabel || selectedSource()?.label || state.selectedSourceId)} · 详情读取受限</p>
+      </div>
+      <div class="raw-view-actions">
+        <button class="ghost-button small" type="button" data-retry-raw-diagnostic ${diagnostic.loading ? "disabled" : ""}>重新开始</button>
+      </div>
+    </div>
+    <div class="raw-diagnostic-status" role="status">
+      <span>${escapeHtml(diagnostic.loading ? "正在读取当前页摘要" : stateNote)}</span>
+      ${currentPage ? `<span>第 ${diagnostic.pageIndex + 1} 页 · 扫描 ${currentPage.scanned} 条</span>` : ""}
+      ${diagnostic.error ? `<strong>${escapeHtml(`读取失败：${diagnostic.error}`)}</strong>` : ""}
+    </div>`;
+  return header;
+}
+
+function rawDiagnosticStateNote(diagnostic, currentPage, limits) {
+  if (diagnostic.readState?.state === "changing") return "文件在读取中发生变化。已清空本次诊断结果，请重新开始读取。";
+  if (currentPage?.stopReason === "raw_event_scan_limit") return `已到达诊断事件索引上限（${compactNumber(limits.maxDiagnosticEventScan || 0)} 条），后续内容未读取。`;
+  if (currentPage?.truncated) return `已到达单次扫描边界（${formatBytes(limits.maxFileBytes || 0)}），后续内容未读取。`;
+  return "仅展示当前服务端分页返回的事件摘要；这不是完整会话。";
+}
+
+function rawDiagnosticAwaitingFirstPage(diagnostic) {
+  return !diagnostic.loading && !diagnostic.error && !diagnostic.readState;
+}
+
+function rawDiagnosticEmptyMarkup(diagnostic) {
+  if (rawDiagnosticAwaitingFirstPage(diagnostic)) {
+    return emptyState("准备读取有界事件摘要", "不会预取完整 JSONL；只读取当前页，选中事件后才可按需读取完整来源。");
+  }
+  if (diagnostic.error) return emptyState("原始事件诊断未完成", "请重新开始读取，旧页不会与新结果混合。");
+  if (diagnostic.readState) return emptyState("原始事件诊断已停止", "文件状态已变化，请重新开始读取，不会展示旧页。");
+  return emptyState("正在读取有界事件摘要", "正在从当前数据源读取第一页摘要。");
+}
+
+function rawDiagnosticResultsMarkup({ diagnostic, currentPage, events, selected }, header) {
+  const canLoadNext = Boolean(currentPage.hasMore && !diagnostic.loading);
+  const canLoadPrevious = diagnostic.pageIndex > 0 && !diagnostic.loading;
+  return `
+    <div class="raw-view-shell raw-diagnostic-shell">
+      ${header}
+      <div class="raw-view-layout">
+        <div class="raw-view-list">
+          ${events.length ? events.map((event) => renderRawViewEventRow(event)).join("") : `<div class="inspector-empty">当前页没有匹配的事件摘要。</div>`}
+          <div class="raw-diagnostic-pagination">
+            <button class="ghost-button small" type="button" data-previous-raw-page ${canLoadPrevious ? "" : "disabled"}>上一页</button>
+            <button class="ghost-button small" type="button" data-next-raw-page ${canLoadNext ? "" : "disabled"}>${diagnostic.loading ? "读取中" : currentPage.hasMore ? "下一页" : "已到达边界"}</button>
+          </div>
+        </div>
+        <div class="raw-view-preview${selected && isCompactEvent(selected) ? " has-insight" : ""}">
+          <div class="raw-preview-title">
+            <strong>${escapeHtml(selected ? `事件 ${selected.index} ${humanEventTitle(selected)}` : "事件摘要")}</strong>
+            <span>${escapeHtml(selected ? selected.kind || "" : "未选择")}</span>
+          </div>
+          ${selected ? renderRawEventInsight(selected, els.itemSearch.value.trim().toLowerCase()) : ""}
+          <pre class="raw-preview">${escapeHtml(JSON.stringify(selected || { page: currentPage.page, readState: diagnostic.readState }, null, 2))}</pre>
+        </div>
+      </div>
+    </div>`;
+}
+
+function bindLimitedRawDiagnosticActions() {
+  els.rawContent.querySelectorAll("[data-raw-event-index]").forEach((button) => {
+    button.addEventListener("click", () => selectRawViewEvent(Number(button.dataset.rawEventIndex)));
+  });
+  els.rawContent.querySelector("[data-retry-raw-diagnostic]")?.addEventListener("click", () => void loadRawDiagnosticPage({ restart: true }));
+  els.rawContent.querySelector("[data-previous-raw-page]")?.addEventListener("click", () => {
+    state.rawDiagnostic.pageIndex -= 1;
+    state.selectedEventIndex = null;
+    renderRawView();
+    renderInspector();
+  });
+  els.rawContent.querySelector("[data-next-raw-page]")?.addEventListener("click", () => void loadRawDiagnosticPage());
+}
+
+async function loadRawDiagnosticPage({ restart = false } = {}) {
+  const request = startRawDiagnosticPageRequest(restart);
+  if (!request) return;
+  renderRawView();
+  try {
+    const data = await fetchJson(sourceSessionEventsUrl(request.sessionId, request.sourceId, { cursor: request.cursor, snapshot: request.diagnostic.snapshot }), { signal: request.controller.signal });
+    if (!rawDiagnosticRequestIsCurrent(request)) return;
+    applyRawDiagnosticPage(request.diagnostic, data);
+  } catch (error) {
+    if (isAbortError(error)) return;
+    failRawDiagnosticPage(request, error);
+  } finally {
+    if (rawDiagnosticAbortController === request.controller) rawDiagnosticAbortController = null;
+    if (rawDiagnosticStillSelected(request)) {
+      request.diagnostic.loading = false;
+      renderRawView();
+      renderInspector();
+    }
+  }
+}
+
+function startRawDiagnosticPageRequest(restart) {
+  const detail = state.detail;
+  if (!rawDiagnosticDetailAvailable(detail)) return null;
+  const sourceId = detail.session.sourceId || state.selectedSourceId;
+  const diagnosticSessionKey = sessionKey({ id: detail.session.id, sourceId });
+  let diagnostic = state.rawDiagnostic || (state.rawDiagnostic = createRawDiagnosticState());
+  if (restart || diagnostic.sessionKey !== diagnosticSessionKey) {
+    cancelRawDiagnosticRequest();
+    diagnostic = createRawDiagnosticState();
+    diagnostic.sessionKey = diagnosticSessionKey;
+    state.rawDiagnostic = diagnostic;
+  } else if (diagnostic.loading) {
+    return null;
+  }
+  const cursor = rawDiagnosticRequestCursor(diagnostic, restart);
+  if (cursor == null) return null;
+  rawDiagnosticAbortController?.abort();
+  const controller = new AbortController();
+  rawDiagnosticAbortController = controller;
+  diagnostic.requestSeq += 1;
+  diagnostic.loading = true;
+  diagnostic.error = "";
+  diagnostic.readState = null;
+  if (restart) resetRawDiagnosticPages(diagnostic, { clearSelection: true });
+  return { controller, cursor, diagnostic, diagnosticSessionKey, requestSeq: diagnostic.requestSeq, sessionId: detail.session.id, sourceId };
+}
+
+function rawDiagnosticDetailAvailable(detail) {
+  return state.viewMode === "raw" && detail?.complete === false && Boolean(detail.session?.id);
+}
+
+function rawDiagnosticRequestCursor(diagnostic, restart) {
+  if (restart) return 0;
+  const currentPage = diagnostic.pages[diagnostic.pageIndex];
+  if (!currentPage?.hasMore || currentPage.nextCursor == null) return null;
+  return currentPage.nextCursor;
+}
+
+function resetRawDiagnosticPages(diagnostic, { clearSelection = false, readState = null } = {}) {
+  diagnostic.pages = [];
+  diagnostic.pageIndex = 0;
+  diagnostic.snapshot = "";
+  diagnostic.readState = readState;
+  if (clearSelection) state.selectedEventIndex = null;
+}
+
+function rawDiagnosticRequestIsCurrent(request) {
+  return !request.controller.signal.aborted && state.viewMode === "raw" && state.selectedSessionKey === request.diagnosticSessionKey && state.rawDiagnostic === request.diagnostic && request.diagnostic.requestSeq === request.requestSeq;
+}
+
+function rawDiagnosticStillSelected(request) {
+  return state.rawDiagnostic === request.diagnostic && state.selectedSessionKey === request.diagnosticSessionKey;
+}
+
+function applyRawDiagnosticPage(diagnostic, data) {
+  if (data.readState?.state === "changing") {
+    resetRawDiagnosticPages(diagnostic, { readState: data.readState });
+    return;
+  }
+  const page = { ...data.page, events: data.events || [], readState: data.readState || null };
+  diagnostic.snapshot = page.snapshot || diagnostic.snapshot;
+  diagnostic.readState = page.readState;
+  diagnostic.pages.push(page);
+  if (diagnostic.pages.length > 6) diagnostic.pages.shift();
+  diagnostic.pageIndex = diagnostic.pages.length - 1;
+}
+
+function failRawDiagnosticPage(request, error) {
+  if (!rawDiagnosticStillSelected(request)) return;
+  resetRawDiagnosticPages(request.diagnostic);
+  request.diagnostic.error = error.message;
 }
 
 function rawEventMatches(event, query, typeFilter) {
@@ -6701,7 +6953,7 @@ async function selectRawEvent(index, { rerender = true } = {}) {
   state.selectedAuditNodeId = null;
   state.selectedAuditTurnKey = null;
   state.selectedEventIndex = index;
-  const event = state.detail?.events.find((candidate) => candidate.index === index);
+  const event = eventByIndex(index);
   if (!event) return;
   if (rerender) renderInspector();
 }
@@ -6711,16 +6963,25 @@ async function loadRawEvent(index) {
   if (!id) throw new Error("未选择会话");
   const sourceId = state.detail?.session?.sourceId || state.selectedSourceId;
   const requestSessionKey = sessionKey({ id, sourceId });
-  const cacheKey = rawEventCacheKey(sourceId, id, index);
+  const snapshot = rawDiagnosticSnapshotForEvent(index);
+  const cacheKey = rawEventCacheKey(sourceId, id, index, snapshot);
   if (state.rawEventCache.has(cacheKey)) return state.rawEventCache.get(cacheKey);
-  const raw = await fetchJson(sourceEventUrl(id, index, sourceId));
+  cancelRawEventRequest();
+  const controller = new AbortController();
+  rawEventAbortController = controller;
+  const raw = await fetchJson(sourceEventUrl(id, index, sourceId, snapshot), { signal: controller.signal });
+  if (rawEventAbortController === controller) rawEventAbortController = null;
   if (state.selectedSourceId !== sourceId || state.selectedSessionKey !== requestSessionKey) return null;
   state.rawEventCache.set(cacheKey, raw);
   return raw;
 }
 
-function rawEventCacheKey(sourceId, id, index) {
-  return JSON.stringify([sourceId || "local", id, index]);
+function rawEventCacheKey(sourceId, id, index, snapshot = "") {
+  return JSON.stringify([sourceId || "local", id, index, snapshot]);
+}
+
+function rawDiagnosticSnapshotForEvent(index) {
+  return state.rawDiagnostic?.pages.find((page) => page.events?.some((event) => event.index === index))?.snapshot || "";
 }
 
 function selectTraceNode(id) {
@@ -7058,7 +7319,7 @@ function buildReviewContext() {
       summary: "左侧选择会话后，复核台会显示当前对象的摘要、证据、关系和来源。",
     });
   }
-  if (state.detail.complete === false) {
+  if (state.detail.complete === false && !(state.viewMode === "raw" && state.selectedEventIndex != null && eventByIndex(state.selectedEventIndex))) {
     const readState = state.detail.readState || {};
     return reviewContextBase({
       kind: "limited",
@@ -8102,7 +8363,7 @@ function dedupeActions(actions) {
 
 function eventByIndex(index) {
   if (index == null) return null;
-  return state.detail?.events?.find((event) => event.index === index) || null;
+  return state.detail?.events?.find((event) => event.index === index) || state.rawDiagnostic?.pages.flatMap((page) => page.events || []).find((event) => event.index === index) || null;
 }
 
 function itemsForEventIndex(index) {
@@ -8787,8 +9048,17 @@ function sourceSessionUrl(id, sourceId = state.selectedSourceId) {
   return `/api/sources/${encodeURIComponent(sourceId)}/sessions/${encodeURIComponent(id)}${query ? `?${query}` : ""}`;
 }
 
-function sourceEventUrl(id, index, sourceId = state.selectedSourceId) {
-  return `/api/sources/${encodeURIComponent(sourceId)}/sessions/${encodeURIComponent(id)}/events/${index}`;
+function sourceEventUrl(id, index, sourceId = state.selectedSourceId, snapshot = "") {
+  const params = new URLSearchParams();
+  if (snapshot) params.set("snapshot", snapshot);
+  const query = params.toString();
+  return `/api/sources/${encodeURIComponent(sourceId)}/sessions/${encodeURIComponent(id)}/events/${index}${query ? `?${query}` : ""}`;
+}
+
+function sourceSessionEventsUrl(id, sourceId = state.selectedSourceId, { cursor = 0, snapshot = "" } = {}) {
+  const params = new URLSearchParams({ limit: "100", cursor: String(cursor) });
+  if (snapshot) params.set("snapshot", snapshot);
+  return `/api/sources/${encodeURIComponent(sourceId)}/query/sessions/${encodeURIComponent(id)}/events?${params.toString()}`;
 }
 
 function sourceMarkdownUrl(id, sourceId = state.selectedSourceId) {

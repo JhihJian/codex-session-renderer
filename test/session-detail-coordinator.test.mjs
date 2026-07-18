@@ -114,6 +114,13 @@ test("详情协调器拒绝超限文件，并按估算字节维护有限版本 L
   assert.ok(coordinator.cacheBytes <= 70);
 });
 
+test("详情协调器为单条诊断保留独立于完整详情的扫描上限", () => {
+  const coordinator = createSessionDetailCoordinator({ maxEvents: 4, maxDiagnosticEventScan: 80 });
+
+  assert.equal(coordinator.limits.maxEvents, 4);
+  assert.equal(coordinator.limits.maxDiagnosticEventScan, 80);
+});
+
 test("详情派生可在读取闸门释放后读取子会话", async () => {
   const coordinator = createSessionDetailCoordinator({
     maxConcurrentReads: 1,

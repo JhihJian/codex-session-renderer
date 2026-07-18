@@ -4877,6 +4877,38 @@ button.compact-replacement-row:focus-visible {
   overflow: hidden;
 }
 
+.raw-diagnostic-head {
+  border-bottom: 1px solid var(--hair);
+}
+
+.raw-diagnostic-head p:not(.eyebrow) {
+  margin: 4px 0 0;
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.raw-diagnostic-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  border-bottom: 1px solid var(--hair);
+  background: var(--bg-elev);
+  color: var(--text-2);
+  font-size: 11px;
+  padding: 8px 16px;
+}
+
+.raw-diagnostic-status strong {
+  color: var(--red);
+}
+
+.raw-diagnostic-pagination {
+  display: flex;
+  gap: 6px;
+  border-top: 1px solid var(--hair);
+  padding-top: 8px;
+}
+
 .raw-view-list {
   display: grid;
   align-content: start;
