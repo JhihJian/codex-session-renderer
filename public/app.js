@@ -74,6 +74,7 @@ const state = {
   promptArchiveProjects: [],
   promptArchiveLoading: false,
   promptArchiveError: "",
+  promptArchiveCancelled: false,
   promptArchiveRequestKey: "",
   promptArchiveRequestSeq: 0,
   promptArchiveAbortController: null,
@@ -82,6 +83,8 @@ const state = {
   promptArchiveProject: "all",
   promptArchivePage: null,
   remoteRefreshLoading: false,
+  remoteRefreshCancelled: false,
+  remoteRefreshError: "",
   remoteRefreshRequestKey: "",
   alternateLocalSource: null,
   alternateLocalSourceLoading: false,
@@ -608,7 +611,7 @@ function syncPanelVisibilityState() {
 }
 
 function mobilePanelLayoutActive() {
-  return window.matchMedia("(max-width: 820px)").matches;
+  return window.matchMedia("(width <= 820px)").matches;
 }
 
 function desktopPromptArchiveInspectorHidden() {
@@ -866,6 +869,8 @@ function renderSourceStatus() {
   if (source.kind === "remote" && status.needsRefresh) parts.push("需要拉取新快照；旧快照不会用于当前来源");
   if (status.stale) parts.push("正在浏览旧快照");
   if (status.error?.message) parts.push(status.error.message);
+  if (state.remoteRefreshCancelled && source.kind === "remote") parts.push("拉取已取消，可再次拉取");
+  if (state.remoteRefreshError && source.kind === "remote") parts.push(`拉取失败：${state.remoteRefreshError.replace(/[。.]$/, "")}。可再次拉取`);
   if (source.kind === "remote" && !status.snapshotAvailable) parts.push("尚无可用快照");
   if (source.kind === "remote" && state.sessionTimeFilter !== "realtime") {
     const bucket = state.sessionTimeFilter === "day" ? "近一天" : "更早";
@@ -926,7 +931,7 @@ async function loadPromptArchive({ force = false, pageToken = "", restarted = fa
   const scope = promptArchiveScope();
   const archiveContext = sourceNavigationContext();
   const archiveCacheKey = promptArchiveCacheKey(sourceId, scope);
-  if (!force && !pageToken && state.promptArchiveScope === archiveCacheKey && state.promptArchiveLoaded && !state.promptArchiveError) {
+  if (!force && !pageToken && state.promptArchiveScope === archiveCacheKey && state.promptArchiveLoaded && !state.promptArchiveError && !state.promptArchiveCancelled) {
     renderAll();
     return;
   }
@@ -937,6 +942,7 @@ async function loadPromptArchive({ force = false, pageToken = "", restarted = fa
   state.promptArchiveRequestKey = requestKey;
   state.promptArchiveLoading = true;
   state.promptArchiveError = "";
+  state.promptArchiveCancelled = false;
   state.promptArchiveScope = archiveCacheKey;
   if (!pageToken) {
     state.promptArchive = [];
@@ -945,11 +951,17 @@ async function loadPromptArchive({ force = false, pageToken = "", restarted = fa
     state.promptArchiveProject = "all";
   }
   const operationKey = `${requestKey}:status`;
+  let responseRejectedForNavigation = false;
   setWorkbenchStatus(operationKey, pageToken ? "正在定位更早任务" : "正在整理当前批任务归档", { announce });
   renderAll();
   try {
     const data = await fetchJson(promptArchiveUrl(sourceId, scope, pageToken), { signal: controller.signal });
-    if (!sourceNavigationRequestIsCurrent({ requestKey, expectedRequestKey: state.promptArchiveRequestKey, sourceId, context: archiveContext }) || !sourceResponseMatches(data, sourceId)) return;
+    if (!sourceRequestOwnsState({ requestKey, expectedRequestKey: state.promptArchiveRequestKey, sourceId })) return;
+    if (!sourceNavigationRequestIsCurrent({ requestKey, expectedRequestKey: state.promptArchiveRequestKey, sourceId, context: archiveContext })) {
+      responseRejectedForNavigation = true;
+      return;
+    }
+    requireSourceResponse(data, sourceId, "prompts");
     state.promptArchive = data.entries || [];
     state.promptArchiveProjects = data.projects || [];
     state.promptArchivePage = data.page || null;
@@ -959,7 +971,11 @@ async function loadPromptArchive({ force = false, pageToken = "", restarted = fa
     setWorkbenchStatus(operationKey, `任务归档已更新：本批 ${state.promptArchive.length} 条`, { announce });
   } catch (error) {
     if (isAbortError(error)) return;
-    if (!sourceNavigationRequestIsCurrent({ requestKey, expectedRequestKey: state.promptArchiveRequestKey, sourceId, context: archiveContext })) return;
+    if (!sourceRequestOwnsState({ requestKey, expectedRequestKey: state.promptArchiveRequestKey, sourceId })) return;
+    if (!sourceNavigationRequestIsCurrent({ requestKey, expectedRequestKey: state.promptArchiveRequestKey, sourceId, context: archiveContext })) {
+      responseRejectedForNavigation = true;
+      return;
+    }
     if (error.code === "prompt_archive_snapshot_changed" && pageToken && !restarted) {
       state.promptArchive = [];
       state.promptArchiveProjects = [];
@@ -977,8 +993,12 @@ async function loadPromptArchive({ force = false, pageToken = "", restarted = fa
     setWorkbenchStatus(operationKey, `任务归档读取失败：${error.message}。可重试。`, { announce: true });
   } finally {
     if (state.promptArchiveAbortController === controller) state.promptArchiveAbortController = null;
-    if (sourceNavigationRequestIsCurrent({ requestKey, expectedRequestKey: state.promptArchiveRequestKey, sourceId, context: archiveContext })) {
+    if (sourceRequestOwnsState({ requestKey, expectedRequestKey: state.promptArchiveRequestKey, sourceId })) {
       state.promptArchiveLoading = false;
+      if (responseRejectedForNavigation) {
+        state.promptArchiveCancelled = true;
+        if (state.workbenchStatus.key === operationKey) setWorkbenchStatus(operationKey, "任务归档读取已取消，可重新整理");
+      }
       renderAll();
     }
   }
@@ -988,7 +1008,12 @@ function cancelPromptArchiveRequest() {
   const wasLoading = Boolean(state.promptArchiveAbortController && state.promptArchiveLoading);
   state.promptArchiveAbortController?.abort();
   state.promptArchiveAbortController = null;
-  if (wasLoading) setWorkbenchStatus("prompts:cancelled", "已取消任务归档读取");
+  if (wasLoading) {
+    state.promptArchiveLoading = false;
+    state.promptArchiveCancelled = true;
+    state.promptArchiveRequestKey = `inactive:${++state.promptArchiveRequestSeq}`;
+    setWorkbenchStatus("prompts:cancelled", "已取消任务归档读取");
+  }
 }
 
 function promptArchiveScope() {
@@ -1017,7 +1042,8 @@ async function loadSessions({ keepSelection = false, announce = false } = {}) {
   renderSessionList();
   try {
     const data = await fetchJson(sourceSessionsUrl(sourceId, "recent24h"));
-    if (state.sessionsRequestKey !== requestKey || state.selectedSourceId !== sourceId || !sourceResponseMatches(data, sourceId)) return;
+    if (state.sessionsRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
+    requireSourceResponse(data, sourceId, "sessions");
     state.healthLoadError = "";
     if (data.source) upsertSource(data.source);
     state.sessions = data.sessions || [];
@@ -1134,6 +1160,7 @@ async function discoverAlternateLocalSource() {
   try {
     const data = await fetchJson(sourceSessionsUrl(source.id, "recent24h"), { signal: controller.signal });
     if (!alternateLocalSourceDiscoveryCurrent(requestKey)) return;
+    requireSourceResponse(data, source.id, "sessions");
     if (data.source) upsertSource(data.source);
     state.alternateLocalSource = alternateLocalSourceResult(data, source);
   } catch (error) {
@@ -1159,7 +1186,8 @@ async function loadHistoricalSessions({ announce = false } = {}) {
   renderSessionList();
   try {
     const data = await fetchJson(sourceSessionsUrl(sourceId, "history"));
-    if (state.historyRequestKey !== requestKey || state.selectedSourceId !== sourceId || !sourceResponseMatches(data, sourceId)) return;
+    if (state.historyRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
+    requireSourceResponse(data, sourceId, "sessions");
     if (data.source) upsertSource(data.source);
     const priorSessions = els.sessionSearch.value.trim()
       ? state.sessions.filter((session) => sessionTimeBucket(session) !== "earlier")
@@ -1248,7 +1276,8 @@ async function selectSession(id, { announce = true, focusMobilePanel = true } = 
   renderAll();
   try {
     const detail = await fetchJson(sourceSessionUrl(id, sourceId), { signal: sessionAbortController.signal });
-    if (state.sessionRequestKey !== requestKey || state.selectedSourceId !== sourceId || !sourceResponseMatches(detail, sourceId)) return;
+    if (state.sessionRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
+    requireSourceResponse(detail, sourceId, "detail");
     state.detail = detail;
     state.sessionLoading = false;
     state.sessionLoadError = "";
@@ -1288,7 +1317,8 @@ async function reloadSelectedSessionDetail() {
     if (state.sessionRequestKey !== requestKey || state.selectedSourceId !== sourceId || state.selectedSessionId !== sessionId) return;
     throw error;
   }
-  if (state.sessionRequestKey !== requestKey || state.selectedSourceId !== sourceId || state.selectedSessionId !== sessionId || !sourceResponseMatches(detail, sourceId)) return;
+  if (state.sessionRequestKey !== requestKey || state.selectedSourceId !== sourceId || state.selectedSessionId !== sessionId) return;
+  requireSourceResponse(detail, sourceId, "detail");
   state.detail = detail;
   state.sessionLoading = false;
   state.sessionLoadError = "";
@@ -1332,6 +1362,8 @@ async function selectSource(sourceId) {
   cancelAlternateLocalSourceDiscovery();
   state.selectedSourceId = sourceId;
   state.remoteRefreshLoading = false;
+  state.remoteRefreshCancelled = false;
+  state.remoteRefreshError = "";
   state.remoteRefreshRequestKey = `inactive:${Date.now()}`;
   state.sessions = [];
   state.filteredSessions = [];
@@ -1342,6 +1374,7 @@ async function selectSource(sourceId) {
   state.promptArchiveProjects = [];
   state.promptArchiveLoaded = false;
   state.promptArchiveError = "";
+  state.promptArchiveCancelled = false;
   state.promptArchiveProject = "all";
   state.promptArchivePage = null;
   clearSelectedSession();
@@ -1362,12 +1395,21 @@ async function refreshSelectedSource() {
   const operationKey = `refresh:${sourceId}:${Date.now()}`;
   state.remoteRefreshRequestKey = operationKey;
   state.remoteRefreshLoading = true;
+  state.remoteRefreshCancelled = false;
+  state.remoteRefreshError = "";
+  let responseRejectedForNavigation = false;
   setWorkbenchStatus(operationKey, `正在拉取${source.label || "远端"}快照`, { announce: true });
   els.refreshRemoteButton.disabled = true;
   els.refreshRemoteButton.textContent = "正在拉取快照";
   try {
     const result = await fetchJson(`/api/sources/${encodeURIComponent(sourceId)}/refresh`, { method: "POST" });
-    if (!sourceNavigationRequestIsCurrent({ requestKey: operationKey, expectedRequestKey: state.remoteRefreshRequestKey, sourceId, context: refreshContext }) || !sourceResponseMatches(result, sourceId)) return;
+    if (!sourceRequestOwnsState({ requestKey: operationKey, expectedRequestKey: state.remoteRefreshRequestKey, sourceId })) return;
+    if (!sourceNavigationRequestIsCurrent({ requestKey: operationKey, expectedRequestKey: state.remoteRefreshRequestKey, sourceId, context: refreshContext })) {
+      responseRejectedForNavigation = true;
+      return;
+    }
+    requireSourceResponse(result, sourceId, "refresh");
+    state.remoteRefreshError = "";
     if (result.source) upsertSource(result.source);
     renderSourceControls();
     await loadSessions({ keepSelection: true });
@@ -1375,16 +1417,26 @@ async function refreshSelectedSource() {
     setWorkbenchStatus(operationKey, "远端快照已拉取到本机缓存；未修改远端", { announce: true });
     showToast("远端快照已拉取到本机缓存；未修改远端");
   } catch (error) {
-    if (!sourceNavigationRequestIsCurrent({ requestKey: operationKey, expectedRequestKey: state.remoteRefreshRequestKey, sourceId, context: refreshContext })) return;
+    if (!sourceRequestOwnsState({ requestKey: operationKey, expectedRequestKey: state.remoteRefreshRequestKey, sourceId })) return;
+    if (!sourceNavigationRequestIsCurrent({ requestKey: operationKey, expectedRequestKey: state.remoteRefreshRequestKey, sourceId, context: refreshContext })) {
+      responseRejectedForNavigation = true;
+      return;
+    }
+    state.remoteRefreshError = error.message;
     await reloadSources();
     setWorkbenchStatus(operationKey, `拉取远端快照失败：${error.message}。可再次拉取。`, { announce: true });
     showToast(`拉取远端快照失败：${error.message}；远端未修改`);
     await loadSessions({ keepSelection: true });
     if (state.sidebarMode === "prompts") await loadPromptArchive({ force: true });
   } finally {
-    if (state.remoteRefreshRequestKey === operationKey) {
+    if (sourceRequestOwnsState({ requestKey: operationKey, expectedRequestKey: state.remoteRefreshRequestKey, sourceId })) {
       state.remoteRefreshLoading = false;
-      if (sourceNavigationRequestIsCurrent({ requestKey: operationKey, expectedRequestKey: state.remoteRefreshRequestKey, sourceId, context: refreshContext })) renderSourceControls();
+      if (responseRejectedForNavigation) {
+        state.remoteRefreshCancelled = true;
+        if (state.workbenchStatus.key === operationKey) setWorkbenchStatus(operationKey, "远端快照拉取已取消，可再次拉取");
+      }
+      renderSourceControls();
+      renderAll();
     }
   }
 }
@@ -2561,7 +2613,8 @@ async function requestRemoteIndexPage({ sourceId, filterKey, cursor, options }) 
   renderSessionList();
   try {
     const data = await fetchJson(remoteIndexUrl(sourceId, cursor, options.snapshot || ""), { signal: controller.signal });
-    if (state.remoteIndexRequestKey !== requestKey || state.remoteIndexFilterKey !== filterKey || state.selectedSourceId !== sourceId || !sourceResponseMatches(data, sourceId)) return;
+    if (state.remoteIndexRequestKey !== requestKey || state.remoteIndexFilterKey !== filterKey || state.selectedSourceId !== sourceId) return;
+    requireSourceResponse(data, sourceId, "remote-index");
     if (data.source) upsertSource(data.source);
     const entry = {
       sourceId,
@@ -2633,12 +2686,26 @@ function sourceNavigationContext() {
 }
 
 function sourceNavigationRequestIsCurrent({ requestKey, expectedRequestKey, sourceId, context }) {
-  return requestKey === expectedRequestKey && state.selectedSourceId === sourceId && sourceNavigationContext() === context;
+  return sourceRequestOwnsState({ requestKey, expectedRequestKey, sourceId }) && sourceNavigationContext() === context;
 }
 
-function sourceResponseMatches(data, sourceId) {
-  const responseSourceId = data?.source?.id || data?.session?.sourceId;
-  return !responseSourceId || responseSourceId === sourceId;
+function sourceRequestOwnsState({ requestKey, expectedRequestKey, sourceId }) {
+  return requestKey === expectedRequestKey && state.selectedSourceId === sourceId;
+}
+
+function sourceResponseMatches(data, sourceId, responseKind) {
+  if (responseKind === "detail") return data?.session?.sourceId === sourceId;
+  if (data?.source?.id !== sourceId) return false;
+  const collectionKey = responseKind === "prompts" ? "entries" : responseKind === "sessions" || responseKind === "remote-index" ? "sessions" : "";
+  const entries = collectionKey ? data?.[collectionKey] : null;
+  return !Array.isArray(entries) || entries.every((entry) => !entry?.sourceId || entry.sourceId === sourceId);
+}
+
+function requireSourceResponse(data, sourceId, responseKind) {
+  if (sourceResponseMatches(data, sourceId, responseKind)) return;
+  const error = new Error("来源响应校验失败，请重试。");
+  error.code = "source_response_mismatch";
+  throw error;
 }
 
 function cacheRemoteIndexPage(entry) {
@@ -2745,6 +2812,11 @@ function renderPromptArchiveSidebar() {
     els.sessionList.innerHTML = emptyState("正在整理任务归档", "按项目读取每个会话的首个用户提示词。", []);
     return;
   }
+  if (state.promptArchiveCancelled) {
+    els.sessionList.innerHTML = renderSessionListActionEmptyState("任务归档读取已取消", "当前导航已变化，未采用旧结果。可以重新整理。", [{ action: "retry-prompts", label: "重新整理" }]);
+    bindSessionListEmptyActions();
+    return;
+  }
   if (state.promptArchiveError) {
     els.sessionList.innerHTML = renderSessionListActionEmptyState("任务归档读取失败", state.promptArchiveError, [{ action: "retry-prompts", label: "重试" }]);
     bindSessionListEmptyActions();
@@ -2802,6 +2874,11 @@ function renderPromptArchive() {
   });
   if (state.promptArchiveLoading && !state.promptArchive.length) {
     els.promptArchiveContent.innerHTML = emptyState("正在整理任务归档", "按项目读取每个会话的首个用户提示词。", []);
+    return;
+  }
+  if (state.promptArchiveCancelled) {
+    els.promptArchiveContent.innerHTML = renderSessionListActionEmptyState("任务归档读取已取消", "当前导航已变化，未采用旧结果。可以重新整理。", [{ action: "retry-prompts", label: "重新整理" }]);
+    bindSessionListEmptyActions(els.promptArchiveContent);
     return;
   }
   if (state.promptArchiveError) {
@@ -3737,9 +3814,11 @@ function renderStatusbar() {
     const page = state.promptArchivePage || {};
     els.statusSession.textContent = state.promptArchiveLoading ? "正在整理当前批首个任务提示词" : "首个任务提示词只读归档";
     els.statusEvents.textContent = `${promptArchiveRangeLabel(page)} · 本批 ${state.promptArchive.length || 0} 条归档`;
-    els.statusUpdated.textContent = state.promptArchiveError
-      ? "归档读取失败，可重试"
-      : page.hasMoreCandidates ? "更早候选尚未扫描，可继续定位" : "已扫描到当前时间范围最早任务";
+    els.statusUpdated.textContent = state.promptArchiveCancelled
+      ? "归档读取已取消，可重新整理"
+      : state.promptArchiveError
+        ? "归档读取失败，可重试"
+        : page.hasMoreCandidates ? "更早候选尚未扫描，可继续定位" : "已扫描到当前时间范围最早任务";
     syncExportButtons();
     return;
   }
@@ -3795,7 +3874,7 @@ function syncStatusbarDataStatus(source = selectedSource()) {
   } else if (state.sessionsLoading || state.sessionLoading || state.remoteIndexLoading || state.promptArchiveLoading || state.remoteRefreshLoading || status.refreshing) {
     value = "loading";
     label = "加载中";
-  } else if (state.sessionsLoadError || state.sessionLoadError || state.remoteIndexError || state.promptArchiveError || status.error?.message) {
+  } else if (state.sessionsLoadError || state.sessionLoadError || state.remoteIndexError || state.promptArchiveError || state.remoteRefreshError || status.error?.message) {
     value = "error";
     label = "错误";
   } else if (source?.kind === "remote" && status.stale) {

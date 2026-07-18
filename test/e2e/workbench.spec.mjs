@@ -459,12 +459,14 @@ test("远端历史新查询取消旧请求且不写入过期页", async ({ page 
       resolveStaleRequest();
       await release;
       await route.fulfill({ json: {
+        source: { id: "office", label: "办公室", kind: "remote" },
         page: { total: 1, limit: 100, cursor: 0, nextCursor: null },
         sessions: [{ id: "stale-index", displayTitle: "旧查询过期历史索引", titleTruncated: false }],
       } }).catch(() => {});
       return;
     }
     await route.fulfill({ json: {
+      source: { id: "office", label: "办公室", kind: "remote" },
       page: { total: 1, limit: 100, cursor: 0, nextCursor: null },
       sessions: [{ id: "current-index", displayTitle: "新查询当前历史索引", titleTruncated: false }],
     } });

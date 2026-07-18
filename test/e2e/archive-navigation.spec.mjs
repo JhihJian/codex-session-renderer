@@ -113,6 +113,58 @@ test("来源切换后过期远端刷新不会污染当前来源或导航状态",
   await expect(page.locator("#sourceSelect").locator("option[value=office]")).not.toContainText("过期刷新不得写入来源缓存");
 });
 
+test("同一远端来源的导航变化会丢弃刷新结果但恢复刷新入口", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#sourceSelect").selectOption("office");
+  let releaseRefresh;
+  const refreshStarted = new Promise((resolve) => {
+    releaseRefresh = resolve;
+  });
+  let allowRefresh;
+  const refreshFinished = new Promise((resolve) => {
+    allowRefresh = resolve;
+  });
+  await page.route("**/api/sources/office/refresh", async (route) => {
+    releaseRefresh();
+    await refreshFinished;
+    await route.fulfill({ json: {
+      ok: true,
+      source: { id: "office", label: "过期结果不能写回", kind: "remote", status: { refreshable: true, snapshotAvailable: true } },
+    } });
+  });
+
+  await page.locator("#refreshRemoteButton").click();
+  await refreshStarted;
+  await page.locator("#auditViewButton").click();
+  await page.locator("#statsViewButton").click();
+  await page.locator("#rawViewButton").click();
+  await page.locator("#reviewTabEvidence").click();
+  allowRefresh();
+
+  await expect(page.locator("#refreshRemoteButton")).toBeEnabled();
+  await expect(page.locator("#refreshRemoteButton")).toHaveText("拉取远端快照");
+  await expect(page.locator("#sessionsPanel")).toHaveAttribute("aria-busy", "false");
+  await expect(page.locator("#sourceStatus")).toContainText("拉取已取消，可再次拉取");
+  await expect(page.locator("#workbenchOperationStatus")).toContainText("远端快照拉取已取消，可再次拉取");
+  await expect(page.locator("#workbenchOperationStatus")).not.toContainText("远端快照已拉取到本机缓存");
+  await expect(page.locator("#sourceSelect").locator("option[value=office]")).not.toContainText("过期结果不能写回");
+});
+
+test("刷新成功响应缺少来源标识时失败关闭并恢复再次拉取", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#sourceSelect").selectOption("office");
+  await page.route("**/api/sources/office/refresh", async (route) => {
+    await route.fulfill({ json: { ok: true } });
+  });
+
+  await page.locator("#refreshRemoteButton").click();
+  await expect(page.locator("#refreshRemoteButton")).toBeEnabled();
+  await expect(page.locator("#refreshRemoteButton")).toHaveText("拉取远端快照");
+  await expect(page.locator("#sessionsPanel")).toHaveAttribute("aria-busy", "false");
+  await expect(page.locator("#sourceStatus")).toContainText("拉取失败：来源响应校验失败，请重试。可再次拉取");
+  await expect(page.locator("#workbenchOperationStatus")).not.toContainText("远端快照已拉取到本机缓存");
+});
+
 test("从归档打开会话后，详情响应不会覆盖用户后续的移动复核导航", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
@@ -136,6 +188,47 @@ test("从归档打开会话后，详情响应不会覆盖用户后续的移动�
   releaseDetail();
   await expect(page.locator("#sessionDetails")).not.toContainText("任务归档未打开会话");
   await expect(page.locator("#appShell")).toHaveAttribute("data-panel", "inspector");
+});
+
+test("移动端归档响应在复核导航后会取消并提供重新整理入口", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  let releaseArchive;
+  const archiveStarted = new Promise((resolve) => {
+    releaseArchive = resolve;
+  });
+  let allowArchive;
+  const archiveCanFinish = new Promise((resolve) => {
+    allowArchive = resolve;
+  });
+  let calls = 0;
+  await page.route("**/api/sources/local/prompts?*", async (route) => {
+    calls += 1;
+    if (calls === 1) {
+      releaseArchive();
+      await archiveCanFinish;
+      await route.fulfill({ json: promptResponse() });
+      return;
+    }
+    await route.fulfill({ json: promptResponse() });
+  });
+
+  await page.locator("[data-panel-target=sessions]").click();
+  await page.locator("#promptsModeButton").click();
+  await archiveStarted;
+  await page.locator("[data-panel-target=inspector]").click();
+  await page.locator("#reviewTabEvidence").click();
+  allowArchive();
+
+  await expect(page.locator("#promptArchiveContent")).toHaveAttribute("aria-busy", "false");
+  await page.locator("[data-panel-target=thread]").click();
+  await expect(page.locator("#promptArchiveContent")).toContainText("任务归档读取已取消");
+  const retry = page.locator("#promptArchiveContent [data-session-empty-action=retry-prompts]");
+  await expect(retry).toHaveText("重新整理");
+  await expect(page.locator("#promptArchiveContent")).not.toContainText("任务归档读取失败");
+  await retry.click();
+  await expect(page.locator("#promptArchiveContent")).toContainText("保持复核面板");
+  expect(calls).toBe(2);
 });
 
 test("Pi 大会话在有界前缀找到首任务后可搜索和按项目筛选", async ({ page }) => {

@@ -186,7 +186,15 @@ test("review and filtering copy keeps noisy interactions explicit", async () => 
   assert.match(app, /closeSettingsDialogAndRestoreFocus\(\)/);
   assert.match(app, /function promptArchiveCacheKey\(sourceId, scope\)/);
   assert.match(app, /function sourceNavigationRequestIsCurrent\(/);
-  assert.match(app, /function sourceResponseMatches\(data, sourceId\)/);
+  assert.match(app, /function sourceRequestOwnsState\(/);
+  assert.match(app, /function sourceResponseMatches\(data, sourceId, responseKind\)/);
+  assert.match(app, /data\?\.source\?\.id !== sourceId/);
+  assert.match(app, /data\?\.session\?\.sourceId === sourceId/);
+  assert.match(app, /function requireSourceResponse\(/);
+  assert.match(app, /任务归档读取已取消/);
+  assert.match(app, /\(width <= 820px\)/);
+  assert.match(css, /@media \(width > 820px\)/);
+  assert.match(css, /@media \(width <= 820px\)/);
   assert.match(css, /\.settings-footer \{[\s\S]*grid-template-columns: minmax\(0, 1fr\) auto auto;/);
   assert.match(css, /\.settings-footer \{[\s\S]*position: sticky;[\s\S]*bottom: 0;/);
   assert.match(css, /\.primary-button:disabled,[\s\S]*\.primary-button:disabled:hover/);

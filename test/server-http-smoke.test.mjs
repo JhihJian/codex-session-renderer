@@ -569,7 +569,7 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   assert.equal(sourceMarkdownPost.response.status, 405);
   assert.equal(sourceMarkdownPost.body.error, "请求方法不允许");
 
-  const legacyRemoteQuery = await requestJson(baseUrl, "/api/query/sessions?sourceId=remote-a&limit=1&fields=id,links");
+  const legacyRemoteQuery = await requestJson(baseUrl, `/api/query/sessions?sourceId=remote-a&id=${sessionId}&limit=1&fields=id,links`);
   assert.equal(legacyRemoteQuery.response.status, 200);
   assert.deepEqual(legacyRemoteQuery.body.sessions[0].links, sourceQuery.body.sessions[0].links);
 
