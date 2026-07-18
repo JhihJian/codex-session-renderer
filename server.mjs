@@ -13,7 +13,7 @@ import { createRendererConfigStore } from "./src/renderer-config.mjs";
 import { createSnapshotRootCommitCoordinator } from "./src/snapshot-root-commit-coordinator.mjs";
 import { createDeadlineSignal, fetchWithDeadline, isAbortError as isRemoteAbortError, readLimitedResponseText } from "./src/remote-http.mjs";
 import { createSessionDetailCoordinator } from "./src/session-detail-coordinator.mjs";
-import { readJsonl, readJsonlLineWithDiagnostics, readJsonlRange } from "./src/jsonl-reader.mjs";
+import { readJsonl, readJsonlLineWithDiagnostics, readJsonlRange, readJsonlWithDiagnostics } from "./src/jsonl-reader.mjs";
 import {
   buildTrace,
   buildTurns,
@@ -24,10 +24,12 @@ import {
   compactTurnForView,
   deriveSessionStatusFromEvents,
   deriveSessionStatusFromTurns,
+  extractProjectedGoalObjective,
   extractTitleFromEvents,
 
   findSpawnAgentEvents,
   findSubagentNotifications,
+  firstLine,
   isImportantEvent,
   renderConversationMarkdown,
   sessionIdFromFile,
@@ -40,7 +42,7 @@ import {
 } from "./src/session-events.mjs";
 import { dedupeSessionFileRecords, sessionFileRoots } from "./src/session-catalog.mjs";
 import { normalizeSessionEvent } from "./src/session-normalizer.mjs";
-import { createPiGoalMessageProjector } from "./src/pi-goal-projection.mjs";
+import { createPiGoalMessageProjector, isLikelyCodexGoalControlText } from "./src/pi-goal-projection.mjs";
 import { promptProjectKey } from "./src/session-prompts.mjs";
 import { createAbortError, createConcurrencyGate, createPromptArchiveCoordinator, createSharedSubscriptionRegistry, fileSignature, isAbortError } from "./src/prompt-archive-coordinator.mjs";
 import {
@@ -71,6 +73,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
 const maxListSessions = Number(process.env.CODEX_SESSION_RENDERER_LIMIT || 800);
 const recentSessionWindowMs = 24 * 60 * 60 * 1000;
+const listTitleProbeMaxLines = 24;
+const listTitleProbeMaxBytes = 96 * 1024;
 const port = Number(process.env.PORT || 4789);
 const host = process.env.HOST || "127.0.0.1";
 const accessToken = process.env.CODEX_SESSION_RENDERER_TOKEN || "";
@@ -488,7 +492,7 @@ async function listSessions(context, options = {}) {
       if (await sessionFileExists(context, session, options)) sessions.push(session);
     }
     if (sessions.length === 0) return listSessionsFromFiles(context, bounds, options, now, scope);
-    const rootSessions = rootSessionsOnly(sessions, []);
+    const rootSessions = await correctControlPacketListTitles(context, rootSessionsOnly(sessions, []), options);
     rootSessions.sort((a, b) => new Date(b.updatedAt || b.fileModifiedAt || 0) - new Date(a.updatedAt || a.fileModifiedAt || 0));
     const scopedSessions = rootSessions.filter((session) => sessionMatchesCatalogBounds(session, bounds));
     const results = scopedSessions.slice(0, options.maxRecords || maxListSessions);
@@ -503,9 +507,42 @@ async function listSessions(context, options = {}) {
   return listSessionsFromFiles(context, bounds, options, now, scope);
 }
 
+async function correctControlPacketListTitles(context, sessions, options = {}) {
+  const candidates = sessions.filter((session) => session?.path && (isLikelyCodexGoalControlText(session.title) || isLikelyCodexGoalControlText(session.preview)));
+  if (candidates.length === 0) return sessions;
+  const corrected = await Promise.all(candidates.map(async (session) => {
+    throwIfRequestAborted(options.signal);
+    const before = await sessionFileStat(context, session.path, session.id);
+    if (!before) return session;
+    const events = await context.sessionDetailCoordinator.readGate.run(
+      () => readJsonlWithDiagnostics(session.path, {
+        maxLines: listTitleProbeMaxLines,
+        maxBytes: listTitleProbeMaxBytes,
+        signal: options.signal,
+      }),
+      options.signal,
+    ).catch((error) => {
+      if (isAbortError(error)) throw error;
+      return null;
+    });
+    const after = await sessionFileStat(context, session.path, session.id);
+    const hasConfirmedDiagnostic = events?.some((event, index) => event?.__jsonlDiagnostic && (before.size <= listTitleProbeMaxBytes || index < events.length - 1));
+    if (!events || !after || fileSignature(session.path, before) !== fileSignature(session.path, after) || hasConfirmedDiagnostic) return session;
+    const objective = extractProjectedGoalObjective(events);
+    if (!objective) return session;
+    return {
+      ...session,
+      title: isLikelyCodexGoalControlText(session.title) ? firstLine(objective, 90) : session.title,
+      preview: isLikelyCodexGoalControlText(session.preview) ? firstLine(objective, 120) : session.preview,
+    };
+  }));
+  const byId = new Map(corrected.map((session) => [session.id, session]));
+  return sessions.map((session) => byId.get(session.id) || session);
+}
+
 async function listSessionsFromFiles(context, bounds, options, now, scope) {
   const sessions = await listFileSessions(context, bounds, options);
-  const rootSessions = rootSessionsOnly(sessions, spawnEdgesFromSessions(sessions));
+  const rootSessions = await correctControlPacketListTitles(context, rootSessionsOnly(sessions, spawnEdgesFromSessions(sessions)), options);
   rootSessions.sort((a, b) => new Date(b.updatedAt || b.fileModifiedAt) - new Date(a.updatedAt || a.fileModifiedAt));
   const results = rootSessions.slice(0, options.maxRecords || maxListSessions);
   if (!options.maxRecords) {
@@ -528,7 +565,7 @@ async function listFileSessions(context, bounds = {}, options = {}) {
     const indexed = index.get(id);
     let events = [];
     try {
-      const readMeta = () => readJsonl(filePath, {
+      const readMeta = () => readJsonlWithDiagnostics(filePath, {
         maxLines: bounds.beforeMs != null ? 1 : 40,
         maxBytes: 64 * 1024,
         signal: options.signal,
@@ -1469,7 +1506,7 @@ async function sessionFromFilePath(context, filePath, options = {}) {
   const stat = await sessionFileStat(context, filePath);
   if (!stat) return null;
   const id = sessionIdFromFile(filePath);
-  const events = await readJsonl(filePath, { maxLines: 40, maxBytes: 128 * 1024, signal: options.signal }).catch((error) => {
+  const events = await readJsonlWithDiagnostics(filePath, { maxLines: 40, maxBytes: 128 * 1024, signal: options.signal }).catch((error) => {
     if (isAbortError(error)) throw error;
     return [];
   });

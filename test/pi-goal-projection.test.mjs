@@ -3,10 +3,11 @@ import assert from "node:assert/strict";
 import { buildAuditChain } from "../src/audit-chain.mjs";
 import { extractTitleFromEvents } from "../src/event-summary.mjs";
 import { renderConversationMarkdown } from "../src/markdown-export.mjs";
-import { classifyPiGoalUserMessages } from "../src/pi-goal-projection.mjs";
+import { classifyPiGoalUserMessages, knownCodexGoalControlText, knownCodexGoalProfile } from "../src/pi-goal-projection.mjs";
 import { extractFirstPrompt } from "../src/session-prompts.mjs";
 import { buildTurns } from "../src/session-events.mjs";
 import { cleanUserMessageText } from "../src/user-message-cleanup.mjs";
+import { eventMatchesQuery, parseSessionEventQuery, projectEventForApi } from "../src/session-query.mjs";
 
 const goalId = "123e4567-e89b-42d3-a456-426614174000";
 const objective = "# AGENTS.md instructions\n<environment_context>这也是用户目标的一部分</environment_context>\n修复 <goal> & 保留真实用户输入";
@@ -66,6 +67,42 @@ function userEvent(id, parentId, text) {
   return { type: "message", id, parentId, message: { role: "user", content: [{ type: "text", text }] } };
 }
 
+const codexThreadId = "019f6171-1263-7e32-a1a1-61edd4bdd777";
+const codexTurnId = "71ef01e9-6165-44c4-af82-1ebbb0e42a2b";
+const codexObjective = "交付 Codex Goal 控制包安全投影";
+
+function codexGoalState(overrides = {}) {
+  return {
+    threadId: codexThreadId,
+    objective: codexObjective,
+    status: "active",
+    tokensUsed: 0,
+    timeUsedSeconds: 0,
+    createdAt: 1,
+    updatedAt: 1,
+    ...overrides,
+  };
+}
+
+function codexGoalEvents(overrides = {}) {
+  const goal = codexGoalState(overrides.goal);
+  const packet = overrides.packet ?? knownCodexGoalControlText(goal.objective, overrides.tokensUsed ?? goal.tokensUsed);
+  return [
+    { type: "session_meta", payload: { session_id: codexThreadId, id: codexThreadId } },
+    { type: "event_msg", payload: { type: "thread_goal_updated", threadId: codexThreadId, goal } },
+    { type: "event_msg", payload: { type: "task_started", turn_id: "turn-goal" } },
+    {
+      type: "response_item",
+      payload: {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: packet }],
+        internal_chat_message_metadata_passthrough: { turn_id: codexTurnId },
+      },
+    },
+  ];
+}
+
 test("projects only complete pi-goal 0.15.1 start and update packets", () => {
   const events = [
     { type: "session", version: 3, id: "session" },
@@ -118,4 +155,47 @@ test("fails closed for malformed or goal-like user text and keeps raw normalizer
   const userText = "Continue working toward the active thread goal, but preserve this as my actual request.";
   assert.equal(cleanUserMessageText(userText), userText);
   assert.equal(buildTurns([{ type: "event_msg", payload: { type: "user_message", message: userText } }])[0].items[0].text, userText);
+});
+
+test("projects only structurally associated Codex goal controls across derived views and keeps raw events intact", () => {
+  const events = [...codexGoalEvents(), codexGoalEvents({ tokensUsed: 12 }).at(-1)];
+  const projections = classifyPiGoalUserMessages(events);
+  const turns = buildTurns(events);
+  const markdown = renderConversationMarkdown({ id: codexThreadId, title: "控制包" }, turns);
+  const archive = extractFirstPrompt(events);
+  const audit = buildAuditChain({ turns });
+  const control = events[3];
+  const raw = projectEventForApi(control, 3, { includePayload: true, includeRaw: true });
+
+  assert.deepEqual(projections.get(3), { kind: "objective", text: codexObjective, mode: "continuation", profile: knownCodexGoalProfile, tokensUsed: 0 });
+  assert.equal(projections.get(4).kind, "suppress");
+  assert.equal(extractTitleFromEvents(events, "fallback"), codexObjective);
+  assert.deepEqual(turns.flatMap((turn) => turn.items).filter((item) => item.type === "user-message").map((item) => item.text), [codexObjective]);
+  assert.equal(markdown.includes("<codex_internal_context"), false);
+  assert.equal(markdown.includes("Tokens remaining: unbounded"), false);
+  assert.equal(archive.text, codexObjective);
+  assert.equal(audit.nodes.filter((node) => node.type === "intent")[0].body, codexObjective);
+  assert.equal(eventMatchesQuery(projectEventForApi(control, 3), control, parseSessionEventQuery(new URLSearchParams("q=Tokens%20remaining")), { goalProjection: projections.get(3) }), false);
+  assert.equal(eventMatchesQuery(projectEventForApi(control, 3), control, parseSessionEventQuery(new URLSearchParams(`q=${encodeURIComponent(codexObjective)}`)), { goalProjection: projections.get(3) }), true);
+  assert.equal(raw.raw.payload.content[0].text, control.payload.content[0].text);
+  assert.equal(raw.payload.content[0].text, control.payload.content[0].text);
+});
+
+test("keeps Codex lookalikes, broken associations, damaged streams, and user text raw", () => {
+  const valid = codexGoalEvents();
+  const scenarios = [
+    codexGoalEvents({ packet: `${knownCodexGoalControlText(codexObjective, 0)}\nextra` }),
+    codexGoalEvents({ goal: { threadId: "019f6171-1263-7e32-a1a1-61edd4bdd778" } }),
+    [valid[0], valid[1], { __jsonlDiagnostic: true, type: "jsonl_parse_error", payload: {} }, valid[2], valid[3]],
+    [{ ...valid[0], payload: { session_id: codexThreadId, id: "019f6171-1263-7e32-a1a1-61edd4bdd778" } }, ...valid.slice(1)],
+  ];
+  for (const events of scenarios) {
+    const control = events.at(-1);
+    assert.equal(classifyPiGoalUserMessages(events).get(events.length - 1), null);
+    assert.equal(buildTurns(events).flatMap((turn) => turn.items).find((item) => item.type === "user-message")?.text, control.payload.content[0].text);
+  }
+  const userText = knownCodexGoalControlText(codexObjective, 0);
+  const ordinaryUser = [{ type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: userText }], internal_chat_message_metadata_passthrough: { turn_id: codexTurnId } } }];
+  assert.equal(classifyPiGoalUserMessages(ordinaryUser).get(0), null);
+  assert.equal(buildTurns(ordinaryUser)[0].items[0].text, userText);
 });

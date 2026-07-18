@@ -68,6 +68,23 @@ Codex 在上下文压缩时会写入两类事件：
 
 规范化层会把这两类事件标记为重要事件，并生成 `compact` 字段。`replacementHistoryCount` 表示 `replacement_history` 的总条数；`replacementHistoryPreview` 只保留最多 30 条可扫描短预览，每条包含序号、role、type、turn/message 定位字段、内容类型、预览文本、原始字符数和截断标记，不把完整正文塞进轻量模型。精简视图会再用 `turn_id` 关联当前会话的 Turn，补充 `turnNumber`、Turn 时间、用户问题和最后回复摘要，让“被替换的对话”优先回答 compact 摘要覆盖了哪些 Turn 和原始问题；字符数与短 ID 只作为辅助定位信息。精简视图还会为被 `replacement_history` 命中的原始消息生成 `compressionRefs` 和 replacement 条目跳转目标，用户消息只统计自身替换条目，助手消息统计自身以及按 Audit 执行层级挂到该助手消息下的工具/执行条目，标签显示为“被替换 N 条 / event #”；点击该回标会保持在精简视图并定位到对应 `context-compact` 系统块，点击“被替换的对话”里的具体条目会跳回原始消息或对应助手消息组。Raw 来源通过该系统块里的“查看 Raw”进入。Turn 聚合会把 compact 事件保留为 `context-compact` item；Raw 视图和 Review Dock 会显示摘要正文、窗口字段、替换历史数量和同一份短预览。完整原始 payload 仍通过单事件接口按需读取。
 
+## Codex Goal 控制包安全投影
+
+Codex 会把持续目标的自动续跑控制包写为 `response_item / message / role=user`。控制包包含用户 objective 和较长的运行规则，不是新的用户输入。默认阅读、Turn/Audit、首任务归档、Markdown、语义事件搜索及标题派生只在已实证的 `codex-thread-goal@0.144.1` 结构完整时投影 objective；Raw event、单事件接口和 `includePayload/includeRaw` 一律保留完整原始 JSON。
+
+已支持 profile 必须同时满足以下可信关联，任何一项不满足都失败关闭：
+
+- 第一个逻辑事件是 `session_meta`，其中 `payload.session_id` 与 `payload.id` 是同一个 UUID。
+- 已关联的 `event_msg.payload.type = thread_goal_updated` 同时令 `payload.threadId`、`goal.threadId` 与 session ID 相等；active goal 必须有非空 `objective`、非负计数、合法且单调的创建/更新时间与 token 用量。
+- 后续控制消息必须是单个 `input_text` content part、带 UUID `internal_chat_message_metadata_passthrough.turn_id`，并且逐字匹配当前实证模板。当前 profile 只支持 `Token budget: none` / `Tokens remaining: unbounded` 的已观察模板，`Tokens used` 必须是安全整数且不低于关联状态或前一控制包。
+- 同一 `threadId + objective` 仅投影一次；后续完整续跑包抑制。新的、单调推进的 `thread_goal_updated` 且 objective 改变时才可投影新的 objective。只有后继控制包完整通过后，关联状态事件才从默认派生面隐藏。
+
+JSONL 解析失败会中断 Codex 控制状态链。未知版本、预算形态、字段缺失、错误 thread ID、状态倒退、模板附加内容、伪造文本和普通用户写出的相似标签均按普通消息保留。该协议校验提供结构可信度，不把可写 JSONL 当作密码学签名。
+
+SQLite 或轻量索引给出疑似控制包标题时，列表只对当前可见候选作一次 24 条逻辑记录、96 KiB 的诊断前缀探测，并在读取前后核对文件签名。只有在这个固定窗口内确认完整 objective 才覆盖标题/预览；达到字节边界时，仅忽略窗口末尾由截断产生的诊断尾行，窗口内真实解析失败仍保持原标题。列表不调用完整详情、归档扫描或无界 JSONL 读取。
+
+语义事件搜索复用同一流投影：objective 可命中，控制规则和预算字段不可命中；事件响应本身仍是诊断摘要，完整控制 payload 只在按需 Raw 接口返回。
+
 ## Pi Goal-mode 安全投影
 
 Pi Goal-mode 扩展会把控制提示词以 `type: "message"`、`message.role: "user"` 写入 Pi JSONL。它们不是普通用户的新输入：启动和目标更新包包含用户目标以及控制规则，恢复和自动续跑包没有新的用户目标。为避免将规则、`goal_id` 和续跑 marker 带入默认阅读、Audit、归档、搜索或 Markdown，本项目只对当前已实证的 `Pi session v3 + @narumitw/pi-goal@0.15.1` 完整结构包投影。
@@ -155,6 +172,7 @@ Raw event 仍可按需查看完整原始 JSON。默认视图、事件预览和�
 - `function_call` / `function_result` 兼容映射。
 - Pi Agent `message.content` 文本、嵌入式 `toolCall` 和 `toolResult`。
 - Pi v3 的完整 `pi-goal@0.15.1` 启动/更新、恢复/自动续跑、安全失败关闭、目标搜索、原始单事件保留以及大文件前缀归档。
+- Codex `thread_goal_updated -> response_item` 完整控制包、同目标续跑抑制、标题前缀探测、失败关闭、Turn/Audit/归档/Markdown/搜索投影、HTTP Raw 单事件保留和 Chromium 阅读路径。
 - 同一 `messageId` 的 delta 合并。
 - data URI 图片摘要和默认脱敏。
 - `encrypted_content` 不进入搜索文本。

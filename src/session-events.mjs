@@ -1,5 +1,6 @@
 import {
   classifyEvent,
+  extractProjectedGoalObjective,
   extractTitleFromEvents,
   isImportantEvent,
   summarizeEventPreview,
@@ -31,6 +32,7 @@ export {
   classifyEvent,
   eventTime,
   extractContentText,
+  extractProjectedGoalObjective,
   extractTitleFromEvents,
   fileTimeMs,
   firstLine,
@@ -1329,13 +1331,6 @@ function shortPathServer(value) {
 
 function buildTurns(events) {
   const goalProjections = classifyPiGoalUserMessages(events);
-  const eventsByIndex = new Map((events || []).map((event, index) => [event?.index ?? index, event]));
-  const projectedGoalStateIds = new Set(
-    [...goalProjections.entries()]
-      .filter(([, projection]) => projection?.kind === "objective" || projection?.kind === "suppress")
-      .map(([index]) => eventsByIndex.get(index)?.parentId)
-      .filter(Boolean),
-  );
   const normalizedEvents = suppressForkReplayPrefix(coalesceNormalizedEvents(events));
   const turns = [];
   let current = null;
@@ -1364,7 +1359,7 @@ function buildTurns(events) {
     const isUserMessage = isUserMessageEvent(event);
     const isAssistantMessage = isAssistantMessageEvent(event);
     const goalProjection = goalProjections.get(sourceIndex);
-    if (projectedGoalStateIds.has(event.raw?.id)) continue;
+    if (goalProjection?.kind === "suppress-state") continue;
     if (event.kind === "meta" || event.semanticKind === "meta") continue;
     if (isUserMessage && goalProjection?.kind === "suppress") continue;
     if (payload.type === "task_started") {

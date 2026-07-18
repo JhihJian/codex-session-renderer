@@ -5,12 +5,17 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { sessionEvents, sessionId, sessionTitle } from "../test/e2e/fixture-session.mjs";
 import { piGoalArchivePrefix, piGoalPrompt, piGoalState, piGoalStateEvent, piGoalUserEvent } from "../test/helpers/pi-goal-fixture.mjs";
+import { knownCodexGoalControlText } from "../src/pi-goal-projection.mjs";
 import { createSnapshotShareHandler } from "../src/snapshot-share.mjs";
 
 const tempRoot = await mkdtemp(path.join(os.tmpdir(), "csr-e2e-"));
 const codexHome = path.join(tempRoot, ".codex");
 const sessionDir = path.join(codexHome, "sessions", "isolated");
 const sessionPath = path.join(sessionDir, `rollout-2025-01-02T03-04-05-${sessionId}.jsonl`);
+const codexGoalSessionId = "77777777-7777-4777-8777-777777777777";
+const codexGoalObjective = "Codex Goal 默认阅读只显示这个真实目标";
+const codexGoalControl = knownCodexGoalControlText(codexGoalObjective, 0);
+const codexGoalSessionPath = path.join(sessionDir, `rollout-2025-01-02T03-04-06-${codexGoalSessionId}.jsonl`);
 const piSessionsRoot = path.join(tempRoot, ".pi", "agent", "sessions");
 const piSessionId = "44444444-4444-4444-8444-444444444444";
 const piSessionPath = path.join(piSessionsRoot, "e2e-pi-session.jsonl");
@@ -26,8 +31,19 @@ const remoteToken = "e2e-remote-index-token";
 
 await mkdir(sessionDir, { recursive: true });
 await writeFile(sessionPath, `${sessionEvents.map((event) => JSON.stringify(event)).join("\n")}\n`, "utf8");
-await writeFile(path.join(codexHome, "session_index.jsonl"), `${JSON.stringify({ id: sessionId, thread_name: sessionTitle })}\n`, "utf8");
+await writeFile(
+  codexGoalSessionPath,
+  `${[
+    { type: "session_meta", payload: { session_id: codexGoalSessionId, id: codexGoalSessionId, cwd: "/workspace/codex-goal" } },
+    { type: "event_msg", payload: { type: "thread_goal_updated", threadId: codexGoalSessionId, goal: { threadId: codexGoalSessionId, objective: codexGoalObjective, status: "active", tokensUsed: 0, timeUsedSeconds: 0, createdAt: 1, updatedAt: 1 } } },
+    { type: "event_msg", payload: { type: "task_started", turn_id: "codex-goal-turn" } },
+    { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: codexGoalControl }], internal_chat_message_metadata_passthrough: { turn_id: "71ef01e9-6165-44c4-af82-1ebbb0e42a2b" } } },
+  ].map((event) => JSON.stringify(event)).join("\n")}\n`,
+  "utf8",
+);
+await writeFile(path.join(codexHome, "session_index.jsonl"), `${JSON.stringify({ id: sessionId, thread_name: sessionTitle })}\n${JSON.stringify({ id: codexGoalSessionId, thread_name: codexGoalControl })}\n`, "utf8");
 await utimes(sessionPath, new Date(), new Date());
+await utimes(codexGoalSessionPath, new Date(Date.now() - 1000), new Date(Date.now() - 1000));
 await mkdir(piSessionsRoot, { recursive: true });
 await writeFile(
   piSessionPath,

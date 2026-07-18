@@ -25,6 +25,14 @@ function extractTitleFromEvents(events, fallback) {
   return fallback || "未命名会话";
 }
 
+function extractProjectedGoalObjective(events) {
+  const projections = classifyPiGoalUserMessages(events);
+  for (const projection of projections.values()) {
+    if (projection?.kind === "objective" && String(projection.text || "").trim()) return projection.text;
+  }
+  return null;
+}
+
 function classifyEvent(event) {
   return normalizeSessionEvent(event).kind;
 }
@@ -214,6 +222,7 @@ function summarizeEventPreview(event) {
 
 export {
   classifyEvent,
+  extractProjectedGoalObjective,
   extractTitleFromEvents,
   isImportantEvent,
   summarizeEventPreview,

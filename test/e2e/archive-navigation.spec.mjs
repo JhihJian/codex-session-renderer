@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 
 const sessionId = "33333333-3333-4333-8333-333333333333";
 const piGoalSessionId = "66666666-6666-4666-8666-666666666666";
+const codexGoalSessionId = "77777777-7777-4777-8777-777777777777";
 
 function promptResponse() {
   return {
@@ -80,4 +81,22 @@ test("Pi Goal 默认视图投影目标而原始单事件仍保留控制包", asy
   const raw = await page.request.get(`/api/sources/pi-agent/sessions/${piGoalSessionId}/events/2`);
   await expect(raw).toBeOK();
   await expect(await raw.text()).toContain("goal_id");
+});
+
+test("Codex Goal 列表标题和默认阅读投影目标，Raw 单事件保留完整控制包", async ({ page }) => {
+  await page.goto("/");
+  const row = page.locator(`[data-session-id="${codexGoalSessionId}"]`);
+  await expect(row).toContainText("Codex Goal 默认阅读只显示这个真实目标");
+  await expect(row).not.toContainText("<codex_internal_context");
+  await row.click();
+  await expect(page.locator("#sessionTitle")).toContainText("Codex Goal 默认阅读只显示这个真实目标");
+  await expect(page.locator("#compactContent")).toContainText("Codex Goal 默认阅读只显示这个真实目标");
+  await expect(page.locator("#compactContent")).not.toContainText("Tokens remaining: unbounded");
+  await page.locator("#auditViewButton").click();
+  await expect(page.locator("#auditContent")).toContainText("Codex Goal 默认阅读只显示这个真实目标");
+  await expect(page.locator("#auditContent")).not.toContainText("<codex_internal_context");
+
+  const raw = await page.request.get(`/api/sources/local/sessions/${codexGoalSessionId}/events/3`);
+  await expect(raw).toBeOK();
+  await expect((await raw.json()).raw.payload.content[0].text).toContain('<codex_internal_context source="goal">');
 });
