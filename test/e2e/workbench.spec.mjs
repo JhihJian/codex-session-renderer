@@ -167,6 +167,77 @@ test("任务归档取消加载，并隔离过期响应", async ({ page }) => {
   await expect(page.locator("#promptArchiveContent").getByText("过期响应不得写入页面")).toHaveCount(0);
 });
 
+test("远端历史索引分页显示范围、末页并复用已访问页", async ({ page }) => {
+  await openWorkbench(page);
+  let remoteIndexRequests = 0;
+  page.on("request", (request) => {
+    if (request.url().includes("/api/sources/office/index?")) remoteIndexRequests += 1;
+  });
+
+  await page.locator("#sourceSelect").selectOption("office");
+  await page.locator("#sessionTimeFilter [data-session-time=earlier]").click();
+  await expect(page.locator("[data-remote-index-page-info]")).toHaveText("第 1 页 · 当前范围第 1-100 条 / 共 101 条");
+  await expect(page.locator("#sessionCount")).toHaveText("101");
+  await expect(page.locator("#sessionList .session-row.index-only").first()).toBeVisible();
+  await expect(page.locator("[data-remote-index-page-action=previous]")).toBeDisabled();
+
+  const secondPage = page.waitForRequest((request) => request.url().includes("/api/sources/office/index?") && request.url().includes("cursor=100"));
+  await page.locator("[data-remote-index-page-action=next]").click();
+  await secondPage;
+  await expect(page.locator("[data-remote-index-page-info]")).toHaveText("第 2 页 · 当前范围第 101-101 条 / 共 101 条");
+  await expect(page.locator("[data-remote-index-page-status]")).toHaveText("已到末页，无更多索引结果");
+  await expect(page.locator("[data-remote-index-page-action=next]")).toBeDisabled();
+  expect(remoteIndexRequests).toBe(2);
+
+  await page.locator("[data-remote-index-page-action=previous]").click();
+  await expect(page.locator("[data-remote-index-page-info]")).toHaveText("第 1 页 · 当前范围第 1-100 条 / 共 101 条");
+  expect(remoteIndexRequests).toBe(2);
+  await page.locator("#sessionList .session-row.index-only").first().click({ force: true });
+  await expect(page.locator("#toast")).toContainText("仅含标题、时间、路径等元数据");
+});
+
+test("远端历史新查询取消旧请求且不写入过期页", async ({ page }) => {
+  await openWorkbench(page);
+  await page.locator("#sourceSelect").selectOption("office");
+  await page.locator("#sessionTimeFilter [data-session-time=earlier]").click();
+  await expect(page.locator("[data-remote-index-page-info]")).toBeVisible();
+
+  let calls = 0;
+  let releaseStale;
+  let resolveStaleRequest;
+  const staleRequest = new Promise((resolve) => {
+    resolveStaleRequest = resolve;
+  });
+  const release = new Promise((resolve) => {
+    releaseStale = resolve;
+  });
+  await page.route("**/api/sources/office/index?*", async (route) => {
+    calls += 1;
+    if (calls === 1) {
+      resolveStaleRequest();
+      await release;
+      await route.fulfill({ json: {
+        page: { total: 1, limit: 100, cursor: 0, nextCursor: null },
+        sessions: [{ id: "stale-index", title: "旧查询过期历史索引" }],
+      } }).catch(() => {});
+      return;
+    }
+    await route.fulfill({ json: {
+      page: { total: 1, limit: 100, cursor: 0, nextCursor: null },
+      sessions: [{ id: "current-index", title: "新查询当前历史索引" }],
+    } });
+  });
+
+  await page.locator("#sessionSearch").fill("旧查询");
+  await staleRequest;
+  const failedRequest = page.waitForEvent("requestfailed", (request) => request.url().includes("/api/sources/office/index?") && request.url().includes("q=%E6%97%A7%E6%9F%A5%E8%AF%A2"));
+  await page.locator("#sessionSearch").fill("新查询");
+  await failedRequest;
+  await expect(page.locator("#sessionList")).toContainText("当前历史索引");
+  releaseStale();
+  await expect(page.locator("#sessionList")).not.toContainText("过期历史索引");
+});
+
 test("详情受限时在工作台内分页诊断，并按需读取完整来源", async ({ page }) => {
   await openWorkbench(page);
   await expect(page.locator("#compactContent")).toContainText("会话详情超过读取上限");

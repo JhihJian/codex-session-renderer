@@ -112,6 +112,32 @@ test("remote index unreachable returns structured redacted error", async (t) => 
   assertRedacted(text);
 });
 
+test("remote index proxy preserves bounded page cursor metadata", async (t) => {
+  const upstreamPage = { total: 3, limit: 2, cursor: 2, nextCursor: null };
+  const context = await withRemoteServer(t, async (url, options) => {
+    const upstream = new URL(url);
+    assert.equal(upstream.pathname, "/api/codex-session-index");
+    assert.equal(upstream.searchParams.get("bucket"), "earlier");
+    assert.equal(upstream.searchParams.get("q"), "old task");
+    assert.equal(upstream.searchParams.get("limit"), "2");
+    assert.equal(upstream.searchParams.get("cursor"), "2");
+    assert.equal(options.headers.authorization, "Bearer secret-token");
+    return new Response(JSON.stringify({
+      page: upstreamPage,
+      sessions: [{ id: "remote-last", title: "旧任务" }],
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+
+  const { response, body } = await requestJson(context, "/api/sources/office/index?bucket=earlier&q=old%20task&limit=2&cursor=2");
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(body.page, upstreamPage);
+  assert.equal(body.sessions.length, 1);
+  assert.equal(body.sessions[0].remoteIndexOnly, true);
+  assert.equal(body.sessions[0].availableInSnapshot, false);
+  assert.equal(body.sessions[0].sourceId, "office");
+});
+
 test("remote index non JSON response returns actionable error", async (t) => {
   const context = await withRemoteServer(t, async () => new Response("<html>not json</html>", { status: 200 }));
 

@@ -157,6 +157,40 @@ test("createSessionIndex returns older sessions without session bodies", async (
   }
 });
 
+test("createSessionIndex keeps total and cursors stable across bounded pages", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "csr-share-index-pages-"));
+  try {
+    const codexHome = path.join(dir, ".codex");
+    const sessionsDir = path.join(codexHome, "sessions", "2026", "06", "27");
+    await mkdir(sessionsDir, { recursive: true });
+    for (const id of ["first", "second", "third"]) {
+      const filePath = path.join(sessionsDir, `rollout-2026-06-27T01-00-00-${id}.jsonl`);
+      await writeFile(filePath, "{}\n", "utf8");
+      await touch(filePath, new Date("2026-06-27T01:00:00.000Z"));
+    }
+    const now = () => new Date("2026-06-30T04:00:00.000Z");
+    const first = await createSessionIndex({
+      codexHome,
+      query: new URLSearchParams({ bucket: "earlier", limit: "2", cursor: "0" }),
+      now,
+    });
+    const last = await createSessionIndex({
+      codexHome,
+      query: new URLSearchParams({ bucket: "earlier", limit: "2", cursor: first.page.nextCursor }),
+      now,
+    });
+
+    assert.deepEqual(first.page, { total: 3, limit: 2, cursor: 0, nextCursor: "2" });
+    assert.equal(first.sessions.length, 2);
+    assert.deepEqual(last.page, { total: 3, limit: 2, cursor: 2, nextCursor: null });
+    assert.equal(last.sessions.length, 1);
+    assert.equal(last.sessions[0].remoteIndexOnly, true);
+    assert.equal(last.sessions[0].availableInSnapshot, false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 function callHandler(handler, req) {
   return new Promise((resolve, reject) => {
     const response = {

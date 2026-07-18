@@ -20,6 +20,10 @@ const state = {
   remoteIndexError: "",
   remoteIndexRequestKey: "",
   remoteIndexRequestSeq: 0,
+  remoteIndexAbortController: null,
+  remoteIndexFilterKey: "",
+  remoteIndexPage: null,
+  remoteIndexPages: new Map(),
   sessionLoading: false,
   sessionLoadError: "",
   sessionRequestKey: "",
@@ -102,6 +106,8 @@ let markdownAbortController = null;
 let rawDiagnosticAbortController = null;
 let rawEventAbortController = null;
 const markdownCacheLimit = 700;
+const remoteIndexPageCacheLimit = 6;
+const remoteIndexPageLimit = 100;
 const inspectorWidthStorageKey = "codexSessionRenderer.inspectorWidth.v1";
 const inspectorSideDockMedia = "(min-width: 1281px)";
 const inspectorWidthDefaults = {
@@ -416,8 +422,8 @@ function bindEvents() {
     input?.addEventListener("change", handlePeerFormInput);
   });
   els.sessionSearch.addEventListener("input", () => {
-    renderSessionList();
     void loadRemoteIndexForCurrentFilter();
+    if (!isRemoteHistoryIndexMode()) renderSessionList();
   });
   els.sessionTimeFilter.querySelectorAll("[data-session-time]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -425,8 +431,8 @@ function bindEvents() {
     });
   });
   els.sessionTypeFilter.addEventListener("change", () => {
-    renderSessionList();
     void loadRemoteIndexForCurrentFilter();
+    if (!isRemoteHistoryIndexMode()) renderSessionList();
   });
   [els.sessionsModeButton, els.promptsModeButton].forEach((button) => {
     button?.addEventListener("click", () => selectSidebarMode(button.dataset.sidebarMode || "sessions"));
@@ -722,9 +728,7 @@ async function loadHealthAndSources() {
     state.selectedSourceId = "local";
     state.sessions = [];
     state.filteredSessions = [];
-    state.remoteIndexSessions = [];
-    state.remoteIndexLoading = false;
-    state.remoteIndexError = "";
+    resetRemoteIndexState();
     state.sessionsLoading = false;
     state.sessionsLoadError = message;
     clearSelectedSession();
@@ -796,12 +800,13 @@ function selectSessionTimeFilter(bucket) {
     void loadPromptArchive();
     return;
   }
-  renderSessionList();
   if (selectedSource()?.kind === "remote") {
     void loadRemoteIndexForCurrentFilter();
   } else if (state.sessionTimeFilter === "earlier" && !state.historyLoaded) {
+    renderSessionList();
     void loadHistoricalSessions();
   } else {
+    renderSessionList();
     selectFirstVisibleSession();
   }
 }
@@ -882,6 +887,7 @@ function promptArchiveScope() {
 
 async function loadSessions({ keepSelection = false } = {}) {
   const sourceId = state.selectedSourceId;
+  resetRemoteIndexState();
   const requestKey = `sessions:${++state.sessionsRequestSeq}:${sourceId}`;
   state.sessionsRequestKey = requestKey;
   state.sessionsLoading = true;
@@ -1105,10 +1111,7 @@ async function selectSource(sourceId) {
   state.filteredSessions = [];
   state.sessionsLoadError = "";
   state.sessionsLoading = true;
-  state.remoteIndexRequestKey = `inactive:${++state.remoteIndexRequestSeq}`;
-  state.remoteIndexSessions = [];
-  state.remoteIndexLoading = false;
-  state.remoteIndexError = "";
+  resetRemoteIndexState();
   state.promptArchive = [];
   state.promptArchiveProjects = [];
   state.promptArchiveLoaded = false;
@@ -1330,7 +1333,7 @@ async function finishPeerSave(data) {
   if (selectedSourceChanged) {
     state.sessions = [];
     state.filteredSessions = [];
-    state.remoteIndexSessions = [];
+    resetRemoteIndexState();
     clearSelectedSession();
   }
   if (!sourceChanged) {
@@ -2261,53 +2264,115 @@ function newEvidenceRiskRule() {
   };
 }
 
-async function loadRemoteIndexForCurrentFilter() {
+async function loadRemoteIndexForCurrentFilter(options = {}) {
   const source = selectedSource();
   if (source?.kind !== "remote" || state.sessionTimeFilter === "realtime") {
-    const changed = state.remoteIndexLoading || state.remoteIndexSessions.length || state.remoteIndexError;
-    state.remoteIndexRequestKey = `inactive:${++state.remoteIndexRequestSeq}`;
-    state.remoteIndexLoading = false;
-    state.remoteIndexSessions = [];
-    state.remoteIndexError = "";
-    renderSourceStatus();
-    if (changed) renderSessionList();
-    return;
+    return deactivateRemoteIndex();
   }
+  const request = prepareRemoteIndexRequest(options);
+  if (request.cached) return showCachedRemoteIndexPage(request.cursor, request.cached);
+  return requestRemoteIndexPage(request);
+}
+
+function deactivateRemoteIndex() {
+  const changed = state.remoteIndexLoading || state.remoteIndexSessions.length || state.remoteIndexError || state.remoteIndexPage;
+  resetRemoteIndexState();
+  renderSourceStatus();
+  if (changed) renderSessionList();
+}
+
+function prepareRemoteIndexRequest(options) {
   const sourceId = state.selectedSourceId;
-  const requestKey = [
-    ++state.remoteIndexRequestSeq,
-    state.selectedSourceId,
-    state.sessionTimeFilter,
-    els.sessionSearch.value.trim(),
-    els.sessionTypeFilter.value,
-  ].join("\n");
+  const filterKey = remoteIndexFilterKey(sourceId);
+  if (options.reset || state.remoteIndexFilterKey !== filterKey) {
+    resetRemoteIndexState();
+    state.remoteIndexFilterKey = filterKey;
+  }
+  const cursor = String(options.cursor ?? "0");
+  return { sourceId, filterKey, cursor, options, cached: options.force ? null : state.remoteIndexPages.get(cursor) };
+}
+
+function showCachedRemoteIndexPage(cursor, entry) {
+  state.remoteIndexPages.delete(cursor);
+  state.remoteIndexPages.set(cursor, entry);
+  state.remoteIndexPage = entry;
+  state.remoteIndexSessions = entry.sessions;
+  state.remoteIndexError = "";
+  state.remoteIndexLoading = false;
+  renderSourceStatus();
+  renderSessionList();
+}
+
+async function requestRemoteIndexPage({ sourceId, filterKey, cursor, options }) {
+  state.remoteIndexAbortController?.abort();
+  const controller = new AbortController();
+  state.remoteIndexAbortController = controller;
+  const requestKey = [++state.remoteIndexRequestSeq, filterKey, cursor].join("\n");
   state.remoteIndexRequestKey = requestKey;
   state.remoteIndexLoading = true;
   state.remoteIndexSessions = [];
+  state.remoteIndexPage = null;
   state.remoteIndexError = "";
   renderSourceStatus();
   renderSessionList();
   try {
-    const data = await fetchJson(remoteIndexUrl(sourceId));
-    if (state.remoteIndexRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
+    const data = await fetchJson(remoteIndexUrl(sourceId, cursor), { signal: controller.signal });
+    if (state.remoteIndexRequestKey !== requestKey || state.remoteIndexFilterKey !== filterKey || state.selectedSourceId !== sourceId) return;
     if (data.source) upsertSource(data.source);
-    state.remoteIndexSessions = (data.sessions || []).map((session) => ({
-      ...session,
-      remoteIndexOnly: true,
-      availableInSnapshot: false,
-    }));
+    const entry = {
+      cursor,
+      previousCursor: options.previousCursor ?? null,
+      pageNumber: options.pageNumber || 1,
+      page: data.page || { total: 0, limit: remoteIndexPageLimit, cursor, nextCursor: null },
+      sessions: (data.sessions || []).map((session) => ({
+        ...session,
+        remoteIndexOnly: true,
+        availableInSnapshot: false,
+      })),
+    };
+    cacheRemoteIndexPage(entry);
+    state.remoteIndexPage = entry;
+    state.remoteIndexSessions = entry.sessions;
     state.remoteIndexError = "";
   } catch (error) {
-    if (state.remoteIndexRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
+    if (isAbortError(error)) return;
+    if (state.remoteIndexRequestKey !== requestKey || state.remoteIndexFilterKey !== filterKey || state.selectedSourceId !== sourceId) return;
     state.remoteIndexSessions = [];
+    state.remoteIndexPage = null;
     state.remoteIndexError = error.message;
     showToast(`远端索引检索失败：${error.message}`);
   } finally {
-    if (state.remoteIndexRequestKey === requestKey && state.selectedSourceId === sourceId) {
+    if (state.remoteIndexAbortController === controller) state.remoteIndexAbortController = null;
+    if (state.remoteIndexRequestKey === requestKey && state.remoteIndexFilterKey === filterKey && state.selectedSourceId === sourceId) {
       state.remoteIndexLoading = false;
       renderSourceStatus();
       renderSessionList();
     }
+  }
+}
+
+function resetRemoteIndexState() {
+  state.remoteIndexAbortController?.abort();
+  state.remoteIndexAbortController = null;
+  state.remoteIndexRequestKey = `inactive:${++state.remoteIndexRequestSeq}`;
+  state.remoteIndexFilterKey = "";
+  state.remoteIndexSessions = [];
+  state.remoteIndexLoading = false;
+  state.remoteIndexError = "";
+  state.remoteIndexPage = null;
+  state.remoteIndexPages = new Map();
+}
+
+function remoteIndexFilterKey(sourceId) {
+  return [sourceId, state.sessionTimeFilter, els.sessionSearch.value.trim(), els.sessionTypeFilter.value].join("\n");
+}
+
+function cacheRemoteIndexPage(entry) {
+  state.remoteIndexPages.delete(entry.cursor);
+  state.remoteIndexPages.set(entry.cursor, entry);
+  while (state.remoteIndexPages.size > remoteIndexPageCacheLimit) {
+    const oldestCursor = state.remoteIndexPages.keys().next().value;
+    state.remoteIndexPages.delete(oldestCursor);
   }
 }
 
@@ -2589,7 +2654,7 @@ function renderSessionList() {
     syncExportButtons();
     return;
   }
-  if (state.sessionsLoading && state.sessions.length === 0 && state.remoteIndexSessions.length === 0) {
+  if (!remoteHistory && state.sessionsLoading && state.sessions.length === 0 && state.remoteIndexSessions.length === 0) {
     state.filteredSessions = [];
     els.sessionCount.textContent = "0";
     els.sessionList.innerHTML = emptyState("正在加载会话列表", `${selectedSource()?.label || "当前数据源"} · 请稍候。`);
@@ -2597,7 +2662,7 @@ function renderSessionList() {
     syncExportButtons();
     return;
   }
-  if (state.healthLoadError && state.sessions.length === 0 && state.remoteIndexSessions.length === 0) {
+  if (!remoteHistory && state.healthLoadError && state.sessions.length === 0 && state.remoteIndexSessions.length === 0) {
     state.filteredSessions = [];
     els.sessionCount.textContent = "0";
     els.sessionList.innerHTML = emptyState("接口不可用", state.healthLoadError);
@@ -2605,7 +2670,7 @@ function renderSessionList() {
     syncExportButtons();
     return;
   }
-  if (state.sessionsLoadError && state.sessions.length === 0 && state.remoteIndexSessions.length === 0) {
+  if (!remoteHistory && state.sessionsLoadError && state.sessions.length === 0 && state.remoteIndexSessions.length === 0) {
     state.filteredSessions = [];
     els.sessionCount.textContent = "0";
     els.sessionList.innerHTML = emptyState("无法加载会话列表", `${selectedSource()?.label || "当前数据源"} · ${state.sessionsLoadError}`);
@@ -2613,7 +2678,7 @@ function renderSessionList() {
     syncExportButtons();
     return;
   }
-  const sessions = mergedVisibleSessions().filter((session) => {
+  const sessions = (remoteHistory ? state.remoteIndexSessions : mergedVisibleSessions()).filter((session) => {
     const haystack = [session.title, session.cwd, session.relativePath, session.model, session.agentNickname]
       .filter(Boolean)
       .join(" ")
@@ -2628,7 +2693,7 @@ function renderSessionList() {
     return true;
   });
   state.filteredSessions = sessions;
-  els.sessionCount.textContent = String(sessions.length);
+  els.sessionCount.textContent = String(remoteHistory && state.remoteIndexPage ? state.remoteIndexPage.page.total : sessions.length);
   if (sessions.length === 0) {
     if (!remoteHistory && state.sessionTimeFilter === "earlier" && state.historyLoading) {
       els.sessionList.innerHTML = renderSessionListActionEmptyState("正在读取更早会话", "历史会话仅在切换到该分类后读取。", []);
@@ -2671,7 +2736,8 @@ function renderSessionList() {
       remoteHistory
         ? "近一天/更早为远端历史索引，不含正文；实时快照默认只补最近 3 小时，历史正文需远端扩大共享窗口/额外同步，或切回已有本地快照。"
         : "调整搜索或过滤条件。";
-    els.sessionList.innerHTML = emptyState("没有匹配的会话", hint);
+    els.sessionList.innerHTML = emptyState("没有匹配的会话", hint) + renderRemoteIndexPagination();
+    bindRemoteIndexPagination();
     renderStatusbar();
     syncExportButtons();
     return;
@@ -2681,7 +2747,7 @@ function renderSessionList() {
     sessions.length > renderedSessions.length
       ? `<div class="list-overflow-note">已显示前 ${renderedSessions.length} 条，继续输入关键词可缩小范围。</div>`
       : "";
-  els.sessionList.innerHTML = renderSessionDirectoryGroups(renderedSessions, query) + overflowHtml;
+  els.sessionList.innerHTML = renderSessionDirectoryGroups(renderedSessions, query) + overflowHtml + renderRemoteIndexPagination();
   const activateSessionRow = (row) => {
     const rowSessionId = row.dataset.sessionId;
     const rowSessionKey = sessionKey({ id: rowSessionId, sourceId: state.selectedSourceId });
@@ -2712,6 +2778,7 @@ function renderSessionList() {
       activateSessionRow(row);
     });
   });
+  bindRemoteIndexPagination();
   renderStatusbar();
   syncExportButtons();
 }
@@ -2724,6 +2791,52 @@ function remoteHistoryBucketLabel() {
   if (state.sessionTimeFilter === "day") return "近一天历史索引";
   if (state.sessionTimeFilter === "earlier") return "更早历史索引";
   return "历史索引";
+}
+
+function renderRemoteIndexPagination() {
+  const entry = state.remoteIndexPage;
+  if (!isRemoteHistoryIndexMode() || !entry) return "";
+  const page = entry.page || {};
+  const total = Math.max(0, Number(page.total) || 0);
+  const cursor = Math.max(0, Number(page.cursor));
+  const start = total === 0 ? 0 : cursor + 1;
+  const end = total === 0 ? 0 : Math.min(total, start + entry.sessions.length - 1);
+  const hasPrevious = entry.previousCursor != null;
+  const hasNext = page.nextCursor != null;
+  const range = total === 0 ? "当前范围 0 条" : `当前范围第 ${start}-${end} 条`;
+  const completion = hasNext ? "可继续定位更早结果" : "已到末页，无更多索引结果";
+  return `
+    <nav class="remote-index-pagination" aria-label="远端历史索引分页">
+      <span class="remote-index-page-info" data-remote-index-page-info>第 ${entry.pageNumber} 页 · ${range} / 共 ${total} 条</span>
+      <span class="remote-index-page-status" data-remote-index-page-status>${completion}</span>
+      <div class="remote-index-page-actions">
+        <button class="ghost-button small" type="button" data-remote-index-page-action="previous" title="上一页" aria-label="上一页" ${hasPrevious && !state.remoteIndexLoading ? "" : "disabled"}>←</button>
+        <button class="ghost-button small" type="button" data-remote-index-page-action="next" title="下一页" aria-label="下一页" ${hasNext && !state.remoteIndexLoading ? "" : "disabled"}>→</button>
+      </div>
+    </nav>
+  `;
+}
+
+function bindRemoteIndexPagination(container = els.sessionList) {
+  container.querySelectorAll("[data-remote-index-page-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const entry = state.remoteIndexPage;
+      if (!entry || state.remoteIndexLoading) return;
+      if (button.dataset.remoteIndexPageAction === "previous" && entry.previousCursor != null) {
+        void loadRemoteIndexForCurrentFilter({
+          cursor: entry.previousCursor,
+          pageNumber: Math.max(1, entry.pageNumber - 1),
+        });
+      }
+      if (button.dataset.remoteIndexPageAction === "next" && entry.page.nextCursor != null) {
+        void loadRemoteIndexForCurrentFilter({
+          cursor: entry.page.nextCursor,
+          previousCursor: entry.cursor,
+          pageNumber: entry.pageNumber + 1,
+        });
+      }
+    });
+  });
 }
 
 function renderSessionListActionEmptyState(title, subtitle, actions = []) {
@@ -3296,8 +3409,10 @@ function renderStatusbar() {
     } else if (state.remoteIndexError) {
       els.statusEvents.textContent = `历史索引失败：${state.remoteIndexError}`;
     } else {
-      const indexCount = state.remoteIndexSessions.length || state.filteredSessions.filter((item) => item.remoteIndexOnly).length || 0;
-      els.statusEvents.textContent = `历史索引 ${indexCount} 条 · 正文未同步`;
+      const page = state.remoteIndexPage?.page;
+      const total = page ? Math.max(0, Number(page.total) || 0) : 0;
+      const pageLabel = state.remoteIndexPage ? `第 ${state.remoteIndexPage.pageNumber} 页` : "未加载";
+      els.statusEvents.textContent = `历史索引 ${total} 条 · ${pageLabel} · 正文未同步`;
     }
   } else {
     els.statusEvents.textContent = `${state.filteredSessions.length || 0}/${state.sessions.length || 0} 个会话`;
@@ -9030,10 +9145,11 @@ function promptArchiveUrl(sourceId = state.selectedSourceId, scope = promptArchi
   return `/api/sources/${encodeURIComponent(sourceId)}/prompts?${params.toString()}`;
 }
 
-function remoteIndexUrl(sourceId = state.selectedSourceId) {
+function remoteIndexUrl(sourceId = state.selectedSourceId, cursor = "0") {
   const params = new URLSearchParams({
     bucket: state.sessionTimeFilter,
-    limit: "220",
+    limit: String(remoteIndexPageLimit),
+    cursor: String(cursor),
   });
   const query = els.sessionSearch.value.trim();
   if (query) params.set("q", query);

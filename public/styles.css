@@ -973,6 +973,41 @@ button {
   text-align: center;
 }
 
+.remote-index-pagination {
+  display: grid;
+  gap: 5px 8px;
+  border-top: 1px solid var(--hair);
+  color: var(--text-2);
+  font-size: 11px;
+  margin: 8px 2px 2px;
+  padding: 9px 6px 4px;
+}
+
+.remote-index-page-info,
+.remote-index-page-status {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.remote-index-page-info {
+  color: var(--text);
+  font-weight: 680;
+}
+
+.remote-index-page-status {
+  color: var(--text-3);
+}
+
+.remote-index-page-actions {
+  display: flex;
+  gap: 5px;
+}
+
+.remote-index-page-actions .ghost-button {
+  width: 32px;
+  padding: 0;
+}
+
 .session-directory-group {
   display: grid;
   gap: 3px;

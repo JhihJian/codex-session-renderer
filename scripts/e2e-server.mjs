@@ -1,24 +1,54 @@
 import { mkdtemp, mkdir, rm, utimes, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { sessionEvents, sessionId, sessionTitle } from "../test/e2e/fixture-session.mjs";
+import { createSnapshotShareHandler } from "../src/snapshot-share.mjs";
 
 const tempRoot = await mkdtemp(path.join(os.tmpdir(), "csr-e2e-"));
 const codexHome = path.join(tempRoot, ".codex");
 const sessionDir = path.join(codexHome, "sessions", "isolated");
 const sessionPath = path.join(sessionDir, `rollout-2025-01-02T03-04-05-${sessionId}.jsonl`);
+const remoteCodexHome = path.join(tempRoot, "remote", ".codex");
+const remoteSessionDir = path.join(remoteCodexHome, "sessions", "isolated");
+const remoteToken = "e2e-remote-index-token";
 
 await mkdir(sessionDir, { recursive: true });
 await writeFile(sessionPath, `${sessionEvents.map((event) => JSON.stringify(event)).join("\n")}\n`, "utf8");
 await writeFile(path.join(codexHome, "session_index.jsonl"), `${JSON.stringify({ id: sessionId, thread_name: sessionTitle })}\n`, "utf8");
 await utimes(sessionPath, new Date(), new Date());
+await mkdir(remoteSessionDir, { recursive: true });
+const remoteIndexRows = [];
+for (let index = 1; index <= 101; index += 1) {
+  const id = `remote-history-${String(index).padStart(3, "0")}`;
+  const filePath = path.join(remoteSessionDir, `rollout-2026-06-27T01-00-00-${id}.jsonl`);
+  await writeFile(filePath, "{}\n", "utf8");
+  await utimes(filePath, new Date("2026-06-27T01:00:00.000Z"), new Date("2026-06-27T01:00:00.000Z"));
+  remoteIndexRows.push(JSON.stringify({ id, thread_name: `远端历史分页任务 ${String(index).padStart(3, "0")}`, updated_at: "2026-06-27T01:00:00.000Z" }));
+}
+await writeFile(path.join(remoteCodexHome, "session_index.jsonl"), `${remoteIndexRows.join("\n")}\n`, "utf8");
+
+const remoteServer = createServer(createSnapshotShareHandler({
+  config: { codexHome: remoteCodexHome, token: remoteToken },
+}));
+await new Promise((resolve, reject) => {
+  remoteServer.once("error", reject);
+  remoteServer.listen(0, "127.0.0.1", () => {
+    remoteServer.off("error", reject);
+    resolve();
+  });
+});
+const remoteAddress = remoteServer.address();
 
 process.env.CODEX_HOME = codexHome;
 process.env.HOME = tempRoot;
 process.env.USERPROFILE = tempRoot;
 process.env.PI_AGENT_SESSIONS_ROOT = path.join(tempRoot, "missing-pi-sessions");
 process.env.CODEX_SESSION_DETAIL_MAX_EVENTS = "4";
+process.env.CODEX_REMOTE_PEERS = `office|E2E 远端索引=http://127.0.0.1:${remoteAddress.port}`;
+process.env.CODEX_REMOTE_TOKEN = remoteToken;
+process.env.CODEX_REMOTE_SOURCES = "";
 process.env.HOST = "127.0.0.1";
 process.env.PORT = process.env.PORT || "4799";
 
@@ -30,6 +60,7 @@ async function stop() {
   if (stopped) return;
   stopped = true;
   await new Promise((resolve) => server.close(resolve));
+  await new Promise((resolve) => remoteServer.close(resolve));
   await rm(tempRoot, { recursive: true, force: true });
 }
 
