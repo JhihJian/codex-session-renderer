@@ -29,6 +29,7 @@ test("workbench status and mobile panel semantics remain accessible", async () =
   assert.match(html, /id="threadPanel" aria-label="会话内容"/);
   assert.match(html, /id="compactContent" role="tabpanel" aria-labelledby="compactViewButton"/);
   assert.match(html, /id="reviewTabSummary"[^>]*aria-controls="reviewPanelSummary"/);
+  assert.match(html, /id="itemTypeFilter" aria-label="内容类型筛选"/);
   assert.match(html, /id="sessionTimeFilter" role="radiogroup"/);
   assert.match(html, /sidebar-mode-switch" role="toolbar"/);
   assert.match(app, /function setWorkbenchStatus\(key, message, \{ announce = false \} = \{\}\)/);
@@ -177,10 +178,15 @@ test("review and filtering copy keeps noisy interactions explicit", async () => 
   assert.match(app, /bindRovingTablist\(els\.reviewTabs, "\[data-review-tab\]"/);
   assert.match(app, /bindRovingTablist\(els\.settingsTabs, "\[data-settings-view\]"/);
   assert.match(app, /function syncPanelVisibilityState\(\)/);
+  assert.match(app, /function desktopPromptArchiveInspectorHidden\(\)/);
+  assert.match(app, /任务归档中复核台不可用/);
   assert.match(app, /panel\.inert = !open/);
   assert.match(app, /setAttribute\("aria-hidden", "true"\)/);
   assert.match(app, /settingsDialogOpener/);
   assert.match(app, /closeSettingsDialogAndRestoreFocus\(\)/);
+  assert.match(app, /function promptArchiveCacheKey\(sourceId, scope\)/);
+  assert.match(app, /function sourceNavigationRequestIsCurrent\(/);
+  assert.match(app, /function sourceResponseMatches\(data, sourceId\)/);
   assert.match(css, /\.settings-footer \{[\s\S]*grid-template-columns: minmax\(0, 1fr\) auto auto;/);
   assert.match(css, /\.settings-footer \{[\s\S]*position: sticky;[\s\S]*bottom: 0;/);
   assert.match(css, /\.primary-button:disabled,[\s\S]*\.primary-button:disabled:hover/);

@@ -230,6 +230,9 @@ test("移动端任务归档可打开复核状态，退出后恢复会话复核",
   await expect(page.locator("#sessionDetails")).toContainText("任务归档未打开会话");
   await expect(page.locator("#selectionDetails")).toContainText("当前正在浏览任务归档");
   await expect(page.locator("#copyRawButton")).toBeDisabled();
+  await expect(page.locator("#inspectorPanel")).toHaveJSProperty("inert", false);
+  await expect(page.locator("#inspectorPanel")).not.toHaveAttribute("aria-hidden");
+  await expect(page.locator("#toggleRight")).toBeEnabled();
 
   await page.locator("[data-panel-target=sessions]").click();
   await page.locator("#sessionsModeButton").click();

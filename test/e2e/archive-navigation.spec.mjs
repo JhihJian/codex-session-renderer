@@ -28,6 +28,91 @@ function promptResponse() {
   };
 }
 
+test("桌面任务归档隔离不可见复核台，并恢复进入前的开闭状态", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("#sessionTitle")).toContainText("确定性 Chromium 验证会话");
+  const inspector = page.locator("#inspectorPanel");
+  const reviewSummary = page.locator("#reviewTabSummary");
+  const toggle = page.locator("#toggleRight");
+
+  await reviewSummary.focus();
+  await page.locator("#promptsModeButton").click();
+  await expect(inspector).toHaveJSProperty("inert", true);
+  await expect(inspector).toHaveAttribute("aria-hidden", "true");
+  await expect(toggle).toBeDisabled();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  expect(await reviewSummary.evaluate((element) => {
+    element.focus();
+    return globalThis.document.activeElement?.id;
+  })).not.toBe("reviewTabSummary");
+
+  await page.locator("#sessionsModeButton").click();
+  await expect(inspector).toHaveJSProperty("inert", false);
+  await expect(inspector).not.toHaveAttribute("aria-hidden");
+  await expect(toggle).toBeEnabled();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  expect(await reviewSummary.evaluate((element) => {
+    element.focus();
+    return globalThis.document.activeElement?.id;
+  })).toBe("reviewTabSummary");
+
+  await toggle.click();
+  await expect(inspector).toHaveJSProperty("inert", true);
+  await page.locator("#promptsModeButton").click();
+  await page.locator("#sessionsModeButton").click();
+  await expect(toggle).toBeEnabled();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(inspector).toHaveJSProperty("inert", true);
+});
+
+test("内容类型筛选在各主视图保留稳定可访问名称", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("#sessionTitle")).toContainText("确定性 Chromium 验证会话");
+  const filter = page.getByLabel("内容类型筛选", { exact: true });
+  await expect(filter).toHaveValue("all");
+  for (const viewId of ["auditViewButton", "statsViewButton", "rawViewButton", "compactViewButton"]) {
+    await page.locator(`#${viewId}`).click();
+    await expect(filter).toHaveAccessibleName("内容类型筛选");
+  }
+});
+
+test("来源切换后过期远端刷新不会污染当前来源或导航状态", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("#sessionTitle")).toContainText("确定性 Chromium 验证会话");
+  await page.locator("#sourceSelect").selectOption("office");
+  await expect(page.locator("#refreshRemoteButton")).toBeVisible();
+
+  let releaseRefresh;
+  const refreshStarted = new Promise((resolve) => {
+    releaseRefresh = resolve;
+  });
+  let beginRefresh;
+  const refreshCanFinish = new Promise((resolve) => {
+    beginRefresh = resolve;
+  });
+  await page.route("**/api/sources/office/refresh", async (route) => {
+    releaseRefresh();
+    await refreshCanFinish;
+    await route.fulfill({ json: {
+      source: {
+        id: "office",
+        label: "过期刷新不得写入来源缓存",
+        kind: "remote",
+        status: { refreshable: true, snapshotAvailable: true },
+      },
+    } });
+  });
+
+  await page.locator("#refreshRemoteButton").click();
+  await refreshStarted;
+  await page.locator("#sourceSelect").selectOption("local");
+  await expect(page.locator("#sourceSelect")).toHaveValue("local");
+  beginRefresh();
+  await expect(page.locator("#sessionTitle")).toContainText("确定性 Chromium 验证会话");
+  await expect(page.locator("#workbenchOperationStatus")).not.toContainText("远端快照已拉取到本机缓存");
+  await expect(page.locator("#sourceSelect").locator("option[value=office]")).not.toContainText("过期刷新不得写入来源缓存");
+});
+
 test("从归档打开会话后，详情响应不会覆盖用户后续的移动复核导航", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");

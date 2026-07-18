@@ -82,6 +82,7 @@ const state = {
   promptArchiveProject: "all",
   promptArchivePage: null,
   remoteRefreshLoading: false,
+  remoteRefreshRequestKey: "",
   alternateLocalSource: null,
   alternateLocalSourceLoading: false,
   alternateLocalSourceRequestKey: "",
@@ -502,6 +503,7 @@ function bindEvents() {
     syncPanelToggleLabels();
   });
   els.toggleRight.addEventListener("click", () => {
+    if (desktopPromptArchiveInspectorHidden()) return;
     const next = els.appShell.dataset.right === "open" ? "closed" : "open";
     els.appShell.dataset.right = next;
     syncPanelToggleLabels();
@@ -571,14 +573,17 @@ function cancelRawEventRequest() {
 function syncPanelToggleLabels() {
   const leftOpen = els.appShell.dataset.left !== "closed";
   const rightOpen = els.appShell.dataset.right !== "closed";
+  const archiveHidesInspector = desktopPromptArchiveInspectorHidden();
   const leftLabel = leftOpen ? "隐藏会话列表" : "显示会话列表";
-  const rightLabel = rightOpen ? "隐藏复核台" : "显示复核台";
+  const rightLabel = archiveHidesInspector ? "任务归档中复核台不可用" : rightOpen ? "隐藏复核台" : "显示复核台";
   els.toggleLeft.title = leftLabel;
   els.toggleLeft.setAttribute("aria-label", leftLabel);
   els.toggleLeft.setAttribute("aria-expanded", leftOpen ? "true" : "false");
   els.toggleRight.title = rightLabel;
   els.toggleRight.setAttribute("aria-label", rightLabel);
-  els.toggleRight.setAttribute("aria-expanded", rightOpen ? "true" : "false");
+  els.toggleRight.setAttribute("aria-expanded", !archiveHidesInspector && rightOpen ? "true" : "false");
+  els.toggleRight.disabled = archiveHidesInspector;
+  els.toggleRight.setAttribute("aria-disabled", archiveHidesInspector ? "true" : "false");
   syncPanelVisibilityState();
   syncInspectorResizerState();
 }
@@ -586,10 +591,11 @@ function syncPanelToggleLabels() {
 function syncPanelVisibilityState() {
   const mobile = mobilePanelLayoutActive();
   const activePanel = els.appShell.dataset.panel || "thread";
+  const inspectorOpen = mobile ? activePanel === "inspector" : !desktopPromptArchiveInspectorHidden() && els.appShell.dataset.right !== "closed";
   const panels = [
     [els.sessionsPanel, mobile ? activePanel === "sessions" : els.appShell.dataset.left !== "closed", mobile ? mobilePanelTab("sessions") : els.toggleLeft],
     [els.threadPanel, mobile ? activePanel === "thread" : true, mobile ? mobilePanelTab("thread") : null],
-    [els.inspectorPanel, mobile ? activePanel === "inspector" : els.appShell.dataset.right !== "closed", mobile ? mobilePanelTab("inspector") : els.toggleRight],
+    [els.inspectorPanel, inspectorOpen, mobile ? mobilePanelTab("inspector") : els.toggleRight],
   ];
   panels.forEach(([panel, open, fallback]) => {
     moveFocusBeforeHidingPanel(panel, fallback, open);
@@ -603,6 +609,10 @@ function syncPanelVisibilityState() {
 
 function mobilePanelLayoutActive() {
   return window.matchMedia("(max-width: 820px)").matches;
+}
+
+function desktopPromptArchiveInspectorHidden() {
+  return !mobilePanelLayoutActive() && state.sidebarMode === "prompts";
 }
 
 function mobilePanelTab(panel) {
@@ -773,7 +783,7 @@ function inspectorWidthBounds() {
 }
 
 function inspectorResizeEnabled() {
-  return Boolean(els.appShell?.dataset.right !== "closed" && window.matchMedia(inspectorSideDockMedia).matches);
+  return Boolean(!desktopPromptArchiveInspectorHidden() && els.appShell?.dataset.right !== "closed" && window.matchMedia(inspectorSideDockMedia).matches);
 }
 
 function syncInspectorResizerState() {
@@ -906,6 +916,7 @@ function selectSidebarMode(mode) {
     button.setAttribute("aria-pressed", active ? "true" : "false");
   });
   if (next === "prompts") void loadPromptArchive({ announce: true });
+  syncPanelToggleLabels();
   renderAll();
   if (next === "prompts") els.promptArchiveContent?.focus({ preventScroll: true });
 }
@@ -913,7 +924,9 @@ function selectSidebarMode(mode) {
 async function loadPromptArchive({ force = false, pageToken = "", restarted = false, announce = false } = {}) {
   const sourceId = state.selectedSourceId;
   const scope = promptArchiveScope();
-  if (!force && !pageToken && state.promptArchiveScope === scope && state.promptArchiveLoaded && !state.promptArchiveError) {
+  const archiveContext = sourceNavigationContext();
+  const archiveCacheKey = promptArchiveCacheKey(sourceId, scope);
+  if (!force && !pageToken && state.promptArchiveScope === archiveCacheKey && state.promptArchiveLoaded && !state.promptArchiveError) {
     renderAll();
     return;
   }
@@ -924,7 +937,7 @@ async function loadPromptArchive({ force = false, pageToken = "", restarted = fa
   state.promptArchiveRequestKey = requestKey;
   state.promptArchiveLoading = true;
   state.promptArchiveError = "";
-  state.promptArchiveScope = scope;
+  state.promptArchiveScope = archiveCacheKey;
   if (!pageToken) {
     state.promptArchive = [];
     state.promptArchiveProjects = [];
@@ -936,7 +949,7 @@ async function loadPromptArchive({ force = false, pageToken = "", restarted = fa
   renderAll();
   try {
     const data = await fetchJson(promptArchiveUrl(sourceId, scope, pageToken), { signal: controller.signal });
-    if (state.promptArchiveRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
+    if (!sourceNavigationRequestIsCurrent({ requestKey, expectedRequestKey: state.promptArchiveRequestKey, sourceId, context: archiveContext }) || !sourceResponseMatches(data, sourceId)) return;
     state.promptArchive = data.entries || [];
     state.promptArchiveProjects = data.projects || [];
     state.promptArchivePage = data.page || null;
@@ -946,7 +959,7 @@ async function loadPromptArchive({ force = false, pageToken = "", restarted = fa
     setWorkbenchStatus(operationKey, `任务归档已更新：本批 ${state.promptArchive.length} 条`, { announce });
   } catch (error) {
     if (isAbortError(error)) return;
-    if (state.promptArchiveRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
+    if (!sourceNavigationRequestIsCurrent({ requestKey, expectedRequestKey: state.promptArchiveRequestKey, sourceId, context: archiveContext })) return;
     if (error.code === "prompt_archive_snapshot_changed" && pageToken && !restarted) {
       state.promptArchive = [];
       state.promptArchiveProjects = [];
@@ -964,7 +977,7 @@ async function loadPromptArchive({ force = false, pageToken = "", restarted = fa
     setWorkbenchStatus(operationKey, `任务归档读取失败：${error.message}。可重试。`, { announce: true });
   } finally {
     if (state.promptArchiveAbortController === controller) state.promptArchiveAbortController = null;
-    if (state.promptArchiveRequestKey === requestKey && state.selectedSourceId === sourceId) {
+    if (sourceNavigationRequestIsCurrent({ requestKey, expectedRequestKey: state.promptArchiveRequestKey, sourceId, context: archiveContext })) {
       state.promptArchiveLoading = false;
       renderAll();
     }
@@ -980,6 +993,10 @@ function cancelPromptArchiveRequest() {
 
 function promptArchiveScope() {
   return state.sessionTimeFilter === "earlier" ? "history" : "recent24h";
+}
+
+function promptArchiveCacheKey(sourceId, scope) {
+  return `${sourceId}:${scope}`;
 }
 
 async function loadSessions({ keepSelection = false, announce = false } = {}) {
@@ -1000,7 +1017,7 @@ async function loadSessions({ keepSelection = false, announce = false } = {}) {
   renderSessionList();
   try {
     const data = await fetchJson(sourceSessionsUrl(sourceId, "recent24h"));
-    if (state.sessionsRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
+    if (state.sessionsRequestKey !== requestKey || state.selectedSourceId !== sourceId || !sourceResponseMatches(data, sourceId)) return;
     state.healthLoadError = "";
     if (data.source) upsertSource(data.source);
     state.sessions = data.sessions || [];
@@ -1142,7 +1159,7 @@ async function loadHistoricalSessions({ announce = false } = {}) {
   renderSessionList();
   try {
     const data = await fetchJson(sourceSessionsUrl(sourceId, "history"));
-    if (state.historyRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
+    if (state.historyRequestKey !== requestKey || state.selectedSourceId !== sourceId || !sourceResponseMatches(data, sourceId)) return;
     if (data.source) upsertSource(data.source);
     const priorSessions = els.sessionSearch.value.trim()
       ? state.sessions.filter((session) => sessionTimeBucket(session) !== "earlier")
@@ -1231,7 +1248,7 @@ async function selectSession(id, { announce = true, focusMobilePanel = true } = 
   renderAll();
   try {
     const detail = await fetchJson(sourceSessionUrl(id, sourceId), { signal: sessionAbortController.signal });
-    if (state.sessionRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
+    if (state.sessionRequestKey !== requestKey || state.selectedSourceId !== sourceId || !sourceResponseMatches(detail, sourceId)) return;
     state.detail = detail;
     state.sessionLoading = false;
     state.sessionLoadError = "";
@@ -1271,7 +1288,7 @@ async function reloadSelectedSessionDetail() {
     if (state.sessionRequestKey !== requestKey || state.selectedSourceId !== sourceId || state.selectedSessionId !== sessionId) return;
     throw error;
   }
-  if (state.sessionRequestKey !== requestKey || state.selectedSourceId !== sourceId || state.selectedSessionId !== sessionId) return;
+  if (state.sessionRequestKey !== requestKey || state.selectedSourceId !== sourceId || state.selectedSessionId !== sessionId || !sourceResponseMatches(detail, sourceId)) return;
   state.detail = detail;
   state.sessionLoading = false;
   state.sessionLoadError = "";
@@ -1314,6 +1331,8 @@ async function selectSource(sourceId) {
   cancelPromptArchiveRequest();
   cancelAlternateLocalSourceDiscovery();
   state.selectedSourceId = sourceId;
+  state.remoteRefreshLoading = false;
+  state.remoteRefreshRequestKey = `inactive:${Date.now()}`;
   state.sessions = [];
   state.filteredSessions = [];
   state.sessionsLoadError = "";
@@ -1335,16 +1354,20 @@ async function selectSource(sourceId) {
 async function refreshSelectedSource() {
   const source = selectedSource();
   if (!source?.status?.refreshable) return;
+  const sourceId = source.id;
+  const refreshContext = sourceNavigationContext();
   cancelPromptArchiveRequest();
   cancelRawDiagnosticRequest({ clear: true });
   cancelRawEventRequest();
-  const operationKey = `refresh:${source.id}:${Date.now()}`;
+  const operationKey = `refresh:${sourceId}:${Date.now()}`;
+  state.remoteRefreshRequestKey = operationKey;
   state.remoteRefreshLoading = true;
   setWorkbenchStatus(operationKey, `正在拉取${source.label || "远端"}快照`, { announce: true });
   els.refreshRemoteButton.disabled = true;
   els.refreshRemoteButton.textContent = "正在拉取快照";
   try {
-    const result = await fetchJson(`/api/sources/${encodeURIComponent(source.id)}/refresh`, { method: "POST" });
+    const result = await fetchJson(`/api/sources/${encodeURIComponent(sourceId)}/refresh`, { method: "POST" });
+    if (!sourceNavigationRequestIsCurrent({ requestKey: operationKey, expectedRequestKey: state.remoteRefreshRequestKey, sourceId, context: refreshContext }) || !sourceResponseMatches(result, sourceId)) return;
     if (result.source) upsertSource(result.source);
     renderSourceControls();
     await loadSessions({ keepSelection: true });
@@ -1352,14 +1375,17 @@ async function refreshSelectedSource() {
     setWorkbenchStatus(operationKey, "远端快照已拉取到本机缓存；未修改远端", { announce: true });
     showToast("远端快照已拉取到本机缓存；未修改远端");
   } catch (error) {
+    if (!sourceNavigationRequestIsCurrent({ requestKey: operationKey, expectedRequestKey: state.remoteRefreshRequestKey, sourceId, context: refreshContext })) return;
     await reloadSources();
     setWorkbenchStatus(operationKey, `拉取远端快照失败：${error.message}。可再次拉取。`, { announce: true });
     showToast(`拉取远端快照失败：${error.message}；远端未修改`);
     await loadSessions({ keepSelection: true });
     if (state.sidebarMode === "prompts") await loadPromptArchive({ force: true });
   } finally {
-    state.remoteRefreshLoading = false;
-    renderSourceControls();
+    if (state.remoteRefreshRequestKey === operationKey) {
+      state.remoteRefreshLoading = false;
+      if (sourceNavigationRequestIsCurrent({ requestKey: operationKey, expectedRequestKey: state.remoteRefreshRequestKey, sourceId, context: refreshContext })) renderSourceControls();
+    }
   }
 }
 
@@ -2507,6 +2533,7 @@ function prepareRemoteIndexRequest(options) {
 }
 
 function showCachedRemoteIndexPage(cursor, entry, announce = false) {
+  if (entry.sourceId !== state.selectedSourceId) return loadRemoteIndexForCurrentFilter({ cursor, force: true, announce });
   state.remoteIndexPages.delete(cursor);
   state.remoteIndexPages.set(cursor, entry);
   state.remoteIndexPage = entry;
@@ -2534,9 +2561,10 @@ async function requestRemoteIndexPage({ sourceId, filterKey, cursor, options }) 
   renderSessionList();
   try {
     const data = await fetchJson(remoteIndexUrl(sourceId, cursor, options.snapshot || ""), { signal: controller.signal });
-    if (state.remoteIndexRequestKey !== requestKey || state.remoteIndexFilterKey !== filterKey || state.selectedSourceId !== sourceId) return;
+    if (state.remoteIndexRequestKey !== requestKey || state.remoteIndexFilterKey !== filterKey || state.selectedSourceId !== sourceId || !sourceResponseMatches(data, sourceId)) return;
     if (data.source) upsertSource(data.source);
     const entry = {
+      sourceId,
       cursor,
       previousCursor: options.previousCursor ?? null,
       pageNumber: options.pageNumber || 1,
@@ -2590,6 +2618,27 @@ function resetRemoteIndexState() {
 
 function remoteIndexFilterKey(sourceId) {
   return [sourceId, state.sessionTimeFilter, els.sessionSearch.value.trim(), els.sessionTypeFilter.value].join("\n");
+}
+
+function sourceNavigationContext() {
+  return JSON.stringify({
+    sourceId: state.selectedSourceId,
+    sidebarMode: state.sidebarMode,
+    sessionTimeFilter: state.sessionTimeFilter,
+    viewMode: state.viewMode,
+    reviewTab: state.reviewTab,
+    selectedSessionKey: state.selectedSessionKey || "",
+    panel: els.appShell?.dataset.panel || "thread",
+  });
+}
+
+function sourceNavigationRequestIsCurrent({ requestKey, expectedRequestKey, sourceId, context }) {
+  return requestKey === expectedRequestKey && state.selectedSourceId === sourceId && sourceNavigationContext() === context;
+}
+
+function sourceResponseMatches(data, sourceId) {
+  const responseSourceId = data?.source?.id || data?.session?.sourceId;
+  return !responseSourceId || responseSourceId === sourceId;
 }
 
 function cacheRemoteIndexPage(entry) {
@@ -2890,6 +2939,7 @@ function openPromptArchiveSession(entry) {
   if (els.promptArchiveControls) els.promptArchiveControls.hidden = true;
   syncSidebarModeTabs();
   setMobilePanel("thread");
+  syncPanelToggleLabels();
   renderAll();
   if (entry.sourceId && entry.sourceId !== state.selectedSourceId) {
     void selectSource(entry.sourceId).then(() => selectSession(entry.sessionId, { focusMobilePanel: false }));
