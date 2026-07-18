@@ -173,16 +173,28 @@ function getSourceContext(sourceId = "local") {
     sessionsRoot: source.sessionsRoot,
     sessionIndexPath: source.sessionIndexPath,
     stateDbPath: source.stateDbPath,
-    threadStore: createSqliteThreadStore({ stateDbPath: source.stateDbPath, maxListSessions }),
+    threadStore: createSqliteThreadStore({
+      stateDbPath: source.stateDbPath,
+      maxListSessions,
+      beforeRead: (signal) => assertSourceStateDbReadable(source, signal),
+    }),
     sessionCache: null,
     sessionCacheTime: 0,
     sessionCacheByScope: new Map(),
     allSessionCache: null,
     allSessionCacheTime: 0,
-    sessionDetailCoordinator: createSessionDetailCoordinator(sessionDetailCoordinatorOptions()),
-    promptArchiveCoordinator: createPromptArchiveCoordinator({ readGate: sessionReadGate }),
+    sessionDetailCoordinator: null,
+    promptArchiveCoordinator: null,
     promptArchiveTokens: new Map(),
   };
+  context.sessionDetailCoordinator = createSessionDetailCoordinator({
+    ...sessionDetailCoordinatorOptions(),
+    stat: async (filePath) => requireReadableSessionFile(context, filePath),
+  });
+  context.promptArchiveCoordinator = createPromptArchiveCoordinator({
+    readGate: sessionReadGate,
+    stat: async (filePath) => requireReadableSessionFile(context, filePath),
+  });
   sourceContexts.set(source.id, context);
   return context;
 }
@@ -204,6 +216,107 @@ function assertSourceSnapshotReadable(context) {
   const error = new Error(sourceChanged ? "远端来源已变更，需要拉取新快照。" : "尚未拉取远端快照。");
   error.status = 409;
   error.code = sourceChanged ? "source_snapshot_changed" : "snapshot_refresh_required";
+  throw error;
+}
+
+function pathIsInside(rootPath, candidatePath) {
+  const relative = path.relative(rootPath, candidatePath);
+  return Boolean(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
+function pathPartsInside(rootPath, candidatePath) {
+  const relative = path.relative(rootPath, candidatePath);
+  if (!pathIsInside(rootPath, candidatePath)) return null;
+  const parts = relative.split(path.sep);
+  return parts.every((part) => part && part !== "." && part !== "..") ? parts : null;
+}
+
+async function remoteSnapshotFileStat(context, filePath, { sessionFile = false, expectedId = null } = {}) {
+  const rootPath = sessionFile ? context.sessionsRoot : context.codexHome;
+  const parts = remoteSnapshotPathParts(rootPath, filePath, sessionFile, expectedId);
+  if (!parts) return null;
+  try {
+    if (sessionFile && !await remoteSnapshotDirectoryStat(context, rootPath)) return null;
+    const rootRealPath = await fs.realpath(rootPath);
+    if (!await pathPartsAreRegular(rootPath, parts)) return null;
+    const stat = await regularFileStat(filePath);
+    if (!stat) return null;
+    const fileRealPath = await fs.realpath(filePath);
+    return pathIsInside(rootRealPath, fileRealPath) ? stat : null;
+  } catch {
+    return null;
+  }
+}
+
+async function remoteSnapshotDirectoryStat(context, directoryPath) {
+  const parts = pathPartsInside(context.codexHome, directoryPath);
+  if (!parts) return null;
+  try {
+    const homeRealPath = await fs.realpath(context.codexHome);
+    if (!await pathPartsAreRegular(context.codexHome, parts)) return null;
+    const stat = await fs.stat(directoryPath);
+    if (!stat.isDirectory()) return null;
+    const directoryRealPath = await fs.realpath(directoryPath);
+    return pathIsInside(homeRealPath, directoryRealPath) ? stat : null;
+  } catch {
+    return null;
+  }
+}
+
+function remoteSnapshotPathParts(rootPath, filePath, sessionFile, expectedId) {
+  const parts = pathPartsInside(rootPath, filePath);
+  if (!parts || (sessionFile && !filePath.endsWith(".jsonl"))) return null;
+  if (sessionFile && expectedId && sessionIdFromFile(filePath) !== expectedId) return null;
+  return parts;
+}
+
+async function pathPartsAreRegular(rootPath, parts) {
+  let candidatePath = rootPath;
+  for (const part of parts) {
+    candidatePath = path.join(candidatePath, part);
+    if ((await fs.lstat(candidatePath)).isSymbolicLink()) return false;
+  }
+  return true;
+}
+
+async function regularFileStat(filePath) {
+  const stat = await fs.stat(filePath);
+  return stat.isFile() ? stat : null;
+}
+
+async function sourceFileStat(context, filePath) {
+  if (context.source.kind === "remote") return remoteSnapshotFileStat(context, filePath);
+  try {
+    return await regularFileStat(filePath);
+  } catch {
+    return null;
+  }
+}
+
+async function sourceSessionRootIsReadable(context, rootPath) {
+  return context.source.kind !== "remote" || Boolean(await remoteSnapshotDirectoryStat(context, rootPath));
+}
+
+async function sessionFileStat(context, filePath, expectedId = null) {
+  if (context.source.kind === "remote") return remoteSnapshotFileStat(context, filePath, { sessionFile: true, expectedId });
+  return sourceFileStat(context, filePath);
+}
+
+async function requireReadableSessionFile(context, filePath) {
+  const stat = await sessionFileStat(context, filePath);
+  if (stat) return stat;
+  const error = new Error("会话文件不可安全读取。");
+  error.code = "unsafe_session_file";
+  throw error;
+}
+
+async function assertSourceStateDbReadable(source, signal) {
+  if (signal?.aborted) throw createAbortError();
+  if (source.kind !== "remote") return;
+  const stat = await remoteSnapshotFileStat(source, source.stateDbPath);
+  if (stat) return;
+  const error = new Error("远端快照 SQLite 文件不可安全读取。");
+  error.code = "unsafe_remote_snapshot_file";
   throw error;
 }
 
@@ -283,12 +396,14 @@ function datedDirectoryEndsBefore(directoryPath, cutoffMs) {
 
 async function collectSessionFileRecords(context, options = {}) {
   const records = [];
-  for (const entry of sessionFileRoots(context.codexHome, context.sessionsRoot)) {
+  for (const entry of sessionFileRoots(context.codexHome, context.sessionsRoot, context.source.kind !== "remote")) {
+    if (!await sourceSessionRootIsReadable(context, entry.root)) continue;
     for await (const filePath of walkJsonl(entry.root, options)) {
       if (options.signal?.aborted) throw createAbortError();
       let stat;
       try {
-        stat = await fs.stat(filePath);
+        stat = await sessionFileStat(context, filePath);
+        if (!stat) continue;
       } catch {
         continue;
       }
@@ -314,6 +429,7 @@ async function readIndex(context, options = {}) {
       maxBytes: 64 * 1024,
       signal: options.signal,
     });
+    if (!await sourceFileStat(context, context.sessionIndexPath)) return byId;
     const rows = options.readGate ? await options.readGate.run(readRows, options.signal) : await readRows();
     for (const row of rows) {
       if (!row?.id) continue;
@@ -368,8 +484,9 @@ async function listSessions(context, options = {}) {
     for (const thread of threads.values()) {
       throwIfRequestAborted(options.signal);
       const session = sessionFromThread(thread, context.codexHome, sourceModelOptions(context));
-      if (await sessionFileExists(session, options)) sessions.push(session);
+      if (await sessionFileExists(context, session, options)) sessions.push(session);
     }
+    if (sessions.length === 0) return listSessionsFromFiles(context, bounds, options, now, scope);
     const rootSessions = rootSessionsOnly(sessions, []);
     rootSessions.sort((a, b) => new Date(b.updatedAt || b.fileModifiedAt || 0) - new Date(a.updatedAt || a.fileModifiedAt || 0));
     const scopedSessions = rootSessions.filter((session) => sessionMatchesCatalogBounds(session, bounds));
@@ -382,6 +499,10 @@ async function listSessions(context, options = {}) {
     return results;
   }
 
+  return listSessionsFromFiles(context, bounds, options, now, scope);
+}
+
+async function listSessionsFromFiles(context, bounds, options, now, scope) {
   const sessions = await listFileSessions(context, bounds, options);
   const rootSessions = rootSessionsOnly(sessions, spawnEdgesFromSessions(sessions));
   rootSessions.sort((a, b) => new Date(b.updatedAt || b.fileModifiedAt) - new Date(a.updatedAt || a.fileModifiedAt));
@@ -472,6 +593,7 @@ function sessionMetaFromEvents(events) {
 
 async function enrichSessionFromFileMeta(session, options = {}) {
   if (!session?.path) return withSubagentMeta(session);
+  if (options.context && !await sessionFileStat(options.context, session.path, session.id)) return unavailableSessionPath(session);
   const events = await readJsonl(session.path, { maxLines: 40, maxBytes: 128 * 1024, signal: options.signal }).catch((error) => {
     if (isAbortError(error)) throw error;
     return [];
@@ -495,14 +617,19 @@ async function enrichSessionFromFileMeta(session, options = {}) {
   };
 }
 
+function unavailableSessionPath(session) {
+  return { ...session, path: null, relativePath: null };
+}
+
 async function enrichThreadRowsFromFiles(context, threads, options = {}) {
   const enriched = new Map();
   await Promise.all(
     [...threads.entries()].map(async ([id, thread]) => {
       const session = sessionFromThread(thread, context.codexHome, sourceModelOptions(context));
-      const sessionMeta = await enrichSessionFromFileMeta(session, options);
+      const sessionMeta = await enrichSessionFromFileMeta(session, { ...options, context });
       enriched.set(id, {
         ...thread,
+        path: sessionMeta.path ? thread.path : "",
         cwd: thread.cwd || sessionMeta.cwd || null,
         model: thread.model || sessionMeta.model || null,
         threadSource: thread.threadSource || sessionMeta.threadSource || null,
@@ -524,7 +651,7 @@ async function getSessionById(context, id, options = {}) {
   const thread = (await context.threadStore.readThreadRowsByIds([id])).get(id);
   if (thread) {
     const session = sessionFromThread(thread, context.codexHome, sourceModelOptions(context));
-    if (await sessionFileExists(session, options)) return enrichSessionFromFileMeta(session, options);
+    if (await sessionFileExists(context, session, options)) return enrichSessionFromFileMeta(session, { ...options, context });
   }
 
   const sessions = await listSessions(context, options);
@@ -548,8 +675,9 @@ async function listAllSessionsForQuery(context) {
     const sessions = [];
     for (const thread of threads.values()) {
       const session = sessionFromThread(thread, context.codexHome, sourceModelOptions(context));
-      if (await sessionFileExists(session)) sessions.push(await enrichSessionFromFileMeta(session));
+      if (await sessionFileExists(context, session)) sessions.push(await enrichSessionFromFileMeta(session, { context }));
     }
+    if (sessions.length === 0) return listFileSessions(context);
     sessions.sort((a, b) => new Date(b.updatedAt || b.fileModifiedAt || 0) - new Date(a.updatedAt || a.fileModifiedAt || 0));
     context.allSessionCache = sessions.slice(0, maxListSessions);
     context.allSessionCacheTime = now;
@@ -562,16 +690,12 @@ async function listAllSessionsForQuery(context) {
   return context.allSessionCache;
 }
 
-async function sessionFileExists(session, options = {}) {
+async function sessionFileExists(context, session, options = {}) {
   if (!session?.path) return false;
   if (options.signal?.aborted) throw createAbortError();
-  try {
-    const stat = await fs.stat(session.path);
-    if (options.signal?.aborted) throw createAbortError();
-    return stat.isFile();
-  } catch {
-    return false;
-  }
+  const stat = await sessionFileStat(context, session.path, session.id);
+  if (options.signal?.aborted) throw createAbortError();
+  return Boolean(stat);
 }
 
 async function querySessions(context, params, projectionOptions = {}) {
@@ -614,7 +738,7 @@ async function listPromptArchive(context, scope = "recent24h", options = {}) {
       cursor: selected.at(-1).cursor,
       candidateTo,
       watched: await Promise.all(selected.map(async (candidate) => {
-        const stat = await fs.stat(candidate.session.path).catch(() => null);
+        const stat = await sessionFileStat(context, candidate.session.path, candidate.session.id);
         return { path: candidate.session.path, signature: fileSignature(candidate.session.path, stat) };
       })),
     })
@@ -659,10 +783,17 @@ async function queryPromptArchive(context, params, options = {}) {
 }
 
 async function promptArchiveSnapshot(context, scope) {
-  const paths = [context.stateDbPath, context.sessionsRoot, path.join(context.codexHome, "archived_sessions")];
+  const paths = context.source.kind === "remote"
+    ? [context.stateDbPath, context.sessionsRoot]
+    : [context.stateDbPath, context.sessionsRoot, path.join(context.codexHome, "archived_sessions")];
   const signatures = await Promise.all(paths.map(async (target) => {
     try {
-      return fileSignature(target, await fs.stat(target));
+      const stat = context.source.kind !== "remote"
+        ? await fs.stat(target)
+        : target === context.sessionsRoot
+          ? await remoteSnapshotDirectoryStat(context, target)
+          : await sourceFileStat(context, target);
+      return stat ? fileSignature(target, stat) : `${target}:missing`;
     } catch {
       return `${target}:missing`;
     }
@@ -684,7 +815,7 @@ async function resolvePromptArchiveContinuation(context, pageToken, scope, snaps
   const continuation = context.promptArchiveTokens.get(pageToken);
   if (!continuation || continuation.scope !== scope || continuation.snapshot !== snapshot) throw promptArchiveChangedError();
   const unchanged = await Promise.all((continuation.watched || []).map(async (entry) => {
-    const stat = await fs.stat(entry.path).catch(() => null);
+    const stat = await sessionFileStat(context, entry.path);
     return entry.signature === fileSignature(entry.path, stat);
   }));
   if (unchanged.some((value) => !value)) throw promptArchiveChangedError();
@@ -707,31 +838,33 @@ async function promptArchiveCandidates(context, scope, cursor, limit, options = 
     for (const thread of threads.values()) {
       throwIfRequestAborted(options.signal);
       const session = sessionFromThread(thread, context.codexHome, sourceModelOptions(context));
-      if (!await sessionFileExists(session, options)) continue;
-      const stat = await fs.stat(session.path).catch(() => null);
+      if (!await sessionFileExists(context, session, options)) continue;
+      const stat = await sessionFileStat(context, session.path, session.id);
       if (!stat) continue;
       candidates.push({
         session,
         cursor: { kind: "sqlite", path: session.path, id: session.id },
       });
     }
-    return candidates;
+    if (candidates.length > 0) return candidates;
   }
   return promptArchiveFileCandidates(context, bounds, cursor, limit, options);
 }
 
 async function promptArchiveFileCandidates(context, bounds, cursor, limit, options = {}) {
   const records = [];
-  const roots = sessionFileRoots(context.codexHome, context.sessionsRoot);
+  const roots = sessionFileRoots(context.codexHome, context.sessionsRoot, context.source.kind !== "remote");
   const startRoot = cursor?.kind === "file" ? cursor.rootIndex : 0;
   for (let rootIndex = startRoot; rootIndex < roots.length && records.length < limit; rootIndex += 1) {
     const root = roots[rootIndex];
+    if (context.source.kind === "remote" && !await remoteSnapshotDirectoryStat(context, root.root)) continue;
     for await (const filePath of walkJsonl(root.root, options)) {
       if (records.length >= limit) break;
       if (rootIndex === startRoot && cursor?.kind === "file" && filePath >= cursor.filePath) continue;
       let stat;
       try {
-        stat = await fs.stat(filePath);
+        stat = await sessionFileStat(context, filePath);
+        if (!stat) continue;
       } catch {
         continue;
       }
@@ -743,7 +876,7 @@ async function promptArchiveFileCandidates(context, bounds, cursor, limit, optio
   return (await Promise.all(dedupeSessionFileRecords(records).map(async (record) => ({
     session: await sessionFromFilePath(context, record.filePath, { archived: record.archived, signal: options.signal }),
     cursor: { kind: "file", rootIndex: record.rootIndex, filePath: record.filePath },
-  }))));
+  })))).filter((candidate) => candidate.session?.path);
 }
 
 
@@ -777,7 +910,7 @@ function promptEntryTimeMs(entry) {
 async function getSessionDetail(context, id, options = {}) {
   throwIfRequestAborted(options.signal);
   const session = await getSessionById(context, id, { signal: options.signal });
-  if (!session) return null;
+  if (!session || !await sessionFileExists(context, session, options)) return null;
   const maxDepth = options.maxDepth ?? 3;
   const evidenceRiskRules = normalizeEvidenceRiskRules(options.evidenceRiskRules);
   const evidenceRiskRulesKey = evidenceRiskRulesFingerprint(evidenceRiskRules);
@@ -930,9 +1063,10 @@ function diagnosticPageState(range, { query, maxDiagnosticEventScan, maxFileByte
 async function querySessionEvents(context, id, params, projectionOptions = {}, options = {}) {
   throwIfRequestAborted(options.signal);
   const session = await getSessionById(context, id, { signal: options.signal });
-  if (!session?.path) return null;
+  if (!session?.path || !await sessionFileExists(context, session, options)) return null;
   const query = parseSessionEventQuery(params);
-  const beforeStat = await fs.stat(session.path);
+  const beforeStat = await sessionFileStat(context, session.path, session.id);
+  if (!beforeStat) return null;
   const beforeSignature = fileSignature(session.path, beforeStat);
   const snapshot = eventDiagnosticSnapshot(context, beforeSignature);
   assertEventDiagnosticSnapshot(query.snapshot, snapshot);
@@ -955,7 +1089,7 @@ async function querySessionEvents(context, id, params, projectionOptions = {}, o
     }),
     options.signal,
   );
-  const stat = await fs.stat(session.path).catch(() => null);
+  const stat = await sessionFileStat(context, session.path, session.id);
   if (!stat || beforeSignature !== fileSignature(session.path, stat)) {
     return {
       session: projectSessionForApi(withFileStat(session, stat), {}, projectionOptions),
@@ -1003,8 +1137,9 @@ async function querySessionView(context, id, params, projectionOptions = {}, opt
 async function getSessionEvent(context, id, index, options = {}) {
   throwIfRequestAborted(options.signal);
   const session = await getSessionById(context, id, { signal: options.signal });
-  if (!session?.path) return null;
-  const beforeStat = await fs.stat(session.path);
+  if (!session?.path || !await sessionFileExists(context, session, options)) return null;
+  const beforeStat = await sessionFileStat(context, session.path, session.id);
+  if (!beforeStat) return null;
   const beforeSignature = fileSignature(session.path, beforeStat);
   const snapshot = eventDiagnosticSnapshot(context, beforeSignature);
   assertEventDiagnosticSnapshot(options.snapshot, snapshot);
@@ -1018,7 +1153,7 @@ async function getSessionEvent(context, id, index, options = {}) {
     }),
     options.signal,
   );
-  const afterStat = await fs.stat(session.path).catch(() => null);
+  const afterStat = await sessionFileStat(context, session.path, session.id);
   if (!afterStat || beforeSignature !== fileSignature(session.path, afterStat)) {
     const error = new Error("Session file changed during read");
     error.status = 409;
@@ -1324,12 +1459,8 @@ async function buildCompactChildNode(sourceContext, child, context) {
 }
 
 async function sessionFromFilePath(context, filePath, options = {}) {
-  let stat = null;
-  try {
-    stat = await fs.stat(filePath);
-  } catch {
-    // The caller handles unreadable files when it tries to open the detail.
-  }
+  const stat = await sessionFileStat(context, filePath);
+  if (!stat) return null;
   const id = sessionIdFromFile(filePath);
   const events = await readJsonl(filePath, { maxLines: 40, maxBytes: 128 * 1024, signal: options.signal }).catch((error) => {
     if (isAbortError(error)) throw error;
@@ -1370,7 +1501,7 @@ async function sessionFromFilePath(context, filePath, options = {}) {
 async function getSessionMarkdown(context, id, options = {}) {
   throwIfRequestAborted(options.signal);
   const session = await getSessionById(context, id, { signal: options.signal });
-  if (!session) return null;
+  if (!session || !await sessionFileExists(context, session, options)) return null;
   const result = await context.sessionDetailCoordinator.read(session, {
     cacheKey: `markdown:${context.source.id}:${id}`,
     signal: options.signal,

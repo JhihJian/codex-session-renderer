@@ -147,6 +147,18 @@ test("mapCodexHomePath leaves unrelated paths untouched", () => {
   assert.equal(mapCodexHomePath("/var/log/session.jsonl", "/tmp/current", "/root/.codex"), "/var/log/session.jsonl");
 });
 
+test("remote SQLite rollout paths fail closed unless they map to snapshot sessions JSONL", () => {
+  const options = { dataSourceKind: "remote" };
+  assert.equal(mapCodexHomePath("/var/log/session.jsonl", "/tmp/current", "/root/.codex", options), "");
+  assert.equal(mapCodexHomePath("/root/.codex/archived_sessions/old.jsonl", "/tmp/current", "/root/.codex", options), "");
+  assert.equal(mapCodexHomePath("/root/.codex/sessions/../state_5.sqlite", "/tmp/current", "/root/.codex", options), "");
+  assert.equal(mapCodexHomePath("/root/.codex/sessions/2026/07/session.txt", "/tmp/current", "/root/.codex", options), "");
+  assert.equal(
+    sessionFromThread({ id: "unsafe", path: "/var/log/session.jsonl" }, "/tmp/current", { ...options, originalCodexHome: "/root/.codex" }).path,
+    null,
+  );
+});
+
 test("withFileStat and publicThreadMeta normalize derived file metadata", () => {
   const mtime = new Date("2026-06-24T10:00:00.000Z");
   assert.deepEqual(withFileStat({ id: "thread-1", updatedAt: null }, { size: 42, mtime }), {

@@ -1,10 +1,10 @@
 import path from "node:path";
 import { sessionIdFromFile } from "./text-utils.mjs";
 
-function sessionFileRoots(codexHome, sessionsRoot = path.join(codexHome || "", "sessions")) {
+function sessionFileRoots(codexHome, sessionsRoot = path.join(codexHome || "", "sessions"), includeArchived = true) {
   const roots = [];
   if (sessionsRoot) roots.push({ root: sessionsRoot, archived: false });
-  if (codexHome) roots.push({ root: path.join(codexHome, "archived_sessions"), archived: true });
+  if (includeArchived && codexHome) roots.push({ root: path.join(codexHome, "archived_sessions"), archived: true });
   return roots;
 }
 

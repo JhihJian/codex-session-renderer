@@ -15,8 +15,9 @@ function defaultSqliteCandidates(env = process.env, homeDir = os.homedir()) {
 }
 
 function createSqliteThreadStore(options) {
-  const { stateDbPath, maxListSessions = 800, sqliteCandidates = defaultSqliteCandidates(), runCommand = execFileAsync } = options;
+  const { stateDbPath, maxListSessions = 800, sqliteCandidates = defaultSqliteCandidates(), runCommand = execFileAsync, beforeRead } = options;
   async function runSqliteJson(query, maxBuffer, signal) {
+    if (beforeRead) await beforeRead(signal);
     const dbUrl = `file:${stateDbPath.replaceAll("\\", "/")}?mode=ro`;
     let lastError = null;
     for (const sqlite of sqliteCandidates) {

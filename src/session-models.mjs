@@ -7,7 +7,7 @@ import {
 } from "./session-events.mjs";
 import { stripLongPathPrefix } from "./sqlite-threads.mjs";
 
-function mapCodexHomePath(filePath, codexHome, originalCodexHome = codexHome) {
+function mapCodexHomePath(filePath, codexHome, originalCodexHome = codexHome, options = {}) {
   const normalized = stripLongPathPrefix(filePath || "");
   if (!normalized) return "";
   const normalizedOriginal = stripLongPathPrefix(originalCodexHome || codexHome || "");
@@ -15,10 +15,11 @@ function mapCodexHomePath(filePath, codexHome, originalCodexHome = codexHome) {
     const pathApi = pathApiFor(normalizedOriginal, normalized);
     const relative = pathApi.relative(normalizedOriginal, normalized);
     if (isRelativeInside(relative, pathApi)) {
+      if (options.dataSourceKind === "remote" && !isRemoteSessionRelativePath(relative)) return "";
       return joinRelativePath(codexHome, relative);
     }
   }
-  return normalized;
+  return options.dataSourceKind === "remote" ? "" : normalized;
 }
 
 function relativeCodexPath(codexHome, filePath) {
@@ -41,8 +42,13 @@ function isRelativeInside(relative, pathApi = path) {
   return Boolean(relative) && relative !== ".." && !relative.startsWith(`..${pathApi.sep}`) && !pathApi.isAbsolute(relative);
 }
 
+function isRemoteSessionRelativePath(relative) {
+  const parts = String(relative || "").split(/[\\/]+/);
+  return parts.length >= 2 && parts[0] === "sessions" && parts.every((part) => part && part !== "." && part !== "..") && parts.at(-1).endsWith(".jsonl");
+}
+
 function sessionFromThread(thread, codexHome, options = {}) {
-  const filePath = mapCodexHomePath(thread.path || "", codexHome, options.originalCodexHome);
+  const filePath = mapCodexHomePath(thread.path || "", codexHome, options.originalCodexHome, options);
   const spawn = subagentThreadSpawn(thread.source);
   return {
     id: thread.id,
@@ -179,7 +185,7 @@ function withFileStat(session, stat) {
 
 function publicThreadMeta(thread, codexHome, options = {}) {
   if (!thread) return null;
-  const filePath = mapCodexHomePath(thread.path || "", codexHome, options.originalCodexHome);
+  const filePath = mapCodexHomePath(thread.path || "", codexHome, options.originalCodexHome, options);
   const spawn = subagentThreadSpawn(thread.source);
   return {
     id: thread.id,

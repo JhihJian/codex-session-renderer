@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -19,6 +20,7 @@ const envKeys = [
   "CODEX_REMOTE_SNAPSHOT_PATH",
   "CODEX_REMOTE_SNAPSHOT_ROOT",
   "CODEX_REMOTE_REMOTE_A_SNAPSHOT_ROOT",
+  "CODEX_REMOTE_REMOTE_A_CODEX_HOME",
   "CODEX_SESSION_DIAGNOSTIC_MAX_EVENT_SCAN",
   "PI_AGENT_SESSIONS_ROOT",
 ];
@@ -31,6 +33,15 @@ const remoteSnapshotRoot = path.join(tempRoot, "remote-a-source");
 const remoteCodexHome = path.join(remoteSnapshotRoot, "current");
 const remoteSessionDir = path.join(remoteCodexHome, "sessions", "2026", "07", "08");
 const remoteSessionPath = path.join(remoteSessionDir, `rollout-2026-07-08T10-00-00-${sessionId}.jsonl`);
+const remoteStateDbPath = path.join(remoteCodexHome, "state_5.sqlite");
+const remoteOriginalCodexHome = "/remote/.codex";
+const outsideSnapshotSecret = "OUTSIDE_SNAPSHOT_SECRET";
+const outsideSnapshotJsonlPath = path.join(tempRoot, "outside-snapshot.jsonl");
+const outsideSnapshotPlainPath = path.join(tempRoot, "outside-snapshot.txt");
+const outsideJsonlId = "44444444-4444-4444-8444-444444444444";
+const outsidePlainId = "55555555-5555-4555-8555-555555555555";
+const symlinkEscapeId = "66666666-6666-4666-8666-666666666666";
+const mismatchedPathId = "77777777-7777-4777-8777-777777777777";
 const piSessionId = "22222222-2222-4222-8222-222222222222";
 const piSessionsRoot = path.join(tempRoot, ".pi", "agent", "sessions");
 const piProjectDir = path.join(piSessionsRoot, "--D--work-pi-web--");
@@ -94,17 +105,29 @@ await fs.writeFile(
   `${JSON.stringify({ id: sessionId, thread_name: "Remote HTTP smoke 会话", updated_at: "2026-07-08T10:00:06.000Z" })}\n`,
   "utf8",
 );
+await fs.writeFile(outsideSnapshotJsonlPath, `${JSON.stringify({ type: "event_msg", payload: { type: "user_message", message: outsideSnapshotSecret } })}\n`, "utf8");
+await fs.writeFile(outsideSnapshotPlainPath, outsideSnapshotSecret, "utf8");
+await fs.symlink(outsideSnapshotJsonlPath, path.join(remoteSessionDir, `rollout-2026-07-08T10-00-00-${symlinkEscapeId}.jsonl`));
+execFileSync("sqlite3", [remoteStateDbPath, [
+  "create table threads (id text, title text, rollout_path text, created_at text, updated_at text, created_at_ms integer, updated_at_ms integer, source text, thread_source text, model_provider text, cwd text, archived integer, archived_at text, model text, reasoning_effort text, agent_nickname text, agent_role text, first_user_message text, preview text)",
+  "create table thread_spawn_edges (parent_thread_id text, child_thread_id text, status text)",
+  `insert into threads (id, title, rollout_path) values ('${sessionId}', 'Remote HTTP smoke 会话', '${remoteOriginalCodexHome}/sessions/2026/07/08/${path.basename(remoteSessionPath)}')`,
+  `insert into threads (id, title, rollout_path) values ('${outsideJsonlId}', 'outside jsonl', '${outsideSnapshotJsonlPath}')`,
+  `insert into threads (id, title, rollout_path) values ('${outsidePlainId}', 'outside plain', '${outsideSnapshotPlainPath}')`,
+  `insert into threads (id, title, rollout_path) values ('${symlinkEscapeId}', 'symlink escape', '${remoteOriginalCodexHome}/sessions/2026/07/08/rollout-2026-07-08T10-00-00-${symlinkEscapeId}.jsonl')`,
+  `insert into threads (id, title, rollout_path) values ('${mismatchedPathId}', 'mismatched file', '${remoteOriginalCodexHome}/sessions/2026/07/08/${path.basename(remoteSessionPath)}')`,
+].join(";")]);
 await fs.writeFile(
   path.join(remoteSnapshotRoot, ".codex-session-renderer-source.json"),
   `${JSON.stringify({
     status: {
-      sourceVersion: remoteSourceVersion({ snapshotUrl: "", snapshotPath: "", remoteCodexHome: "" }, remoteSnapshotRoot),
+      sourceVersion: remoteSourceVersion({ snapshotUrl: "", snapshotPath: "", remoteCodexHome: remoteOriginalCodexHome }, remoteSnapshotRoot),
       lastRefreshOk: true,
     },
   })}\n`,
   "utf8",
 );
-await fs.writeFile(path.join(remoteCodexHome, ".codex-session-renderer-snapshot-source.json"), `${JSON.stringify({ schema: "remote-snapshot-source-v1", sourceVersion: remoteSourceVersion({ snapshotUrl: "", snapshotPath: "", remoteCodexHome: "" }, remoteSnapshotRoot) })}\n`, "utf8");
+await fs.writeFile(path.join(remoteCodexHome, ".codex-session-renderer-snapshot-source.json"), `${JSON.stringify({ schema: "remote-snapshot-source-v1", sourceVersion: remoteSourceVersion({ snapshotUrl: "", snapshotPath: "", remoteCodexHome: remoteOriginalCodexHome }, remoteSnapshotRoot) })}\n`, "utf8");
 const oldFileTime = new Date(Date.now() - 48 * 60 * 60 * 1000);
 await fs.utimes(sessionPath, oldFileTime, oldFileTime);
 await fs.utimes(remoteSessionPath, oldFileTime, oldFileTime);
@@ -181,6 +204,7 @@ process.env.CODEX_REMOTE_SNAPSHOT_URL = "";
 process.env.CODEX_REMOTE_SNAPSHOT_PATH = "";
 process.env.CODEX_REMOTE_SNAPSHOT_ROOT = path.join(tempRoot, ".codex-session-renderer", "remote-snapshots");
 process.env.CODEX_REMOTE_REMOTE_A_SNAPSHOT_ROOT = remoteSnapshotRoot;
+process.env.CODEX_REMOTE_REMOTE_A_CODEX_HOME = remoteOriginalCodexHome;
 process.env.CODEX_SESSION_DIAGNOSTIC_MAX_EVENT_SCAN = "10001";
 process.env.PI_AGENT_SESSIONS_ROOT = piSessionsRoot;
 
@@ -379,6 +403,34 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   assert.equal(sourceQuery.response.status, 200);
   assert.equal(sourceQuery.body.sessions[0].id, sessionId);
   assert.deepEqual(sourceQuery.body.sessions[0].links, expectedRemoteLinks);
+
+  const remoteList = await requestJson(baseUrl, "/api/sources/remote-a/sessions?scope=all");
+  assert.equal(remoteList.response.status, 200);
+  assert.deepEqual(remoteList.body.sessions.map((session) => session.id), [sessionId]);
+  assert.doesNotMatch(JSON.stringify(remoteList.body), new RegExp(outsideSnapshotSecret));
+  const remotePrompts = await requestJson(baseUrl, "/api/sources/remote-a/prompts?scope=all");
+  assert.equal(remotePrompts.response.status, 200);
+  assert.doesNotMatch(JSON.stringify(remotePrompts.body), new RegExp(outsideSnapshotSecret));
+  for (const unsafeId of [outsideJsonlId, outsidePlainId, symlinkEscapeId, mismatchedPathId]) {
+    for (const pathname of [
+      `/api/sources/remote-a/sessions/${unsafeId}`,
+      `/api/sources/remote-a/query/sessions/${unsafeId}/view?view=compact`,
+      `/api/sources/remote-a/query/sessions/${unsafeId}/events`,
+      `/api/sources/remote-a/sessions/${unsafeId}/events/0`,
+      `/api/sources/remote-a/sessions/${unsafeId}/markdown`,
+    ]) {
+      const unsafeResponse = await requestJson(baseUrl, pathname);
+      assert.equal(unsafeResponse.response.status, 404, pathname);
+      assert.doesNotMatch(JSON.stringify(unsafeResponse.body), new RegExp(outsideSnapshotSecret));
+      assert.doesNotMatch(JSON.stringify(unsafeResponse.body), /outside-snapshot/);
+    }
+  }
+
+  const remoteDetail = await requestJson(baseUrl, `/api/sources/remote-a/sessions/${sessionId}`);
+  assert.equal(remoteDetail.response.status, 200);
+  const remoteMarkdown = await requestText(baseUrl, `/api/sources/remote-a/sessions/${sessionId}/markdown`);
+  assert.equal(remoteMarkdown.response.status, 200);
+  assert.match(remoteMarkdown.body, /# Remote HTTP smoke 会话/);
 
   const sourceQueryPost = await requestJson(baseUrl, "/api/sources/remote-a/query/sessions", { method: "POST" });
   assert.equal(sourceQueryPost.response.status, 405);
