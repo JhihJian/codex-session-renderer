@@ -843,7 +843,8 @@ async function promptArchiveCandidates(context, scope, cursor, limit, options = 
       if (!stat) continue;
       candidates.push({
         session,
-        cursor: { kind: "sqlite", path: session.path, id: session.id },
+        // Keep this in SQLite's remote rollout_path namespace. session.path is the validated local snapshot mapping.
+        cursor: { kind: "sqlite", path: thread.path, id: thread.id },
       });
     }
     if (candidates.length > 0) return candidates;

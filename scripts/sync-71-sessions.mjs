@@ -385,8 +385,16 @@ async function removeDeleted(stagingPath, deleted) {
   }
 }
 
+async function detachStagingFiles(stagingPath, files) {
+  for (const entry of files) {
+    const relativePath = normalizeRemotePath(entry.relativePath || entry);
+    await fs.rm(path.join(stagingPath, ...relativePath.split("/")), { force: true });
+  }
+}
+
 async function writeSyncState(stagingPath, remoteFiles, options, previousState) {
   const state = stateFromManifest(remoteFiles, options, previousState);
+  await detachStagingFiles(stagingPath, [syncStateFile]);
   await fs.writeFile(path.join(stagingPath, syncStateFile), `${JSON.stringify(state, null, 2)}\n`, "utf8");
 }
 
@@ -462,6 +470,8 @@ async function sync71(options) {
 
   try {
     await removeDeleted(stagingPath, plan.deleted);
+    // The staging tree reuses unchanged files by hard link. Every replacement must first get a new inode.
+    await detachStagingFiles(stagingPath, plan.changed);
     for (let index = 0; index < plan.batches.length; index += 1) {
       const batch = plan.batches[index];
       if (options.verbose) {
@@ -474,7 +484,7 @@ async function sync71(options) {
       await fetchLargeFile(entry, stagingPath, options);
     }
     await writeSyncState(stagingPath, remoteFiles, options, localState);
-    await publishStaging(stagingPath, targetPath);
+    await (options.publishStaging || publishStaging)(stagingPath, targetPath);
   } catch (error) {
     await fs.rm(stagingPath, { recursive: true, force: true }).catch(() => {});
     throw error;

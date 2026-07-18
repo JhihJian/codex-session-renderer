@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { access, mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -152,6 +152,47 @@ test("limited run preserves a complete target and a later full run deletes confi
   assert.deepEqual(await targetSessions(fixture.target), ["first.jsonl", "third.jsonl"]);
   assert.equal((await registry.refreshSource("dev71")).ok, true);
   assert.deepEqual(await targetSessions(path.join(fixture.snapshotRoot, "dev71", "current")), ["first.jsonl", "third.jsonl"]);
+});
+
+test("Linux staging writes never mutate hard-linked published files when publish fails", { skip: process.platform !== "linux" }, async (t) => {
+  const fixture = await createSyncFixture();
+  t.after(() => rm(fixture.root, { recursive: true, force: true }));
+
+  await sync71(fixture.options);
+  const trackedPaths = [
+    ".codex-session-renderer-71-sync.json",
+    "sessions/2026/07/18/first.jsonl",
+    "sessions/2026/07/18/second.jsonl",
+  ];
+  const before = await Promise.all(trackedPaths.map(async (relativePath) => {
+    const targetPath = path.join(fixture.target, relativePath);
+    return { relativePath, bytes: await readFile(targetPath), inode: (await stat(targetPath)).ino };
+  }));
+
+  const remoteSessionRoot = path.join(fixture.remoteHome, "sessions", "2026", "07", "18");
+  await writeFile(path.join(remoteSessionRoot, "first.jsonl"), "new first session\n", "utf8");
+  await writeFile(path.join(remoteSessionRoot, "second.jsonl"), "new second session\n", "utf8");
+  const changedAt = new Date(Date.now() + 2_000);
+  await Promise.all([
+    utimes(path.join(remoteSessionRoot, "first.jsonl"), changedAt, changedAt),
+    utimes(path.join(remoteSessionRoot, "second.jsonl"), changedAt, changedAt),
+  ]);
+
+  await assert.rejects(
+    sync71({
+      ...fixture.options,
+      publishStaging: async () => {
+        throw new Error("injected publish failure");
+      },
+    }),
+    /injected publish failure/,
+  );
+
+  for (const entry of before) {
+    const targetPath = path.join(fixture.target, entry.relativePath);
+    assert.deepEqual(await readFile(targetPath), entry.bytes, entry.relativePath);
+    assert.equal((await stat(targetPath)).ino, entry.inode, entry.relativePath);
+  }
 });
 
 async function createSyncFixture() {

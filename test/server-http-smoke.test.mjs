@@ -411,6 +411,7 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   const remotePrompts = await requestJson(baseUrl, "/api/sources/remote-a/prompts?scope=all");
   assert.equal(remotePrompts.response.status, 200);
   assert.doesNotMatch(JSON.stringify(remotePrompts.body), new RegExp(outsideSnapshotSecret));
+
   for (const unsafeId of [outsideJsonlId, outsidePlainId, symlinkEscapeId, mismatchedPathId]) {
     for (const pathname of [
       `/api/sources/remote-a/sessions/${unsafeId}`,
@@ -425,6 +426,36 @@ test("server module can be imported and serves core HTTP session APIs", async (t
       assert.doesNotMatch(JSON.stringify(unsafeResponse.body), /outside-snapshot/);
     }
   }
+
+  execFileSync("sqlite3", [remoteStateDbPath, `delete from threads where id in ('${outsideJsonlId}', '${outsidePlainId}', '${symlinkEscapeId}', '${mismatchedPathId}')`]);
+  const remotePromptPageDir = path.join(remoteCodexHome, "sessions", "2026", "07", "09");
+  await fs.mkdir(remotePromptPageDir, { recursive: true });
+  const remotePromptRows = [];
+  await Promise.all(Array.from({ length: 200 }, async (_, index) => {
+    const position = String(index + 1).padStart(3, "0");
+    const id = `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`;
+    const name = `rollout-2026-07-09T10-00-00-remote-page-${position}-${id}.jsonl`;
+    const prompt = `远端归档候选 ${position}`;
+    await fs.writeFile(
+      path.join(remotePromptPageDir, name),
+      `${JSON.stringify({ type: "session_meta", payload: { cwd: "D:\\github\\codex-session-renderer" } })}\n${JSON.stringify({ type: "event_msg", payload: { type: "user_message", message: prompt } })}\n`,
+      "utf8",
+    );
+    remotePromptRows.push(`insert into threads (id, title, rollout_path) values ('${id}', '远端归档 ${position}', '${remoteOriginalCodexHome}/sessions/2026/07/09/${name}')`);
+  }));
+  execFileSync("sqlite3", [remoteStateDbPath, remotePromptRows.join(";")]);
+  const firstRemotePromptPage = await requestJson(baseUrl, "/api/sources/remote-a/prompts?scope=all&q=HTTP%20smoke%20%E6%B5%8B%E8%AF%95");
+  assert.equal(firstRemotePromptPage.response.status, 200);
+  assert.equal(firstRemotePromptPage.body.entries.length, 0);
+  assert.equal(firstRemotePromptPage.body.page.candidateFrom, 1);
+  assert.equal(firstRemotePromptPage.body.page.candidateTo, 200);
+  assert.equal(firstRemotePromptPage.body.page.hasMoreCandidates, true);
+  const secondRemotePromptPage = await requestJson(baseUrl, `/api/sources/remote-a/prompts?scope=all&q=HTTP%20smoke%20%E6%B5%8B%E8%AF%95&pageToken=${firstRemotePromptPage.body.page.nextPageToken}`);
+  assert.equal(secondRemotePromptPage.response.status, 200);
+  assert.equal(secondRemotePromptPage.body.page.candidateFrom, 201);
+  assert.equal(secondRemotePromptPage.body.page.candidateTo, 201);
+  assert.equal(secondRemotePromptPage.body.entries.length, 1);
+  assert.equal(secondRemotePromptPage.body.entries[0].promptText, "请生成 HTTP smoke 测试");
 
   const remoteDetail = await requestJson(baseUrl, `/api/sources/remote-a/sessions/${sessionId}`);
   assert.equal(remoteDetail.response.status, 200);
