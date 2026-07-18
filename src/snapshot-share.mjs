@@ -9,8 +9,8 @@ import { createByteLimitTransform, createContentBudget } from "./snapshot-budget
 import { createSnapshotBuildCoordinator } from "./snapshot-build-coordinator.mjs";
 import { sessionStartedFromFile } from "./session-events.mjs";
 import { createSqliteThreadStore, sqlString } from "./sqlite-threads.mjs";
-import { indexSnapshotChangedError, readFileIndexPage, relativeCodexPath } from "./remote-session-index.mjs";
-import { compactSessionForList } from "./session-models.mjs";
+import { indexSnapshotChangedError, readFileIndexPage, relativeCodexPath, safeRemoteIndexTitle } from "./remote-session-index.mjs";
+import { compactSessionForList, parseSessionListType } from "./session-models.mjs";
 import { copyCodexTree, snapshotMetadataFile, validateSnapshot } from "./data-sources.mjs";
 import { sendError, sendJson } from "./http-response.mjs";
 
@@ -327,6 +327,7 @@ function parseIndexQuery(params) {
   const searchParams = params instanceof URLSearchParams ? params : new URLSearchParams(params);
   return {
     q: String(searchParams.get("q") || "").trim().toLowerCase(),
+    type: parseSessionListType(searchParams.get("type")),
     bucket: searchParams.get("bucket") || "all",
     limit: clampNumber(searchParams.get("limit"), 1, 500, 120),
     cursor: clampNumber(searchParams.get("cursor"), 0, Number.MAX_SAFE_INTEGER, 0),
@@ -359,7 +360,7 @@ async function readSqliteIndexPage({ codexHome, fsApi, query, now, limits, signa
   const store = sqliteStore || createSqliteThreadStore({ stateDbPath });
   try {
     const page = await store.readThreadIndexPage({
-      conditions: sqliteIndexConditions(query, now().getTime()),
+      conditions: sqliteIndexConditions(query, now().getTime(), codexHome),
       limit: query.limit,
       cursor: query.cursor,
       maxBuffer: limits.sqliteMaxBytes,
@@ -374,7 +375,7 @@ async function readSqliteIndexPage({ codexHome, fsApi, query, now, limits, signa
       total: page.total,
       sessions: [...page.threads.values()].map((thread) => ({
     id: thread.id,
-    title: thread.title || "未命名会话",
+    title: safeRemoteIndexTitle(thread.title || "未命名会话"),
     cwd: thread.cwd || null,
     model: thread.model || null,
     reasoningEffort: thread.reasoningEffort || null,
@@ -398,11 +399,10 @@ async function readSqliteIndexPage({ codexHome, fsApi, query, now, limits, signa
   }
 }
 
-function sqliteIndexConditions(query, nowMs) {
+function sqliteIndexConditions(query, nowMs, codexHome) {
   const time = "coalesce(updated_at_ms, created_at_ms)";
-  const isSessionPath = "(rollout_path like '%/sessions/%' or instr(rollout_path, '\\sessions\\') > 0)";
-  const hasTraversal = "(rollout_path like '%/../%' or instr(rollout_path, '\\..\\') > 0)";
-  const conditions = ["rollout_path is not null and rollout_path <> ''", isSessionPath, `not ${hasTraversal}`, "id not in (select child_thread_id from thread_spawn_edges where child_thread_id is not null)"];
+  const isSessionPath = sqliteVerifiedSessionPathCondition(codexHome);
+  const conditions = ["rollout_path is not null and rollout_path <> ''", isSessionPath, "id not in (select child_thread_id from thread_spawn_edges where child_thread_id is not null)"];
   if (query.bucket === "realtime") conditions.push(`${time} >= ${Math.trunc(nowMs - 3 * 60 * 60 * 1000)}`);
   if (query.bucket === "day") conditions.push(`${time} >= ${Math.trunc(nowMs - 24 * 60 * 60 * 1000)} and ${time} < ${Math.trunc(nowMs - 3 * 60 * 60 * 1000)}`);
   if (query.bucket === "earlier") conditions.push(`(${time} < ${Math.trunc(nowMs - 24 * 60 * 60 * 1000)} or ${time} is null)`);
@@ -412,7 +412,32 @@ function sqliteIndexConditions(query, nowMs) {
       .join(" || ' ' || ");
     conditions.push(`instr(lower(${searchable}), ${sqlString(query.q)}) > 0`);
   }
+  const typeCondition = sqliteListTypeCondition(query.type);
+  if (typeCondition) conditions.push(typeCondition);
   return conditions;
+}
+
+function sqliteListTypeCondition(type) {
+  const patterns = {
+    error: ["error", "failed", "失败", "错误"],
+    tool: ["tool", "mcp", "command", "shell", "工具", "命令"],
+  };
+  const terms = patterns[type];
+  if (!terms) return "";
+  const safeTitle = `case when ${sqliteGoalControlTitleCondition("title")} then '' else coalesce(title, '') end`;
+  const searchable = [safeTitle, "coalesce(cwd, '')", "coalesce(rollout_path, '')"].join(" || ' ' || ");
+  return `(${terms.map((term) => `instr(lower(${searchable}), ${sqlString(term)}) > 0`).join(" or ")})`;
+}
+
+function sqliteVerifiedSessionPathCondition(codexHome) {
+  const normalizedHome = path.resolve(codexHome).replaceAll("\\", "/").replace(/\/+$/, "").toLowerCase();
+  const normalizedPath = "lower(replace(rollout_path, '\\', '/'))";
+  const prefix = `${normalizedHome}/sessions/`;
+  return `instr(${normalizedPath}, ${sqlString(prefix)}) = 1 and ${normalizedPath} like '%.jsonl' and instr(${normalizedPath}, '/../') = 0 and instr(${normalizedPath}, '//') = 0`;
+}
+
+function sqliteGoalControlTitleCondition(field) {
+  return `instr(lower(coalesce(${field}, '')), ${sqlString('<codex_internal_context source="goal">')}) = 1`;
 }
 
 
@@ -424,7 +449,7 @@ async function indexFileSignature(filePath, fsApi = fs) {
 
 function indexSnapshotToken({ query, kind, version }) {
   return createHash("sha256")
-    .update(JSON.stringify({ bucket: query.bucket, q: query.q, kind, version }))
+    .update(JSON.stringify({ bucket: query.bucket, q: query.q, type: query.type, kind, version }))
     .digest("base64url");
 }
 

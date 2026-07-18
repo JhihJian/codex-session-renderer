@@ -8,6 +8,23 @@ import {
 import { stripLongPathPrefix } from "./sqlite-threads.mjs";
 
 const listDisplayTitleLimit = 160;
+const sessionListTypes = new Set(["all", "error", "tool"]);
+const sessionListTypePatterns = {
+  error: /error|failed|失败|错误/i,
+  tool: /tool|mcp|command|shell|工具|命令/i,
+};
+
+function parseSessionListType(value) {
+  const type = String(value || "all").trim().toLowerCase();
+  return sessionListTypes.has(type) ? type : "all";
+}
+
+function sessionMatchesListType(session, type = "all") {
+  const normalizedType = parseSessionListType(type);
+  if (normalizedType === "all") return true;
+  const searchable = [session?.title, session?.cwd, session?.relativePath].filter(Boolean).join("\n");
+  return sessionListTypePatterns[normalizedType].test(searchable);
+}
 
 function displayTitleForList(title, limit = listDisplayTitleLimit) {
   const normalized = String(title || "未命名会话").replace(/\s+/g, " ").trim() || "未命名会话";
@@ -223,6 +240,8 @@ export {
   publicThreadMeta,
   relativeCodexPath,
   rootSessionsOnly,
+  parseSessionListType,
+  sessionMatchesListType,
   sessionFromThread,
   sessionIsChild,
   sessionParentThreadId,

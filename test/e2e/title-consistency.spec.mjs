@@ -46,3 +46,41 @@ test("长标题后段在服务端定位，列表和选择反馈保持有界而�
   await page.locator("[data-panel-target=thread]").click();
   await expect(page.locator("#sessionTitle")).toContainText(suffix);
 });
+
+test("长标题后段类型筛选由服务端完成，本机和远端历史不泄露匹配词", async ({ page }) => {
+  const localSuffix = "CHROMIUM_LONG_TITLE_ERROR_TOOL_AFTER_DISPLAY_LIMIT";
+  const remoteSuffix = "CHROMIUM_REMOTE_LONG_TITLE_ERROR_TOOL_AFTER_DISPLAY_LIMIT";
+  await page.goto("/");
+  const localTypeRequest = page.waitForRequest((request) => request.url().includes("/api/sources/local/sessions?") && request.url().includes("type=error"));
+  await page.locator("#sessionTypeFilter").selectOption("error");
+  await localTypeRequest;
+  const localRow = page.locator('[data-session-id="88888888-8888-4888-8888-888888888888"]');
+  await expect(localRow).toBeVisible();
+  await expect(localRow).not.toContainText(localSuffix);
+  await expect(localRow).toHaveAttribute("aria-label", /标题已截断/);
+  await expect(page.locator("#workbenchAnnouncements")).not.toContainText(localSuffix);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator("[data-panel-target=sessions]").click();
+  await expect(localRow).toBeVisible();
+  await expect(localRow).not.toContainText(localSuffix);
+  await expect(localRow).not.toHaveAttribute("aria-label", new RegExp(localSuffix));
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.locator("#sourceSelect").selectOption("office");
+  await page.locator("#sessionTimeFilter [data-session-time=earlier]").click();
+  const remoteRow = page.locator('[data-session-id="00000000-0000-4000-8000-000000000101"]');
+  await expect(remoteRow).toBeVisible();
+  await expect(page.locator("#sessionCount")).toHaveText("1");
+  await expect(remoteRow).not.toContainText(remoteSuffix);
+  await expect(remoteRow).not.toHaveAttribute("aria-label", new RegExp(remoteSuffix));
+  await expect(page.locator("#workbenchAnnouncements")).not.toContainText(remoteSuffix);
+
+  const remoteToolRequest = page.waitForRequest((request) => request.url().includes("/api/sources/office/index?") && request.url().includes("type=tool") && request.url().includes("cursor=0"));
+  await page.locator("#sessionTypeFilter").selectOption("tool");
+  await remoteToolRequest;
+  await expect(remoteRow).toBeVisible();
+  await expect(page.locator("#sessionCount")).toHaveText("1");
+  await expect(remoteRow).not.toContainText(remoteSuffix);
+  await expect(page.locator("#workbenchAnnouncements")).not.toContainText(remoteSuffix);
+});

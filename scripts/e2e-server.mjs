@@ -16,7 +16,8 @@ const codexGoalSessionId = "77777777-7777-4777-8777-777777777777";
 const codexGoalObjective = "Codex Goal 默认阅读只显示这个真实目标";
 const longTitleSessionId = "88888888-8888-4888-8888-888888888888";
 const longTitleSuffix = "CHROMIUM_LONG_TITLE_SUFFIX";
-const longCanonicalTitle = `Chromium 标题前缀 ${"x".repeat(1000)} ${longTitleSuffix}`;
+const longTypeSuffix = "CHROMIUM_LONG_TITLE_ERROR_TOOL_AFTER_DISPLAY_LIMIT";
+const longCanonicalTitle = `Chromium 标题前缀 ${"x".repeat(1000)} ${longTitleSuffix} ${longTypeSuffix}`;
 const codexGoalControl = knownCodexGoalControlText(codexGoalObjective, 0);
 const codexGoalSessionPath = path.join(sessionDir, `rollout-2025-01-02T03-04-06-${codexGoalSessionId}.jsonl`);
 const longTitleSessionPath = path.join(sessionDir, `rollout-2025-01-02T03-04-07-${longTitleSessionId}.jsonl`);
@@ -32,6 +33,7 @@ const piLargeSessionPath = path.join(piSessionsRoot, "e2e-pi-large-session.jsonl
 const remoteCodexHome = path.join(tempRoot, "remote", ".codex");
 const remoteSessionDir = path.join(remoteCodexHome, "sessions", "isolated");
 const remoteToken = "e2e-remote-index-token";
+const remoteLongTitleSuffix = "CHROMIUM_REMOTE_LONG_TITLE_ERROR_TOOL_AFTER_DISPLAY_LIMIT";
 
 await mkdir(sessionDir, { recursive: true });
 await writeFile(sessionPath, `${sessionEvents.map((event) => JSON.stringify(event)).join("\n")}\n`, "utf8");
@@ -53,6 +55,7 @@ await writeFile(
 await writeFile(path.join(codexHome, "session_index.jsonl"), `${JSON.stringify({ id: sessionId, thread_name: sessionTitle })}\n${JSON.stringify({ id: codexGoalSessionId, thread_name: codexGoalControl })}\n${JSON.stringify({ id: longTitleSessionId, thread_name: longCanonicalTitle })}\n`, "utf8");
 await utimes(sessionPath, new Date(), new Date());
 await utimes(codexGoalSessionPath, new Date(Date.now() - 1000), new Date(Date.now() - 1000));
+await utimes(longTitleSessionPath, new Date(Date.now() - 2000), new Date(Date.now() - 2000));
 await mkdir(piSessionsRoot, { recursive: true });
 await writeFile(
   piSessionPath,
@@ -87,11 +90,14 @@ await utimes(piSessionPath, new Date(Date.now() + 1000), new Date(Date.now() + 1
 await mkdir(remoteSessionDir, { recursive: true });
 const remoteIndexRows = [];
 for (let index = 1; index <= 101; index += 1) {
-  const id = `remote-history-${String(index).padStart(3, "0")}`;
+  const id = `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
   const filePath = path.join(remoteSessionDir, `rollout-2026-06-27T01-00-00-${id}.jsonl`);
   await writeFile(filePath, "{}\n", "utf8");
   await utimes(filePath, new Date("2026-06-27T01:00:00.000Z"), new Date("2026-06-27T01:00:00.000Z"));
-  remoteIndexRows.push(JSON.stringify({ id, thread_name: `远端历史分页任务 ${String(index).padStart(3, "0")}`, updated_at: "2026-06-27T01:00:00.000Z" }));
+  const title = index === 101
+    ? `远端标题 ${"x".repeat(1000)} ${remoteLongTitleSuffix}`
+    : `远端历史分页任务 ${String(index).padStart(3, "0")}`;
+  remoteIndexRows.push(JSON.stringify({ id, thread_name: title, updated_at: "2026-06-27T01:00:00.000Z" }));
 }
 await writeFile(path.join(remoteCodexHome, "session_index.jsonl"), `${remoteIndexRows.join("\n")}\n`, "utf8");
 

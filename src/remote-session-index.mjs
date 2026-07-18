@@ -4,7 +4,9 @@ import path from "node:path";
 import { readJsonl } from "./jsonl-reader.mjs";
 import { throwIfAborted } from "./remote-http.mjs";
 import { sessionIdFromFile, sessionStartedFromFile, toIso } from "./session-events.mjs";
+import { isLikelyCodexGoalControlText } from "./pi-goal-projection.mjs";
 import { stripLongPathPrefix } from "./sqlite-threads.mjs";
+import { sessionMatchesListType } from "./session-models.mjs";
 
 async function readFileIndexPage({ codexHome, fsApi, query, now, limits, signal }) {
   const indexPath = path.join(codexHome, "session_index.jsonl");
@@ -28,7 +30,7 @@ async function readFileIndexPage({ codexHome, fsApi, query, now, limits, signal 
     versionParts.push([id, stat.size, stat.mtimeMs, stat.ctimeMs].join(":"));
     sessions.push({
       id,
-      title: indexed?.title || path.basename(filePath, ".jsonl"),
+      title: safeRemoteIndexTitle(indexed?.title || path.basename(filePath, ".jsonl")),
       cwd: null,
       model: null,
       reasoningEffort: null,
@@ -119,6 +121,7 @@ async function indexTreeSignature(paths, fsApi = fs) {
 function filterIndexSessions(sessions, query, now) {
   return sessions.filter((session) => {
     if (query.bucket !== "all" && sessionTimeBucket(session, now().getTime()) !== query.bucket) return false;
+    if (!sessionMatchesListType(session, query.type)) return false;
     if (query.q && !indexSearchText(session).includes(query.q)) return false;
     return true;
   });
@@ -160,6 +163,10 @@ function relativeCodexPath(codexHome, filePath) {
   return relative.replaceAll("\\", "/");
 }
 
+function safeRemoteIndexTitle(title) {
+  return isLikelyCodexGoalControlText(title) ? "未命名会话" : title;
+}
+
 function indexSnapshotChangedError() {
   return indexLimitError("index_snapshot_changed", 409, "远端历史索引已变化，请重新开始定位。");
 }
@@ -171,4 +178,4 @@ function indexLimitError(code, status, message = "远端历史索引超过读取
   return error;
 }
 
-export { indexSnapshotChangedError, readFileIndexPage, relativeCodexPath };
+export { indexSnapshotChangedError, readFileIndexPage, relativeCodexPath, safeRemoteIndexTitle };

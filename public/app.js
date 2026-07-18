@@ -450,8 +450,16 @@ function bindEvents() {
     });
   });
   els.sessionTypeFilter.addEventListener("change", () => {
-    void loadRemoteIndexForCurrentFilter();
-    if (!isRemoteHistoryIndexMode()) renderSessionList();
+    if (isRemoteHistoryIndexMode()) {
+      void loadRemoteIndexForCurrentFilter({ reset: true, announce: true });
+      return;
+    }
+    if (state.sessionTimeFilter === "earlier") {
+      state.sessions = state.sessions.filter((session) => sessionTimeBucket(session) !== "earlier");
+      state.historyLoaded = false;
+      void loadHistoricalSessions({ announce: true });
+    }
+    else void loadSessions({ keepSelection: true, announce: true });
   });
   [els.sessionsModeButton, els.promptsModeButton].forEach((button) => {
     button?.addEventListener("click", () => selectSidebarMode(button.dataset.sidebarMode || "sessions"));
@@ -869,7 +877,8 @@ function selectSessionTimeFilter(bucket) {
     return;
   }
   if (selectedSource()?.kind === "remote") {
-    void loadRemoteIndexForCurrentFilter({ announce: true });
+    if (state.sessionTimeFilter === "realtime") void loadSessions({ keepSelection: true, announce: true });
+    else void loadRemoteIndexForCurrentFilter({ announce: true });
   } else if (state.sessionTimeFilter === "earlier" && !state.historyLoaded) {
     renderSessionList();
     void loadHistoricalSessions({ announce: true });
@@ -2948,12 +2957,9 @@ function renderSessionList() {
     return;
   }
   const sessions = (remoteHistory ? state.remoteIndexSessions : mergedVisibleSessions()).filter((session) => {
-    const titlePathText = [session.displayTitle, session.cwd, session.relativePath].filter(Boolean).join(" ").toLowerCase();
     if (sessionTimeBucket(session) !== state.sessionTimeFilter) return false;
     if (filter === "project" && !session.cwd) return false;
     if (filter === "projectless" && session.cwd) return false;
-    if (filter === "error" && !/error|failed|失败|错误/i.test(titlePathText)) return false;
-    if (filter === "tool" && !/tool|mcp|command|shell|工具|命令/i.test(titlePathText)) return false;
     return true;
   });
   state.filteredSessions = sessions;
@@ -3140,8 +3146,7 @@ function bindSessionListEmptyActions(container = els.sessionList) {
       } else if (action === "clear-session-filters") {
         els.sessionSearch.value = "";
         els.sessionTypeFilter.value = "all";
-        renderSessionList();
-        void loadRemoteIndexForCurrentFilter();
+        reloadCurrentSessionListForFilters();
       }
     });
   });
@@ -3178,14 +3183,26 @@ function clearSessionFiltersForSelectedSession() {
   if (state.detail?.session) {
     state.sessionTimeFilter = sessionTimeBucket(state.detail.session);
   }
-  renderSessionList();
-  void loadRemoteIndexForCurrentFilter();
+  reloadCurrentSessionListForFilters();
 }
 
 function returnToRealtimeSessions() {
   state.sessionTimeFilter = "realtime";
-  renderSessionList();
-  void loadRemoteIndexForCurrentFilter();
+  reloadCurrentSessionListForFilters();
+}
+
+function reloadCurrentSessionListForFilters() {
+  if (isRemoteHistoryIndexMode()) {
+    void loadRemoteIndexForCurrentFilter({ reset: true, announce: true });
+    return;
+  }
+  if (state.sessionTimeFilter === "earlier") {
+    state.sessions = state.sessions.filter((session) => sessionTimeBucket(session) !== "earlier");
+    state.historyLoaded = false;
+    void loadHistoricalSessions({ announce: true });
+    return;
+  }
+  void loadSessions({ keepSelection: true, announce: true });
 }
 
 function renderSessionFilterNotice(filteredOut = currentSessionFilteredOut()) {
@@ -9445,6 +9462,7 @@ function sourceSessionsUrl(sourceId = state.selectedSourceId, scope = "all") {
   if (scope && scope !== "all") params.set("scope", scope);
   const search = els.sessionSearch?.value.trim();
   if (search) params.set("q", search);
+  params.set("type", sessionListServerType());
   const query = params.toString();
   return `/api/sources/${encodeURIComponent(sourceId)}/sessions${query ? `?${query}` : ""}`;
 }
@@ -9463,8 +9481,14 @@ function remoteIndexUrl(sourceId = state.selectedSourceId, cursor = "0", snapsho
   });
   const query = els.sessionSearch.value.trim();
   if (query) params.set("q", query);
+  params.set("type", sessionListServerType());
   if (snapshot) params.set("snapshot", snapshot);
   return `/api/sources/${encodeURIComponent(sourceId)}/index?${params.toString()}`;
+}
+
+function sessionListServerType() {
+  const type = els.sessionTypeFilter?.value || "all";
+  return type === "error" || type === "tool" ? type : "all";
 }
 
 function sourceSessionUrl(id, sourceId = state.selectedSourceId) {

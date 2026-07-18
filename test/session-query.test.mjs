@@ -65,6 +65,20 @@ test("session query can include and select child sessions", () => {
   assert.deepEqual(filterSessions(sessions, query, edges).map((session) => session.id), ["child"]);
 });
 
+test("session query applies controlled list types to complete title, cwd and relative path", () => {
+  const longErrorTitle = `标题前缀 ${"x".repeat(300)} ERROR_AFTER_DISPLAY_LIMIT`;
+  const sessions = [
+    { id: "error-title", title: longErrorTitle },
+    { id: "tool-path", title: "普通标题", relativePath: "sessions/tool-output.jsonl" },
+    { id: "plain", title: "普通会话", cwd: "/workspace/plain" },
+  ];
+
+  assert.deepEqual(filterSessions(sessions, parseSessionListQuery(new URLSearchParams("type=error"))).map((session) => session.id), ["error-title"]);
+  assert.deepEqual(filterSessions(sessions, parseSessionListQuery(new URLSearchParams("type=tool"))).map((session) => session.id), ["tool-path"]);
+  assert.equal(parseSessionListQuery(new URLSearchParams("type=unexpected")).type, "all");
+  assert.deepEqual(filterSessions(sessions, parseSessionListQuery(new URLSearchParams("type=unexpected"))).map((session) => session.id), ["error-title", "tool-path", "plain"]);
+});
+
 test("session query derives child sessions from JSONL subagent metadata", () => {
   const sessions = [
     { id: "root", title: "根", updatedAt: "2026-06-25T08:00:00.000Z" },

@@ -6,7 +6,7 @@ import {
   summarizeEventTitle,
   toIso,
 } from "./session-events.mjs";
-import { spawnEdgesFromSessions, withSubagentMeta } from "./session-models.mjs";
+import { parseSessionListType, sessionMatchesListType, spawnEdgesFromSessions, withSubagentMeta } from "./session-models.mjs";
 import { normalizeSessionEvent } from "./session-normalizer.mjs";
 
 const defaultSessionLimit = 100;
@@ -21,6 +21,7 @@ function parseSessionListQuery(params) {
   const rootOnly = params.has("rootOnly") ? parseBoolean(params.get("rootOnly"), true) : !includeChildren;
   return {
     q: stringParam(params, "q"),
+    type: parseSessionListType(params.get("type")),
     ids: listParam(params, "id", "ids"),
     title: stringParam(params, "title"),
     cwd: stringParam(params, "cwd"),
@@ -221,6 +222,7 @@ function sessionMatchesQuery(session, query, edgeState) {
   if (query.archived != null && Boolean(session.archived) !== query.archived) return false;
   if (query.isChild != null && edgeState.childIds.has(session.id) !== query.isChild) return false;
   if (query.hasChildren != null && edgeState.parentIds.has(session.id) !== query.hasChildren) return false;
+  if (!sessionMatchesListType(session, query.type)) return false;
   if (query.changedAfter && !dateAfter(sessionChangedAt(session), query.changedAfter)) return false;
   if (query.changedBefore && !dateBefore(sessionChangedAt(session), query.changedBefore)) return false;
   if (query.startedAfter && !dateAfter(session.startedAt, query.startedAfter)) return false;

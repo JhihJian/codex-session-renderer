@@ -242,12 +242,18 @@ test("本机 Codex 空列表会有界发现 Pi 可读会话并显式切换", asy
   await page.route("**/api/sources/local/sessions?*", async (route) => {
     await route.fulfill({ json: { source: { id: "local", label: "本机 Codex Home", kind: "local" }, scope: "recent24h", sessions: [] } });
   });
-  const piProbe = page.waitForRequest("**/api/sources/pi-agent/sessions?scope=recent24h");
+  const piProbe = page.waitForRequest((request) => {
+    const url = new URL(request.url());
+    return url.pathname === "/api/sources/pi-agent/sessions" && url.searchParams.get("scope") === "recent24h" && url.searchParams.get("type") === "all";
+  });
   await page.goto("/");
   await expect(page.locator("#sourceSelect")).toHaveValue("local");
   await piProbe;
   await expect(page.locator("[data-session-empty-action=select-alternate-local-source]")).toHaveText("切换查看 Pi Agent Sessions");
-  const piSelection = page.waitForRequest("**/api/sources/pi-agent/sessions?scope=recent24h");
+  const piSelection = page.waitForRequest((request) => {
+    const url = new URL(request.url());
+    return url.pathname === "/api/sources/pi-agent/sessions" && url.searchParams.get("scope") === "recent24h" && url.searchParams.get("type") === "all";
+  });
   await page.locator("[data-session-empty-action=select-alternate-local-source]").click();
   await piSelection;
   await expect(page.locator("#sourceSelect")).toHaveValue("pi-agent");

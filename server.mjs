@@ -46,9 +46,11 @@ import { promptProjectKey } from "./src/session-prompts.mjs";
 import { createAbortError, createConcurrencyGate, createPromptArchiveCoordinator, createSharedSubscriptionRegistry, fileSignature, isAbortError } from "./src/prompt-archive-coordinator.mjs";
 import {
   compactSessionForList,
+  parseSessionListType,
   publicThreadMeta,
   relativeCodexPath,
   rootSessionsOnly,
+  sessionMatchesListType,
   sessionFromThread,
   spawnEdgesFromSessions,
   withSubagentMeta,
@@ -780,13 +782,14 @@ async function querySessions(context, params, projectionOptions = {}) {
 async function listSessionsForDisplay(context, scope, params) {
   const sessions = await listSessions(context, { scope });
   const query = String(params.get("q") || "").trim().toLowerCase();
-  const filtered = query
-    ? sessions.filter((session) => [session.id, session.title, session.preview, session.cwd, session.relativePath, session.model, session.agentNickname]
+  const type = parseSessionListType(params.get("type"));
+  const filtered = sessions
+    .filter((session) => sessionMatchesListType(session, type))
+    .filter((session) => !query || [session.id, session.title, session.preview, session.cwd, session.relativePath, session.model, session.agentNickname]
       .filter(Boolean)
       .join("\n")
       .toLowerCase()
-      .includes(query))
-    : sessions;
+      .includes(query));
   return filtered.map(compactSessionForList);
 }
 

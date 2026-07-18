@@ -119,6 +119,7 @@ test("remote index proxy preserves bounded page cursor metadata", async (t) => {
     assert.equal(upstream.pathname, "/api/codex-session-index");
     assert.equal(upstream.searchParams.get("bucket"), "earlier");
     assert.equal(upstream.searchParams.get("q"), "old task");
+    assert.equal(upstream.searchParams.get("type"), "error");
     assert.equal(upstream.searchParams.get("limit"), "2");
     assert.equal(upstream.searchParams.get("cursor"), "2");
     assert.equal(options.headers.authorization, "Bearer secret-token");
@@ -128,7 +129,7 @@ test("remote index proxy preserves bounded page cursor metadata", async (t) => {
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
 
-  const { response, body } = await requestJson(context, "/api/sources/office/index?bucket=earlier&q=old%20task&limit=2&cursor=2");
+  const { response, body } = await requestJson(context, "/api/sources/office/index?bucket=earlier&q=old%20task&type=error&limit=2&cursor=2");
 
   assert.equal(response.status, 200);
   assert.deepEqual(body.page, upstreamPage);

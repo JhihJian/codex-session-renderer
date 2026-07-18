@@ -24,7 +24,7 @@
 
 ## 稳定会话标题
 
-同一数据源内的规范会话标题以已验证的 SQLite `threads.title` 为优先来源；详情、Markdown、任务归档、Raw 诊断和外部查询接口保留该完整标题。列表和远端历史索引则只返回确定性、有界的 `displayTitle` 与 `titleTruncated`，不返回规范 `title`。服务端仍在完整规范标题上执行 `q` 匹配，因此后段关键词可以定位会话，但完整长标题不会为了搜索进入浏览器列表、行 DOM 或 ARIA 名称。截断行的可访问名称只增加简短的“标题已截断”语义，当前选中行使用 `aria-current`；详情加载中的状态公告同样使用有界展示标题。
+同一数据源内的规范会话标题以已验证的 SQLite `threads.title` 为优先来源；详情、Markdown、任务归档、Raw 诊断和外部查询接口保留该完整标题。列表和远端历史索引则只返回确定性、有界的 `displayTitle` 与 `titleTruncated`，不返回规范 `title`。服务端仍在完整规范标题上执行 `q` 匹配，并受控处理 `type=all|error|tool`：错误和工具类型只检查完整规范标题、`cwd`、`relativePath`，完成筛选后才生成展示标题。因此后段关键词或类型词可以定位会话，但完整长标题、搜索词和匹配片段不会为了筛选进入浏览器列表、行 DOM、ARIA 名称或工作台公告；截断行的可访问名称只增加简短的“标题已截断”语义，当前选中行使用 `aria-current`；详情加载中的状态公告同样使用有界展示标题。
 
 文件列表回退时，服务会先按既有路径与会话 ID 校验建立当前候选集，再只对这批受列表上限约束的候选 ID 批量查询 SQLite 补齐规范标题。SQLite 不可用、没有对应 ID 或标题为空时，保留 `session_index.jsonl`、首条元信息或文件名给出的诚实回退值。
 
@@ -526,8 +526,8 @@ Audit Chain 是只读派生模型，不修改原始会话数据。服务端在�
 
 旧的 `/api/sessions...` 接口保持兼容，默认读取 `local` 数据源，也可临时用 `?sourceId=<id>` 指定数据源。新代码优先使用显式数据源接口：
 
-- `GET /api/sources/:sourceId/sessions`
-- `GET /api/sources/:sourceId/index?bucket=day|earlier&q=...&limit=100&cursor=0&snapshot=<opaque>`：代理远端历史索引检索，只返回会话元数据，不返回正文。响应的 `page.total` 是本次索引查询的总数，`page.cursor` 是当前页起点，`page.nextCursor` 为下一页游标或末页的 `null`，`page.snapshot` 是不含路径、正文或 token 的版本令牌；续页必须同时带回 `nextCursor` 和 `snapshot`。索引变动时续页返回 `409`，错误详情 `code` 为 `index_snapshot_changed`，调用方必须丢弃已加载页并从第一页重试；不能将首批 `sessions` 当作全集。
+- `GET /api/sources/:sourceId/sessions?scope=recent24h|history|all&q=...&type=all|error|tool`：轻量列表在输出 `displayTitle` 前以完整规范标题、`cwd`、`relativePath` 应用受控类型筛选；`project` 与 `projectless` 是浏览器仅基于已输出 `cwd` 的展示筛选。
+- `GET /api/sources/:sourceId/index?bucket=day|earlier&q=...&type=all|error|tool&limit=100&cursor=0&snapshot=<opaque>`：代理远端历史索引检索，只返回会话元数据，不返回正文。`type` 在远端以完整规范标题、`cwd`、`relativePath` 过滤，之后才投影为截断展示标题；响应的 `page.total` 是本次索引查询的总数，`page.cursor` 是当前页起点，`page.nextCursor` 为下一页游标或末页的 `null`，`page.snapshot` 是不含路径、正文或 token 的版本令牌，并绑定 `bucket`、`q`、`type` 和索引版本；续页必须同时带回 `nextCursor` 和 `snapshot`。索引变动或切换筛选条件时续页返回 `409`，错误详情 `code` 为 `index_snapshot_changed`，调用方必须丢弃已加载页并从第一页重试；不能将首批 `sessions` 当作全集。
 - `GET /api/sources/:sourceId/sessions/:id`
 - `GET /api/sources/:sourceId/sessions/:id/events/:index`
 - `GET /api/sources/:sourceId/sessions/:id/markdown`

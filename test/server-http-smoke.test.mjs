@@ -12,7 +12,8 @@ import { piGoalArchivePrefix } from "./helpers/pi-goal-fixture.mjs";
 const sessionId = "11111111-1111-1111-1111-111111111111";
 const longTitleSessionId = "12121212-1212-4212-8212-121212121212";
 const longTitleSuffix = "LONG_TITLE_SUFFIX_SEARCH_TOKEN";
-const longCanonicalTitle = `标题前缀 ${"x".repeat(1000)} ${longTitleSuffix}`;
+const longTypeSuffix = "LONG_TITLE_ERROR_TOOL_AFTER_DISPLAY_LIMIT";
+const longCanonicalTitle = `标题前缀 ${"x".repeat(1000)} ${longTitleSuffix} ${longTypeSuffix}`;
 const envKeys = [
   "CODEX_HOME",
   "HOME",
@@ -339,6 +340,14 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   assert.equal(suffixList.body.sessions[0].titleTruncated, true);
   assert.equal(suffixList.body.sessions[0].displayTitle.length <= 160, true);
   assert.equal(JSON.stringify(suffixList.body).includes(longTitleSuffix), false);
+  for (const type of ["error", "tool"]) {
+    const typeList = await requestJson(baseUrl, `/api/sessions?scope=all&type=${type}`);
+    assert.equal(typeList.response.status, 200);
+    assert.deepEqual(typeList.body.sessions.map((session) => session.id), [longTitleSessionId]);
+    assert.equal(typeList.body.sessions[0].title, undefined);
+    assert.equal(typeList.body.sessions[0].titleTruncated, true);
+    assert.equal(JSON.stringify(typeList.body).includes(longTypeSuffix), false);
+  }
   const suffixQuery = await requestJson(baseUrl, `/api/query/sessions?q=${longTitleSuffix}&fields=id,title`);
   assert.deepEqual(suffixQuery.body.sessions.map((session) => session.id), [longTitleSessionId]);
   assert.equal(suffixQuery.body.sessions[0].title, longCanonicalTitle);
