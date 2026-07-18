@@ -20,10 +20,10 @@
           </div>
         </div>
 
-        <nav class="mobile-tabs" aria-label="移动端视图切换">
-          <button class="mobile-tab" data-panel-target="sessions" type="button">会话</button>
-          <button class="mobile-tab" data-panel-target="thread" type="button">内容</button>
-          <button class="mobile-tab" data-panel-target="inspector" type="button">复核</button>
+        <nav class="mobile-tabs" role="tablist" aria-label="移动端工作台面板">
+          <button class="mobile-tab" id="mobileSessionsTab" data-panel-target="sessions" type="button" role="tab" aria-controls="sessionsPanel" aria-selected="false">会话</button>
+          <button class="mobile-tab" id="mobileThreadTab" data-panel-target="thread" type="button" role="tab" aria-controls="threadPanel" aria-selected="true" aria-current="page">内容</button>
+          <button class="mobile-tab" id="mobileInspectorTab" data-panel-target="inspector" type="button" role="tab" aria-controls="inspectorPanel" aria-selected="false">复核</button>
         </nav>
 
         <div class="topbar-actions">
@@ -36,7 +36,7 @@
         </div>
       </header>
 
-      <aside class="sidebar panel" id="sessionsPanel" aria-label="会话列表">
+      <aside class="sidebar panel" id="sessionsPanel" role="tabpanel" aria-labelledby="mobileSessionsTab" aria-label="会话列表">
         <div class="panel-header">
           <div>
             <p class="eyebrow">会话</p>
@@ -94,7 +94,7 @@
         <div class="session-list" id="sessionList" role="list"></div>
       </aside>
 
-      <main class="thread-panel panel" id="threadPanel" aria-label="会话内容">
+      <main class="thread-panel panel" id="threadPanel" role="tabpanel" aria-labelledby="mobileThreadTab" aria-label="会话内容">
         <section class="thread-toolbar">
           <div class="thread-title-block">
             <p class="eyebrow" id="sessionMetaLabel">未选择</p>
@@ -162,7 +162,7 @@
         tabindex="0"
       ></div>
 
-      <aside class="inspector panel" id="inspectorPanel" aria-label="复核台">
+      <aside class="inspector panel" id="inspectorPanel" role="tabpanel" aria-labelledby="mobileInspectorTab" aria-label="复核台">
         <div class="panel-header">
           <div>
             <p class="eyebrow">复核台</p>
@@ -199,10 +199,12 @@
         <span id="statusSession">未选择会话</span>
         <span id="statusEvents">0 个会话</span>
         <span id="statusUpdated">只读浏览</span>
+        <span id="workbenchOperationStatus">状态：等待首次加载</span>
       </footer>
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <div class="sr-only" id="workbenchAnnouncements" role="status" aria-live="polite" aria-atomic="true"></div>
 
     <dialog class="peer-dialog" id="peerDialog" aria-labelledby="peerDialogTitle">
       <form class="peer-panel" id="peerForm" method="dialog">

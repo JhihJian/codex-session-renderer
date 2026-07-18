@@ -81,6 +81,9 @@ const state = {
   promptArchiveLoaded: false,
   promptArchiveProject: "all",
   promptArchivePage: null,
+  remoteRefreshLoading: false,
+  workbenchStatus: { key: "initial", message: "等待首次加载" },
+  lastAnnouncement: "",
 };
 
 const {
@@ -179,6 +182,7 @@ const els = {
   appShell: document.getElementById("appShell"),
   healthStatus: document.getElementById("healthStatus"),
   sessionsPanel: document.getElementById("sessionsPanel"),
+  threadPanel: document.getElementById("threadPanel"),
   inspectorPanel: document.getElementById("inspectorPanel"),
   sessionCount: document.getElementById("sessionCount"),
   sessionList: document.getElementById("sessionList"),
@@ -268,6 +272,8 @@ const els = {
   statusEvents: document.getElementById("statusEvents"),
   statusUpdated: document.getElementById("statusUpdated"),
   statusbar: document.getElementById("statusbar"),
+  workbenchOperationStatus: document.getElementById("workbenchOperationStatus"),
+  workbenchAnnouncements: document.getElementById("workbenchAnnouncements"),
   copyMarkdownButton: document.getElementById("copyMarkdownButton"),
   downloadMarkdownButton: document.getElementById("downloadMarkdownButton"),
   compactViewButton: document.getElementById("compactViewButton"),
@@ -342,6 +348,7 @@ function init() {
   loadInspectorWidth();
   bindEvents();
   syncPanelToggleLabels();
+  syncMobilePanelNavigation();
   applyInspectorWidth(state.inspectorWidth);
   loadHealthAndSources();
 }
@@ -349,11 +356,11 @@ function init() {
 function bindEvents() {
   els.refreshButton.addEventListener("click", () => {
     if (state.healthLoadError) {
-      void loadHealthAndSources();
+      void loadHealthAndSources({ announce: true });
       return;
     }
-    void loadSessions({ keepSelection: true }).then(() => {
-      if (state.sidebarMode === "prompts") return loadPromptArchive({ force: true });
+    void loadSessions({ keepSelection: true, announce: true }).then(() => {
+      if (state.sidebarMode === "prompts") return loadPromptArchive({ force: true, announce: true });
       return undefined;
     });
   });
@@ -481,12 +488,16 @@ function bindEvents() {
     syncPanelToggleLabels();
   });
   bindInspectorResize();
-  window.addEventListener("resize", () => applyInspectorWidth(state.inspectorWidth));
+  window.addEventListener("resize", () => {
+    applyInspectorWidth(state.inspectorWidth);
+    syncMobilePanelNavigation();
+  });
   document.querySelectorAll("[data-panel-target]").forEach((button) => {
     button.addEventListener("click", () => {
-      els.appShell.dataset.panel = button.dataset.panelTarget;
+      setMobilePanel(button.dataset.panelTarget);
     });
   });
+  bindRovingTablist(document.querySelector(".mobile-tabs"), "[data-panel-target]", (button) => setMobilePanel(button.dataset.panelTarget));
 }
 
 function bindRovingTablist(tablist, selector, activate) {
@@ -554,15 +565,47 @@ function syncPanelToggleLabels() {
 }
 
 function syncPanelVisibilityState() {
-  const leftOpen = els.appShell.dataset.left !== "closed";
-  const rightOpen = els.appShell.dataset.right !== "closed";
-  moveFocusBeforeHidingPanel(els.sessionsPanel, els.toggleLeft, leftOpen);
-  moveFocusBeforeHidingPanel(els.inspectorPanel, els.toggleRight, rightOpen);
+  const mobile = mobilePanelLayoutActive();
+  const activePanel = els.appShell.dataset.panel || "thread";
+  const panels = [
+    [els.sessionsPanel, mobile ? activePanel === "sessions" : els.appShell.dataset.left !== "closed", mobile ? mobilePanelTab("sessions") : els.toggleLeft],
+    [els.threadPanel, mobile ? activePanel === "thread" : true, mobile ? mobilePanelTab("thread") : null],
+    [els.inspectorPanel, mobile ? activePanel === "inspector" : els.appShell.dataset.right !== "closed", mobile ? mobilePanelTab("inspector") : els.toggleRight],
+  ];
+  panels.forEach(([panel, open, fallback]) => {
+    moveFocusBeforeHidingPanel(panel, fallback, open);
+    setPanelInteractivity(panel, open);
+  });
+  const rightOpen = panels[2][1];
   if (!rightOpen && document.activeElement === els.inspectorResizer) {
     els.toggleRight.focus({ preventScroll: true });
   }
-  setPanelInteractivity(els.sessionsPanel, leftOpen);
-  setPanelInteractivity(els.inspectorPanel, rightOpen);
+}
+
+function mobilePanelLayoutActive() {
+  return window.matchMedia("(max-width: 820px)").matches;
+}
+
+function mobilePanelTab(panel) {
+  return document.querySelector(`[data-panel-target="${cssEscape(panel)}"]`);
+}
+
+function setMobilePanel(panel) {
+  const next = ["sessions", "thread", "inspector"].includes(panel) ? panel : "thread";
+  els.appShell.dataset.panel = next;
+  syncMobilePanelNavigation();
+}
+
+function syncMobilePanelNavigation() {
+  const activePanel = els.appShell?.dataset.panel || "thread";
+  document.querySelectorAll("[data-panel-target]").forEach((button) => {
+    const active = button.dataset.panelTarget === activePanel;
+    button.setAttribute("aria-selected", active ? "true" : "false");
+    button.tabIndex = active ? 0 : -1;
+    if (active) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  });
+  syncPanelVisibilityState();
 }
 
 function moveFocusBeforeHidingPanel(panel, fallback, open) {
@@ -710,7 +753,7 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, Number(value) || min));
 }
 
-async function loadHealthAndSources() {
+async function loadHealthAndSources({ announce = false } = {}) {
   state.healthLoadError = "";
   setBusy(true);
   try {
@@ -721,7 +764,7 @@ async function loadHealthAndSources() {
     renderSourceControls();
     els.healthStatus.textContent = health.sources?.length > 1 ? `数据源 ${health.sources.length} 个` : `只读数据源 ${health.codexHome}`;
     await reloadPeers();
-    await loadSessions();
+    await loadSessions({ announce });
   } catch (error) {
     const message = healthUnavailableMessage(error);
     state.healthLoadError = message;
@@ -732,6 +775,7 @@ async function loadHealthAndSources() {
     resetRemoteIndexState();
     state.sessionsLoading = false;
     state.sessionsLoadError = message;
+    setWorkbenchStatus("health:error", `接口不可用：${message}。点击刷新列表重试。`, { announce: true });
     clearSelectedSession();
     setBusy(false);
     els.healthStatus.textContent = `接口不可用：${message}`;
@@ -798,14 +842,14 @@ function renderSourceStatus() {
 function selectSessionTimeFilter(bucket) {
   state.sessionTimeFilter = bucket || "realtime";
   if (state.sidebarMode === "prompts") {
-    void loadPromptArchive();
+    void loadPromptArchive({ announce: true });
     return;
   }
   if (selectedSource()?.kind === "remote") {
-    void loadRemoteIndexForCurrentFilter();
+    void loadRemoteIndexForCurrentFilter({ announce: true });
   } else if (state.sessionTimeFilter === "earlier" && !state.historyLoaded) {
     renderSessionList();
-    void loadHistoricalSessions();
+    void loadHistoricalSessions({ announce: true });
   } else {
     renderSessionList();
     selectFirstVisibleSession();
@@ -821,7 +865,7 @@ function selectSidebarMode(mode) {
   if (next !== "prompts") cancelPromptArchiveRequest();
   state.sidebarMode = next;
   els.appShell.dataset.mode = next;
-  els.appShell.dataset.panel = next === "prompts" ? "thread" : "sessions";
+  setMobilePanel(next === "prompts" ? "thread" : "sessions");
   if (els.promptArchiveControls) els.promptArchiveControls.hidden = next !== "prompts";
   [els.sessionsModeButton, els.promptsModeButton].forEach((button) => {
     if (!button) return;
@@ -830,12 +874,12 @@ function selectSidebarMode(mode) {
     button.setAttribute("aria-selected", active ? "true" : "false");
     button.tabIndex = active ? 0 : -1;
   });
-  if (next === "prompts") void loadPromptArchive();
+  if (next === "prompts") void loadPromptArchive({ announce: true });
   renderAll();
   if (next === "prompts") els.promptArchiveContent?.focus({ preventScroll: true });
 }
 
-async function loadPromptArchive({ force = false, pageToken = "", restarted = false } = {}) {
+async function loadPromptArchive({ force = false, pageToken = "", restarted = false, announce = false } = {}) {
   const sourceId = state.selectedSourceId;
   const scope = promptArchiveScope();
   if (!force && !pageToken && state.promptArchiveScope === scope && state.promptArchiveLoaded && !state.promptArchiveError) {
@@ -856,6 +900,8 @@ async function loadPromptArchive({ force = false, pageToken = "", restarted = fa
     state.promptArchivePage = null;
     state.promptArchiveProject = "all";
   }
+  const operationKey = `${requestKey}:status`;
+  setWorkbenchStatus(operationKey, pageToken ? "正在定位更早任务" : "正在整理当前批任务归档", { announce });
   renderAll();
   try {
     const data = await fetchJson(promptArchiveUrl(sourceId, scope, pageToken), { signal: controller.signal });
@@ -866,6 +912,7 @@ async function loadPromptArchive({ force = false, pageToken = "", restarted = fa
     state.promptArchiveProject = "all";
     state.promptArchiveLoaded = true;
     state.promptArchiveError = "";
+    setWorkbenchStatus(operationKey, `任务归档已更新：本批 ${state.promptArchive.length} 条`, { announce });
   } catch (error) {
     if (isAbortError(error)) return;
     if (state.promptArchiveRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
@@ -875,13 +922,15 @@ async function loadPromptArchive({ force = false, pageToken = "", restarted = fa
       state.promptArchivePage = null;
       showToast("任务范围已变化，已从最近任务重新开始定位");
       state.promptArchiveLoading = false;
-      await loadPromptArchive({ force: true, restarted: true });
+      setWorkbenchStatus(operationKey, "任务归档范围已变化，正在从最近任务重新开始定位", { announce });
+      await loadPromptArchive({ force: true, restarted: true, announce });
       return;
     }
     state.promptArchive = [];
     state.promptArchiveProjects = [];
     state.promptArchivePage = null;
     state.promptArchiveError = error.message;
+    setWorkbenchStatus(operationKey, `任务归档读取失败：${error.message}。可重试。`, { announce: true });
   } finally {
     if (state.promptArchiveAbortController === controller) state.promptArchiveAbortController = null;
     if (state.promptArchiveRequestKey === requestKey && state.selectedSourceId === sourceId) {
@@ -892,15 +941,17 @@ async function loadPromptArchive({ force = false, pageToken = "", restarted = fa
 }
 
 function cancelPromptArchiveRequest() {
+  const wasLoading = Boolean(state.promptArchiveAbortController && state.promptArchiveLoading);
   state.promptArchiveAbortController?.abort();
   state.promptArchiveAbortController = null;
+  if (wasLoading) setWorkbenchStatus("prompts:cancelled", "已取消任务归档读取");
 }
 
 function promptArchiveScope() {
   return state.sessionTimeFilter === "earlier" ? "history" : "recent24h";
 }
 
-async function loadSessions({ keepSelection = false } = {}) {
+async function loadSessions({ keepSelection = false, announce = false } = {}) {
   const sourceId = state.selectedSourceId;
   resetRemoteIndexState();
   const requestKey = `sessions:${++state.sessionsRequestSeq}:${sourceId}`;
@@ -911,6 +962,8 @@ async function loadSessions({ keepSelection = false } = {}) {
   state.historyLoadError = "";
   state.historyLoaded = false;
   state.historyRequestKey = `inactive:${++state.historyRequestSeq}`;
+  const operationKey = `${requestKey}:status`;
+  setWorkbenchStatus(operationKey, `正在加载${selectedSource()?.label || "当前数据源"}会话列表`, { announce });
   setBusy(true);
   renderSessionList();
   try {
@@ -925,6 +978,7 @@ async function loadSessions({ keepSelection = false } = {}) {
     state.remoteIndexLoading = false;
     state.sessionsLoading = false;
     state.sessionsLoadError = "";
+    setWorkbenchStatus(operationKey, `会话列表已加载：${state.sessions.length} 个会话`, { announce });
     setBusy(false);
     renderSourceStatus();
     renderSessionList();
@@ -934,7 +988,7 @@ async function loadSessions({ keepSelection = false } = {}) {
         : state.filteredSessions[0] || state.sessions[0];
     if (state.sessionsRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
     if (nextSession && !nextSession.remoteIndexOnly) {
-      await selectSession(nextSession.id);
+      await selectSession(nextSession.id, { announce: false });
     } else {
       clearSelectedSession();
       renderAll();
@@ -955,6 +1009,7 @@ async function loadSessions({ keepSelection = false } = {}) {
     state.remoteIndexError = "";
     state.sessionsLoading = false;
     state.sessionsLoadError = error.message;
+    setWorkbenchStatus(operationKey, `会话列表加载失败：${error.message}。点击刷新列表重试。`, { announce: true });
     clearSelectedSession();
     renderAll();
   } finally {
@@ -973,12 +1028,14 @@ function selectFirstVisibleSession() {
   void selectSession(nextSession.id);
 }
 
-async function loadHistoricalSessions() {
+async function loadHistoricalSessions({ announce = false } = {}) {
   const sourceId = state.selectedSourceId;
   const requestKey = `history:${++state.historyRequestSeq}:${sourceId}`;
   state.historyRequestKey = requestKey;
   state.historyLoading = true;
   state.historyLoadError = "";
+  const operationKey = `${requestKey}:status`;
+  setWorkbenchStatus(operationKey, "正在读取更早会话", { announce });
   renderSourceStatus();
   renderSessionList();
   try {
@@ -990,9 +1047,11 @@ async function loadHistoricalSessions() {
     state.sessions = [...byKey.values()];
     state.historyLoaded = true;
     state.historyLoadError = "";
+    setWorkbenchStatus(operationKey, `更早会话已加载：${state.sessions.length} 个会话`, { announce });
   } catch (error) {
     if (state.historyRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
     state.historyLoadError = error.message;
+    setWorkbenchStatus(operationKey, `更早会话读取失败：${error.message}。可刷新列表重试。`, { announce: true });
     showToast(`加载历史会话失败：${error.message}`);
   } finally {
     if (state.historyRequestKey === requestKey && state.selectedSourceId === sourceId) {
@@ -1009,7 +1068,30 @@ function setBusy(isBusy) {
   els.refreshButton.textContent = isBusy ? "刷新列表中" : "刷新列表";
 }
 
-async function selectSession(id) {
+function setWorkbenchStatus(key, message, { announce = false } = {}) {
+  if (state.workbenchStatus.key === key && state.workbenchStatus.message === message) return;
+  state.workbenchStatus = { key, message };
+  if (els.workbenchOperationStatus) els.workbenchOperationStatus.textContent = `状态：${message}`;
+  if (!announce || !els.workbenchAnnouncements) return;
+  const announcement = `${key}\n${message}`;
+  if (state.lastAnnouncement === announcement) return;
+  state.lastAnnouncement = announcement;
+  els.workbenchAnnouncements.textContent = message;
+}
+
+function syncAsyncAccessibility() {
+  const promptLoading = state.sidebarMode === "prompts" && state.promptArchiveLoading;
+  setAriaBusy(els.sessionsPanel, state.sessionsLoading || state.historyLoading || state.remoteIndexLoading || promptLoading || state.remoteRefreshLoading);
+  setAriaBusy(els.threadPanel, state.sessionLoading || promptLoading);
+  setAriaBusy(els.promptArchiveContent, promptLoading);
+}
+
+function setAriaBusy(element, busy) {
+  if (!element) return;
+  element.setAttribute("aria-busy", busy ? "true" : "false");
+}
+
+async function selectSession(id, { announce = true } = {}) {
   sessionAbortController?.abort();
   markdownAbortController?.abort();
   cancelRawDiagnosticRequest({ clear: true });
@@ -1021,6 +1103,7 @@ async function selectSession(id) {
   state.selectedSessionId = id;
   state.selectedSessionKey = sessionKey({ id, sourceId });
   state.sessionRequestKey = requestKey;
+  const operationKey = `${requestKey}:status`;
   state.sessionLoading = true;
   state.sessionLoadError = "";
   state.pendingSessionTitle = targetSession?.title || id;
@@ -1039,6 +1122,7 @@ async function selectSession(id) {
   state.visibleThreadItems = 140;
   state.visibleRawEvents = 240;
   syncExportButtons();
+  setWorkbenchStatus(operationKey, `正在读取会话：${firstLine(state.pendingSessionTitle, 54)}`, { announce });
   renderAll();
   try {
     const detail = await fetchJson(sourceSessionUrl(id, sourceId), { signal: sessionAbortController.signal });
@@ -1050,13 +1134,15 @@ async function selectSession(id) {
     state.selectedSourceId = detail.session?.sourceId || state.selectedSourceId;
     state.selectedSessionKey = sessionKey(detail.session || { id, sourceId: state.selectedSourceId });
     primeTraceExpansion(detail);
+    setWorkbenchStatus(operationKey, `会话已加载：${firstLine(detail.session?.title || id, 54)}`, { announce });
     renderAll();
-    els.appShell.dataset.panel = "thread";
+    setMobilePanel("thread");
   } catch (error) {
     if (state.sessionRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
     state.detail = null;
     state.sessionLoading = false;
     state.sessionLoadError = error.message;
+    setWorkbenchStatus(operationKey, `读取会话失败：${error.message}。可重试或选择其他会话。`, { announce: true });
     syncExportButtons();
     renderAll();
     showToast(`读取会话失败：${error.message}`);
@@ -1136,8 +1222,8 @@ async function selectSource(sourceId) {
   clearSelectedSession();
   renderSourceControls();
   renderAll();
-  await loadSessions();
-  if (state.sidebarMode === "prompts") await loadPromptArchive();
+  await loadSessions({ announce: true });
+  if (state.sidebarMode === "prompts") await loadPromptArchive({ announce: true });
 }
 
 async function refreshSelectedSource() {
@@ -1146,6 +1232,9 @@ async function refreshSelectedSource() {
   cancelPromptArchiveRequest();
   cancelRawDiagnosticRequest({ clear: true });
   cancelRawEventRequest();
+  const operationKey = `refresh:${source.id}:${Date.now()}`;
+  state.remoteRefreshLoading = true;
+  setWorkbenchStatus(operationKey, `正在拉取${source.label || "远端"}快照`, { announce: true });
   els.refreshRemoteButton.disabled = true;
   els.refreshRemoteButton.textContent = "正在拉取快照";
   try {
@@ -1154,13 +1243,16 @@ async function refreshSelectedSource() {
     renderSourceControls();
     await loadSessions({ keepSelection: true });
     if (state.sidebarMode === "prompts") await loadPromptArchive({ force: true });
+    setWorkbenchStatus(operationKey, "远端快照已拉取到本机缓存；未修改远端", { announce: true });
     showToast("远端快照已拉取到本机缓存；未修改远端");
   } catch (error) {
     await reloadSources();
+    setWorkbenchStatus(operationKey, `拉取远端快照失败：${error.message}。可再次拉取。`, { announce: true });
     showToast(`拉取远端快照失败：${error.message}；远端未修改`);
     await loadSessions({ keepSelection: true });
     if (state.sidebarMode === "prompts") await loadPromptArchive({ force: true });
   } finally {
+    state.remoteRefreshLoading = false;
     renderSourceControls();
   }
 }
@@ -2286,7 +2378,7 @@ async function loadRemoteIndexForCurrentFilter(options = {}) {
     return deactivateRemoteIndex();
   }
   const request = prepareRemoteIndexRequest(options);
-  if (request.cached) return showCachedRemoteIndexPage(request.cursor, request.cached);
+  if (request.cached) return showCachedRemoteIndexPage(request.cursor, request.cached, request.options.announce === true);
   return requestRemoteIndexPage(request);
 }
 
@@ -2308,13 +2400,14 @@ function prepareRemoteIndexRequest(options) {
   return { sourceId, filterKey, cursor, options, cached: options.force ? null : state.remoteIndexPages.get(cursor) };
 }
 
-function showCachedRemoteIndexPage(cursor, entry) {
+function showCachedRemoteIndexPage(cursor, entry, announce = false) {
   state.remoteIndexPages.delete(cursor);
   state.remoteIndexPages.set(cursor, entry);
   state.remoteIndexPage = entry;
   state.remoteIndexSessions = entry.sessions;
   state.remoteIndexError = "";
   state.remoteIndexLoading = false;
+  setWorkbenchStatus(`remote-index:cached:${cursor}`, `${remoteHistoryBucketLabel()}已加载：${entry.page?.total || 0} 条`, { announce });
   renderSourceStatus();
   renderSessionList();
 }
@@ -2329,6 +2422,8 @@ async function requestRemoteIndexPage({ sourceId, filterKey, cursor, options }) 
   state.remoteIndexSessions = [];
   state.remoteIndexPage = null;
   state.remoteIndexError = "";
+  const operationKey = `${requestKey}:status`;
+  setWorkbenchStatus(operationKey, `正在检索${remoteHistoryBucketLabel()}`, { announce: options.announce === true });
   renderSourceStatus();
   renderSessionList();
   try {
@@ -2350,17 +2445,20 @@ async function requestRemoteIndexPage({ sourceId, filterKey, cursor, options }) 
     state.remoteIndexPage = entry;
     state.remoteIndexSessions = entry.sessions;
     state.remoteIndexError = "";
+    setWorkbenchStatus(operationKey, `${remoteHistoryBucketLabel()}已加载：${entry.page.total || 0} 条`, { announce: options.announce === true });
   } catch (error) {
     if (isAbortError(error)) return;
     if (state.remoteIndexRequestKey !== requestKey || state.remoteIndexFilterKey !== filterKey || state.selectedSourceId !== sourceId) return;
     if (error.status === 409 && error.code === "index_snapshot_changed") {
       resetRemoteIndexState();
       showToast("远端历史索引已更新，已从第一页重新开始定位。");
+      setWorkbenchStatus(operationKey, "远端历史索引已变化，正在从第一页重新开始定位", { announce: true });
       return loadRemoteIndexForCurrentFilter({ reset: true });
     }
     state.remoteIndexSessions = [];
     state.remoteIndexPage = null;
     state.remoteIndexError = error.message;
+    setWorkbenchStatus(operationKey, `远端历史索引失败：${error.message}。可重试或返回实时。`, { announce: true });
     showToast(`远端索引检索失败：${error.message}`);
   } finally {
     if (state.remoteIndexAbortController === controller) state.remoteIndexAbortController = null;
@@ -2589,7 +2687,7 @@ function renderPromptArchive() {
       state.sidebarMode = "sessions";
       state.promptArchiveProject = entry.projectKey;
       els.appShell.dataset.mode = "sessions";
-      els.appShell.dataset.panel = "thread";
+      setMobilePanel("thread");
       if (els.promptArchiveControls) els.promptArchiveControls.hidden = true;
       syncSidebarModeTabs();
       selectSession(entry.sessionId);
@@ -2630,7 +2728,7 @@ function bindPromptArchivePagination() {
     button.addEventListener("click", () => {
       const token = state.promptArchivePage?.nextPageToken;
       if (!token || state.promptArchiveLoading) return;
-      void loadPromptArchive({ pageToken: token });
+      void loadPromptArchive({ pageToken: token, announce: true });
     });
   });
 }
@@ -2891,6 +2989,7 @@ function bindRemoteIndexPagination(container = els.sessionList) {
         void loadRemoteIndexForCurrentFilter({
           cursor: entry.previousCursor,
           pageNumber: Math.max(1, entry.pageNumber - 1),
+          announce: true,
         });
       }
       if (button.dataset.remoteIndexPageAction === "next" && entry.page.nextCursor != null) {
@@ -2899,6 +2998,7 @@ function bindRemoteIndexPagination(container = els.sessionList) {
           previousCursor: entry.cursor,
           pageNumber: entry.pageNumber + 1,
           snapshot: entry.page.snapshot || "",
+          announce: true,
         });
       }
     });
@@ -3059,14 +3159,18 @@ function limitedSessionPlaceholder(target, detail) {
 }
 
 function renderSessionPlaceholder(title, subtitle, diagnosticUrl = "") {
-  const action = diagnosticUrl
-    ? `<div class="empty-state-actions"><a class="ghost-button" href="${escapeAttr(diagnosticUrl)}" target="_blank" rel="noreferrer">打开原始事件分页诊断</a></div>`
-    : "";
+  const actions = [];
+  if (diagnosticUrl) actions.push(`<a class="ghost-button" href="${escapeAttr(diagnosticUrl)}" target="_blank" rel="noreferrer">打开原始事件分页诊断</a>`);
+  if (state.sessionLoadError && state.selectedSessionId) actions.push('<button class="ghost-button" type="button" data-session-placeholder-action="retry-detail">重试读取会话</button>');
+  const action = actions.length ? `<div class="empty-state-actions">${actions.join("")}</div>` : "";
   const html = emptyState(title, subtitle, action);
   [els.threadContent, els.compactContent, els.terminalContent, els.auditContent, els.statsContent, els.traceContent, els.rawContent]
     .filter(Boolean)
     .forEach((container) => {
       container.innerHTML = html;
+      container.querySelectorAll("[data-session-placeholder-action=retry-detail]").forEach((button) => {
+        button.addEventListener("click", () => selectSession(state.selectedSessionId));
+      });
     });
 }
 
@@ -3433,6 +3537,7 @@ function renderStatsEventRow(stat, totalEvents, maxCount, query) {
 }
 
 function renderStatusbar() {
+  syncAsyncAccessibility();
   const source = selectedSource();
   const session = state.detail?.session;
   const stats = state.detail?.stats;
@@ -3507,10 +3612,10 @@ function syncStatusbarDataStatus(source = selectedSource()) {
   if (state.healthLoadError) {
     value = "error";
     label = "接口不可用";
-  } else if (state.sessionsLoading || state.sessionLoading || state.remoteIndexLoading || status.refreshing) {
+  } else if (state.sessionsLoading || state.sessionLoading || state.remoteIndexLoading || state.promptArchiveLoading || state.remoteRefreshLoading || status.refreshing) {
     value = "loading";
     label = "加载中";
-  } else if (state.sessionsLoadError || state.sessionLoadError || state.remoteIndexError || status.error?.message) {
+  } else if (state.sessionsLoadError || state.sessionLoadError || state.remoteIndexError || state.promptArchiveError || status.error?.message) {
     value = "error";
     label = "错误";
   } else if (source?.kind === "remote" && status.stale) {

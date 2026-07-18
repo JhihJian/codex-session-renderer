@@ -95,9 +95,20 @@ test("窄屏使用流式复核区，移动端仅展示当前三面板", async ({
   await expect(page.locator("#inspectorResizer")).toBeHidden();
 
   await page.setViewportSize({ width: 390, height: 844 });
+  const mobileTabs = page.locator(".mobile-tabs [role=tab]");
+  await expect(mobileTabs.nth(1)).toHaveAttribute("aria-current", "page");
   await page.locator("[data-panel-target=sessions]").click();
   await expect(page.locator("#sessionsPanel")).toBeVisible();
   await expect(page.locator("#threadPanel")).toBeHidden();
+  await expect(mobileTabs.first()).toHaveAttribute("aria-selected", "true");
+  await expect(mobileTabs.first()).toHaveAttribute("aria-current", "page");
+  await expect(mobileTabs.first()).toHaveAttribute("aria-controls", "sessionsPanel");
+  await expect(page.locator("#threadPanel")).toHaveAttribute("aria-hidden", "true");
+  await expect(page.locator("#threadPanel")).toHaveJSProperty("inert", true);
+  await mobileTabs.first().focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(mobileTabs.nth(1)).toBeFocused();
+  await expect(page.locator("#appShell")).toHaveAttribute("data-panel", "thread");
   await page.locator("[data-panel-target=inspector]").click();
   await expect(page.locator("#inspectorPanel")).toBeVisible();
   await expect(page.locator("#sessionsPanel")).toBeHidden();
@@ -168,12 +179,52 @@ test("任务归档取消加载，并隔离过期响应", async ({ page }) => {
   await page.locator("#sessionsModeButton").click();
   await failedRequest;
   expect(firstFailed).toBe(true);
+  await expect(page.locator("#workbenchOperationStatus")).toContainText("已取消任务归档读取");
+  await expect(page.locator("#workbenchAnnouncements")).toHaveText("正在整理当前批任务归档");
 
   await page.locator("#promptsModeButton").click();
   await expect(page.locator("#promptArchiveContent summary")).toHaveText("当前请求结果");
   resolveStaleResponse();
   await staleSettled;
   await expect(page.locator("#promptArchiveContent").getByText("过期响应不得写入页面")).toHaveCount(0);
+});
+
+test("远端索引延迟、失败和状态公告保留可恢复结果", async ({ page }) => {
+  await openWorkbench(page);
+  await page.locator("#sourceSelect").selectOption("office");
+
+  let releaseSuccess;
+  const delayedSuccess = new Promise((resolve) => {
+    releaseSuccess = resolve;
+  });
+  await page.route("**/api/sources/office/index?*", async (route) => {
+    await delayedSuccess;
+    await route.continue();
+  });
+  const request = page.waitForRequest("**/api/sources/office/index?*");
+  await page.locator("#sessionTimeFilter [data-session-time=earlier]").click();
+  await request;
+  await expect(page.locator("#sessionsPanel")).toHaveAttribute("aria-busy", "true");
+  await expect(page.locator("#workbenchOperationStatus")).toContainText("正在检索更早历史索引");
+  await expect(page.locator("#workbenchAnnouncements")).toHaveText("正在检索更早历史索引");
+  releaseSuccess();
+  await expect(page.locator("#sessionsPanel")).toHaveAttribute("aria-busy", "false");
+  await expect(page.locator("#workbenchOperationStatus")).toContainText("更早历史索引已加载：101 条");
+  await expect(page.locator("#workbenchAnnouncements")).toHaveText("更早历史索引已加载：101 条");
+
+  await page.unroute("**/api/sources/office/index?*");
+  await page.route("**/api/sources/office/index?*", async (route) => {
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "远端索引暂不可用" }),
+    });
+  });
+  await page.locator("#sessionSearch").fill("失败查询");
+  await expect(page.locator("#sessionsPanel")).toHaveAttribute("aria-busy", "false");
+  await expect(page.locator("#workbenchOperationStatus")).toContainText("远端历史索引失败：远端索引暂不可用。可重试或返回实时。");
+  await expect(page.locator("#workbenchAnnouncements")).toHaveText("远端历史索引失败：远端索引暂不可用。可重试或返回实时。");
+  await expect(page.locator("[data-session-empty-action=retry-remote-index]")).toBeVisible();
 });
 
 test("任务归档诚实显示扫描范围，并可继续定位第201项唯一命中", async ({ page }) => {

@@ -6,7 +6,7 @@
   --toolbar: rgb(255 255 255 / 0.86);
   --text: #1d1d1f;
   --text-2: #6e6e73;
-  --text-3: #86868b;
+  --text-3: #6b6b70;
   --hair: rgb(0 0 0 / 0.08);
   --hair-strong: rgb(0 0 0 / 0.14);
   --blue: #0071e3;
@@ -315,7 +315,7 @@ button {
 .statusbar {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: minmax(210px, 0.9fr) minmax(240px, 1.2fr) auto minmax(160px, auto);
+  grid-template-columns: minmax(180px, 0.8fr) minmax(210px, 1fr) auto minmax(150px, auto) minmax(220px, 1fr);
   align-items: center;
   gap: 12px;
   min-width: 0;
@@ -331,6 +331,21 @@ button {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#workbenchOperationStatus {
+  color: var(--text-2);
+  font-weight: 650;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
   white-space: nowrap;
 }
 
@@ -6652,6 +6667,7 @@ mark {
   }
 
   .statusbar span:nth-child(2),
+  .statusbar span:nth-child(3),
   .statusbar span:nth-child(4) {
     display: none;
   }

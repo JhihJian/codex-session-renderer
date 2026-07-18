@@ -6,6 +6,39 @@ function readProjectFile(pathname) {
   return readFile(new URL(`../${pathname}`, import.meta.url), "utf8");
 }
 
+function contrastRatio(foreground, background) {
+  const luminance = (hex) => {
+    const channels = hex.match(/[a-f\d]{2}/gi).map((channel) => Number.parseInt(channel, 16) / 255);
+    const linear = channels.map((channel) => (channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+  };
+  const [lighter, darker] = [luminance(foreground), luminance(background)].sort((left, right) => right - left);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+test("workbench status and mobile panel semantics remain accessible", async () => {
+  const [html, app, css] = await Promise.all([
+    readProjectFile("public/index.html"),
+    readProjectFile("public/app.js"),
+    readProjectFile("public/styles.css"),
+  ]);
+
+  assert.match(html, /id="workbenchOperationStatus"/);
+  assert.match(html, /id="workbenchAnnouncements" role="status" aria-live="polite"/);
+  assert.match(html, /id="mobileSessionsTab"[^>]*role="tab"[^>]*aria-controls="sessionsPanel"/);
+  assert.match(html, /id="threadPanel" role="tabpanel" aria-labelledby="mobileThreadTab"/);
+  assert.match(app, /function setWorkbenchStatus\(key, message, \{ announce = false \} = \{\}\)/);
+  assert.match(app, /function syncAsyncAccessibility\(\)/);
+  assert.match(app, /function syncMobilePanelNavigation\(\)/);
+  assert.match(app, /button\.setAttribute\("aria-current", "page"\)/);
+  assert.match(app, /panel\.inert = !open/);
+  assert.match(app, /已取消任务归档读取/);
+  assert.match(app, /重试读取会话/);
+  assert.match(css, /--text-3: #6b6b70;/);
+  assert.ok(contrastRatio("#6b6b70", "#fbfbfd") >= 4.5);
+  assert.ok(contrastRatio("#6b6b70", "#f5f5f7") >= 4.5);
+});
+
 test("remote data source copy keeps saved-test and index-only boundaries explicit", async () => {
   const [html, app, readme] = await Promise.all([
     readProjectFile("public/index.html"),
