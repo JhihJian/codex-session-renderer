@@ -66,3 +66,10 @@
 - 交付：远端映射失败关闭，只接受严格映射至 `current/sessions/**/*.jsonl` 的路径；在 SQLite 查询、文件回退、详情、Markdown、原始事件、归档和子代理展开前统一复核 `realpath` 仍在会话根、所有路径分量无链接、目标为普通 JSONL，且文件名会话 ID 与 SQLite/文件记录一致。拒绝绝对路径、`..`、`archived_sessions`、非 JSONL、符号链接、快照外路径及 ID 不一致记录，不回显原始路径、预览或内容；README 同步该约束。
 - 验证：`npm run verify` 通过：232 项 Node、11 项 Chromium；`GET http://127.0.0.1:4789/api/health` 返回 `ok:true`，`codex-session-renderer.service` 为 active。
 - 下一轮建议：优先修复已复现的 71 `--limit` 在正式目标删除未枚举会话问题，再评估无障碍体验。
+
+## 2026-07-18 第十四轮：71 限量同步发布安全
+
+- 发现：完整目标使用 `--limit` 曾删除未枚举会话，并可能发布不完整快照。
+- 交付：限量同步仅允许空或部分测试目标；拒绝既有完整或状态未知目标及 `--refresh`。限量结果明确标记为 `partial`，数据源拒绝其发布；全量同步才恢复为 `complete`。
+- 验证：`npm run verify` 通过：234 项 Node、11 项 Chromium；服务健康。
+- 下一轮建议：推进无障碍异步状态、浅色对比度和移动三面板语义；其他尚未实证的 71 硬链接结论暂缓。
