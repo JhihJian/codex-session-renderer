@@ -30,10 +30,20 @@ function createSqliteThreadStore(options) {
     }
     throw lastError || new Error("sqlite3 is not available");
   }
-  async function readThreads({ sinceMs = null, beforeMs = null, limit = maxListSessions, signal } = {}) {
+  async function readThreads({ sinceMs = null, beforeMs = null, limit = maxListSessions, cursor = null, sort = "updated", signal } = {}) {
     const conditions = ["id not in (select child_thread_id from thread_spawn_edges where child_thread_id is not null)"];
     if (Number.isFinite(sinceMs)) conditions.push(`updated_at_ms >= ${Math.trunc(sinceMs)}`);
     if (Number.isFinite(beforeMs)) conditions.push(`(updated_at_ms < ${Math.trunc(beforeMs)} or updated_at_ms is null)`);
+    const order = sort === "path" ? "rollout_path desc, id asc" : "updated_at_ms desc, id asc";
+    if (sort === "path" && cursor?.path) {
+      conditions.push(`(rollout_path < ${sqlString(cursor.path)} or (rollout_path = ${sqlString(cursor.path)} and id > ${sqlString(cursor.id || "")}))`);
+    } else {
+      const cursorTime = Number(cursor?.updatedAtMs);
+      if (Number.isFinite(cursorTime) && cursor?.id) {
+        const timeColumn = "coalesce(updated_at_ms, created_at_ms, 0)";
+        conditions.push(`(${timeColumn} < ${Math.trunc(cursorTime)} or (${timeColumn} = ${Math.trunc(cursorTime)} and id > ${sqlString(cursor.id)}))`);
+      }
+    }
     const query = [
       "select",
       "id,title,rollout_path,created_at,updated_at,created_at_ms,updated_at_ms,",
@@ -41,7 +51,7 @@ function createSqliteThreadStore(options) {
       "model,reasoning_effort,agent_nickname,agent_role,first_user_message,preview",
       "from threads",
       `where ${conditions.join(" and ")}`,
-      "order by updated_at_ms desc limit",
+      `order by ${order} limit`,
       String(Math.min(maxListSessions, Math.max(1, Math.floor(Number(limit) || maxListSessions)))),
     ].join(" ");
     try {

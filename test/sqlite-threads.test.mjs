@@ -95,7 +95,7 @@ test("sqlite list query excludes subagent child threads before applying limit", 
   await store.readThreads();
 
   assert.match(calls[0].args.at(-1), /where id not in \(select child_thread_id from thread_spawn_edges where child_thread_id is not null\)/);
-  assert.match(calls[0].args.at(-1), /order by updated_at_ms desc limit 25/);
+  assert.match(calls[0].args.at(-1), /order by updated_at_ms desc, id asc limit 25/);
 });
 
 test("sqlite list query pushes recent and historical time bounds into SQL", async () => {
@@ -115,6 +115,24 @@ test("sqlite list query pushes recent and historical time bounds into SQL", asyn
 
   assert.match(calls[0].args.at(-1), /updated_at_ms >= 1700000000000/);
   assert.match(calls[1].args.at(-1), /updated_at_ms < 1700000000000 or updated_at_ms is null/);
+});
+
+test("sqlite list query uses a stable keyset cursor for prompt archive continuation", async () => {
+  const calls = [];
+  const store = createSqliteThreadStore({
+    stateDbPath: "D:\\codex\\state_5.sqlite",
+    sqliteCandidates: ["sqlite3-test"],
+    runCommand: async (command, args, options) => {
+      calls.push({ command, args, options });
+      return { stdout: "[]" };
+    },
+  });
+
+  await store.readThreads({ cursor: { path: "D:\\codex\\sessions\\thread-200.jsonl", id: "thread-200" }, sort: "path", limit: 201 });
+
+  assert.match(calls[0].args.at(-1), /rollout_path < 'D:\\codex\\sessions\\thread-200\.jsonl'/);
+  assert.match(calls[0].args.at(-1), /id > 'thread-200'/);
+  assert.match(calls[0].args.at(-1), /order by rollout_path desc, id asc limit 201/);
 });
 
 test("sqlite all-thread query keeps child threads for external query APIs", async () => {

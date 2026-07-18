@@ -80,6 +80,7 @@ const state = {
   promptArchiveScope: "",
   promptArchiveLoaded: false,
   promptArchiveProject: "all",
+  promptArchivePage: null,
 };
 
 const {
@@ -834,38 +835,52 @@ function selectSidebarMode(mode) {
   if (next === "prompts") els.promptArchiveContent?.focus({ preventScroll: true });
 }
 
-async function loadPromptArchive({ force = false } = {}) {
+async function loadPromptArchive({ force = false, pageToken = "", restarted = false } = {}) {
   const sourceId = state.selectedSourceId;
   const scope = promptArchiveScope();
-  if (!force && state.promptArchiveScope === scope && state.promptArchiveLoaded && !state.promptArchiveError) {
+  if (!force && !pageToken && state.promptArchiveScope === scope && state.promptArchiveLoaded && !state.promptArchiveError) {
     renderAll();
     return;
   }
   cancelPromptArchiveRequest();
   const controller = new AbortController();
   state.promptArchiveAbortController = controller;
-  const requestKey = `prompts:${++state.promptArchiveRequestSeq}:${sourceId}:${scope}`;
+  const requestKey = `prompts:${++state.promptArchiveRequestSeq}:${sourceId}:${scope}:${pageToken || "first"}`;
   state.promptArchiveRequestKey = requestKey;
   state.promptArchiveLoading = true;
   state.promptArchiveError = "";
   state.promptArchiveScope = scope;
-  state.promptArchiveLoaded = false;
-  state.promptArchive = [];
-  state.promptArchiveProjects = [];
-  state.promptArchiveProject = "all";
+  if (!pageToken) {
+    state.promptArchive = [];
+    state.promptArchiveProjects = [];
+    state.promptArchivePage = null;
+    state.promptArchiveProject = "all";
+  }
   renderAll();
   try {
-    const data = await fetchJson(promptArchiveUrl(sourceId, scope), { signal: controller.signal });
+    const data = await fetchJson(promptArchiveUrl(sourceId, scope, pageToken), { signal: controller.signal });
     if (state.promptArchiveRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
     state.promptArchive = data.entries || [];
     state.promptArchiveProjects = data.projects || [];
+    state.promptArchivePage = data.page || null;
+    state.promptArchiveProject = "all";
     state.promptArchiveLoaded = true;
     state.promptArchiveError = "";
   } catch (error) {
     if (isAbortError(error)) return;
     if (state.promptArchiveRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
+    if (error.code === "prompt_archive_snapshot_changed" && pageToken && !restarted) {
+      state.promptArchive = [];
+      state.promptArchiveProjects = [];
+      state.promptArchivePage = null;
+      showToast("任务范围已变化，已从最近任务重新开始定位");
+      state.promptArchiveLoading = false;
+      await loadPromptArchive({ force: true, restarted: true });
+      return;
+    }
     state.promptArchive = [];
     state.promptArchiveProjects = [];
+    state.promptArchivePage = null;
     state.promptArchiveError = error.message;
   } finally {
     if (state.promptArchiveAbortController === controller) state.promptArchiveAbortController = null;
@@ -1117,6 +1132,7 @@ async function selectSource(sourceId) {
   state.promptArchiveLoaded = false;
   state.promptArchiveError = "";
   state.promptArchiveProject = "all";
+  state.promptArchivePage = null;
   clearSelectedSession();
   renderSourceControls();
   renderAll();
@@ -2470,7 +2486,8 @@ function primeTraceExpansion(detail) {
 
 function renderPromptArchiveSidebar() {
   const projects = state.promptArchiveProjects || [];
-  els.sessionCount.textContent = String(state.promptArchive.length || 0);
+  const page = state.promptArchivePage || {};
+  els.sessionCount.textContent = String(page.candidatesScanned || state.promptArchive.length || 0);
   if (state.promptArchiveLoading && !state.promptArchive.length) {
     els.sessionList.innerHTML = emptyState("正在整理任务归档", "按项目读取每个会话的首个用户提示词。", []);
     return;
@@ -2481,14 +2498,16 @@ function renderPromptArchiveSidebar() {
     return;
   }
   if (!projects.length) {
-    const message = isRemoteHistoryIndexMode() ? "远端历史只返回索引元数据，未同步正文，无法提取首个提示词。" : "当前时间分类中没有可读取的会话正文。";
+    const message = isRemoteHistoryIndexMode()
+      ? "远端历史只返回索引元数据，未同步正文，无法提取首个提示词。"
+      : promptArchiveRangeNote("当前批没有可显示的任务归档。", page);
     els.sessionList.innerHTML = emptyState("暂无任务归档", message, []);
     return;
   }
   const active = state.promptArchiveProject;
   els.sessionList.innerHTML = `
     <button class="prompt-project-row${active === "all" ? " active" : ""}" type="button" data-prompt-project="all">
-      <span><strong>全部项目</strong><em>按最近更新排序</em></span><small>${state.promptArchive.length}</small>
+      <span><strong>当前批全部项目</strong><em>${escapeHtml(promptArchiveRangeLabel(page))}</em></span><small>${state.promptArchive.length}</small>
     </button>
     ${projects
       .map(
@@ -2537,27 +2556,30 @@ function renderPromptArchive() {
     bindSessionListEmptyActions(els.promptArchiveContent);
     return;
   }
-  if (!entries.length) {
-    const message = isRemoteHistoryIndexMode()
-      ? "远端历史时间分类只有索引元数据，不含正文；切回实时或先扩大远端快照范围后再归档。"
-      : "调整搜索、项目或提示词状态筛选。";
-    els.promptArchiveContent.innerHTML = emptyState(isRemoteHistoryIndexMode() ? "历史正文未同步" : "没有匹配的任务", message, []);
+  const page = state.promptArchivePage || {};
+  if (!entries.length && isRemoteHistoryIndexMode()) {
+    els.promptArchiveContent.innerHTML = emptyState("历史正文未同步", "远端历史时间分类只有索引元数据，不含正文；切回实时或先扩大远端快照范围后再归档。", []);
     return;
   }
   const groups = groupPromptArchiveEntries(entries);
+  const empty = !entries.length;
+  const emptyMessage = query || status !== "all" || state.promptArchiveProject !== "all"
+    ? promptArchiveRangeNote("当前已扫描范围没有符合搜索或筛选条件的任务。", page)
+    : promptArchiveRangeNote("当前批没有可显示的任务归档。", page);
   els.promptArchiveContent.innerHTML = `
     <div class="prompt-archive-shell">
       <header class="prompt-archive-header">
         <div>
           <p class="eyebrow">任务归档</p>
-          <h2>${escapeHtml(`${entries.length} 条首个任务提示词`)}</h2>
-          <p class="prompt-archive-note">按工作目录整理。提示词来自会话正文，标题仅作为会话元信息。</p>
+          <h2>${escapeHtml(empty ? "当前批没有匹配任务" : `${entries.length} 条当前批任务`)}</h2>
+          <p class="prompt-archive-note">${escapeHtml(promptArchiveRangeNote("按工作目录整理。提示词来自会话正文，标题仅作为会话元信息。", page))}</p>
         </div>
-        <div class="prompt-archive-summary" aria-label="任务归档统计">
+        <div class="prompt-archive-summary" aria-label="当前批任务归档统计">
           <strong>${groups.length}</strong><span>个项目</span>
         </div>
       </header>
-      ${groups.map(renderPromptArchiveGroup).join("")}
+      ${empty ? emptyState("没有匹配的任务", emptyMessage, []) : groups.map(renderPromptArchiveGroup).join("")}
+      ${renderPromptArchivePagination(page)}
     </div>
   `;
   els.promptArchiveContent.querySelectorAll("[data-prompt-session-id]").forEach((button) => {
@@ -2571,6 +2593,44 @@ function renderPromptArchive() {
       if (els.promptArchiveControls) els.promptArchiveControls.hidden = true;
       syncSidebarModeTabs();
       selectSession(entry.sessionId);
+    });
+  });
+  bindPromptArchivePagination();
+}
+
+function promptArchiveRangeLabel(page = {}) {
+  const from = Number(page.candidateFrom) || 0;
+  const to = Number(page.candidateTo) || 0;
+  return from && to ? `已扫描候选第 ${from}-${to} 个` : "等待扫描候选会话";
+}
+
+function promptArchiveRangeNote(prefix, page = {}) {
+  if (!page.candidatesScanned) return prefix;
+  const range = promptArchiveRangeLabel(page);
+  return page.hasMoreCandidates ? `${prefix} ${range}；更早候选尚未扫描。` : `${prefix} ${range}；已扫描到当前时间范围最早任务。`;
+}
+
+function renderPromptArchivePagination(page = {}) {
+  if (!page.candidatesScanned && !state.promptArchiveLoading) return "";
+  const hasMore = page.hasMoreCandidates === true && Boolean(page.nextPageToken);
+  const completion = hasMore ? "更早候选尚未扫描" : "已扫描到当前时间范围最早任务";
+  return `
+    <nav class="remote-index-pagination prompt-archive-pagination" aria-label="任务归档候选分页">
+      <span class="remote-index-page-info" data-prompt-archive-page-info>${escapeHtml(promptArchiveRangeLabel(page))} · 本批 ${Number(page.entriesReturned) || 0} 条归档</span>
+      <span class="remote-index-page-status" data-prompt-archive-page-status>${escapeHtml(completion)}</span>
+      <div class="remote-index-page-actions">
+        <button class="ghost-button small" type="button" data-prompt-archive-page-action="next" ${hasMore && !state.promptArchiveLoading ? "" : "disabled"}>${state.promptArchiveLoading ? "正在定位更早任务" : "继续定位更早任务"}</button>
+      </div>
+    </nav>
+  `;
+}
+
+function bindPromptArchivePagination() {
+  els.promptArchiveContent?.querySelectorAll("[data-prompt-archive-page-action=next]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const token = state.promptArchivePage?.nextPageToken;
+      if (!token || state.promptArchiveLoading) return;
+      void loadPromptArchive({ pageToken: token });
     });
   });
 }
@@ -3389,9 +3449,12 @@ function renderStatusbar() {
   }
   if (state.sidebarMode === "prompts") {
     els.statusSource.textContent = `数据源：${source?.label || source?.id || "未选择"} · 任务归档`;
-    els.statusSession.textContent = state.promptArchiveLoading ? "正在整理首个任务提示词" : "首个任务提示词只读归档";
-    els.statusEvents.textContent = `${state.promptArchive.length || 0} 条归档 · ${state.promptArchiveProjects.length || 0} 个项目`;
-    els.statusUpdated.textContent = state.promptArchiveError ? "归档读取失败，可重试" : "点击条目打开原会话";
+    const page = state.promptArchivePage || {};
+    els.statusSession.textContent = state.promptArchiveLoading ? "正在整理当前批首个任务提示词" : "首个任务提示词只读归档";
+    els.statusEvents.textContent = `${promptArchiveRangeLabel(page)} · 本批 ${state.promptArchive.length || 0} 条归档`;
+    els.statusUpdated.textContent = state.promptArchiveError
+      ? "归档读取失败，可重试"
+      : page.hasMoreCandidates ? "更早候选尚未扫描，可继续定位" : "已扫描到当前时间范围最早任务";
     syncExportButtons();
     return;
   }
@@ -9146,8 +9209,9 @@ function sourceSessionsUrl(sourceId = state.selectedSourceId, scope = "all") {
   return `/api/sources/${encodeURIComponent(sourceId)}/sessions${query ? `?${query}` : ""}`;
 }
 
-function promptArchiveUrl(sourceId = state.selectedSourceId, scope = promptArchiveScope()) {
-  const params = new URLSearchParams({ limit: "800", scope });
+function promptArchiveUrl(sourceId = state.selectedSourceId, scope = promptArchiveScope(), pageToken = "") {
+  const params = new URLSearchParams({ scope });
+  if (pageToken) params.set("pageToken", pageToken);
   return `/api/sources/${encodeURIComponent(sourceId)}/prompts?${params.toString()}`;
 }
 

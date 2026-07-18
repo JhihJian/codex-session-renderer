@@ -314,6 +314,40 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   assert.equal(historyOnlyList.body.scope, "history");
   assert.equal(historyOnlyList.body.sessions.length, 1);
 
+  const promptPageDir = path.join(codexHome, "sessions", "2026", "07", "07");
+  await fs.mkdir(promptPageDir, { recursive: true });
+  await Promise.all(Array.from({ length: 201 }, async (_, index) => {
+    const position = String(index + 1).padStart(3, "0");
+    const prompt = position === "002" ? "第201项唯一命中" : `归档候选 ${position}`;
+    const filePath = path.join(promptPageDir, `rollout-2026-07-07T10-00-00-page-${position}.jsonl`);
+    await fs.writeFile(filePath, `${JSON.stringify({ type: "session_meta", payload: { cwd: "D:\\github\\codex-session-renderer" } })}\n${JSON.stringify({ type: "event_msg", payload: { type: "user_message", message: prompt } })}\n`, "utf8");
+    await fs.utimes(filePath, oldFileTime, oldFileTime);
+  }));
+  const firstPromptPage = await requestJson(baseUrl, "/api/sources/local/prompts?scope=all&q=%E7%AC%AC201%E9%A1%B9%E5%94%AF%E4%B8%80%E5%91%BD%E4%B8%AD");
+  assert.equal(firstPromptPage.response.status, 200);
+  assert.equal(firstPromptPage.body.entries.length, 0);
+  assert.deepEqual(firstPromptPage.body.page.candidateFrom, 1);
+  assert.deepEqual(firstPromptPage.body.page.candidateTo, 200);
+  assert.equal(firstPromptPage.body.page.candidatesScanned, 200);
+  assert.equal(firstPromptPage.body.page.hasMoreCandidates, true);
+  assert.match(firstPromptPage.body.page.nextPageToken, /^[0-9a-f-]{36}$/);
+  const secondPromptPage = await requestJson(baseUrl, `/api/sources/local/prompts?scope=all&q=%E7%AC%AC201%E9%A1%B9%E5%94%AF%E4%B8%80%E5%91%BD%E4%B8%AD&pageToken=${firstPromptPage.body.page.nextPageToken}`);
+  assert.equal(secondPromptPage.response.status, 200);
+  assert.equal(secondPromptPage.body.page.candidateFrom, 201);
+  assert.equal(secondPromptPage.body.page.hasMoreCandidates, false);
+  assert.equal(secondPromptPage.body.entries.length, 1);
+  assert.equal(secondPromptPage.body.entries[0].promptText, "第201项唯一命中");
+  const expiredPromptPage = await requestJson(baseUrl, `/api/sources/local/prompts?scope=all&pageToken=${firstPromptPage.body.page.nextPageToken}`);
+  assert.equal(expiredPromptPage.response.status, 409);
+  assert.equal(expiredPromptPage.body.details.code, "prompt_archive_snapshot_changed");
+  const changingPromptPage = await requestJson(baseUrl, "/api/sources/local/prompts?scope=all");
+  await fs.utimes(sessionPath, new Date(), new Date());
+  const changedPromptPage = await requestJson(baseUrl, `/api/sources/local/prompts?scope=all&pageToken=${changingPromptPage.body.page.nextPageToken}`);
+  assert.equal(changedPromptPage.response.status, 409);
+  assert.equal(changedPromptPage.body.details.code, "prompt_archive_snapshot_changed");
+  await fs.rm(promptPageDir, { recursive: true, force: true });
+  await fs.utimes(sessionPath, oldFileTime, oldFileTime);
+
   const piList = await requestJson(baseUrl, "/api/sources/pi-agent/sessions");
   assert.equal(piList.response.status, 200);
   assert.equal(piList.body.sessions.length, 1);

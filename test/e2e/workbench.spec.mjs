@@ -8,7 +8,7 @@ async function openWorkbench(page) {
   await expect(page.locator("#compactContent")).toBeVisible();
 }
 
-function promptResponse(prompt, title = "当前任务") {
+function promptResponse(prompt, title = "当前任务", page = {}) {
   return {
     source: { id: "local", label: "本机 Codex Home", kind: "local" },
     scope: "recent24h",
@@ -30,7 +30,16 @@ function promptResponse(prompt, title = "当前任务") {
       },
     ],
     projects: [],
-    page: { total: 1, returned: 1, limit: 800, truncated: false },
+    page: {
+      candidateFrom: 1,
+      candidateTo: 1,
+      candidatesScanned: 1,
+      entriesReturned: 1,
+      limit: 200,
+      hasMoreCandidates: false,
+      nextPageToken: null,
+      ...page,
+    },
     serverTime: "2025-01-02T03:04:11.000Z",
   };
 }
@@ -165,6 +174,85 @@ test("任务归档取消加载，并隔离过期响应", async ({ page }) => {
   resolveStaleResponse();
   await staleSettled;
   await expect(page.locator("#promptArchiveContent").getByText("过期响应不得写入页面")).toHaveCount(0);
+});
+
+test("任务归档诚实显示扫描范围，并可继续定位第201项唯一命中", async ({ page }) => {
+  await openWorkbench(page);
+  let calls = 0;
+  await page.route("**/api/sources/local/prompts?*", async (route) => {
+    calls += 1;
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("pageToken") === "next-200") {
+      await route.fulfill({ json: promptResponse("第201项唯一命中", "更早任务", {
+        candidateFrom: 201,
+        candidateTo: 201,
+        candidatesScanned: 1,
+        entriesReturned: 1,
+      }) });
+      return;
+    }
+    await route.fulfill({ json: {
+      ...promptResponse("当前批其他任务", "当前任务", {
+        candidateFrom: 1,
+        candidateTo: 200,
+        candidatesScanned: 200,
+        entriesReturned: 0,
+        hasMoreCandidates: true,
+        nextPageToken: "next-200",
+      }),
+      entries: [],
+      projects: [],
+    } });
+  });
+
+  await page.locator("#promptsModeButton").click();
+  await expect(page.locator("[data-prompt-archive-page-info]")).toHaveText("已扫描候选第 1-200 个 · 本批 0 条归档");
+  await page.locator("#promptArchiveSearch").fill("第201项唯一命中");
+  await expect(page.locator("#promptArchiveContent")).toContainText("当前已扫描范围没有符合搜索或筛选条件的任务");
+  await expect(page.locator("#promptArchiveContent")).toContainText("更早候选尚未扫描");
+  const continuation = page.waitForRequest((request) => request.url().includes("/api/sources/local/prompts?") && request.url().includes("pageToken=next-200"));
+  await page.locator("[data-prompt-archive-page-action=next]").click();
+  await continuation;
+  await expect(page.locator("[data-prompt-archive-page-info]")).toHaveText("已扫描候选第 201-201 个 · 本批 1 条归档");
+  await expect(page.locator("#promptArchiveContent")).toContainText("第201项唯一命中");
+  await expect(page.locator("[data-prompt-archive-page-status]")).toHaveText("已扫描到当前时间范围最早任务");
+  await expect(page.locator("[data-prompt-archive-page-action=next]")).toBeDisabled();
+  expect(calls).toBe(2);
+});
+
+test("任务归档续页变化后清空旧批并从首批恢复", async ({ page }) => {
+  await openWorkbench(page);
+  let calls = 0;
+  await page.route("**/api/sources/local/prompts?*", async (route) => {
+    calls += 1;
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("pageToken") === "changing-token") {
+      await route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "任务归档候选范围已变化，请从最近任务重新开始定位。", details: { code: "prompt_archive_snapshot_changed" } }),
+      });
+      return;
+    }
+    await route.fulfill({ json: promptResponse(calls === 1 ? "旧批内容" : "恢复后的首批内容", calls === 1 ? "旧批" : "恢复后", {
+      candidateFrom: 1,
+      candidateTo: 200,
+      candidatesScanned: 200,
+      entriesReturned: 1,
+      hasMoreCandidates: calls === 1,
+      nextPageToken: calls === 1 ? "changing-token" : null,
+    }) });
+  });
+
+  await page.locator("#promptsModeButton").click();
+  await expect(page.locator("#promptArchiveContent")).toContainText("旧批内容");
+  const restarted = page.waitForRequest((request) => request.url().includes("/api/sources/local/prompts?") && !request.url().includes("pageToken="));
+  await page.locator("[data-prompt-archive-page-action=next]").click();
+  await restarted;
+  await expect(page.locator("#toast")).toContainText("已从最近任务重新开始定位");
+  await expect(page.locator("#promptArchiveContent")).toContainText("恢复后的首批内容");
+  await expect(page.locator("#promptArchiveContent")).not.toContainText("旧批内容");
+  expect(calls).toBe(3);
 });
 
 test("远端历史索引分页显示范围、末页并复用已访问页", async ({ page }) => {

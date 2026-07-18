@@ -6,7 +6,7 @@
   },
   "public/app.js": {
     "complexity": {
-      "count": 49
+      "count": 50
     },
     "max-lines": {
       "count": 1
@@ -18,7 +18,7 @@
       "count": 1
     },
     "max-statements": {
-      "count": 6
+      "count": 7
     },
     "no-unused-vars": {
       "count": 21
@@ -69,7 +69,7 @@
   },
   "server.mjs": {
     "complexity": {
-      "count": 5
+      "count": 6
     },
     "max-lines": {
       "count": 1
@@ -162,6 +162,9 @@
   },
   "src/sqlite-threads.mjs": {
     "complexity": {
+      "count": 2
+    },
+    "max-lines-per-function": {
       "count": 1
     }
   },
@@ -176,6 +179,9 @@
     }
   },
   "test/server-http-smoke.test.mjs": {
+    "max-lines": {
+      "count": 1
+    },
     "max-lines-per-function": {
       "count": 1
     },
