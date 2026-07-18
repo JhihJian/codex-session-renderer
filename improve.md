@@ -161,4 +161,4 @@
 
 - 发现：来源响应是否还能写回当前导航，与该请求是否仍需结束自身 loading 被混为一个条件。同一来源远端刷新后切换阅读、复核或面板时，旧结果虽被正确拒绝，但刷新控件仍禁用；移动端归档在切换复核面板后也会保留“正在整理任务归档”和 `aria-busy=true`。此外浏览器此前容忍成功响应缺失来源标识，和服务端 source-scoped API 契约不一致；`820px` 的 JS/CSS 边界在小数宽度存在空档。
 - 交付：将“请求仍拥有状态”和“请求仍可写回导航”拆分。刷新或归档的同源旧响应不再更新来源、数据、成功 toast 或成功状态，但拥有请求的收尾会清理 loading、恢复控件和 ARIA，并显示“已取消，可再次拉取/重新整理”。sessions、远端 index、归档和刷新成功响应要求顶层 `source.id` 精确匹配；集合条目若带 `sourceId` 必须一致；详情要求 `session.sourceId` 精确匹配，失败进入原有可重试终态。桌面与移动统一以 `820px` 为唯一 CSS/JS 边界。
-- 验证：新增 Chromium 覆盖同来源刷新中的阅读/复核导航、移动归档转复核、缺失/顶层冲突/条目冲突/详情冲突来源响应，以及 820px、820.5px 最近可用视口、821px 的布局和 inert/ARIA 语义。`npm test` 通过 254 项，Chromium 通过 31 项；`npm run verify` 已执行，但 lint 在运行 Node/Chromium 前被 HEAD 已有的 `public/app.js` 61 项复杂度/语句数门禁阻断，本轮没有新增 lint 报错。
+- 验证：新增 Chromium 覆盖同来源刷新中的阅读/复核导航、移动归档转复核、缺失/顶层冲突/条目冲突/详情冲突来源响应，以及 820px、820.5px 最近可用视口、821px 的布局和 inert/ARIA 语义。`npm run lint`、`npm test`（254 项）、`npm run test:e2e`（31 项）和 `npm run verify` 全部通过；bulk suppression 的每条计数均未增加。

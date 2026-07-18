@@ -938,70 +938,88 @@ async function loadPromptArchive({ force = false, pageToken = "", restarted = fa
   cancelPromptArchiveRequest();
   const controller = new AbortController();
   state.promptArchiveAbortController = controller;
-  const requestKey = `prompts:${++state.promptArchiveRequestSeq}:${sourceId}:${scope}:${pageToken || "first"}`;
+  const request = promptArchiveRequestDetails(sourceId, scope, pageToken);
+  const requestKey = request.key;
   state.promptArchiveRequestKey = requestKey;
   state.promptArchiveLoading = true;
   state.promptArchiveError = "";
   state.promptArchiveCancelled = false;
   state.promptArchiveScope = archiveCacheKey;
-  if (!pageToken) {
-    state.promptArchive = [];
-    state.promptArchiveProjects = [];
-    state.promptArchivePage = null;
-    state.promptArchiveProject = "all";
-  }
+  if (!pageToken) resetPromptArchivePage();
   const operationKey = `${requestKey}:status`;
-  let responseRejectedForNavigation = false;
-  setWorkbenchStatus(operationKey, pageToken ? "正在定位更早任务" : "正在整理当前批任务归档", { announce });
+  let requestState = "current";
+  setWorkbenchStatus(operationKey, request.loadingMessage, { announce });
   renderAll();
   try {
-    const data = await fetchJson(promptArchiveUrl(sourceId, scope, pageToken), { signal: controller.signal });
-    if (!sourceRequestOwnsState({ requestKey, expectedRequestKey: state.promptArchiveRequestKey, sourceId })) return;
-    if (!sourceNavigationRequestIsCurrent({ requestKey, expectedRequestKey: state.promptArchiveRequestKey, sourceId, context: archiveContext })) {
-      responseRejectedForNavigation = true;
-      return;
-    }
-    requireSourceResponse(data, sourceId, "prompts");
-    state.promptArchive = data.entries || [];
-    state.promptArchiveProjects = data.projects || [];
-    state.promptArchivePage = data.page || null;
-    state.promptArchiveProject = "all";
-    state.promptArchiveLoaded = true;
-    state.promptArchiveError = "";
+    const response = await requestPromptArchive({ sourceId, scope, pageToken, controller, requestKey, archiveContext });
+    requestState = response.requestState;
+    if (requestState !== "current") return;
+    applyPromptArchiveResponse(response.data);
     setWorkbenchStatus(operationKey, `任务归档已更新：本批 ${state.promptArchive.length} 条`, { announce });
   } catch (error) {
-    if (isAbortError(error)) return;
-    if (!sourceRequestOwnsState({ requestKey, expectedRequestKey: state.promptArchiveRequestKey, sourceId })) return;
-    if (!sourceNavigationRequestIsCurrent({ requestKey, expectedRequestKey: state.promptArchiveRequestKey, sourceId, context: archiveContext })) {
-      responseRejectedForNavigation = true;
-      return;
-    }
-    if (error.code === "prompt_archive_snapshot_changed" && pageToken && !restarted) {
-      state.promptArchive = [];
-      state.promptArchiveProjects = [];
-      state.promptArchivePage = null;
-      showToast("任务范围已变化，已从最近任务重新开始定位");
-      state.promptArchiveLoading = false;
-      setWorkbenchStatus(operationKey, "任务归档范围已变化，正在从最近任务重新开始定位", { announce });
-      await loadPromptArchive({ force: true, restarted: true, announce });
-      return;
-    }
-    state.promptArchive = [];
-    state.promptArchiveProjects = [];
-    state.promptArchivePage = null;
-    state.promptArchiveError = error.message;
-    setWorkbenchStatus(operationKey, `任务归档读取失败：${error.message}。可重试。`, { announce: true });
+    requestState = await handlePromptArchiveFailure({ error, sourceId, requestKey, archiveContext, pageToken, restarted, operationKey, announce });
   } finally {
-    if (state.promptArchiveAbortController === controller) state.promptArchiveAbortController = null;
-    if (sourceRequestOwnsState({ requestKey, expectedRequestKey: state.promptArchiveRequestKey, sourceId })) {
-      state.promptArchiveLoading = false;
-      if (responseRejectedForNavigation) {
-        state.promptArchiveCancelled = true;
-        if (state.workbenchStatus.key === operationKey) setWorkbenchStatus(operationKey, "任务归档读取已取消，可重新整理");
-      }
-      renderAll();
-    }
+    finishPromptArchiveRequest({ controller, sourceId, requestKey, operationKey, requestState });
   }
+}
+
+function promptArchiveRequestDetails(sourceId, scope, pageToken) {
+  return {
+    key: `prompts:${++state.promptArchiveRequestSeq}:${sourceId}:${scope}:${pageToken || "first"}`,
+    loadingMessage: pageToken ? "正在定位更早任务" : "正在整理当前批任务归档",
+  };
+}
+
+function resetPromptArchivePage() {
+  state.promptArchive = [];
+  state.promptArchiveProjects = [];
+  state.promptArchivePage = null;
+  state.promptArchiveProject = "all";
+}
+
+async function requestPromptArchive({ sourceId, scope, pageToken, controller, requestKey, archiveContext }) {
+  const data = await fetchJson(promptArchiveUrl(sourceId, scope, pageToken), { signal: controller.signal });
+  const requestState = sourceRequestState({ requestKey, expectedRequestKey: state.promptArchiveRequestKey, sourceId, context: archiveContext });
+  if (requestState === "current") requireSourceResponse(data, sourceId, "prompts");
+  return { data, requestState };
+}
+
+function applyPromptArchiveResponse(data) {
+  state.promptArchive = data.entries || [];
+  state.promptArchiveProjects = data.projects || [];
+  state.promptArchivePage = data.page || null;
+  state.promptArchiveProject = "all";
+  state.promptArchiveLoaded = true;
+  state.promptArchiveError = "";
+}
+
+async function handlePromptArchiveFailure({ error, sourceId, requestKey, archiveContext, pageToken, restarted, operationKey, announce }) {
+  if (isAbortError(error)) return "stale";
+  const requestState = sourceRequestState({ requestKey, expectedRequestKey: state.promptArchiveRequestKey, sourceId, context: archiveContext });
+  if (requestState !== "current") return requestState;
+  if (error.code === "prompt_archive_snapshot_changed" && pageToken && !restarted) {
+    resetPromptArchivePage();
+    showToast("任务范围已变化，已从最近任务重新开始定位");
+    state.promptArchiveLoading = false;
+    setWorkbenchStatus(operationKey, "任务归档范围已变化，正在从最近任务重新开始定位", { announce });
+    await loadPromptArchive({ force: true, restarted: true, announce });
+    return "restarted";
+  }
+  resetPromptArchivePage();
+  state.promptArchiveError = error.message;
+  setWorkbenchStatus(operationKey, `任务归档读取失败：${error.message}。可重试。`, { announce: true });
+  return "current";
+}
+
+function finishPromptArchiveRequest({ controller, sourceId, requestKey, operationKey, requestState }) {
+  if (state.promptArchiveAbortController === controller) state.promptArchiveAbortController = null;
+  if (!sourceRequestOwnsState({ requestKey, expectedRequestKey: state.promptArchiveRequestKey, sourceId })) return;
+  state.promptArchiveLoading = false;
+  if (requestState === "navigation-changed") {
+    state.promptArchiveCancelled = true;
+    if (state.workbenchStatus.key === operationKey) setWorkbenchStatus(operationKey, "任务归档读取已取消，可重新整理");
+  }
+  renderAll();
 }
 
 function cancelPromptArchiveRequest() {
@@ -1397,48 +1415,53 @@ async function refreshSelectedSource() {
   state.remoteRefreshLoading = true;
   state.remoteRefreshCancelled = false;
   state.remoteRefreshError = "";
-  let responseRejectedForNavigation = false;
+  let requestState = "current";
   setWorkbenchStatus(operationKey, `正在拉取${source.label || "远端"}快照`, { announce: true });
   els.refreshRemoteButton.disabled = true;
   els.refreshRemoteButton.textContent = "正在拉取快照";
   try {
     const result = await fetchJson(`/api/sources/${encodeURIComponent(sourceId)}/refresh`, { method: "POST" });
-    if (!sourceRequestOwnsState({ requestKey: operationKey, expectedRequestKey: state.remoteRefreshRequestKey, sourceId })) return;
-    if (!sourceNavigationRequestIsCurrent({ requestKey: operationKey, expectedRequestKey: state.remoteRefreshRequestKey, sourceId, context: refreshContext })) {
-      responseRejectedForNavigation = true;
-      return;
-    }
-    requireSourceResponse(result, sourceId, "refresh");
-    state.remoteRefreshError = "";
-    if (result.source) upsertSource(result.source);
-    renderSourceControls();
-    await loadSessions({ keepSelection: true });
-    if (state.sidebarMode === "prompts") await loadPromptArchive({ force: true });
-    setWorkbenchStatus(operationKey, "远端快照已拉取到本机缓存；未修改远端", { announce: true });
-    showToast("远端快照已拉取到本机缓存；未修改远端");
+    requestState = sourceRequestState({ requestKey: operationKey, expectedRequestKey: state.remoteRefreshRequestKey, sourceId, context: refreshContext });
+    if (requestState !== "current") return;
+    await applySelectedSourceRefresh(result, sourceId, operationKey);
   } catch (error) {
-    if (!sourceRequestOwnsState({ requestKey: operationKey, expectedRequestKey: state.remoteRefreshRequestKey, sourceId })) return;
-    if (!sourceNavigationRequestIsCurrent({ requestKey: operationKey, expectedRequestKey: state.remoteRefreshRequestKey, sourceId, context: refreshContext })) {
-      responseRejectedForNavigation = true;
-      return;
-    }
-    state.remoteRefreshError = error.message;
-    await reloadSources();
-    setWorkbenchStatus(operationKey, `拉取远端快照失败：${error.message}。可再次拉取。`, { announce: true });
-    showToast(`拉取远端快照失败：${error.message}；远端未修改`);
-    await loadSessions({ keepSelection: true });
-    if (state.sidebarMode === "prompts") await loadPromptArchive({ force: true });
+    requestState = sourceRequestState({ requestKey: operationKey, expectedRequestKey: state.remoteRefreshRequestKey, sourceId, context: refreshContext });
+    if (requestState !== "current") return;
+    await handleSelectedSourceRefreshFailure(error, operationKey);
   } finally {
-    if (sourceRequestOwnsState({ requestKey: operationKey, expectedRequestKey: state.remoteRefreshRequestKey, sourceId })) {
-      state.remoteRefreshLoading = false;
-      if (responseRejectedForNavigation) {
-        state.remoteRefreshCancelled = true;
-        if (state.workbenchStatus.key === operationKey) setWorkbenchStatus(operationKey, "远端快照拉取已取消，可再次拉取");
-      }
-      renderSourceControls();
-      renderAll();
-    }
+    finishSelectedSourceRefresh({ sourceId, operationKey, requestState });
   }
+}
+
+async function applySelectedSourceRefresh(result, sourceId, operationKey) {
+  requireSourceResponse(result, sourceId, "refresh");
+  state.remoteRefreshError = "";
+  if (result.source) upsertSource(result.source);
+  renderSourceControls();
+  await loadSessions({ keepSelection: true });
+  if (state.sidebarMode === "prompts") await loadPromptArchive({ force: true });
+  setWorkbenchStatus(operationKey, "远端快照已拉取到本机缓存；未修改远端", { announce: true });
+  showToast("远端快照已拉取到本机缓存；未修改远端");
+}
+
+async function handleSelectedSourceRefreshFailure(error, operationKey) {
+  state.remoteRefreshError = error.message;
+  await reloadSources();
+  setWorkbenchStatus(operationKey, `拉取远端快照失败：${error.message}。可再次拉取。`, { announce: true });
+  showToast(`拉取远端快照失败：${error.message}；远端未修改`);
+  await loadSessions({ keepSelection: true });
+  if (state.sidebarMode === "prompts") await loadPromptArchive({ force: true });
+}
+
+function finishSelectedSourceRefresh({ sourceId, operationKey, requestState }) {
+  if (!sourceRequestOwnsState({ requestKey: operationKey, expectedRequestKey: state.remoteRefreshRequestKey, sourceId })) return;
+  state.remoteRefreshLoading = false;
+  if (requestState === "navigation-changed") {
+    state.remoteRefreshCancelled = true;
+    if (state.workbenchStatus.key === operationKey) setWorkbenchStatus(operationKey, "远端快照拉取已取消，可再次拉取");
+  }
+  renderSourceControls();
+  renderAll();
 }
 
 async function reloadSources() {
@@ -2615,23 +2638,7 @@ async function requestRemoteIndexPage({ sourceId, filterKey, cursor, options }) 
     const data = await fetchJson(remoteIndexUrl(sourceId, cursor, options.snapshot || ""), { signal: controller.signal });
     if (state.remoteIndexRequestKey !== requestKey || state.remoteIndexFilterKey !== filterKey || state.selectedSourceId !== sourceId) return;
     requireSourceResponse(data, sourceId, "remote-index");
-    if (data.source) upsertSource(data.source);
-    const entry = {
-      sourceId,
-      cursor,
-      previousCursor: options.previousCursor ?? null,
-      pageNumber: options.pageNumber || 1,
-      page: data.page || { total: 0, limit: remoteIndexPageLimit, cursor, nextCursor: null },
-      sessions: (data.sessions || []).map((session) => ({
-        ...session,
-        remoteIndexOnly: true,
-        availableInSnapshot: false,
-      })),
-    };
-    cacheRemoteIndexPage(entry);
-    state.remoteIndexPage = entry;
-    state.remoteIndexSessions = entry.sessions;
-    state.remoteIndexError = "";
+    const entry = applyRemoteIndexResponse({ data, sourceId, cursor, options });
     setWorkbenchStatus(operationKey, `${remoteHistoryBucketLabel()}已加载：${entry.page.total || 0} 条`, { announce: options.announce === true });
   } catch (error) {
     if (isAbortError(error)) return;
@@ -2655,6 +2662,23 @@ async function requestRemoteIndexPage({ sourceId, filterKey, cursor, options }) 
       renderSessionList();
     }
   }
+}
+
+function applyRemoteIndexResponse({ data, sourceId, cursor, options }) {
+  if (data.source) upsertSource(data.source);
+  const entry = {
+    sourceId,
+    cursor,
+    previousCursor: options.previousCursor ?? null,
+    pageNumber: options.pageNumber || 1,
+    page: data.page || { total: 0, limit: remoteIndexPageLimit, cursor, nextCursor: null },
+    sessions: (data.sessions || []).map((session) => ({ ...session, remoteIndexOnly: true, availableInSnapshot: false })),
+  };
+  cacheRemoteIndexPage(entry);
+  state.remoteIndexPage = entry;
+  state.remoteIndexSessions = entry.sessions;
+  state.remoteIndexError = "";
+  return entry;
 }
 
 function resetRemoteIndexState() {
@@ -2691,6 +2715,11 @@ function sourceNavigationRequestIsCurrent({ requestKey, expectedRequestKey, sour
 
 function sourceRequestOwnsState({ requestKey, expectedRequestKey, sourceId }) {
   return requestKey === expectedRequestKey && state.selectedSourceId === sourceId;
+}
+
+function sourceRequestState({ requestKey, expectedRequestKey, sourceId, context }) {
+  if (!sourceRequestOwnsState({ requestKey, expectedRequestKey, sourceId })) return "stale";
+  return sourceNavigationRequestIsCurrent({ requestKey, expectedRequestKey, sourceId, context }) ? "current" : "navigation-changed";
 }
 
 function sourceResponseMatches(data, sourceId, responseKind) {
