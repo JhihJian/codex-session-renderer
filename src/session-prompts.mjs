@@ -55,7 +55,7 @@ function promptProjectLabel(cwd) {
 function buildPromptArchiveEntry(session, prompt, options = {}) {
   const sourceId = session?.sourceId || options.sourceId || "local";
   const cwd = session?.cwd || null;
-  const hideTitle = prompt?.state === "too_large" || prompt?.state === "changing";
+  const hideTitle = Boolean(options.hideSessionTitle) || prompt?.state === "too_large" || prompt?.state === "changing";
   return {
     id: `${sourceId}:${session?.id || ""}`,
     sourceId,

@@ -43,9 +43,12 @@ const outsidePlainId = "55555555-5555-4555-8555-555555555555";
 const symlinkEscapeId = "66666666-6666-4666-8666-666666666666";
 const mismatchedPathId = "77777777-7777-4777-8777-777777777777";
 const piSessionId = "22222222-2222-4222-8222-222222222222";
+const piLargeSessionId = "99999999-9999-4999-8999-999999999999";
+const piLargePrompt = "Pi 大会话前缀中的首个有效任务";
 const piSessionsRoot = path.join(tempRoot, ".pi", "agent", "sessions");
 const piProjectDir = path.join(piSessionsRoot, "--D--work-pi-web--");
 const piSessionPath = path.join(piProjectDir, `2026-07-10T04-51-55-870Z_${piSessionId}.jsonl`);
+const piLargeSessionPath = path.join(piProjectDir, `2026-07-18T04-51-55-870Z_${piLargeSessionId}.jsonl`);
 
 await fs.mkdir(sessionDir, { recursive: true });
 await fs.writeFile(
@@ -189,6 +192,29 @@ await fs.writeFile(
         content: [{ type: "text", text: "Successfully wrote file" }],
         isError: false,
       },
+    },
+  ].map((event) => JSON.stringify(event)).join("\n") + "\n",
+  "utf8",
+);
+
+await fs.writeFile(
+  piLargeSessionPath,
+  [
+    { type: "session", version: 3, id: piLargeSessionId, timestamp: "2026-07-18T04:51:55.870Z", cwd: "D:\\work\\pi-web" },
+    { type: "session_info", id: "pi-large-info", parentId: null, timestamp: "2026-07-18T04:52:06.050Z", name: "不应从前缀外标题索引返回的 Pi 标题" },
+    {
+      type: "message",
+      id: "pi-large-user",
+      parentId: "pi-large-info",
+      timestamp: "2026-07-18T04:52:06.061Z",
+      message: { role: "user", content: [{ type: "text", text: piLargePrompt }] },
+    },
+    {
+      type: "message",
+      id: "pi-large-assistant",
+      parentId: "pi-large-user",
+      timestamp: "2026-07-18T04:52:08.142Z",
+      message: { role: "assistant", content: [{ type: "text", text: "x".repeat(Math.ceil(4.8 * 1024 * 1024)) }] },
     },
   ].map((event) => JSON.stringify(event)).join("\n") + "\n",
   "utf8",
@@ -374,12 +400,12 @@ test("server module can be imported and serves core HTTP session APIs", async (t
 
   const piList = await requestJson(baseUrl, "/api/sources/pi-agent/sessions");
   assert.equal(piList.response.status, 200);
-  assert.equal(piList.body.sessions.length, 1);
-  assert.equal(piList.body.sessions[0].id, piSessionId);
-  assert.equal(piList.body.sessions[0].title, "Pi Agent smoke 会话");
-  assert.equal(piList.body.sessions[0].cwd, "D:\\work\\pi-web");
-  assert.equal(piList.body.sessions[0].model, "gpt-5.5");
-  assert.equal(piList.body.sessions[0].dataSourceKind, "pi-agent");
+  assert.equal(piList.body.sessions.length, 2);
+  const piSession = piList.body.sessions.find((entry) => entry.id === piSessionId);
+  assert.equal(piSession.title, "Pi Agent smoke 会话");
+  assert.equal(piSession.cwd, "D:\\work\\pi-web");
+  assert.equal(piSession.model, "gpt-5.5");
+  assert.equal(piSession.dataSourceKind, "pi-agent");
 
   const piDetail = await requestJson(baseUrl, `/api/sources/pi-agent/sessions/${piSessionId}`);
   assert.equal(piDetail.response.status, 200);
@@ -387,6 +413,15 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   assert.equal(piDetail.body.turns[0].items[2].type, "tool-call");
   assert.equal(piDetail.body.turns[0].items[2].name, "write");
   assert.equal(piDetail.body.turns[0].items[2].output, "Successfully wrote file");
+
+  const piPrompts = await requestJson(baseUrl, `/api/sources/pi-agent/prompts?scope=recent24h&q=${encodeURIComponent(piLargePrompt)}&project=pi-agent%3Ad%3A%2Fwork%2Fpi-web&status=found`);
+  assert.equal(piPrompts.response.status, 200);
+  assert.equal(piPrompts.body.entries.length, 1);
+  assert.equal(piPrompts.body.entries[0].sessionId, piLargeSessionId);
+  assert.equal(piPrompts.body.entries[0].promptState, "found");
+  assert.equal(piPrompts.body.entries[0].promptText, piLargePrompt);
+  assert.equal(piPrompts.body.entries[0].promptEventIndex, 2);
+  assert.equal(piPrompts.body.entries[0].sessionTitle, "未命名会话");
 
   const sessionsPost = await requestJson(baseUrl, "/api/sessions", { method: "POST" });
   assert.equal(sessionsPost.response.status, 405);

@@ -22,6 +22,30 @@ test("extractFirstPrompt keeps the first real user task and its source anchor", 
   assert.equal(prompt.turnId, "turn-1");
 });
 
+test("extractFirstPrompt recognizes a Pi user task in the bounded JSONL prefix", () => {
+  const prompt = extractFirstPrompt([
+    { type: "session", id: "pi-session", cwd: "/work/pi" },
+    { type: "session_info", id: "pi-info", name: "Pi 会话标题" },
+    {
+      type: "message",
+      id: "pi-machine",
+      parentId: "pi-info",
+      message: { role: "user", content: [{ type: "text", text: "Continue working toward the active thread goal" }] },
+    },
+    {
+      type: "message",
+      id: "pi-user",
+      parentId: "pi-machine",
+      timestamp: "2026-07-18T10:00:00.000Z",
+      message: { role: "user", content: [{ type: "text", text: "提取 Pi 会话前缀任务" }] },
+    },
+  ]);
+
+  assert.equal(prompt.state, "found");
+  assert.equal(prompt.text, "提取 Pi 会话前缀任务");
+  assert.equal(prompt.sourceIndex, 3);
+});
+
 test("extractFirstPrompt does not use compact replacement history as a new prompt", () => {
   const prompt = extractFirstPrompt([
     { type: "compacted", payload: { message: "压缩摘要", replacement_history: [{ role: "user", content: [{ text: "旧任务" }] }] } },
@@ -86,4 +110,14 @@ test("buildPromptArchiveEntry hides user-derived titles for bounded archive stat
   );
   assert.equal(entry.sessionTitle, "未命名会话");
   assert.equal(entry.promptText, null);
+});
+
+test("buildPromptArchiveEntry hides a large-file title even when its bounded prefix has a task", () => {
+  const entry = buildPromptArchiveEntry(
+    { id: "session-1", sourceId: "pi-agent", title: "不应从前缀外索引返回的标题" },
+    { state: "found", text: "前缀内有效任务", preview: "前缀内有效任务" },
+    { hideSessionTitle: true },
+  );
+  assert.equal(entry.sessionTitle, "未命名会话");
+  assert.equal(entry.promptText, "前缀内有效任务");
 });

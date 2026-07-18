@@ -178,27 +178,120 @@ test("文件读取中变化时不返回或缓存旧版本，后续新签名才�
   assert.equal(coordinator.entryCache.size, 1);
 });
 
-test("超长提示词与超大文件返回有界且不泄露正文的结果", async () => {
+test("超长提示词受限，而超大文件的有界前缀仍可归档首个任务", async () => {
   let reads = 0;
+  const readOptions = [];
   const coordinator = createPromptArchiveCoordinator({
     maxPromptChars: 8,
     maxFileBytes: 100,
     stat: async (filePath) => stat(filePath.includes("large") ? { size: 101, mtimeMs: 1 } : { size: 10, mtimeMs: 1 }),
     extractPrompt: promptFromEvents,
-    readEvents: async () => {
+    readEvents: async (_filePath, options) => {
       reads += 1;
-      return ["这是一段明显超过上限且不应完整进入响应的提示词"];
+      readOptions.push(options);
+      return _filePath.includes("large-long")
+        ? ["这是一段明显超过上限且不应完整进入响应的提示词"]
+        : _filePath.includes("large")
+        ? ["大文件前缀任务"]
+        : ["这是一段明显超过上限且不应完整进入响应的提示词"];
     },
   });
   const longPrompt = await coordinator.getEntry(session("long"));
   const largeFile = await coordinator.getEntry(session("large"));
+  const largeLongPrompt = await coordinator.getEntry(session("large-long"));
   assert.equal(longPrompt.promptState, "too_large");
   assert.equal(longPrompt.promptText, null);
   assert.equal(longPrompt.promptLimitReason, "prompt_too_long");
-  assert.equal(largeFile.promptState, "too_large");
-  assert.equal(largeFile.promptText, null);
-  assert.equal(largeFile.promptLimitReason, "file_too_large");
-  assert.equal(reads, 1);
+  assert.equal(largeFile.promptState, "found");
+  assert.equal(largeFile.promptText, "大文件前缀任务");
+  assert.equal(largeFile.sessionTitle, "未命名会话");
+  assert.equal(largeLongPrompt.promptState, "too_large");
+  assert.equal(largeLongPrompt.promptLimitReason, "prompt_too_long");
+  assert.equal(largeLongPrompt.promptText, null);
+  assert.equal(largeLongPrompt.sessionTitle, "未命名会话");
+  assert.equal(reads, 3);
+  assert.equal((await coordinator.getEntry(session("large"))).promptText, "大文件前缀任务");
+  assert.equal(reads, 3);
+  assert.equal(readOptions[1].maxBytes, 100);
+  assert.equal(readOptions[1].maxLines, 20_001);
+  assert.equal(readOptions[1].signal.aborted, false);
+});
+
+test("超大文件在有界前缀未找到任务时受限且不泄露目录标题", async () => {
+  const coordinator = createPromptArchiveCoordinator({
+    maxFileBytes: 100,
+    stat: async () => stat({ size: 101, mtimeMs: 1 }),
+    extractPrompt: () => ({ state: "empty", text: null, preview: null, attachments: [] }),
+    readEvents: async () => ["没有有效用户提示词"],
+  });
+
+  const entry = await coordinator.getEntry({ ...session("no-prompt"), title: "前缀外不应返回的恶意标题" });
+
+  assert.equal(entry.promptState, "too_large");
+  assert.equal(entry.promptLimitReason, "file_too_large");
+  assert.equal(entry.promptText, null);
+  assert.equal(entry.sessionTitle, "未命名会话");
+});
+
+test("额外事件探针不参与提取，前缀内首任务仍优先成功", async () => {
+  const extracted = [];
+  const coordinator = createPromptArchiveCoordinator({
+    maxLines: 2,
+    stat: async () => stat({ size: 10, mtimeMs: 1 }),
+    extractPrompt: (events) => {
+      extracted.push(events);
+      return events.includes("前缀任务")
+        ? { state: "found", text: "前缀任务", preview: "前缀任务", attachments: [] }
+        : { state: "empty", text: null, preview: null, attachments: [] };
+    },
+    readEvents: async () => ["前缀任务", "第二条", "探针中的伪任务"],
+  });
+
+  const entry = await coordinator.getEntry(session("event-probe"));
+
+  assert.equal(entry.promptState, "found");
+  assert.equal(entry.promptText, "前缀任务");
+  assert.deepEqual(extracted, [["前缀任务", "第二条"]]);
+});
+
+test("首次 stat 后取消会传播且不命中缓存", async () => {
+  const statGate = deferred();
+  const coordinator = createPromptArchiveCoordinator({
+    stat: async () => statGate.promise,
+    extractPrompt: promptFromEvents,
+    readEvents: async () => ["不应读取"],
+  });
+  const controller = new AbortController();
+  const pending = coordinator.getEntry(session("cancel-stat"), { signal: controller.signal });
+
+  controller.abort();
+  statGate.resolve(stat({ size: 10, mtimeMs: 1 }));
+
+  await assert.rejects(pending, { name: "AbortError" });
+  assert.equal(coordinator.entryCache.size, 0);
+});
+
+test("读取后的签名检查期间取消不会缓存前缀结果", async () => {
+  const afterStatGate = deferred();
+  const readStarted = deferred();
+  let statCalls = 0;
+  const coordinator = createPromptArchiveCoordinator({
+    stat: async () => (statCalls++ === 0 ? stat({ size: 10, mtimeMs: 1 }) : afterStatGate.promise),
+    extractPrompt: promptFromEvents,
+    readEvents: async () => {
+      readStarted.resolve();
+      return ["不应缓存的前缀任务"];
+    },
+  });
+  const controller = new AbortController();
+  const pending = coordinator.getEntry(session("cancel-after-read"), { signal: controller.signal });
+
+  await readStarted.promise;
+  controller.abort();
+  afterStatGate.resolve(stat({ size: 10, mtimeMs: 1 }));
+
+  await assert.rejects(pending, { name: "AbortError" });
+  assert.equal(coordinator.entryCache.size, 0);
 });
 
 test("相同稳定文件签名命中缓存而不重复读取", async () => {

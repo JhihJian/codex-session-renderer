@@ -166,9 +166,7 @@ function createPromptArchiveCoordinator(options = {}) {
 
   async function readStableEntry(session, beforeStat, beforeSignature, signal) {
     throwIfAborted(signal);
-    if (beforeStat.size > limits.maxFileBytes) {
-      return { entry: buildEntry(session, limitedPrompt("file_too_large")), signature: beforeSignature, cacheable: true };
-    }
+    const byteLimited = beforeStat.size > limits.maxFileBytes;
     const events = await readEvents(session.path, {
       signal,
       maxBytes: limits.maxFileBytes,
@@ -176,14 +174,26 @@ function createPromptArchiveCoordinator(options = {}) {
     });
     throwIfAborted(signal);
     const afterStat = await stat(session.path);
+    throwIfAborted(signal);
     const afterSignature = fileSignature(session.path, afterStat);
     if (beforeSignature !== afterSignature) {
       return { entry: buildEntry(session, changingPrompt()), signature: afterSignature, cacheable: false };
     }
+    const prompt = limitPrompt(extractPrompt(events.slice(0, limits.maxLines)), limits.maxPromptChars);
+    const buildOptions = { hideSessionTitle: byteLimited };
+    if (prompt.state === "found" || prompt.state === "image-only") {
+      return { entry: buildEntry(session, prompt, buildOptions), signature: afterSignature, cacheable: true };
+    }
+    if (prompt.limitReason === "prompt_too_long") {
+      return { entry: buildEntry(session, prompt, buildOptions), signature: afterSignature, cacheable: true };
+    }
     if (events.length > limits.maxLines) {
       return { entry: buildEntry(session, limitedPrompt("too_many_events")), signature: afterSignature, cacheable: true };
     }
-    return { entry: buildEntry(session, limitPrompt(extractPrompt(events), limits.maxPromptChars)), signature: afterSignature, cacheable: true };
+    if (byteLimited) {
+      return { entry: buildEntry(session, limitedPrompt("file_too_large"), buildOptions), signature: afterSignature, cacheable: true };
+    }
+    return { entry: buildEntry(session, prompt), signature: afterSignature, cacheable: true };
   }
 
   async function getEntry(session, { signal } = {}) {
@@ -192,9 +202,11 @@ function createPromptArchiveCoordinator(options = {}) {
     let beforeStat;
     try {
       beforeStat = await stat(session.path);
-    } catch {
+    } catch (error) {
+      if (isAbortError(error)) throw error;
       return buildEntry(session, { state: "unavailable", attachments: [] });
     }
+    throwIfAborted(signal);
     const signature = fileSignature(session.path, beforeStat);
     const key = entryKey(session, signature);
     const cached = entryCache.get(key);

@@ -50,3 +50,17 @@ test("从归档打开会话后，详情响应不会覆盖用户后续的移动�
   await expect(page.locator("#sessionDetails")).not.toContainText("任务归档未打开会话");
   await expect(page.locator("#appShell")).toHaveAttribute("data-panel", "inspector");
 });
+
+test("Pi 大会话在有界前缀找到首任务后可搜索和按项目筛选", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("#sessionTitle")).toHaveText(/(?:验证工作台的 Chromium 交互契约|确定性 Chromium 验证会话)/);
+  await page.locator("#sourceSelect").selectOption("pi-agent");
+  await page.locator("#promptsModeButton").click();
+  await expect(page.locator("#promptArchiveContent")).toContainText("Pi 大会话前缀任务可被归档");
+  await expect(page.locator("#promptArchiveContent")).toContainText("未命名会话");
+  await page.locator("#promptArchiveSearch").fill("前缀任务");
+  await expect(page.locator("#promptArchiveContent")).toContainText("Pi 大会话前缀任务可被归档");
+  await page.locator('[data-prompt-project="pi-agent:/workspace/pi-agent-large"]').click();
+  await expect(page.locator("#promptArchiveContent")).toContainText("Pi 大会话前缀任务可被归档");
+  await expect(page.locator("#promptArchiveContent")).not.toContainText("Pi 来源可读会话");
+});
