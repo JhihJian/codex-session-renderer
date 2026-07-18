@@ -9,12 +9,14 @@ import { createConcurrencyGate, createSharedSubscriptionRegistry } from "./promp
 import { createDeadlineSignal, fetchWithDeadline, isAbortError, pipelineLimitedResponse, throwIfAborted } from "./remote-http.mjs";
 import { createByteLimitTransform, createContentBudget, snapshotBudgetError } from "./snapshot-budget.mjs";
 import { createSnapshotRootCommitCoordinator } from "./snapshot-root-commit-coordinator.mjs";
+import { syncStateFile } from "./sync-71-state.mjs";
 
 
 const safeIdPattern = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const snapshotStatusFile = ".codex-session-renderer-source.json";
 const snapshotProvenanceFile = ".codex-session-renderer-snapshot-source.json";
 const snapshotMetadataFile = ".codex-session-renderer-snapshot.json";
+
 const allowedSnapshotFiles = new Set(["state_5.sqlite", "session_index.jsonl", snapshotMetadataFile]);
 const piAgentSourceId = "pi-agent";
 const piAgentSessionsRootEnvKeys = ["CODEX_SESSION_RENDERER_PI_AGENT_SESSIONS_ROOT", "PI_AGENT_SESSIONS_ROOT", "PI_AGENT_SESSIONS"];
@@ -685,7 +687,25 @@ async function copySnapshotTree(sourcePath, stagingPath, fsApi = fs, options = {
   if (!(await pathExists(sourcePath, fsApi))) {
     throw remoteRefreshError("snapshot_failed", "配置的快照路径不可读。");
   }
+  await assertCompleteSync71Snapshot(sourcePath, fsApi);
   await copyCodexTree(sourcePath, stagingPath, fsApi, options);
+}
+
+async function assertCompleteSync71Snapshot(sourcePath, fsApi) {
+  const statePath = path.join(sourcePath, syncStateFile);
+  let stateText;
+  try {
+    stateText = await fsApi.readFile(statePath, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    throw remoteRefreshError("snapshot_failed", "无法读取同步状态，未发布新快照。");
+  }
+  try {
+    if (JSON.parse(stateText)?.complete !== false) return;
+  } catch {
+    // A malformed ownership marker is not safe to treat as a complete snapshot.
+  }
+  throw remoteRefreshError("partial_sync_snapshot", "同步目标是限量验证结果，不能发布到工作台。请不带 --limit 完成全量同步后再刷新。");
 }
 
 async function copyCodexTree(sourcePath, targetPath, fsApi = fs, options = {}) {

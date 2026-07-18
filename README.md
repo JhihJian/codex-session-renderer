@@ -286,7 +286,7 @@ export CODEX_REMOTE_TOKEN='<runtime token>'
 
 当前设备上该变量通常在 login shell 中可用；如果普通非交互 shell 没继承到，脚本默认会用 `bash -ilc` 启动 `codex-remote-run`。
 
-先做一次小规模验证：
+先做一次小规模验证。限量同步只能使用独立的空测试目标，不能与 `--refresh` 一起使用；它会写入“部分验证”状态，工作台数据源会拒绝发布该目标。已有完整同步状态或未标记的既有快照目标会直接报错并保留所有会话。验证完成后，对同一测试目标不带 `--limit` 执行一次全量同步，状态才会恢复为可发布的完整快照：
 
 ```bash
 node scripts/sync-71-sessions.mjs \
@@ -338,7 +338,7 @@ curl -fsS -X POST http://127.0.0.1:4789/api/sources/dev71/refresh
 curl -fsS 'http://127.0.0.1:4789/api/sources/dev71/query/sessions?limit=5&fields=id,title,changedAt,relativePath'
 ```
 
-同步脚本会在目标目录写入 `.codex-session-renderer-71-sync.json` 作为增量状态。这个文件只记录相对路径、大小和修改时间，不包含访问令牌。
+同步脚本会在目标目录写入 `.codex-session-renderer-71-sync.json` 作为增量状态。这个文件记录相对路径、大小、修改时间和完整性标记，不包含访问令牌。全量同步才会把远端 manifest 当作完整真相并删除远端已确认不存在的本地文件；限量验证不会删除未枚举文件，也不会覆盖完整状态。
 
 ## 项目结构
 

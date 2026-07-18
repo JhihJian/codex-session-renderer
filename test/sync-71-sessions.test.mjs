@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { access, mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import { promisify } from "node:util";
+import { createDataSourceRegistry } from "../src/data-sources.mjs";
 import {
   makeBatches,
   normalizeRemotePath,
@@ -9,7 +14,10 @@ import {
   planSync,
   remoteManifestCommand,
   stateFromManifest,
+  sync71,
 } from "../scripts/sync-71-sessions.mjs";
+
+const execFileAsync = promisify(execFile);
 
 test("parseManifest keeps only supported Codex snapshot paths", () => {
   const entries = parseManifest([
@@ -99,3 +107,138 @@ test("remoteManifestCommand quotes remote home and can exclude state db", () => 
 test("normalizeRemotePath canonicalizes separators", () => {
   assert.equal(normalizeRemotePath("sessions\\2026\\a.jsonl"), "sessions/2026/a.jsonl");
 });
+
+test("first limited sync is marked partial and cannot publish before full recovery", async (t) => {
+  const fixture = await createSyncFixture();
+  t.after(() => rm(fixture.root, { recursive: true, force: true }));
+
+  await sync71({ ...fixture.options, target: fixture.partialTarget, limit: 1 });
+  assert.equal((await readSyncState(fixture.partialTarget)).complete, false);
+  assert.deepEqual(await targetSessions(fixture.partialTarget), ["third.jsonl"]);
+
+  const registry = createFixtureRegistry(fixture, fixture.partialTarget);
+  const rejected = await registry.refreshSource("dev71");
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.source.status.error.code, "partial_sync_snapshot");
+  assert.equal(await exists(path.join(fixture.snapshotRoot, "dev71", "current")), false);
+
+  await sync71({ ...fixture.options, target: fixture.partialTarget });
+  assert.equal((await readSyncState(fixture.partialTarget)).complete, true);
+  assert.deepEqual(await targetSessions(fixture.partialTarget), ["first.jsonl", "second.jsonl", "third.jsonl"]);
+
+  const published = await registry.refreshSource("dev71");
+  assert.equal(published.ok, true);
+  assert.deepEqual(await targetSessions(path.join(fixture.snapshotRoot, "dev71", "current")), ["first.jsonl", "second.jsonl", "third.jsonl"]);
+});
+
+test("limited run preserves a complete target and a later full run deletes confirmed remote removals", async (t) => {
+  const fixture = await createSyncFixture();
+  t.after(() => rm(fixture.root, { recursive: true, force: true }));
+
+  await sync71(fixture.options);
+  const registry = createFixtureRegistry(fixture, fixture.target);
+  assert.equal((await registry.refreshSource("dev71")).ok, true);
+
+  await assert.rejects(
+    sync71({ ...fixture.options, limit: 1 }),
+    /目标已有完整同步状态，拒绝 --limit/,
+  );
+  assert.equal((await readSyncState(fixture.target)).complete, true);
+  assert.deepEqual(await targetSessions(fixture.target), ["first.jsonl", "second.jsonl", "third.jsonl"]);
+  assert.deepEqual(await targetSessions(path.join(fixture.snapshotRoot, "dev71", "current")), ["first.jsonl", "second.jsonl", "third.jsonl"]);
+
+  await rm(path.join(fixture.remoteHome, "sessions", "2026", "07", "18", "second.jsonl"));
+  await sync71(fixture.options);
+  assert.deepEqual(await targetSessions(fixture.target), ["first.jsonl", "third.jsonl"]);
+  assert.equal((await registry.refreshSource("dev71")).ok, true);
+  assert.deepEqual(await targetSessions(path.join(fixture.snapshotRoot, "dev71", "current")), ["first.jsonl", "third.jsonl"]);
+});
+
+async function createSyncFixture() {
+  const root = await mkdtemp(path.join(os.tmpdir(), "csr-sync71-"));
+  const remoteHome = path.join(root, "remote", ".codex");
+  const target = path.join(root, "target", ".codex");
+  const partialTarget = path.join(root, "partial-target", ".codex");
+  const snapshotRoot = path.join(root, "snapshots");
+  await writeRemoteFixture(remoteHome);
+  return {
+    root,
+    remoteHome,
+    target,
+    partialTarget,
+    snapshotRoot,
+    options: syncOptions(target, remoteHome),
+  };
+}
+
+async function writeRemoteFixture(remoteHome) {
+  const sessionRoot = path.join(remoteHome, "sessions", "2026", "07", "18");
+  await mkdir(sessionRoot, { recursive: true });
+  await writeFile(path.join(remoteHome, "state_5.sqlite"), "state\n", "utf8");
+  await writeFile(path.join(remoteHome, "session_index.jsonl"), "{\"id\":\"fixture\"}\n", "utf8");
+  await Promise.all(["first", "second", "third"].map((name, index) => writeSession(sessionRoot, name, index)));
+}
+
+async function writeSession(sessionRoot, name, index) {
+  const sessionPath = path.join(sessionRoot, `${name}.jsonl`);
+  const timestamp = new Date(1_700_000_000_000 + index * 1_000);
+  await writeFile(sessionPath, `${JSON.stringify({ type: "session_meta", payload: { id: name } })}\n`, "utf8");
+  await utimes(sessionPath, timestamp, timestamp);
+}
+
+function syncOptions(target, remoteHome) {
+  return {
+    target,
+    remoteHome,
+    remoteExec: localRemoteExec,
+    includeStateDb: true,
+    maxBatchBytes: 600 * 1024,
+    outputCapBytes: 1024 * 1024,
+    chunkBytes: 512 * 1024,
+    limit: null,
+    deleteMissing: true,
+    dryRun: false,
+    refresh: false,
+    rendererUrl: "http://127.0.0.1:4789",
+    sourceId: "dev71",
+    verbose: false,
+  };
+}
+
+async function localRemoteExec(command) {
+  return await execFileAsync("bash", ["-c", command], { maxBuffer: 8 * 1024 * 1024 });
+}
+
+function createFixtureRegistry(fixture, snapshotPath) {
+  return createDataSourceRegistry({
+    homeDir: fixture.root,
+    env: {
+      CODEX_REMOTE_SOURCES: "dev71",
+      CODEX_REMOTE_DEV71_SNAPSHOT_PATH: snapshotPath,
+      CODEX_REMOTE_DEV71_CODEX_HOME: "/root/.codex",
+      CODEX_REMOTE_SNAPSHOT_ROOT: fixture.snapshotRoot,
+    },
+  });
+}
+
+async function readSyncState(target) {
+  return JSON.parse(await readFile(path.join(target, ".codex-session-renderer-71-sync.json"), "utf8"));
+}
+
+async function targetSessions(codexHome) {
+  const sessionRoot = path.join(codexHome, "sessions", "2026", "07", "18");
+  try {
+    return (await readdir(sessionRoot)).filter((name) => name.endsWith(".jsonl")).toSorted();
+  } catch {
+    return [];
+  }
+}
+
+async function exists(targetPath) {
+  try {
+    await access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}

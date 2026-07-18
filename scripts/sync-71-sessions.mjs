@@ -5,9 +5,9 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { stateFromManifest, syncModeForTarget, syncStateFile } from "../src/sync-71-state.mjs";
 const defaultTarget = "/home/jhihjian/.codex-session-renderer/source-snapshots/dev71/.codex";
 const defaultRemoteHome = "/root/.codex";
-const syncStateFile = ".codex-session-renderer-71-sync.json";
 const defaultOutputCapBytes = 1024 * 1024;
 const defaultChunkBytes = 512 * 1024;
 const defaultMaxBatchBytes = 600 * 1024;
@@ -24,7 +24,7 @@ Options:
   --login-shell <mode>      auto | always | never. Default: always
   --max-batch-bytes <n>     Max raw file bytes per tar/base64 batch. Default: ${defaultMaxBatchBytes}
   --chunk-bytes <n>         Chunk size for files larger than one batch. Default: ${defaultChunkBytes}
-  --limit <n>               Sync only first N session files from the remote manifest.
+  --limit <n>               Sync only first N session files into a new or already partial test target.
   --skip-state-db           Do not sync state_5.sqlite. Useful for partial tests.
   --no-delete               Do not remove local files missing from the remote manifest.
   --dry-run                 Print the plan without downloading.
@@ -134,6 +134,7 @@ function shellCommand(args) {
 }
 
 async function remoteExec(command, options) {
+  if (options.remoteExec) return options.remoteExec(command, options);
   const useLoginShell =
     options.loginShell === "always" ||
     (options.loginShell === "auto" && !process.env[options.tokenEnv]);
@@ -221,15 +222,6 @@ function isAllowedRemotePath(relativePath) {
 
 function normalizeRemotePath(relativePath) {
   return String(relativePath || "").split(/[\\/]+/).filter(Boolean).join("/");
-}
-
-async function readLocalState(target) {
-  try {
-    const statePath = path.join(target, syncStateFile);
-    return JSON.parse(await fs.readFile(statePath, "utf8"));
-  } catch {
-    return { files: {} };
-  }
 }
 
 function planSync(remoteFiles, localState, options = {}) {
@@ -393,25 +385,9 @@ async function removeDeleted(stagingPath, deleted) {
   }
 }
 
-function stateFromManifest(remoteFiles, options) {
-  const files = {};
-  for (const entry of remoteFiles) {
-    const relativePath = normalizeRemotePath(entry.relativePath);
-    files[relativePath] = {
-      size: entry.size,
-      mtime: entry.mtime,
-    };
-  }
-  return {
-    version: 1,
-    remoteHome: options.remoteHome,
-    syncedAt: new Date().toISOString(),
-    files,
-  };
-}
-
-async function writeSyncState(stagingPath, remoteFiles, options) {
-  await fs.writeFile(path.join(stagingPath, syncStateFile), `${JSON.stringify(stateFromManifest(remoteFiles, options), null, 2)}\n`, "utf8");
+async function writeSyncState(stagingPath, remoteFiles, options, previousState) {
+  const state = stateFromManifest(remoteFiles, options, previousState);
+  await fs.writeFile(path.join(stagingPath, syncStateFile), `${JSON.stringify(state, null, 2)}\n`, "utf8");
 }
 
 async function publishStaging(stagingPath, targetPath) {
@@ -447,11 +423,13 @@ async function sync71(options) {
   const parent = path.dirname(targetPath);
   const stagingPath = path.join(parent, `.staging-${path.basename(targetPath)}-${Date.now()}-${process.pid}`);
   await fs.mkdir(parent, { recursive: true });
+  const { localState, partial } = await syncModeForTarget(options);
 
   console.error(`[sync71] reading remote manifest from ${options.remoteHome}`);
   const { stdout } = await remoteExec(remoteManifestCommand(options.remoteHome, options.includeStateDb), options);
-  let remoteFiles = parseManifest(stdout);
-  remoteFiles.sort((a, b) => normalizeRemotePath(a.relativePath).localeCompare(normalizeRemotePath(b.relativePath)));
+  const manifestFiles = parseManifest(stdout)
+    .toSorted((a, b) => normalizeRemotePath(a.relativePath).localeCompare(normalizeRemotePath(b.relativePath)));
+  let remoteFiles = manifestFiles;
 
   if (options.limit != null) {
     const metadata = remoteFiles.filter((entry) => !normalizeRemotePath(entry.relativePath).startsWith("sessions/"));
@@ -463,10 +441,11 @@ async function sync71(options) {
     remoteFiles = [...metadata, ...sessions];
   }
 
-  const localState = await readLocalState(targetPath);
-  const plan = planSync(remoteFiles, localState, options);
+  const plan = planSync(remoteFiles, localState, { ...options, deleteMissing: partial ? false : options.deleteMissing });
   const summary = {
     remoteFiles: remoteFiles.length,
+    manifestFiles: manifestFiles.length,
+    partial,
     changed: plan.changed.length,
     deleted: plan.deleted.length,
     batches: plan.batches.length,
@@ -494,7 +473,7 @@ async function sync71(options) {
     for (const entry of plan.largeFiles) {
       await fetchLargeFile(entry, stagingPath, options);
     }
-    await writeSyncState(stagingPath, remoteFiles, options);
+    await writeSyncState(stagingPath, remoteFiles, options, localState);
     await publishStaging(stagingPath, targetPath);
   } catch (error) {
     await fs.rm(stagingPath, { recursive: true, force: true }).catch(() => {});
