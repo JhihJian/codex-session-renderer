@@ -7,6 +7,15 @@ import {
 } from "./session-events.mjs";
 import { stripLongPathPrefix } from "./sqlite-threads.mjs";
 
+const listDisplayTitleLimit = 160;
+
+function displayTitleForList(title, limit = listDisplayTitleLimit) {
+  const normalized = String(title || "未命名会话").replace(/\s+/g, " ").trim() || "未命名会话";
+  const characters = Array.from(normalized);
+  if (characters.length <= limit) return { displayTitle: normalized, titleTruncated: false };
+  return { displayTitle: `${characters.slice(0, Math.max(1, limit - 3)).join("")}...`, titleTruncated: true };
+}
+
 function mapCodexHomePath(filePath, codexHome, originalCodexHome = codexHome, options = {}) {
   const normalized = stripLongPathPrefix(filePath || "");
   if (!normalized) return "";
@@ -80,12 +89,14 @@ function sessionFromThread(thread, codexHome, options = {}) {
 
 function compactSessionForList(session) {
   const enriched = withSubagentMeta(session);
+  const title = displayTitleForList(enriched.title);
   return {
     id: enriched.id,
     sourceId: enriched.sourceId || "local",
     sourceLabel: enriched.sourceLabel || null,
     dataSourceKind: enriched.dataSourceKind || "local",
-    title: enriched.title || "未命名会话",
+    displayTitle: title.displayTitle,
+    titleTruncated: title.titleTruncated,
     cwd: enriched.cwd || null,
     model: enriched.model || null,
     reasoningEffort: enriched.reasoningEffort || null,
@@ -206,6 +217,8 @@ function publicThreadMeta(thread, codexHome, options = {}) {
 
 export {
   compactSessionForList,
+  displayTitleForList,
+  listDisplayTitleLimit,
   mapCodexHomePath,
   publicThreadMeta,
   relativeCodexPath,

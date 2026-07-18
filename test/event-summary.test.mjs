@@ -47,6 +47,11 @@ test("event summary helpers extract readable text from mixed payloads", () => {
   assert.equal(summarizeEventTitle(events[1]), "工具输出：fs.read");
 });
 
+test("event summary keeps a canonical long Pi or Goal title for non-list consumers", () => {
+  const title = `标题前缀 ${"x".repeat(1000)} 后段可检索标记`;
+  assert.equal(extractTitleFromEvents([{ type: "session_info", name: title }], "fallback"), title);
+});
+
 test("event summary helpers mark context compaction as important", () => {
   const compacted = {
     type: "compacted",

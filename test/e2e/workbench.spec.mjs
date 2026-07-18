@@ -451,13 +451,13 @@ test("远端历史新查询取消旧请求且不写入过期页", async ({ page 
       await release;
       await route.fulfill({ json: {
         page: { total: 1, limit: 100, cursor: 0, nextCursor: null },
-        sessions: [{ id: "stale-index", title: "旧查询过期历史索引" }],
+        sessions: [{ id: "stale-index", displayTitle: "旧查询过期历史索引", titleTruncated: false }],
       } }).catch(() => {});
       return;
     }
     await route.fulfill({ json: {
       page: { total: 1, limit: 100, cursor: 0, nextCursor: null },
-      sessions: [{ id: "current-index", title: "新查询当前历史索引" }],
+      sessions: [{ id: "current-index", displayTitle: "新查询当前历史索引", titleTruncated: false }],
     } });
   });
 

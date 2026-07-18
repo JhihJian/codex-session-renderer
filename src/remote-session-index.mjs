@@ -153,7 +153,11 @@ function relativeCodexPath(codexHome, filePath) {
   const normalizedFile = stripLongPathPrefix(filePath || "");
   if (!normalizedHome || !normalizedFile) return null;
   const pathApi = normalizedHome.includes("\\") || normalizedFile.includes("\\") ? path.win32 : path;
-  return pathApi.relative(normalizedHome, normalizedFile).replaceAll("\\", "/");
+  const relative = pathApi.relative(normalizedHome, normalizedFile);
+  const parts = relative.split(/[\\/]+/);
+  if (!relative || relative === ".." || relative.startsWith(`..${pathApi.sep}`) || pathApi.isAbsolute(relative)) return null;
+  if (parts.length < 2 || parts[0] !== "sessions" || parts.some((part) => !part || part === "." || part === "..") || !parts.at(-1).endsWith(".jsonl")) return null;
+  return relative.replaceAll("\\", "/");
 }
 
 function indexSnapshotChangedError() {

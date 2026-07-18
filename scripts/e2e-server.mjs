@@ -14,8 +14,12 @@ const sessionDir = path.join(codexHome, "sessions", "isolated");
 const sessionPath = path.join(sessionDir, `rollout-2025-01-02T03-04-05-${sessionId}.jsonl`);
 const codexGoalSessionId = "77777777-7777-4777-8777-777777777777";
 const codexGoalObjective = "Codex Goal 默认阅读只显示这个真实目标";
+const longTitleSessionId = "88888888-8888-4888-8888-888888888888";
+const longTitleSuffix = "CHROMIUM_LONG_TITLE_SUFFIX";
+const longCanonicalTitle = `Chromium 标题前缀 ${"x".repeat(1000)} ${longTitleSuffix}`;
 const codexGoalControl = knownCodexGoalControlText(codexGoalObjective, 0);
 const codexGoalSessionPath = path.join(sessionDir, `rollout-2025-01-02T03-04-06-${codexGoalSessionId}.jsonl`);
+const longTitleSessionPath = path.join(sessionDir, `rollout-2025-01-02T03-04-07-${longTitleSessionId}.jsonl`);
 const piSessionsRoot = path.join(tempRoot, ".pi", "agent", "sessions");
 const piSessionId = "44444444-4444-4444-8444-444444444444";
 const piSessionPath = path.join(piSessionsRoot, "e2e-pi-session.jsonl");
@@ -41,7 +45,12 @@ await writeFile(
   ].map((event) => JSON.stringify(event)).join("\n")}\n`,
   "utf8",
 );
-await writeFile(path.join(codexHome, "session_index.jsonl"), `${JSON.stringify({ id: sessionId, thread_name: sessionTitle })}\n${JSON.stringify({ id: codexGoalSessionId, thread_name: codexGoalControl })}\n`, "utf8");
+await writeFile(
+  longTitleSessionPath,
+  `${JSON.stringify({ type: "session_meta", payload: { cwd: "/workspace/long-title" } })}\n${JSON.stringify({ type: "event_msg", payload: { type: "user_message", message: "Chromium 长标题详情" } })}\n`,
+  "utf8",
+);
+await writeFile(path.join(codexHome, "session_index.jsonl"), `${JSON.stringify({ id: sessionId, thread_name: sessionTitle })}\n${JSON.stringify({ id: codexGoalSessionId, thread_name: codexGoalControl })}\n${JSON.stringify({ id: longTitleSessionId, thread_name: longCanonicalTitle })}\n`, "utf8");
 await utimes(sessionPath, new Date(), new Date());
 await utimes(codexGoalSessionPath, new Date(Date.now() - 1000), new Date(Date.now() - 1000));
 await mkdir(piSessionsRoot, { recursive: true });

@@ -152,7 +152,8 @@ test("createSessionIndex returns older sessions without session bodies", async (
     });
 
     assert.equal(index.sessions.length, 1);
-    assert.equal(index.sessions[0].title, "历史会话");
+    assert.equal(index.sessions[0].displayTitle, "历史会话");
+    assert.equal(index.sessions[0].title, undefined);
     assert.equal(index.sessions[0].remoteIndexOnly, true);
     assert.equal(index.sessions[0].availableInSnapshot, false);
   } finally {
@@ -196,6 +197,33 @@ test("createSessionIndex keeps total and cursors stable across bounded pages", a
   }
 });
 
+test("remote history searches the canonical title but only returns its bounded display projection", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "csr-share-long-title-"));
+  try {
+    const codexHome = path.join(dir, ".codex");
+    const sessionsDir = path.join(codexHome, "sessions", "2026", "06", "27");
+    const id = "11111111-1111-4111-8111-111111111111";
+    const suffix = "REMOTE_LONG_TITLE_SUFFIX";
+    const title = `远端标题 ${"x".repeat(1000)} ${suffix}`;
+    await mkdir(sessionsDir, { recursive: true });
+    await writeFile(path.join(sessionsDir, `rollout-2026-06-27T01-00-00-${id}.jsonl`), "{}\n", "utf8");
+    await touch(path.join(sessionsDir, `rollout-2026-06-27T01-00-00-${id}.jsonl`), new Date("2026-06-27T01:00:00.000Z"));
+    await writeFile(path.join(codexHome, "session_index.jsonl"), `${JSON.stringify({ id, thread_name: title })}\n`, "utf8");
+    const index = await createSessionIndex({
+      codexHome,
+      query: new URLSearchParams({ bucket: "earlier", q: suffix }),
+      now: () => new Date("2026-06-30T04:00:00.000Z"),
+    });
+    assert.deepEqual(index.sessions.map((session) => session.id), [id]);
+    assert.equal(index.sessions[0].title, undefined);
+    assert.equal(index.sessions[0].titleTruncated, true);
+    assert.equal(index.sessions[0].displayTitle.includes(suffix), false);
+    assert.equal(JSON.stringify(index).includes(suffix), false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("SQLite 历史索引跨 1201 条记录分页完整，筛选 total 在数据库侧计算", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "csr-share-sqlite-pages-"));
   try {
@@ -230,7 +258,7 @@ test("SQLite 历史索引跨 1201 条记录分页完整，筛选 total 在数据
     });
     assert.equal(filtered.page.total, 13);
     assert.equal(filtered.sessions.length, 13);
-    assert.ok(filtered.sessions.every((session) => session.title.includes("needle")));
+    assert.ok(filtered.sessions.every((session) => session.displayTitle.includes("needle")));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

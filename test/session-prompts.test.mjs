@@ -103,6 +103,12 @@ test("buildPromptArchiveEntry keeps source/session identity and project grouping
   assert.equal(promptProjectKey("D:\\work\\App\\"), "d:/work/app");
 });
 
+test("buildPromptArchiveEntry preserves the full canonical title when the prompt is readable", () => {
+  const title = `归档标题 ${"x".repeat(500)} 后段标记`;
+  const entry = buildPromptArchiveEntry({ id: "session-1", sourceId: "local", title }, { state: "found", text: "任务" });
+  assert.equal(entry.sessionTitle, title);
+});
+
 test("buildPromptArchiveEntry hides user-derived titles for bounded archive states", () => {
   const entry = buildPromptArchiveEntry(
     { id: "session-1", sourceId: "local", title: "这是不应在超限结果中返回的用户正文" },

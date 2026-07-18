@@ -114,6 +114,7 @@ let markdownAbortController = null;
 let rawDiagnosticAbortController = null;
 let rawEventAbortController = null;
 let alternateLocalSourceAbortController = null;
+let sessionSearchTimer = null;
 const markdownCacheLimit = 700;
 const remoteIndexPageCacheLimit = 6;
 const remoteIndexPageLimit = 100;
@@ -436,7 +437,12 @@ function bindEvents() {
   });
   els.sessionSearch.addEventListener("input", () => {
     void loadRemoteIndexForCurrentFilter();
-    if (!isRemoteHistoryIndexMode()) renderSessionList();
+    if (isRemoteHistoryIndexMode()) return;
+    clearTimeout(sessionSearchTimer);
+    sessionSearchTimer = setTimeout(() => {
+      if (state.sessionTimeFilter === "earlier") void loadHistoricalSessions({ announce: true });
+      else void loadSessions({ keepSelection: true, announce: true });
+    }, 180);
   });
   els.sessionTimeFilter.querySelectorAll("[data-session-time]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1129,7 +1135,10 @@ async function loadHistoricalSessions({ announce = false } = {}) {
     const data = await fetchJson(sourceSessionsUrl(sourceId, "history"));
     if (state.historyRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
     if (data.source) upsertSource(data.source);
-    const byKey = new Map(state.sessions.map((session) => [sessionKey(session), session]));
+    const priorSessions = els.sessionSearch.value.trim()
+      ? state.sessions.filter((session) => sessionTimeBucket(session) !== "earlier")
+      : state.sessions;
+    const byKey = new Map(priorSessions.map((session) => [sessionKey(session), session]));
     for (const session of data.sessions || []) byKey.set(sessionKey(session), session);
     state.sessions = [...byKey.values()];
     state.historyLoaded = true;
@@ -1193,7 +1202,7 @@ async function selectSession(id, { announce = true, focusMobilePanel = true } = 
   const operationKey = `${requestKey}:status`;
   state.sessionLoading = true;
   state.sessionLoadError = "";
-  state.pendingSessionTitle = targetSession?.title || id;
+  state.pendingSessionTitle = targetSession?.displayTitle || id;
   state.detail = null;
   state.selectedItemRef = null;
   state.selectedEventIndex = null;
@@ -1221,7 +1230,7 @@ async function selectSession(id, { announce = true, focusMobilePanel = true } = 
     state.selectedSourceId = detail.session?.sourceId || state.selectedSourceId;
     state.selectedSessionKey = sessionKey(detail.session || { id, sourceId: state.selectedSourceId });
     primeTraceExpansion(detail);
-    setWorkbenchStatus(operationKey, `会话已加载：${firstLine(detail.session?.title || id, 54)}`, { announce });
+    setWorkbenchStatus(operationKey, `会话已加载：${selectedSessionDisplayTitle()}`, { announce });
     renderAll();
     if (focusMobilePanel) setMobilePanel("thread");
   } catch (error) {
@@ -2939,13 +2948,8 @@ function renderSessionList() {
     return;
   }
   const sessions = (remoteHistory ? state.remoteIndexSessions : mergedVisibleSessions()).filter((session) => {
-    const haystack = [session.title, session.cwd, session.relativePath, session.model, session.agentNickname]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-    const titlePathText = [session.title, session.cwd, session.relativePath].filter(Boolean).join(" ").toLowerCase();
+    const titlePathText = [session.displayTitle, session.cwd, session.relativePath].filter(Boolean).join(" ").toLowerCase();
     if (sessionTimeBucket(session) !== state.sessionTimeFilter) return false;
-    if (query && !haystack.includes(query)) return false;
     if (filter === "project" && !session.cwd) return false;
     if (filter === "projectless" && session.cwd) return false;
     if (filter === "error" && !/error|failed|失败|错误/i.test(titlePathText)) return false;
@@ -3235,7 +3239,7 @@ function syncReviewMarkdownActionButtons(reason = markdownExportBlockedReason())
 }
 
 function selectedSessionDisplayTitle() {
-  const title = state.pendingSessionTitle || state.detail?.session?.title || state.selectedSessionId || "目标会话";
+  const title = state.pendingSessionTitle || findSessionSummary(state.selectedSessionId)?.displayTitle || state.selectedSessionId || "目标会话";
   return firstLine(title, 80);
 }
 
@@ -3330,12 +3334,12 @@ function renderSessionDirectoryGroups(sessions, query) {
   return groupSessionsByDirectory(sessions)
     .map(
       (group) => `
-        <section class="session-directory-group">
+        <section class="session-directory-group" role="group" aria-label="${escapeAttr(group.label)}">
           <div class="session-directory-head">
             <strong>${escapeHtml(group.label)}</strong>
             <span>${group.sessions.length}</span>
           </div>
-          <div class="session-directory-list">
+          <div class="session-directory-list" role="list">
             ${group.sessions.map((session) => renderSessionRow(session, query)).join("")}
           </div>
         </section>
@@ -3374,13 +3378,15 @@ function renderSessionRow(session, query) {
   const status = sessionStatusLabel(session.status);
   const indexLabel = session.remoteIndexOnly ? "仅索引/未同步正文" : "";
   const title = session.remoteIndexOnly ? remoteIndexOnlyMessage() : "";
+  const displayTitle = session.displayTitle || "未命名会话";
+  const truncation = session.titleTruncated ? "，标题已截断" : "";
   const ariaLabel = session.remoteIndexOnly
-    ? `${session.title || "未命名会话"}，仅索引，未同步正文，无法直接打开`
-    : `${session.title || "未命名会话"}`;
+    ? `${displayTitle}${truncation}，仅索引，未同步正文，无法直接打开`
+    : `${displayTitle}${truncation}${active ? "，当前会话" : ""}`;
   return `
-    <div class="session-row${active}${indexOnly}" role="button" tabindex="0" data-session-id="${escapeAttr(session.id)}" data-remote-index-only="${session.remoteIndexOnly ? "true" : "false"}" ${title ? `title="${escapeAttr(title)}"` : ""} aria-label="${escapeAttr(ariaLabel)}" ${session.remoteIndexOnly ? 'aria-disabled="true"' : ""}>
+    <div class="session-row${active}${indexOnly}" role="button" tabindex="0" data-session-id="${escapeAttr(session.id)}" data-remote-index-only="${session.remoteIndexOnly ? "true" : "false"}" ${title ? `title="${escapeAttr(title)}"` : ""} aria-label="${escapeAttr(ariaLabel)}" ${active ? 'aria-current="true"' : ""} ${session.remoteIndexOnly ? 'aria-disabled="true"' : ""}>
       <span class="agent-dot" data-agent="${escapeAttr(agentName.toLowerCase())}" aria-hidden="true"></span>
-      <span class="session-title markdown-inline-title">${renderMarkdownTitle(session.title || "未命名会话", query)}</span>
+      <span class="session-title markdown-inline-title">${renderMarkdownTitle(displayTitle, query)}</span>
       <span class="session-date">${formatShortDate(session.updatedAt || session.fileModifiedAt)}</span>
       <span class="session-meta">
         <span>${escapeHtml(agent)}</span>
@@ -3682,7 +3688,7 @@ function renderStatusbar() {
   } else if (filteredOut) {
     els.statusSession.textContent = "当前会话已被筛选隐藏";
   } else {
-    els.statusSession.textContent = session ? `当前：${firstLine(session.title || session.id || "未命名会话", 54)}` : "未选择会话";
+    els.statusSession.textContent = session ? `当前：${selectedSessionDisplayTitle()}` : "未选择会话";
   }
   if (isRemoteHistoryIndexMode()) {
     if (state.remoteIndexLoading) {
@@ -9437,6 +9443,8 @@ function upsertSource(source) {
 function sourceSessionsUrl(sourceId = state.selectedSourceId, scope = "all") {
   const params = new URLSearchParams();
   if (scope && scope !== "all") params.set("scope", scope);
+  const search = els.sessionSearch?.value.trim();
+  if (search) params.set("q", search);
   const query = params.toString();
   return `/api/sources/${encodeURIComponent(sourceId)}/sessions${query ? `?${query}` : ""}`;
 }

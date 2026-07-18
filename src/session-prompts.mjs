@@ -1,11 +1,10 @@
 import { buildTurns, firstLine } from "./session-events.mjs";
 
 const defaultPromptPreviewLimit = 280;
-const defaultArchiveTextLimit = 280;
+const defaultArchiveTextLimit = null;
 
-function archiveText(value, limit = defaultArchiveTextLimit) {
-  const text = String(value || "").trim();
-  return text.length > limit ? `${text.slice(0, limit - 1)}...` : text;
+function archiveText(value) {
+  return String(value || "").trim();
 }
 
 function extractFirstPrompt(events, options = {}) {

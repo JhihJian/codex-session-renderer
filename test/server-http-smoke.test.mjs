@@ -10,6 +10,9 @@ import { assertBoundedDiagnosticEndpoints } from "./server-http-smoke-helpers.mj
 import { piGoalArchivePrefix } from "./helpers/pi-goal-fixture.mjs";
 
 const sessionId = "11111111-1111-1111-1111-111111111111";
+const longTitleSessionId = "12121212-1212-4212-8212-121212121212";
+const longTitleSuffix = "LONG_TITLE_SUFFIX_SEARCH_TOKEN";
+const longCanonicalTitle = `标题前缀 ${"x".repeat(1000)} ${longTitleSuffix}`;
 const envKeys = [
   "CODEX_HOME",
   "HOME",
@@ -30,6 +33,7 @@ const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "csr-http-smoke-"));
 const codexHome = path.join(tempRoot, ".codex");
 const sessionDir = path.join(codexHome, "sessions", "2026", "07", "08");
 const sessionPath = path.join(sessionDir, `rollout-2026-07-08T10-00-00-${sessionId}.jsonl`);
+const longTitleSessionPath = path.join(sessionDir, `rollout-2026-07-18T10-00-00-${longTitleSessionId}.jsonl`);
 const remoteSnapshotRoot = path.join(tempRoot, "remote-a-source");
 const remoteCodexHome = path.join(remoteSnapshotRoot, "current");
 const remoteSessionDir = path.join(remoteCodexHome, "sessions", "2026", "07", "08");
@@ -98,14 +102,20 @@ await fs.writeFile(
   "utf8",
 );
 await fs.writeFile(
+  longTitleSessionPath,
+  `${JSON.stringify({ type: "session_meta", payload: { cwd: "D:\\github\\codex-session-renderer" } })}\n${JSON.stringify({ type: "event_msg", payload: { type: "user_message", message: "列表标题后段搜索 HTTP 回归" } })}\n`,
+  "utf8",
+);
+await fs.writeFile(
   path.join(codexHome, "session_index.jsonl"),
-  `${JSON.stringify({ id: sessionId, thread_name: "HTTP smoke 会话", updated_at: "2026-07-08T10:00:06.000Z" })}\n`,
+  `${JSON.stringify({ id: sessionId, thread_name: "HTTP smoke 会话", updated_at: "2026-07-08T10:00:06.000Z" })}\n${JSON.stringify({ id: longTitleSessionId, thread_name: longCanonicalTitle, updated_at: "2026-07-18T10:00:06.000Z" })}\n`,
   "utf8",
 );
 execFileSync("sqlite3", [path.join(codexHome, "state_5.sqlite"), [
   "create table threads (id text, title text, rollout_path text, created_at text, updated_at text, created_at_ms integer, updated_at_ms integer, source text, thread_source text, model_provider text, cwd text, archived integer, archived_at text, model text, reasoning_effort text, agent_nickname text, agent_role text, first_user_message text, preview text)",
   "create table thread_spawn_edges (parent_thread_id text, child_thread_id text, status text)",
   `insert into threads (id, title, rollout_path) values ('${sessionId}', 'SQLite 稳定 HTTP smoke 标题', '/unavailable/${sessionId}.jsonl')`,
+  `insert into threads (id, title, rollout_path) values ('${longTitleSessionId}', '${longCanonicalTitle}', '/unavailable/${longTitleSessionId}.jsonl')`,
 ].join(";")]);
 await fs.mkdir(remoteSessionDir, { recursive: true });
 await fs.copyFile(sessionPath, remoteSessionPath);
@@ -319,9 +329,22 @@ test("server module can be imported and serves core HTTP session APIs", async (t
 
   const list = await requestJson(baseUrl, "/api/sessions");
   assert.equal(list.response.status, 200);
-  assert.equal(list.body.sessions.length, 1);
-  assert.equal(list.body.sessions[0].id, sessionId);
-  assert.equal(list.body.sessions[0].title, "SQLite 稳定 HTTP smoke 标题");
+  const listedSession = list.body.sessions.find((session) => session.id === sessionId);
+  assert.equal(listedSession.displayTitle, "SQLite 稳定 HTTP smoke 标题");
+  assert.equal(listedSession.title, undefined);
+  const suffixList = await requestJson(baseUrl, `/api/sessions?scope=all&q=${longTitleSuffix}`);
+  assert.equal(suffixList.response.status, 200);
+  assert.deepEqual(suffixList.body.sessions.map((session) => session.id), [longTitleSessionId]);
+  assert.equal(suffixList.body.sessions[0].title, undefined);
+  assert.equal(suffixList.body.sessions[0].titleTruncated, true);
+  assert.equal(suffixList.body.sessions[0].displayTitle.length <= 160, true);
+  assert.equal(JSON.stringify(suffixList.body).includes(longTitleSuffix), false);
+  const suffixQuery = await requestJson(baseUrl, `/api/query/sessions?q=${longTitleSuffix}&fields=id,title`);
+  assert.deepEqual(suffixQuery.body.sessions.map((session) => session.id), [longTitleSessionId]);
+  assert.equal(suffixQuery.body.sessions[0].title, longCanonicalTitle);
+  const longDetail = await requestJson(baseUrl, `/api/sessions/${longTitleSessionId}`);
+  assert.equal(longDetail.body.session.title, longCanonicalTitle);
+  await fs.rm(longTitleSessionPath);
 
   const prompts = await requestJson(baseUrl, "/api/sources/local/prompts?scope=all");
   assert.equal(prompts.response.status, 200);
@@ -361,10 +384,10 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   assert.equal(historyOnlyList.response.status, 200);
   assert.equal(historyOnlyList.body.scope, "history");
   assert.equal(historyOnlyList.body.sessions.length, 1);
-  assert.equal(historyOnlyList.body.sessions[0].title, "SQLite 稳定 HTTP smoke 标题");
+  assert.equal(historyOnlyList.body.sessions[0].displayTitle, "SQLite 稳定 HTTP smoke 标题");
   const localQueryAfterHistory = await requestJson(baseUrl, "/api/sources/local/query/sessions?fields=id,title");
   assert.equal(localQueryAfterHistory.response.status, 200);
-  assert.equal(localQueryAfterHistory.body.sessions[0].title, "SQLite 稳定 HTTP smoke 标题");
+  assert.equal(localQueryAfterHistory.body.sessions.find((session) => session.id === sessionId).title, "SQLite 稳定 HTTP smoke 标题");
 
   const promptPageDir = path.join(codexHome, "sessions", "2026", "07", "07");
   await fs.mkdir(promptPageDir, { recursive: true });
@@ -404,7 +427,8 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   assert.equal(piList.response.status, 200);
   assert.equal(piList.body.sessions.length, 2);
   const piSession = piList.body.sessions.find((entry) => entry.id === piSessionId);
-  assert.equal(piSession.title, "Pi Agent smoke 会话");
+  assert.equal(piSession.displayTitle, "Pi Agent smoke 会话");
+  assert.equal(piSession.title, undefined);
   assert.equal(piSession.cwd, "D:\\work\\pi-web");
   assert.equal(piSession.model, "gpt-5.5");
   assert.equal(piSession.dataSourceKind, "pi-agent");
@@ -544,7 +568,7 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   assert.equal(queryPost.response.status, 405);
   assert.equal(queryPost.body.error, "请求方法不允许");
 
-  const explicitLocalQuery = await requestJson(baseUrl, "/api/sources/local/query/sessions?limit=1&fields=id,links");
+  const explicitLocalQuery = await requestJson(baseUrl, `/api/sources/local/query/sessions?id=${sessionId}&limit=1&fields=id,links`);
   assert.equal(explicitLocalQuery.response.status, 200);
   assert.deepEqual(explicitLocalQuery.body.sessions[0].links, {
     detail: `/api/sources/local/sessions/${sessionId}`,

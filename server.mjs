@@ -29,7 +29,6 @@ import {
 
   findSpawnAgentEvents,
   findSubagentNotifications,
-  firstLine,
   isImportantEvent,
   renderConversationMarkdown,
   sessionIdFromFile,
@@ -545,8 +544,8 @@ async function correctControlPacketListTitles(context, sessions, options = {}) {
     if (!objective) return session;
     return {
       ...session,
-      title: isLikelyCodexGoalControlText(session.title) ? firstLine(objective, 90) : session.title,
-      preview: isLikelyCodexGoalControlText(session.preview) ? firstLine(objective, 120) : session.preview,
+      title: isLikelyCodexGoalControlText(session.title) ? objective : session.title,
+      preview: isLikelyCodexGoalControlText(session.preview) ? objective : session.preview,
     };
   }));
   const byId = new Map(corrected.map((session) => [session.id, session]));
@@ -776,6 +775,19 @@ async function querySessions(context, params, projectionOptions = {}) {
     watermark: sessionWatermark(filtered),
     serverTime: new Date().toISOString(),
   };
+}
+
+async function listSessionsForDisplay(context, scope, params) {
+  const sessions = await listSessions(context, { scope });
+  const query = String(params.get("q") || "").trim().toLowerCase();
+  const filtered = query
+    ? sessions.filter((session) => [session.id, session.title, session.preview, session.cwd, session.relativePath, session.model, session.agentNickname]
+      .filter(Boolean)
+      .join("\n")
+      .toLowerCase()
+      .includes(query))
+    : sessions;
+  return filtered.map(compactSessionForList);
 }
 
 async function listPromptArchive(context, scope = "recent24h", options = {}) {
@@ -1801,7 +1813,7 @@ async function route(req, res) {
       const context = resolveRequestSource(url);
       if (!context) return sendError(res, 404, "Data source not found");
       const scope = normalizeSessionCatalogScope(url.searchParams.get("scope"));
-      const sessions = (await listSessions(context, { scope })).map(compactSessionForList);
+      const sessions = await listSessionsForDisplay(context, scope, url.searchParams);
       return sendJson(res, 200, { scope, sessions });
     }
     const sourceSessionsMatch = pathname.match(/^\/api\/sources\/([^/]+)\/sessions$/);
@@ -1809,7 +1821,7 @@ async function route(req, res) {
       const context = getSourceContext(decodeURIComponent(sourceSessionsMatch[1]));
       if (!context) return sendError(res, 404, "Data source not found");
       const scope = normalizeSessionCatalogScope(url.searchParams.get("scope"));
-      const sessions = (await listSessions(context, { scope })).map(compactSessionForList);
+      const sessions = await listSessionsForDisplay(context, scope, url.searchParams);
       return sendJson(res, 200, { source: dataSources.listSources().find((source) => source.id === context.source.id), scope, sessions });
     }
     const sourceMarkdownMatch = pathname.match(/^\/api\/sources\/([^/]+)\/sessions\/([^/]+)\/markdown$/);

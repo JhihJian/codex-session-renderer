@@ -10,6 +10,7 @@ import { createSnapshotBuildCoordinator } from "./snapshot-build-coordinator.mjs
 import { sessionStartedFromFile } from "./session-events.mjs";
 import { createSqliteThreadStore, sqlString } from "./sqlite-threads.mjs";
 import { indexSnapshotChangedError, readFileIndexPage, relativeCodexPath } from "./remote-session-index.mjs";
+import { compactSessionForList } from "./session-models.mjs";
 import { copyCodexTree, snapshotMetadataFile, validateSnapshot } from "./data-sources.mjs";
 import { sendError, sendJson } from "./http-response.mjs";
 
@@ -309,7 +310,7 @@ async function createSessionIndex(options = {}) {
         snapshot,
       },
       sessions: index.sessions.map((session) => ({
-        ...session,
+        ...compactSessionForList(session),
         availableInSnapshot: false,
         remoteIndexOnly: true,
       })),
@@ -399,7 +400,9 @@ async function readSqliteIndexPage({ codexHome, fsApi, query, now, limits, signa
 
 function sqliteIndexConditions(query, nowMs) {
   const time = "coalesce(updated_at_ms, created_at_ms)";
-  const conditions = ["rollout_path is not null and rollout_path <> ''", "id not in (select child_thread_id from thread_spawn_edges where child_thread_id is not null)"];
+  const isSessionPath = "(rollout_path like '%/sessions/%' or instr(rollout_path, '\\sessions\\') > 0)";
+  const hasTraversal = "(rollout_path like '%/../%' or instr(rollout_path, '\\..\\') > 0)";
+  const conditions = ["rollout_path is not null and rollout_path <> ''", isSessionPath, `not ${hasTraversal}`, "id not in (select child_thread_id from thread_spawn_edges where child_thread_id is not null)"];
   if (query.bucket === "realtime") conditions.push(`${time} >= ${Math.trunc(nowMs - 3 * 60 * 60 * 1000)}`);
   if (query.bucket === "day") conditions.push(`${time} >= ${Math.trunc(nowMs - 24 * 60 * 60 * 1000)} and ${time} < ${Math.trunc(nowMs - 3 * 60 * 60 * 1000)}`);
   if (query.bucket === "earlier") conditions.push(`(${time} < ${Math.trunc(nowMs - 24 * 60 * 60 * 1000)} or ${time} is null)`);

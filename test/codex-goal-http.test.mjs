@@ -26,8 +26,9 @@ function close(server) {
 }
 
 function assertProjectedTitles(objective, list, query) {
-  assert.equal(list.body.sessions[0].title, objective);
-  assert.equal(list.body.sessions[0].title.includes("codex_internal_context"), false);
+  assert.equal(list.body.sessions[0].displayTitle, objective);
+  assert.equal(list.body.sessions[0].title, undefined);
+  assert.equal(list.body.sessions[0].displayTitle.includes("codex_internal_context"), false);
   assert.equal(query.body.sessions[0].title, objective);
 }
 

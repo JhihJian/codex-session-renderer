@@ -7,7 +7,7 @@ import { classifyPiGoalUserMessages } from "./pi-goal-projection.mjs";
 function extractTitleFromEvents(events, fallback) {
   const goalProjections = classifyPiGoalUserMessages(events);
   for (const event of events) {
-    if (event?.type === "session_info" && event.name) return firstLine(event.name, 90);
+    if (event?.type === "session_info" && event.name) return String(event.name).replace(/\s+/g, " ").trim();
   }
   for (const [index, event] of events.entries()) {
     const normalized = normalizeSessionEvent(event, event?.index ?? index);
@@ -15,11 +15,11 @@ function extractTitleFromEvents(events, fallback) {
     if (normalized.kind === "user_message" || (normalized.semanticKind === "message" && normalized.role === "user")) {
       if (goalProjection?.kind === "suppress") continue;
       const message = goalProjection?.kind === "objective" ? goalProjection.text : cleanUserMessageText(normalized.text ?? event.payload?.message ?? "");
-      if (message) return firstLine(message, 90);
+      if (message) return String(message).replace(/\s+/g, " ").trim();
     }
     if (normalized.rawType === "response_item" && normalized.role === "user") {
       const text = cleanUserMessageText(extractContentText(event.payload.content));
-      if (text) return firstLine(text, 90);
+      if (text) return String(text).replace(/\s+/g, " ").trim();
     }
   }
   return fallback || "未命名会话";
