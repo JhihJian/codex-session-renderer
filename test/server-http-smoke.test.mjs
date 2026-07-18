@@ -102,6 +102,11 @@ await fs.writeFile(
   `${JSON.stringify({ id: sessionId, thread_name: "HTTP smoke 会话", updated_at: "2026-07-08T10:00:06.000Z" })}\n`,
   "utf8",
 );
+execFileSync("sqlite3", [path.join(codexHome, "state_5.sqlite"), [
+  "create table threads (id text, title text, rollout_path text, created_at text, updated_at text, created_at_ms integer, updated_at_ms integer, source text, thread_source text, model_provider text, cwd text, archived integer, archived_at text, model text, reasoning_effort text, agent_nickname text, agent_role text, first_user_message text, preview text)",
+  "create table thread_spawn_edges (parent_thread_id text, child_thread_id text, status text)",
+  `insert into threads (id, title, rollout_path) values ('${sessionId}', 'SQLite 稳定 HTTP smoke 标题', '/unavailable/${sessionId}.jsonl')`,
+].join(";")]);
 await fs.mkdir(remoteSessionDir, { recursive: true });
 await fs.copyFile(sessionPath, remoteSessionPath);
 await fs.writeFile(
@@ -316,7 +321,7 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   assert.equal(list.response.status, 200);
   assert.equal(list.body.sessions.length, 1);
   assert.equal(list.body.sessions[0].id, sessionId);
-  assert.equal(list.body.sessions[0].title, "HTTP smoke 会话");
+  assert.equal(list.body.sessions[0].title, "SQLite 稳定 HTTP smoke 标题");
 
   const prompts = await requestJson(baseUrl, "/api/sources/local/prompts?scope=all");
   assert.equal(prompts.response.status, 200);
@@ -356,6 +361,10 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   assert.equal(historyOnlyList.response.status, 200);
   assert.equal(historyOnlyList.body.scope, "history");
   assert.equal(historyOnlyList.body.sessions.length, 1);
+  assert.equal(historyOnlyList.body.sessions[0].title, "SQLite 稳定 HTTP smoke 标题");
+  const localQueryAfterHistory = await requestJson(baseUrl, "/api/sources/local/query/sessions?fields=id,title");
+  assert.equal(localQueryAfterHistory.response.status, 200);
+  assert.equal(localQueryAfterHistory.body.sessions[0].title, "SQLite 稳定 HTTP smoke 标题");
 
   const promptPageDir = path.join(codexHome, "sessions", "2026", "07", "07");
   await fs.mkdir(promptPageDir, { recursive: true });
@@ -402,6 +411,7 @@ test("server module can be imported and serves core HTTP session APIs", async (t
 
   const piDetail = await requestJson(baseUrl, `/api/sources/pi-agent/sessions/${piSessionId}`);
   assert.equal(piDetail.response.status, 200);
+  assert.equal(piDetail.body.session.title, "Pi Agent smoke 会话");
   assert.equal(piDetail.body.turns[0].items[0].text, "请创建 hello 页面");
   assert.equal(piDetail.body.turns[0].items[2].type, "tool-call");
   assert.equal(piDetail.body.turns[0].items[2].name, "write");
@@ -550,6 +560,7 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   const detail = await requestJson(baseUrl, `/api/sessions/${sessionId}`);
   assert.equal(detail.response.status, 200);
   assert.equal(detail.body.session.id, sessionId);
+  assert.equal(detail.body.session.title, "SQLite 稳定 HTTP smoke 标题");
   for (const key of ["turns", "events", "stats", "audit", "trace", "compact"]) {
     assert.ok(key in detail.body, `detail includes ${key}`);
   }
@@ -606,7 +617,7 @@ test("server module can be imported and serves core HTTP session APIs", async (t
 
   const markdown = await fetch(`${baseUrl}/api/sessions/${sessionId}/markdown`);
   assert.equal(markdown.status, 200);
-  assert.match(await markdown.text(), /# HTTP smoke 会话/);
+  assert.match(await markdown.text(), /# SQLite 稳定 HTTP smoke 标题/);
 
   const limitedId = "33333333-3333-4333-8333-333333333333";
   const limitedRows = Array.from({ length: 10_002 }, (_, index) => JSON.stringify({ type: "event_msg", payload: { type: "agent_message", message: `event-${index}` } })).join("\n") + "\n";

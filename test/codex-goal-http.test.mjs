@@ -25,6 +25,12 @@ function close(server) {
   return new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
 }
 
+function assertProjectedTitles(objective, list, query) {
+  assert.equal(list.body.sessions[0].title, objective);
+  assert.equal(list.body.sessions[0].title.includes("codex_internal_context"), false);
+  assert.equal(query.body.sessions[0].title, objective);
+}
+
 test("HTTP surfaces project a verified Codex goal while raw diagnostics retain the packet", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "csr-codex-goal-http-"));
   const codexHome = path.join(root, ".codex");
@@ -43,6 +49,7 @@ test("HTTP surfaces project a verified Codex goal while raw diagnostics retain t
     { type: "event_msg", payload: { type: "agent_message", message: "x".repeat(128 * 1024) } },
   ];
   await writeFile(sessionPath, `${events.map((event) => JSON.stringify(event)).join("\n")}\n`, "utf8");
+
   await writeFile(path.join(codexHome, "session_index.jsonl"), `${JSON.stringify({ id: threadId, thread_name: control })}\n`, "utf8");
   const escapedControl = control.replaceAll("'", "''");
   execFileSync("sqlite3", [path.join(codexHome, "state_5.sqlite"), [
@@ -73,12 +80,15 @@ test("HTTP surfaces project a verified Codex goal while raw diagnostics retain t
     return { response, body: await response.json() };
   };
 
-  const list = await json("/api/sessions");
+  const [list, query] = await Promise.all([
+    json("/api/sessions"),
+    json("/api/sources/local/query/sessions?fields=id,title"),
+  ]);
   assert.equal(list.response.status, 200);
-  assert.equal(list.body.sessions[0].title, objective);
-  assert.equal(list.body.sessions[0].title.includes("codex_internal_context"), false);
+  assertProjectedTitles(objective, list, query);
 
   const detail = await json(`/api/sessions/${threadId}`);
+  assert.equal(detail.body.session.title, objective);
   assert.equal(detail.body.turns[0].items.filter((item) => item.type === "user-message").length, 1);
   assert.equal(detail.body.turns[0].items.find((item) => item.type === "user-message").text, objective);
   assert.equal(JSON.stringify(detail.body.audit).includes("Tokens remaining: unbounded"), false);

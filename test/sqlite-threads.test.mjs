@@ -80,6 +80,25 @@ test("sqlite store escapes ids and filters spawn edges", async () => {
   assert.equal(calls[0].options.maxBuffer, 10 * 1024 * 1024);
 });
 
+test("sqlite thread lookup forwards cancellation to the bounded title lookup", async () => {
+  const calls = [];
+  const store = createSqliteThreadStore({
+    stateDbPath: "/tmp/state_5.sqlite",
+    sqliteCandidates: ["sqlite3-test"],
+    runCommand: async (_command, _args, options) => {
+      calls.push(options);
+      return { stdout: "[]" };
+    },
+  });
+  const controller = new AbortController();
+
+  await store.readThreadRowsByIds(["current-safe-candidate"], { signal: controller.signal });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].signal, controller.signal);
+  assert.equal(calls[0].maxBuffer, 10 * 1024 * 1024);
+});
+
 test("sqlite list query excludes subagent child threads before applying limit", async () => {
   const calls = [];
   const store = createSqliteThreadStore({

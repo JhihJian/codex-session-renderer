@@ -80,7 +80,7 @@ function createSqliteThreadStore(options) {
       return new Map();
     }
   }
-  async function readThreadRowsByIds(ids) {
+  async function readThreadRowsByIds(ids, { signal } = {}) {
     const uniqueIds = [...new Set(ids.filter(Boolean))];
     if (uniqueIds.length === 0) return new Map();
     const quotedIds = uniqueIds.map(sqlString).join(",");
@@ -93,7 +93,7 @@ function createSqliteThreadStore(options) {
       `(${quotedIds})`,
     ].join(" ");
     try {
-      const stdout = await runSqliteJson(query, 10 * 1024 * 1024);
+      const stdout = await runSqliteJson(query, 10 * 1024 * 1024, signal);
       return threadRowsToMap(JSON.parse(stdout || "[]"));
     } catch {
       return new Map();

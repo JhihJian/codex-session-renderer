@@ -22,6 +22,12 @@
 - `CODEX_SESSION_DETAIL_MAX_CONCURRENT_READS=4`：整个服务实例最多 4 路会话 JSONL 读取（也与任务归档共享）。
 - `CODEX_SESSION_DETAIL_MAX_CACHE_ENTRIES=24`、`CODEX_SESSION_DETAIL_MAX_CACHE_BYTES=50331648`：稳定完整详情、compact 派生和 Markdown 的版本 LRU 最多 24 条且估算总量最多 48 MiB。
 
+## 稳定会话标题
+
+同一数据源内的会话标题以已验证的 SQLite `threads.title` 为优先来源；列表、详情、Markdown、任务归档和查询接口都会使用同一标题。文件列表回退时，服务会先按既有路径与会话 ID 校验建立当前候选集，再只对这批受列表上限约束的候选 ID 批量查询 SQLite 补齐标题。SQLite 不可用、没有对应 ID 或标题为空时，保留 `session_index.jsonl`、首条元信息或文件名给出的诚实回退值。
+
+这项补齐不会扫描 JSONL 正文：历史文件列表仍只读取 1 条记录、最多 64 KiB；不会调用详情协调器，也不会改变远端历史“仅索引、不取正文”的语义。严格验证的 Codex Goal 控制包仍在标题补齐后投影为 objective，未知或校验失败的控制包不会作为可信标题。详情不会再由上一次 recent/all/history 列表缓存决定标题，因此切换时间分类的顺序不会改变同一会话的详情标题。Pi Agent 没有 SQLite 时维持有界前缀内可证实的标题，无法从前缀确认时不会读取历史正文来猜测标题。
+
 命中详情边界时详情接口仍返回 `200`，但含 `complete: false` 与机器可识别的 `readState.code = session_read_limited`（或文件变化时 `session_file_changed`），`turns/events/compact/trace/audit` 都为空值，前端不会把部分内容当作完整会话。工作台的“原始事件”会切换为明确标记的有界诊断，保留当前会话和数据源语境；它只按页读取事件摘要，前进使用服务端游标、返回最多保留 6 页本地历史，完整原文仅在复核台“来源”页按需读取，并携带当前页快照令牌校验仍是同一文件版本。分页与单条来源共享独立的诊断索引上限，因此工作台实际显示的每条摘要都可按需回读；到达该上限会停止翻页，直接越界请求返回 `413/session_event_scan_limited`。切换视图、会话、数据源、刷新或重试会取消诊断及单事件请求，文件变化、快照变化和网络失败会清空旧页后提示重新开始，绝不混合不同文件版本的内容。`/markdown` 则返回 `413` JSON 状态，绝不导出部分 Markdown。原始事件分页接口仍按请求的 `limit` / `maxScan` 做流式诊断，并受上述单次读取字节边界和服务并发闸门保护。
 
 ## 数据来源

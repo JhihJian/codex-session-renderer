@@ -31,7 +31,7 @@ function promptResponse() {
 test("从归档打开会话后，详情响应不会覆盖用户后续的移动复核导航", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
-  await expect(page.locator("#sessionTitle")).toContainText("验证工作台的 Chromium 交互契约");
+  await expect(page.locator("#sessionTitle")).toContainText("确定性 Chromium 验证会话");
   await page.route("**/api/sources/local/prompts?*", async (route) => route.fulfill({ json: promptResponse() }));
   let releaseDetail;
   const detailRelease = new Promise((resolve) => {

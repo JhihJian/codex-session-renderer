@@ -507,6 +507,19 @@ async function listSessions(context, options = {}) {
   return listSessionsFromFiles(context, bounds, options, now, scope);
 }
 
+async function supplementVerifiedFileSessionTitles(context, sessions, options = {}) {
+  // File discovery already validates these paths and IDs. SQLite only fills titles for this bounded set.
+  if (context.source.kind === "pi-agent") return sessions;
+  const candidates = sessions.filter((session) => session?.id && session?.path).slice(0, maxListSessions);
+  if (candidates.length === 0) return sessions;
+  const threads = await context.threadStore.readThreadRowsByIds(candidates.map((session) => session.id), { signal: options.signal });
+  if (threads.size === 0) return sessions;
+  return sessions.map((session) => {
+    const title = threads.get(session.id)?.title;
+    return title ? { ...session, title } : session;
+  });
+}
+
 async function correctControlPacketListTitles(context, sessions, options = {}) {
   const candidates = sessions.filter((session) => session?.path && (isLikelyCodexGoalControlText(session.title) || isLikelyCodexGoalControlText(session.preview)));
   if (candidates.length === 0) return sessions;
@@ -554,7 +567,7 @@ async function listSessionsFromFiles(context, bounds, options, now, scope) {
 }
 
 async function listFileSessions(context, bounds = {}, options = {}) {
-  const index = bounds.sinceMs == null ? await readIndex(context, options) : new Map();
+  const index = await readIndex(context, options);
   const files = await collectSessionFileRecords(context, { ...bounds, ...options });
 
   const sessions = [];
@@ -606,7 +619,7 @@ async function listFileSessions(context, bounds = {}, options = {}) {
     );
   }
   sessions.sort((a, b) => new Date(b.updatedAt || b.fileModifiedAt) - new Date(a.updatedAt || a.fileModifiedAt));
-  return sessions;
+  return supplementVerifiedFileSessionTitles(context, sessions, options);
 }
 
 function sessionMetaFromEvents(events) {
@@ -683,22 +696,26 @@ async function enrichThreadRowsFromFiles(context, threads, options = {}) {
 async function getSessionById(context, id, options = {}) {
   assertSourceSnapshotReadable(context);
   throwIfRequestAborted(options.signal);
-  const cached = context.sessionCache?.find((session) => session.id === id);
-  if (cached) return cached;
-
-  const thread = (await context.threadStore.readThreadRowsByIds([id])).get(id);
+  const thread = (await context.threadStore.readThreadRowsByIds([id], { signal: options.signal })).get(id);
   if (thread) {
     const session = sessionFromThread(thread, context.codexHome, sourceModelOptions(context));
-    if (await sessionFileExists(context, session, options)) return enrichSessionFromFileMeta(session, { ...options, context });
+    if (await sessionFileExists(context, session, options)) {
+      return (await correctControlPacketListTitles(context, [await enrichSessionFromFileMeta(session, { ...options, context })], options))[0];
+    }
   }
 
-  const sessions = await listSessions(context, options);
+  const sessions = await listSessions(context, { ...options, scope: "all" });
   const listed = sessions.find((session) => session.id === id);
   if (listed) return listed;
 
   for (const record of await collectSessionFileRecords(context, options)) {
     throwIfRequestAborted(options.signal);
-    if (record.id === id) return sessionFromFilePath(context, record.filePath, { archived: record.archived, signal: options.signal });
+    if (record.id === id) {
+      const session = await sessionFromFilePath(context, record.filePath, { archived: record.archived, signal: options.signal });
+      if (!session) return null;
+      const titled = await supplementVerifiedFileSessionTitles(context, [session], options);
+      return (await correctControlPacketListTitles(context, titled, options))[0];
+    }
   }
   return null;
 }
@@ -715,15 +732,20 @@ async function listAllSessionsForQuery(context) {
       const session = sessionFromThread(thread, context.codexHome, sourceModelOptions(context));
       if (await sessionFileExists(context, session)) sessions.push(await enrichSessionFromFileMeta(session, { context }));
     }
-    if (sessions.length === 0) return listFileSessions(context);
+    if (sessions.length === 0) {
+      const fallback = await listFileSessions(context);
+      context.allSessionCache = await correctControlPacketListTitles(context, fallback, {});
+      context.allSessionCacheTime = now;
+      return context.allSessionCache;
+    }
     sessions.sort((a, b) => new Date(b.updatedAt || b.fileModifiedAt || 0) - new Date(a.updatedAt || a.fileModifiedAt || 0));
-    context.allSessionCache = sessions.slice(0, maxListSessions);
+    context.allSessionCache = await correctControlPacketListTitles(context, sessions.slice(0, maxListSessions), {});
     context.allSessionCacheTime = now;
     return context.allSessionCache;
   }
 
   const sessions = await listFileSessions(context);
-  context.allSessionCache = sessions;
+  context.allSessionCache = await correctControlPacketListTitles(context, sessions, {});
   context.allSessionCacheTime = now;
   return context.allSessionCache;
 }
@@ -912,10 +934,12 @@ async function promptArchiveFileCandidates(context, bounds, cursor, limit, optio
       records.push({ id: sessionIdFromFile(filePath), filePath, stat, archived: root.archived, rootIndex });
     }
   }
-  return (await Promise.all(dedupeSessionFileRecords(records).map(async (record) => ({
+  const candidates = (await Promise.all(dedupeSessionFileRecords(records).map(async (record) => ({
     session: await sessionFromFilePath(context, record.filePath, { archived: record.archived, signal: options.signal }),
     cursor: { kind: "file", rootIndex: record.rootIndex, filePath: record.filePath },
   })))).filter((candidate) => candidate.session?.path);
+  const titled = await supplementVerifiedFileSessionTitles(context, candidates.map((candidate) => candidate.session), options);
+  return candidates.map((candidate, index) => ({ ...candidate, session: titled[index] }));
 }
 
 
