@@ -22,7 +22,7 @@ test("extractFirstPrompt keeps the first real user task and its source anchor", 
   assert.equal(prompt.turnId, "turn-1");
 });
 
-test("extractFirstPrompt recognizes a Pi user task in the bounded JSONL prefix", () => {
+test("extractFirstPrompt keeps a Pi goal-like short user message in the bounded JSONL prefix", () => {
   const prompt = extractFirstPrompt([
     { type: "session", id: "pi-session", cwd: "/work/pi" },
     { type: "session_info", id: "pi-info", name: "Pi 会话标题" },
@@ -42,8 +42,8 @@ test("extractFirstPrompt recognizes a Pi user task in the bounded JSONL prefix",
   ]);
 
   assert.equal(prompt.state, "found");
-  assert.equal(prompt.text, "提取 Pi 会话前缀任务");
-  assert.equal(prompt.sourceIndex, 3);
+  assert.equal(prompt.text, "Continue working toward the active thread goal");
+  assert.equal(prompt.sourceIndex, 2);
 });
 
 test("extractFirstPrompt does not use compact replacement history as a new prompt", () => {

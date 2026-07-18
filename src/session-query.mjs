@@ -191,7 +191,7 @@ function projectEventForApi(event, index, query = {}) {
   return pickFields(projected, query.fields);
 }
 
-function eventMatchesQuery(projected, rawEvent, query) {
+function eventMatchesQuery(projected, rawEvent, query, options = {}) {
   if (query.important != null && projected.important !== query.important) return false;
   if (query.kinds.length > 0 && !query.kinds.includes(projected.kind)) return false;
   if (query.types.length > 0 && !query.types.includes(projected.type || "")) return false;
@@ -199,7 +199,7 @@ function eventMatchesQuery(projected, rawEvent, query) {
   if (query.roles.length > 0 && !query.roles.includes(projected.role || "")) return false;
   if (query.from && !dateAtOrAfter(projected.timestamp, query.from)) return false;
   if (query.to && !dateAtOrBefore(projected.timestamp, query.to)) return false;
-  if (query.q && !containsText(eventSearchText(projected, rawEvent), query.q)) return false;
+  if (query.q && !containsText(eventSearchText(projected, rawEvent, options), query.q)) return false;
   return true;
 }
 
@@ -266,8 +266,14 @@ function sessionSearchText(session) {
     .join("\n");
 }
 
-function eventSearchText(projected, rawEvent) {
+function eventSearchText(projected, rawEvent, options = {}) {
   const normalized = normalizeSessionEvent(rawEvent, rawEvent?.index ?? projected.index);
+  if (normalized.role === "user" && options.goalProjection) {
+    if (options.goalProjection.kind === "suppress") return "";
+    if (options.goalProjection.kind === "objective") {
+      return [projected.kind, projected.type, projected.payloadType, normalized.role, options.goalProjection.text].filter(Boolean).join("\n");
+    }
+  }
   return [projected.title, projected.preview, projected.kind, projected.type, projected.payloadType, normalized.searchText]
     .filter(Boolean)
     .join("\n");

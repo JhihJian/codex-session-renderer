@@ -40,6 +40,7 @@ import {
 } from "./src/session-events.mjs";
 import { dedupeSessionFileRecords, sessionFileRoots } from "./src/session-catalog.mjs";
 import { normalizeSessionEvent } from "./src/session-normalizer.mjs";
+import { createPiGoalMessageProjector } from "./src/pi-goal-projection.mjs";
 import { promptProjectKey } from "./src/session-prompts.mjs";
 import { createAbortError, createConcurrencyGate, createPromptArchiveCoordinator, createSharedSubscriptionRegistry, fileSignature, isAbortError } from "./src/prompt-archive-coordinator.mjs";
 import {
@@ -1074,6 +1075,8 @@ async function querySessionEvents(context, id, params, projectionOptions = {}, o
   const maxDiagnosticEventScan = context.sessionDetailCoordinator.limits.maxDiagnosticEventScan;
   const maxScan = diagnosticRangeMaxScan(query, maxDiagnosticEventScan);
   const byteLimited = beforeStat.size > context.sessionDetailCoordinator.limits.maxFileBytes;
+  const goalProjector = createPiGoalMessageProjector();
+  let currentGoalProjection = null;
   const range = await context.sessionDetailCoordinator.readGate.run(
     () => readJsonlRange(session.path, {
       start: query.cursor,
@@ -1083,9 +1086,12 @@ async function querySessionEvents(context, id, params, projectionOptions = {}, o
       signal: options.signal,
       // The bounded stream can end in the middle of a JSON record; never turn that tail into a fake parse diagnostic.
       includeInvalid: !byteLimited,
+      onRecord: (event, index) => {
+        currentGoalProjection = goalProjector.project(event, index);
+      },
       predicate: (event, index) => {
         const projected = projectEventForApi(event, index, { fields: [] });
-        return eventMatchesQuery(projected, event, query);
+        return eventMatchesQuery(projected, event, query, { goalProjection: currentGoalProjection });
       },
     }),
     options.signal,

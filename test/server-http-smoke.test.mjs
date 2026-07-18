@@ -7,6 +7,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { remoteSourceVersion } from "../src/data-sources.mjs";
 import { assertBoundedDiagnosticEndpoints } from "./server-http-smoke-helpers.mjs";
+import { piGoalArchivePrefix } from "./helpers/pi-goal-fixture.mjs";
 
 const sessionId = "11111111-1111-1111-1111-111111111111";
 const envKeys = [
@@ -200,19 +201,11 @@ await fs.writeFile(
 await fs.writeFile(
   piLargeSessionPath,
   [
-    { type: "session", version: 3, id: piLargeSessionId, timestamp: "2026-07-18T04:51:55.870Z", cwd: "D:\\work\\pi-web" },
-    { type: "session_info", id: "pi-large-info", parentId: null, timestamp: "2026-07-18T04:52:06.050Z", name: "不应从前缀外标题索引返回的 Pi 标题" },
-    {
-      type: "message",
-      id: "pi-large-user",
-      parentId: "pi-large-info",
-      timestamp: "2026-07-18T04:52:06.061Z",
-      message: { role: "user", content: [{ type: "text", text: piLargePrompt }] },
-    },
+    ...piGoalArchivePrefix({ sessionId: piLargeSessionId, cwd: "D:\\work\\pi-web", objective: piLargePrompt, timestamp: "2026-07-18T04:51:55.870Z" }),
     {
       type: "message",
       id: "pi-large-assistant",
-      parentId: "pi-large-user",
+      parentId: "goal-objective",
       timestamp: "2026-07-18T04:52:08.142Z",
       message: { role: "assistant", content: [{ type: "text", text: "x".repeat(Math.ceil(4.8 * 1024 * 1024)) }] },
     },
@@ -420,8 +413,27 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   assert.equal(piPrompts.body.entries[0].sessionId, piLargeSessionId);
   assert.equal(piPrompts.body.entries[0].promptState, "found");
   assert.equal(piPrompts.body.entries[0].promptText, piLargePrompt);
-  assert.equal(piPrompts.body.entries[0].promptEventIndex, 2);
+  assert.equal(piPrompts.body.entries[0].promptEventIndex, 17);
   assert.equal(piPrompts.body.entries[0].sessionTitle, "未命名会话");
+
+  const piGoalDetail = await requestJson(baseUrl, `/api/sources/pi-agent/sessions/${piLargeSessionId}`);
+  assert.equal(piGoalDetail.response.status, 200);
+  assert.equal(piGoalDetail.body.turns[0].items.find((item) => item.type === "user-message").text, piLargePrompt);
+  assert.equal(JSON.stringify(piGoalDetail.body.turns).includes("goal_id"), false);
+  assert.equal(JSON.stringify(piGoalDetail.body.audit).includes("Goal-mode rules:"), false);
+  const piGoalMarkdown = await requestText(baseUrl, `/api/sources/pi-agent/sessions/${piLargeSessionId}/markdown`);
+  assert.equal(piGoalMarkdown.response.status, 200);
+  assert.match(piGoalMarkdown.body, new RegExp(piLargePrompt));
+  assert.doesNotMatch(piGoalMarkdown.body, /goal_id|Goal-mode rules:/);
+  const piGoalSearch = await requestJson(baseUrl, `/api/sources/pi-agent/query/sessions/${piLargeSessionId}/events?q=${encodeURIComponent(piLargePrompt)}`);
+  assert.equal(piGoalSearch.response.status, 200);
+  assert.deepEqual(piGoalSearch.body.events.map((event) => event.index), [17]);
+  const piGoalControlSearch = await requestJson(baseUrl, `/api/sources/pi-agent/query/sessions/${piLargeSessionId}/events?q=goal_id`);
+  assert.equal(piGoalControlSearch.response.status, 200);
+  assert.equal(piGoalControlSearch.body.events.length, 0);
+  const piGoalRaw = await requestJson(baseUrl, `/api/sources/pi-agent/sessions/${piLargeSessionId}/events/17`);
+  assert.equal(piGoalRaw.response.status, 200);
+  assert.match(JSON.stringify(piGoalRaw.body), /goal_id/);
 
   const sessionsPost = await requestJson(baseUrl, "/api/sessions", { method: "POST" });
   assert.equal(sessionsPost.response.status, 405);

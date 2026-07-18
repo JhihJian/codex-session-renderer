@@ -19,6 +19,7 @@ import {
 } from "./text-utils.mjs";
 import { coalesceNormalizedEvents, normalizeSessionEvent, safeStringifyRedacted } from "./session-normalizer.mjs";
 import { cleanUserMessageText, isUsefulUserMessageText } from "./user-message-cleanup.mjs";
+import { classifyPiGoalUserMessages } from "./pi-goal-projection.mjs";
 import {
   mergeToolOutput,
   toolArgumentsFromPayload,
@@ -1146,7 +1147,6 @@ function cleanTurnTitle(text) {
   const latestRequest = raw.match(/## My request for Codex:\s*([\s\S]*)$/i)?.[1];
   const withoutGoalWrapper = (latestRequest || raw)
     .replace(/#\s*AGENTS\.md instructions[\s\S]*?(?:<\/environment_context>|$)/i, "")
-    .replace(/^Continue working toward the active thread goal\.[\s\S]*?(?=\n#{1,3}\s|\n\S|$)/i, "")
     .replace(/^# In app browser:[\s\S]*?## My request for Codex:\s*/i, "")
     .replace(/^# Files mentioned by the user:[\s\S]*?## My request for Codex:\s*/i, "")
     .replace(/<[^>]+>/g, " ")
@@ -1160,7 +1160,7 @@ function isUsefulTurnTitle(title) {
   const text = normalizeText(title);
   if (!text) return false;
   if (/^#?\s*AGENTS\.md instructions/i.test(text)) return false;
-  if (/^Continue working toward the active thread goal/i.test(text)) return false;
+
   if (/^In app browser:/i.test(text)) return false;
   if (/^Files mentioned by the user:/i.test(text)) return false;
   return true;
@@ -1328,6 +1328,14 @@ function shortPathServer(value) {
 }
 
 function buildTurns(events) {
+  const goalProjections = classifyPiGoalUserMessages(events);
+  const eventsByIndex = new Map((events || []).map((event, index) => [event?.index ?? index, event]));
+  const projectedGoalStateIds = new Set(
+    [...goalProjections.entries()]
+      .filter(([, projection]) => projection?.kind === "objective" || projection?.kind === "suppress")
+      .map(([index]) => eventsByIndex.get(index)?.parentId)
+      .filter(Boolean),
+  );
   const normalizedEvents = suppressForkReplayPrefix(coalesceNormalizedEvents(events));
   const turns = [];
   let current = null;
@@ -1355,7 +1363,10 @@ function buildTurns(events) {
     const payload = event.payload ?? {};
     const isUserMessage = isUserMessageEvent(event);
     const isAssistantMessage = isAssistantMessageEvent(event);
+    const goalProjection = goalProjections.get(sourceIndex);
+    if (projectedGoalStateIds.has(event.raw?.id)) continue;
     if (event.kind === "meta" || event.semanticKind === "meta") continue;
+    if (isUserMessage && goalProjection?.kind === "suppress") continue;
     if (payload.type === "task_started") {
       current = {
         id: payload.turn_id || `turn-${turns.length + 1}`,
@@ -1402,8 +1413,9 @@ function buildTurns(events) {
     }
 
     if (isUserMessage) {
-      const text = cleanUserMessageText(event.text);
-      if (!event.attachments?.length && !isUsefulUserMessageText(text)) continue;
+      const projectedGoalObjective = goalProjection?.kind === "objective";
+      const text = projectedGoalObjective ? goalProjection.text : cleanUserMessageText(event.text);
+      if (!event.attachments?.length && (projectedGoalObjective ? !String(text).trim() : !isUsefulUserMessageText(text))) continue;
       if (!event.attachments?.length && isKnownUserEcho(current, event, text)) continue;
       current.items.push({
         id: `item-${current.items.length}`,
@@ -1415,6 +1427,7 @@ function buildTurns(events) {
         messageId: event.messageId,
         eventKind: event.kind,
         rawType: event.rawType,
+        projectedGoalObjective,
       });
       continue;
     }

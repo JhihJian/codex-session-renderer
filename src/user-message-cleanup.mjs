@@ -20,8 +20,7 @@ function looksLikeCodexWrapper(raw) {
     /^# In app browser:/i.test(raw) ||
     /^# Files mentioned by the user:/i.test(raw) ||
     /^<environment_context>/i.test(raw) ||
-    /^<permissions instructions>/i.test(raw) ||
-    /^Continue working toward the active thread goal/i.test(raw)
+    /^<permissions instructions>/i.test(raw)
   );
 }
 
@@ -44,7 +43,6 @@ function stripLeadingMachineContext(raw) {
     .replace(/^<environment_context>[\s\S]*?<\/environment_context>\s*/i, "")
     .trim();
 
-  if (/^Continue working toward the active thread goal/i.test(text)) return "";
   if (/^<permissions instructions>/i.test(text)) return "";
   return text;
 }
@@ -57,7 +55,7 @@ function isMachineOnlyUserMessageText(value) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   if (!text) return true;
   if (/^#?\s*AGENTS\.md instructions/i.test(text)) return true;
-  if (/^Continue working toward the active thread goal/i.test(text)) return true;
+
   if (/^In app browser:/i.test(text)) return true;
   if (/^Files mentioned by the user:/i.test(text)) return true;
   if (/^<environment_context>/i.test(text)) return true;

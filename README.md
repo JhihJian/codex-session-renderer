@@ -356,6 +356,7 @@ curl -fsS 'http://127.0.0.1:4789/api/sources/dev71/query/sessions?limit=5&fields
 - `src/tool-events.mjs`：工具调用开始/结束识别、工具名/参数/输出提取、MCP 结果渲染和输出合并。
 - `src/session-normalizer.mjs`：Codex/Pi Agent JSONL 原始事件规范化、字段漂移兼容、delta 合并、图片/附件摘要、加密 reasoning 脱敏和搜索文本构建。
 - `src/user-message-cleanup.mjs`：Codex 自动注入用户消息的识别和清理规则，供规范化、turn 聚合、事件摘要和 Audit 意图过滤复用。
+- `src/pi-goal-projection.mjs`：Pi Goal-mode `goal-state` 与 user 控制包的严格、失败关闭投影；仅识别已实证的 Pi v3 / `pi-goal@0.15.1` 完整协议。
 - `src/event-summary.mjs`：事件分类、重要事件判断、标题/预览摘要和会话事件计数。
 - `src/audit-chain.mjs`：基于服务端完整 turn/item 模型生成 Audit Chain，集中维护审计节点、验证识别和非 evidence 风险启发式规则。
 - `src/evidence-risk-rules.mjs`：证据风险规则模块，内置输出风险词、大型输出和读文件/文本搜索输出排除条件，并支持从前端设置传入本地覆盖规则。
@@ -446,7 +447,7 @@ npm run lint:fix
 - 解析器把 JSONL 中的 `session_meta`、`turn_context`、`event_msg`、`response_item` 聚合为 turn 和 item。
 - 工具调用会合并 `function_call`、`function_call_output`、`custom_tool_call`、`custom_tool_call_output`、`mcp_tool_call_end`、`patch_apply_end` 等 Codex 事件。
 - 同一 `message_id` 的 streamed/delta 消息会在规范化层合并为连续可读文本，并保留来源事件索引用于原始事件回溯。
-- 默认阅读、Markdown 导出和事件搜索会隐藏 Codex 自动注入的用户消息包装，例如 `AGENTS.md instructions`、`environment_context`、goal continuation 和 subagent notification；原始事件视图和单事件接口仍保留完整原始内容，方便诊断。
+- 默认阅读、Audit、任务归档、Markdown 导出和事件搜索会隐藏 Codex 自动注入的用户消息包装，例如 `AGENTS.md instructions`、`environment_context` 和 subagent notification。Pi Goal-mode 仅在 Pi v3 / `pi-goal@0.15.1` 的完整 `goal-state -> user message` 包通过父子关系、字段和固定模板校验时投影目标：启动/更新保留 objective，恢复/自动续跑不生成用户消息；未知、畸形或仿冒文本原样保留。原始事件视图和单事件接口仍保留完整原始内容，方便诊断。
 - 同一条用户/助手消息如果同时出现在 response item 和事件消息里，会在渲染层去重；用户真实重复输入同一句话不会只因为文本相同被删除。
 - `turn_aborted` 会把当前 turn 标记为 `aborted`，不会作为普通用户可见事件展示；如果一个空 aborted turn 后立刻续跑同一首条请求，默认阅读会只保留续跑 turn 的请求。未结束但正在等待 `wait_agent`/`handoff` 或最后停在助手回复后的 turn 会标记为 `waiting`，其他未结束 turn 保持 `running`。
 - 页面默认进入阅读视图，并提供四种主视图：

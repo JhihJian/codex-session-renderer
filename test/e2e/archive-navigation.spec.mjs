@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 const sessionId = "33333333-3333-4333-8333-333333333333";
+const piGoalSessionId = "66666666-6666-4666-8666-666666666666";
 
 function promptResponse() {
   return {
@@ -63,4 +64,20 @@ test("Pi 大会话在有界前缀找到首任务后可搜索和按项目筛选",
   await page.locator('[data-prompt-project="pi-agent:/workspace/pi-agent-large"]').click();
   await expect(page.locator("#promptArchiveContent")).toContainText("Pi 大会话前缀任务可被归档");
   await expect(page.locator("#promptArchiveContent")).not.toContainText("Pi 来源可读会话");
+});
+
+test("Pi Goal 默认视图投影目标而原始单事件仍保留控制包", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#sourceSelect").selectOption("pi-agent");
+  await page.locator(`[data-session-id="${piGoalSessionId}"]`).click();
+  await expect(page.locator("#compactContent")).toContainText("Pi Goal 默认阅读只显示这个目标");
+  await expect(page.locator("#compactContent")).not.toContainText("goal_id");
+  await expect(page.locator("#compactContent")).not.toContainText("Goal-mode rules:");
+  await page.locator("#auditViewButton").click();
+  await expect(page.locator("#auditContent")).toContainText("Pi Goal 默认阅读只显示这个目标");
+  await expect(page.locator("#auditContent")).not.toContainText("goal_id");
+
+  const raw = await page.request.get(`/api/sources/pi-agent/sessions/${piGoalSessionId}/events/2`);
+  await expect(raw).toBeOK();
+  await expect(await raw.text()).toContain("goal_id");
 });

@@ -37,8 +37,8 @@ function buildAuditChain({ turns = [], evidenceRiskRules = [] } = {}) {
 
     for (const [itemIndex, item] of (turn.items || []).entries()) {
       if (item.type === "user-message") {
-        const text = cleanAuditUserText(item.text);
-        if (!isUsefulAuditIntent(text)) continue;
+        const text = item.projectedGoalObjective ? String(item.text || "").trim() : cleanAuditUserText(item.text);
+        if (!item.projectedGoalObjective && !isUsefulAuditIntent(text)) continue;
         nodes.push(
           auditNode({
             id: auditId("intent", turnIndex, itemIndex, item),
@@ -572,7 +572,6 @@ function cleanAuditUserText(text) {
   return (latestRequest || raw)
     .replace(/^#?\s*AGENTS\.md instructions[\s\S]*?(?:<\/environment_context>|$)\s*/i, "")
     .replace(/^<environment_context>[\s\S]*?<\/environment_context>\s*/i, "")
-    .replace(/^Continue working toward the active thread goal\.[\s\S]*?(?=\n#{1,3}\s|\n\S|$)/i, "")
     .replace(/^# In app browser:[\s\S]*?## My request for Codex:\s*/i, "")
     .replace(/^# Files mentioned by the user:[\s\S]*?## My request for Codex:\s*/i, "")
     .trim();
@@ -582,7 +581,7 @@ function isUsefulAuditIntent(text) {
   const normalized = normalizeText(text);
   if (!normalized) return false;
   if (/^#?\s*AGENTS\.md instructions/i.test(normalized)) return false;
-  if (/^Continue working toward the active thread goal/i.test(normalized)) return false;
+
   if (/^<environment_context>/i.test(normalized)) return false;
   return true;
 }

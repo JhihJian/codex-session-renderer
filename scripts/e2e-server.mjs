@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { sessionEvents, sessionId, sessionTitle } from "../test/e2e/fixture-session.mjs";
+import { piGoalArchivePrefix, piGoalPrompt, piGoalState, piGoalStateEvent, piGoalUserEvent } from "../test/helpers/pi-goal-fixture.mjs";
 import { createSnapshotShareHandler } from "../src/snapshot-share.mjs";
 
 const tempRoot = await mkdtemp(path.join(os.tmpdir(), "csr-e2e-"));
@@ -13,6 +14,9 @@ const sessionPath = path.join(sessionDir, `rollout-2025-01-02T03-04-05-${session
 const piSessionsRoot = path.join(tempRoot, ".pi", "agent", "sessions");
 const piSessionId = "44444444-4444-4444-8444-444444444444";
 const piSessionPath = path.join(piSessionsRoot, "e2e-pi-session.jsonl");
+const piGoalSessionId = "66666666-6666-4666-8666-666666666666";
+const piGoalObjective = "Pi Goal 默认阅读只显示这个目标";
+const piGoalSessionPath = path.join(piSessionsRoot, `2026-07-18T00-00-00-000Z_${piGoalSessionId}.jsonl`);
 const piLargeSessionId = "55555555-5555-4555-8555-555555555555";
 const piLargePrompt = "Pi 大会话前缀任务可被归档";
 const piLargeSessionPath = path.join(piSessionsRoot, "e2e-pi-large-session.jsonl");
@@ -34,13 +38,22 @@ await writeFile(
   ].map((event) => JSON.stringify(event)).join("\n")}\n`,
   "utf8",
 );
+const piGoal = piGoalState(piGoalObjective);
+await writeFile(
+  piGoalSessionPath,
+  `${[
+    { type: "session", version: 3, id: piGoalSessionId, timestamp: new Date().toISOString(), cwd: "/workspace/pi-goal" },
+    piGoalStateEvent("goal-state", piGoalSessionId, piGoal),
+    piGoalUserEvent("goal-user", "goal-state", piGoalPrompt("start", piGoal)),
+    { type: "message", id: "goal-assistant", parentId: "goal-user", timestamp: new Date().toISOString(), message: { role: "assistant", content: [{ type: "text", text: "正在处理目标" }] } },
+  ].map((event) => JSON.stringify(event)).join("\n")}\n`,
+  "utf8",
+);
 await writeFile(
   piLargeSessionPath,
   `${[
-    { type: "session", version: 3, id: piLargeSessionId, timestamp: new Date().toISOString(), cwd: "/workspace/pi-agent-large" },
-    { type: "session_info", id: "pi-large-info", timestamp: new Date().toISOString(), name: "前缀外标题不应显示" },
-    { type: "message", id: "pi-large-user", parentId: "pi-large-info", timestamp: new Date().toISOString(), message: { role: "user", content: [{ type: "text", text: piLargePrompt }] } },
-    { type: "message", id: "pi-large-assistant", parentId: "pi-large-user", timestamp: new Date().toISOString(), message: { role: "assistant", content: [{ type: "text", text: "x".repeat(Math.ceil(4.8 * 1024 * 1024)) }] } },
+    ...piGoalArchivePrefix({ sessionId: piLargeSessionId, cwd: "/workspace/pi-agent-large", objective: piLargePrompt, timestamp: new Date().toISOString() }),
+    { type: "message", id: "pi-large-assistant", parentId: "goal-objective", timestamp: new Date().toISOString(), message: { role: "assistant", content: [{ type: "text", text: "x".repeat(Math.ceil(4.8 * 1024 * 1024)) }] } },
   ].map((event) => JSON.stringify(event)).join("\n")}\n`,
   "utf8",
 );

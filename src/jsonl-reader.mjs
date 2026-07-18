@@ -163,7 +163,7 @@ export async function readJsonlLineWithDiagnostics(filePath, targetIndex, { sign
   return null;
 }
 
-export async function readJsonlRange(filePath, { start = 0, limit = 100, maxScan = 5000, maxBytes = Infinity, predicate = null, includeInvalid = false, signal } = {}) {
+export async function readJsonlRange(filePath, { start = 0, limit = 100, maxScan = 5000, maxBytes = Infinity, predicate = null, onRecord = null, includeInvalid = false, signal } = {}) {
   const safeStart = Number.isInteger(start) && start > 0 ? start : 0;
   const safeLimit = Number.isInteger(limit) && limit > 0 ? limit : 100;
   const safeMaxScan = Number.isInteger(maxScan) && maxScan > 0 ? maxScan : 5000;
@@ -180,6 +180,8 @@ export async function readJsonlRange(filePath, { start = 0, limit = 100, maxScan
       lineNumber += 1;
       if (!line.trim()) continue;
       if (index < safeStart) {
+        const skipped = parseJsonlRecord(line, index, lineNumber);
+        onRecord?.(skipped.event, index);
         index += 1;
         continue;
       }
@@ -188,6 +190,7 @@ export async function readJsonlRange(filePath, { start = 0, limit = 100, maxScan
         break;
       }
       const record = parseJsonlRecord(line, index, lineNumber);
+      onRecord?.(record.event, index);
       lastIndex = index;
       scanned += 1;
       if (record.valid) {

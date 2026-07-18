@@ -1,5 +1,4 @@
 import { buildTurns, firstLine } from "./session-events.mjs";
-import { cleanUserMessageText } from "./user-message-cleanup.mjs";
 
 const defaultPromptPreviewLimit = 280;
 const defaultArchiveTextLimit = 280;
@@ -14,7 +13,7 @@ function extractFirstPrompt(events, options = {}) {
   for (const turn of turns) {
     for (const item of turn.items || []) {
       if (item.type !== "user-message") continue;
-      const text = cleanUserMessageText(item.text || "");
+      const text = String(item.text || "").trim();
       const attachments = Array.isArray(item.attachments) ? item.attachments : [];
       if (!text && attachments.length === 0) continue;
       return {

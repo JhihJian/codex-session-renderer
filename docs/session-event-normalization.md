@@ -68,20 +68,34 @@ Codex 在上下文压缩时会写入两类事件：
 
 规范化层会把这两类事件标记为重要事件，并生成 `compact` 字段。`replacementHistoryCount` 表示 `replacement_history` 的总条数；`replacementHistoryPreview` 只保留最多 30 条可扫描短预览，每条包含序号、role、type、turn/message 定位字段、内容类型、预览文本、原始字符数和截断标记，不把完整正文塞进轻量模型。精简视图会再用 `turn_id` 关联当前会话的 Turn，补充 `turnNumber`、Turn 时间、用户问题和最后回复摘要，让“被替换的对话”优先回答 compact 摘要覆盖了哪些 Turn 和原始问题；字符数与短 ID 只作为辅助定位信息。精简视图还会为被 `replacement_history` 命中的原始消息生成 `compressionRefs` 和 replacement 条目跳转目标，用户消息只统计自身替换条目，助手消息统计自身以及按 Audit 执行层级挂到该助手消息下的工具/执行条目，标签显示为“被替换 N 条 / event #”；点击该回标会保持在精简视图并定位到对应 `context-compact` 系统块，点击“被替换的对话”里的具体条目会跳回原始消息或对应助手消息组。Raw 来源通过该系统块里的“查看 Raw”进入。Turn 聚合会把 compact 事件保留为 `context-compact` item；Raw 视图和 Review Dock 会显示摘要正文、窗口字段、替换历史数量和同一份短预览。完整原始 payload 仍通过单事件接口按需读取。
 
+## Pi Goal-mode 安全投影
+
+Pi Goal-mode 扩展会把控制提示词以 `type: "message"`、`message.role: "user"` 写入 Pi JSONL。它们不是普通用户的新输入：启动和目标更新包包含用户目标以及控制规则，恢复和自动续跑包没有新的用户目标。为避免将规则、`goal_id` 和续跑 marker 带入默认阅读、Audit、归档、搜索或 Markdown，本项目只对当前已实证的 `Pi session v3 + @narumitw/pi-goal@0.15.1` 完整结构包投影。
+
+投影器要求同时满足：
+
+- 第一个 JSONL 记录是 `type: "session"` 且 `version: 3`。
+- 目标消息紧接一个 `type: "custom"`、`customType: "goal-state"` 的完整 active goal 状态，并且消息 `parentId` 精确指向该状态记录。
+- 用户消息只有一个 text content part；目标 ID、XML 转义后的 objective、状态字段和四种已知完整模板（启动、更新、恢复、自动续跑）必须全部一致。
+
+通过校验的启动/更新只投影 `<goal_objective>` 对应的原始目标文本；恢复和自动续跑不产生用户消息。关联 `goal-state` 也不进入默认 Turn。任何未知版本、字段缺失、父子关系不符、模板附加文字、解析失败或仅仅看起来像 Goal 的用户文本都会失败关闭，保留原始文本。JSONL 没有签名，因此这只是结构一致性验证，不把可写入会话文件的一方当作密码学可信来源。
+
+原始事件诊断保持原语义：完整 payload/Raw 和单事件接口仍返回控制包。事件搜索在有完整会话上下文时复用同一投影，因此可以命中目标文本，不能通过默认搜索命中控制规则、`goal_id` 或 continuation marker。
+
 ## 默认用户消息口径
 
-Codex 有时会把机器上下文写进用户消息，例如 `AGENTS.md instructions`、`environment_context`、goal continuation、浏览器/文件包装和 subagent notification。默认阅读模型、Markdown 导出和事件搜索会先提取真实用户请求：
+Codex 有时会把机器上下文写进用户消息，例如 `AGENTS.md instructions`、`environment_context`、浏览器/文件包装和 subagent notification。默认阅读模型、Markdown 导出和事件搜索会先提取真实用户请求：
 
 - 如果存在 `## My request for Codex:`，只展示其后的请求正文。
 - 如果消息开头是 `AGENTS.md instructions` 并包含 `environment_context`，默认隐藏这段机器上下文，保留后续真实请求。
-- 纯机器上下文、goal continuation、JSON 形式的 subagent notification，以及完整的 `<subagent_notification>...</subagent_notification>` 包裹通知不计为真实用户请求。
+- 纯机器上下文、JSON 形式的 subagent notification，以及完整的 `<subagent_notification>...</subagent_notification>` 包裹通知不计为真实用户请求。短句或仿冒的 Goal continuation 前缀不是删除依据，Pi Goal-mode 只能按上一节的完整结构投影。
 - Raw event 和单事件接口仍保留原始 payload，用于诊断和审计。
 
 去重只针对明确的事件回声，例如同一条用户消息同时以 `event_msg user_message` 和 `response_item role=user` 写入；用户真实重复输入同一句话不会仅因文本相同被删除。
 
 ## 首个任务提示词归档
 
-`src/session-prompts.mjs` 基于 `buildTurns()` 提取根会话中第一个有效的 `user-message`，作为任务归档的 `promptText`。因此首个提示词遵循与阅读视图相同的机器上下文清理、fork replay 前缀抑制、事件回声去重和中断续跑处理口径；会话标题不作为提示词回退值，`compacted` / `context_compacted` 的 `replacement_history` 也不视为新的用户输入。
+`src/session-prompts.mjs` 基于 `buildTurns()` 提取根会话中第一个有效的 `user-message`，作为任务归档的 `promptText`。因此首个提示词遵循与阅读视图相同的 Pi Goal 安全投影、机器上下文清理、fork replay 前缀抑制、事件回声去重和中断续跑处理口径；会话标题不作为提示词回退值，`compacted` / `context_compacted` 的 `replacement_history` 也不视为新的用户输入。
 
 归档条目的身份是 `sourceId + sessionId`，项目键是 `sourceId + cwd`，没有 `cwd` 的会话进入“无项目”。条目同时保存 `promptPreview`、`promptTimestamp`、`promptEventIndex`、`promptTurnId`、安全附件摘要、`promptTruncated`、`promptLimitReason` 和 `promptState`。状态包括 `found`、`image-only`、`empty`、`unavailable`、`too_large`、`changing` 和 `error`。`too_large` 与 `changing` 不返回正文，因此不会把超限或读取中变化文件的敏感内容带入响应。
 
@@ -140,6 +154,7 @@ Raw event 仍可按需查看完整原始 JSON。默认视图、事件预览和�
 - 字段漂移的文本、时间、工具名、参数和输出。
 - `function_call` / `function_result` 兼容映射。
 - Pi Agent `message.content` 文本、嵌入式 `toolCall` 和 `toolResult`。
+- Pi v3 的完整 `pi-goal@0.15.1` 启动/更新、恢复/自动续跑、安全失败关闭、目标搜索、原始单事件保留以及大文件前缀归档。
 - 同一 `messageId` 的 delta 合并。
 - data URI 图片摘要和默认脱敏。
 - `encrypted_content` 不进入搜索文本。
