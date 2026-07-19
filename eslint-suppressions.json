@@ -6,7 +6,7 @@
   },
   "public/app.js": {
     "complexity": {
-      "count": 50
+      "count": 49
     },
     "max-lines": {
       "count": 1

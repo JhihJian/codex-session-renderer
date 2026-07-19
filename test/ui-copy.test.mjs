@@ -81,6 +81,22 @@ test("remote data source copy keeps saved-test and index-only boundaries explici
   assert.match(readme, /状态条在远端历史模式下显示“历史索引 N 条 · 正文未同步”/);
 });
 
+test("远端快照刷新在历史索引上下文维持索引与分页语义", async () => {
+  const [app, readme] = await Promise.all([
+    readProjectFile("public/app.js"),
+    readProjectFile("README.md"),
+  ]);
+
+  assert.match(app, /function selectedSourceRefreshContext\(sourceId, controller\)/);
+  assert.match(app, /remoteHistoryIndex: isRemoteHistoryIndexMode\(\)/);
+  assert.match(app, /await loadRemoteIndexForCurrentFilter\(\{[\s\S]*reset: true,[\s\S]*force: true,[\s\S]*preserve: true,/);
+  assert.match(app, /signal: refreshContext\.controller\.signal/);
+  assert.match(app, /if \(!refreshContext\.remoteHistoryIndex\) await loadSessions\(\);/);
+  assert.match(app, /function remoteIndexRequestOwnsState\(/);
+  assert.match(readme, /成功拉取远端快照后的恢复/);
+  assert.match(readme, /快照拉取失败保留当前索引页和分页/);
+});
+
 test("settings rule feedback copy and dynamic field attrs stay trustworthy", async () => {
   const [app, readme] = await Promise.all([
     readProjectFile("public/app.js"),

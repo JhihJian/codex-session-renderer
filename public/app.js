@@ -445,6 +445,7 @@ function bindEvents() {
   });
   els.sessionSearch.addEventListener("input", () => {
     invalidateSessionListRequests();
+    cancelRemoteRefreshForNavigation();
     void loadRemoteIndexForCurrentFilter();
     if (isRemoteHistoryIndexMode()) return;
     clearTimeout(sessionSearchTimer);
@@ -460,6 +461,7 @@ function bindEvents() {
   });
   els.sessionTypeFilter.addEventListener("change", () => {
     invalidateSessionListRequests();
+    cancelRemoteRefreshForNavigation();
     if (isRemoteHistoryIndexMode()) {
       void loadRemoteIndexForCurrentFilter({ reset: true, announce: true });
       return;
@@ -1538,12 +1540,12 @@ async function refreshSelectedSource() {
   const source = selectedSource();
   if (!source?.status?.refreshable) return;
   const sourceId = source.id;
-  const refreshContext = sourceNavigationContext();
   cancelPromptArchiveRequest();
   cancelRawDiagnosticRequest({ clear: true });
   cancelRawEventRequest();
   state.remoteRefreshAbortController?.abort();
   const controller = new AbortController();
+  const refreshContext = selectedSourceRefreshContext(sourceId, controller);
   state.remoteRefreshAbortController = controller;
   const operationKey = `refresh:${sourceId}:${Date.now()}`;
   state.remoteRefreshRequestKey = operationKey;
@@ -1556,36 +1558,81 @@ async function refreshSelectedSource() {
   els.refreshRemoteButton.textContent = "正在拉取快照";
   try {
     const result = await fetchJson(`/api/sources/${encodeURIComponent(sourceId)}/refresh`, { method: "POST", signal: controller.signal });
-    requestState = sourceRequestState({ requestKey: operationKey, expectedRequestKey: state.remoteRefreshRequestKey, sourceId, context: refreshContext });
+    requestState = selectedSourceRefreshRequestState({ sourceId, operationKey, refreshContext });
     if (requestState !== "current") return;
-    await applySelectedSourceRefresh(result, sourceId, operationKey);
+    await applySelectedSourceRefresh(result, { sourceId, operationKey, refreshContext });
+    requestState = selectedSourceRefreshRequestState({ sourceId, operationKey, refreshContext });
   } catch (error) {
-    requestState = sourceRequestState({ requestKey: operationKey, expectedRequestKey: state.remoteRefreshRequestKey, sourceId, context: refreshContext });
+    requestState = selectedSourceRefreshRequestState({ sourceId, operationKey, refreshContext });
     if (requestState !== "current") return;
-    await handleSelectedSourceRefreshFailure(error, operationKey);
+    await handleSelectedSourceRefreshFailure(error, { sourceId, operationKey, refreshContext });
+    requestState = selectedSourceRefreshRequestState({ sourceId, operationKey, refreshContext });
   } finally {
     finishSelectedSourceRefresh({ controller, sourceId, operationKey, requestState });
   }
 }
 
-async function applySelectedSourceRefresh(result, sourceId, operationKey) {
+function selectedSourceRefreshContext(sourceId, controller) {
+  return {
+    navigation: sourceNavigationContext(),
+    remoteIndexFilterKey: remoteIndexFilterKey(sourceId),
+    remoteHistoryIndex: isRemoteHistoryIndexMode(),
+    sidebarMode: state.sidebarMode,
+    controller,
+  };
+}
+
+function selectedSourceRefreshRequestState({ sourceId, operationKey, refreshContext }) {
+  const requestState = sourceRequestState({
+    requestKey: operationKey,
+    expectedRequestKey: state.remoteRefreshRequestKey,
+    sourceId,
+    context: refreshContext.navigation,
+  });
+  if (requestState !== "current") return requestState;
+  if (refreshContext.controller.signal.aborted || remoteIndexFilterKey(sourceId) !== refreshContext.remoteIndexFilterKey) return "navigation-changed";
+  return "current";
+}
+
+function selectedSourceRefreshIsCurrent(options) {
+  return selectedSourceRefreshRequestState(options) === "current";
+}
+
+async function applySelectedSourceRefresh(result, { sourceId, operationKey, refreshContext }) {
   requireSourceResponse(result, sourceId, "refresh");
   invalidatePromptArchiveCache(sourceId, promptArchiveScope());
   state.remoteRefreshError = "";
   if (result.source) upsertSource(result.source);
   renderSourceControls();
-  await loadSessions();
+  const refreshIsCurrent = () => selectedSourceRefreshIsCurrent({ sourceId, operationKey, refreshContext });
+  if (refreshContext.sidebarMode === "sessions" && refreshContext.remoteHistoryIndex) {
+    const entry = await loadRemoteIndexForCurrentFilter({
+      reset: true,
+      force: true,
+      preserve: true,
+      announce: false,
+      signal: refreshContext.controller.signal,
+      isCurrent: refreshIsCurrent,
+    });
+    if (!entry || !refreshIsCurrent()) return;
+  } else {
+    await loadSessions();
+    if (!refreshIsCurrent()) return;
+  }
   if (state.sidebarMode === "prompts") await loadPromptArchive({ force: true });
+  if (!refreshIsCurrent()) return;
   setWorkbenchStatus(operationKey, "远端快照已拉取到本机缓存；未修改远端", { announce: true });
   showToast("远端快照已拉取到本机缓存；未修改远端");
 }
 
-async function handleSelectedSourceRefreshFailure(error, operationKey) {
+async function handleSelectedSourceRefreshFailure(error, { sourceId, operationKey, refreshContext }) {
   state.remoteRefreshError = error.message;
-  await reloadSources();
+  const refreshIsCurrent = () => selectedSourceRefreshIsCurrent({ sourceId, operationKey, refreshContext });
+  await reloadSources({ isCurrent: refreshIsCurrent });
+  if (!refreshIsCurrent()) return;
   setWorkbenchStatus(operationKey, `拉取远端快照失败：${error.message}。可再次拉取。`, { announce: true });
   showToast(`拉取远端快照失败：${error.message}；远端未修改`);
-  await loadSessions();
+  if (!refreshContext.remoteHistoryIndex) await loadSessions();
   if (state.sidebarMode === "prompts") await loadPromptArchive({ force: true });
 }
 
@@ -1606,9 +1653,9 @@ function cancelRemoteRefreshForNavigation() {
   state.remoteRefreshAbortController.abort();
 }
 
-async function reloadSources() {
+async function reloadSources({ isCurrent = () => true } = {}) {
   const data = await fetchJson("/api/sources").catch(() => null);
-  if (!data?.sources) return;
+  if (!data?.sources || !isCurrent()) return;
   state.sources = data.sources;
   renderSourceControls();
 }
@@ -2727,6 +2774,7 @@ async function loadRemoteIndexForCurrentFilter(options = {}) {
   if (source?.kind !== "remote" || state.sessionTimeFilter === "realtime") {
     return deactivateRemoteIndex();
   }
+  if (options.isCurrent && !options.isCurrent()) return null;
   const request = prepareRemoteIndexRequest(options);
   if (request.cached) return showCachedRemoteIndexPage(request.cursor, request.cached, request.options.announce === true);
   return requestRemoteIndexPage(request);
@@ -2766,6 +2814,25 @@ function showCachedRemoteIndexPage(cursor, entry, announce = false) {
 async function requestRemoteIndexPage({ sourceId, filterKey, cursor, options }) {
   state.remoteIndexAbortController?.abort();
   const controller = new AbortController();
+  const abortFromRefresh = () => controller.abort();
+  options.signal?.addEventListener("abort", abortFromRefresh, { once: true });
+  if (options.signal?.aborted || (options.isCurrent && !options.isCurrent())) {
+    options.signal?.removeEventListener("abort", abortFromRefresh);
+    return null;
+  }
+  const requestKey = startRemoteIndexRequest({ filterKey, cursor, options, controller });
+  const operationKey = `${requestKey}:status`;
+  setWorkbenchStatus(operationKey, `正在检索${remoteHistoryBucketLabel()}`, { announce: options.announce === true });
+  renderSourceStatus();
+  renderSessionList();
+  try {
+    return await fetchRemoteIndexPage({ sourceId, filterKey, cursor, options, controller, requestKey, operationKey });
+  } finally {
+    finishRemoteIndexRequest({ sourceId, filterKey, options, controller, abortFromRefresh, requestKey });
+  }
+}
+
+function startRemoteIndexRequest({ filterKey, cursor, options, controller }) {
   state.remoteIndexAbortController = controller;
   const requestKey = [++state.remoteIndexRequestSeq, filterKey, cursor].join("\n");
   state.remoteIndexRequestKey = requestKey;
@@ -2775,37 +2842,52 @@ async function requestRemoteIndexPage({ sourceId, filterKey, cursor, options }) 
     state.remoteIndexPage = null;
   }
   state.remoteIndexError = "";
-  const operationKey = `${requestKey}:status`;
-  setWorkbenchStatus(operationKey, `正在检索${remoteHistoryBucketLabel()}`, { announce: options.announce === true });
+  return requestKey;
+}
+
+function finishRemoteIndexRequest({ sourceId, filterKey, options, controller, abortFromRefresh, requestKey }) {
+  options.signal?.removeEventListener("abort", abortFromRefresh);
+  if (state.remoteIndexAbortController === controller) state.remoteIndexAbortController = null;
+  if (!remoteIndexRequestOwnsState({ requestKey, sourceId, filterKey })) return;
+  state.remoteIndexLoading = false;
   renderSourceStatus();
   renderSessionList();
+}
+
+async function fetchRemoteIndexPage({ sourceId, filterKey, cursor, options, controller, requestKey, operationKey }) {
   try {
     const data = await fetchJson(remoteIndexUrl(sourceId, cursor, options.snapshot || ""), { signal: controller.signal });
-    if (state.remoteIndexRequestKey !== requestKey || state.remoteIndexFilterKey !== filterKey || state.selectedSourceId !== sourceId) return;
+    if (!remoteIndexRequestIsCurrent({ requestKey, sourceId, filterKey, isCurrent: options.isCurrent })) return null;
     requireSourceResponse(data, sourceId, "remote-index");
     const entry = applyRemoteIndexResponse({ data, sourceId, cursor, options });
     setWorkbenchStatus(operationKey, `${remoteHistoryBucketLabel()}已加载：${entry.page.total || 0} 条`, { announce: options.announce === true });
+    return entry;
   } catch (error) {
-    if (isAbortError(error)) return;
-    if (state.remoteIndexRequestKey !== requestKey || state.remoteIndexFilterKey !== filterKey || state.selectedSourceId !== sourceId) return;
-    if (error.status === 409 && error.code === "index_snapshot_changed") {
-      resetRemoteIndexState();
-      showToast("远端历史索引已更新，已从第一页重新开始定位。");
-      setWorkbenchStatus(operationKey, "远端历史索引已变化，正在从第一页重新开始定位", { announce: true });
-      return loadRemoteIndexForCurrentFilter({ reset: true });
-    }
-    restoreRemoteIndexAfterFailedRequest(options);
-    state.remoteIndexError = error.message;
-    setWorkbenchStatus(operationKey, `远端历史索引失败：${error.message}。可重试或返回实时。`, { announce: true });
-    showToast(`远端索引检索失败：${error.message}`);
-  } finally {
-    if (state.remoteIndexAbortController === controller) state.remoteIndexAbortController = null;
-    if (state.remoteIndexRequestKey === requestKey && state.remoteIndexFilterKey === filterKey && state.selectedSourceId === sourceId) {
-      state.remoteIndexLoading = false;
-      renderSourceStatus();
-      renderSessionList();
-    }
+    return handleRemoteIndexPageFailure({ error, sourceId, filterKey, options, requestKey, operationKey });
   }
+}
+
+async function handleRemoteIndexPageFailure({ error, sourceId, filterKey, options, requestKey, operationKey }) {
+  if (isAbortError(error) || !remoteIndexRequestIsCurrent({ requestKey, sourceId, filterKey, isCurrent: options.isCurrent })) return null;
+  if (error.status === 409 && error.code === "index_snapshot_changed") {
+    resetRemoteIndexState();
+    showToast("远端历史索引已更新，已从第一页重新开始定位。");
+    setWorkbenchStatus(operationKey, "远端历史索引已变化，正在从第一页重新开始定位", { announce: true });
+    return loadRemoteIndexForCurrentFilter({ reset: true, signal: options.signal, isCurrent: options.isCurrent });
+  }
+  restoreRemoteIndexAfterFailedRequest(options);
+  state.remoteIndexError = error.message;
+  setWorkbenchStatus(operationKey, `远端历史索引失败：${error.message}。可重试或返回实时。`, { announce: true });
+  showToast(`远端索引检索失败：${error.message}`);
+  return null;
+}
+
+function remoteIndexRequestIsCurrent({ requestKey, sourceId, filterKey, isCurrent }) {
+  return remoteIndexRequestOwnsState({ requestKey, sourceId, filterKey }) && (!isCurrent || isCurrent());
+}
+
+function remoteIndexRequestOwnsState({ requestKey, sourceId, filterKey }) {
+  return state.remoteIndexRequestKey === requestKey && state.remoteIndexFilterKey === filterKey && state.selectedSourceId === sourceId;
 }
 
 function applyRemoteIndexResponse({ data, sourceId, cursor, options }) {
