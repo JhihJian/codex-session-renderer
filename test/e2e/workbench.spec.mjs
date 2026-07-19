@@ -140,6 +140,33 @@ test("窄屏使用流式复核区，移动端仅展示当前三面板", async ({
   await expect(page.locator("#appShell")).toHaveAttribute("data-panel", "inspector");
 });
 
+test("移动端隐藏桌面左右面板开关，跨断点后恢复桌面真实状态", async ({ page }) => {
+  await openWorkbench(page);
+  const leftToggle = page.locator("#toggleLeft");
+  const rightToggle = page.locator("#toggleRight");
+  await expect(leftToggle).toBeVisible();
+  await expect(rightToggle).toBeVisible();
+  await expect(leftToggle).toHaveAttribute("aria-expanded", "true");
+  await expect(rightToggle).toHaveAttribute("aria-expanded", "true");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(leftToggle).toBeHidden();
+  await expect(rightToggle).toBeHidden();
+  await expect(leftToggle).toHaveAttribute("hidden", "");
+  await expect(rightToggle).toHaveAttribute("hidden", "");
+  await expect(leftToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(rightToggle).toHaveAttribute("aria-expanded", "false");
+  expect(await leftToggle.evaluate((button) => button.tabIndex)).toBe(-1);
+  expect(await rightToggle.evaluate((button) => button.tabIndex)).toBe(-1);
+  await expect(page.locator(".mobile-tabs [role=tab]")).toHaveCount(3);
+
+  await page.setViewportSize({ width: 1281, height: 844 });
+  await expect(leftToggle).toBeVisible();
+  await expect(rightToggle).toBeVisible();
+  await expect(leftToggle).toHaveAttribute("aria-expanded", "true");
+  await expect(rightToggle).toHaveAttribute("aria-expanded", "true");
+});
+
 test("隐藏面板迁移焦点，设置弹窗关闭后恢复入口焦点", async ({ page }) => {
   await openWorkbench(page);
   await page.locator("#sessionsModeButton").focus();
@@ -232,7 +259,8 @@ test("移动端任务归档可打开复核状态，退出后恢复会话复核",
   await expect(page.locator("#copyRawButton")).toBeDisabled();
   await expect(page.locator("#inspectorPanel")).toHaveJSProperty("inert", false);
   await expect(page.locator("#inspectorPanel")).not.toHaveAttribute("aria-hidden");
-  await expect(page.locator("#toggleRight")).toBeEnabled();
+  await expect(page.locator("#toggleRight")).toBeHidden();
+  await expect(page.locator("#toggleRight")).toBeDisabled();
 
   await page.locator("[data-panel-target=sessions]").click();
   await page.locator("#sessionsModeButton").click();

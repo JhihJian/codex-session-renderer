@@ -370,10 +370,7 @@ function bindEvents() {
       void loadHealthAndSources({ announce: true });
       return;
     }
-    void loadSessions({ keepSelection: true, announce: true }).then(() => {
-      if (state.sidebarMode === "prompts") return loadPromptArchive({ force: true, announce: true });
-      return undefined;
-    });
+    void refreshCurrentSessionList({ announce: true });
   });
   document.addEventListener("click", handleMarkdownCodeCopy);
   document.addEventListener("keydown", handleDialogEscapeKey);
@@ -446,7 +443,7 @@ function bindEvents() {
     clearTimeout(sessionSearchTimer);
     sessionSearchTimer = setTimeout(() => {
       if (state.sessionTimeFilter === "earlier") void loadHistoricalSessions({ announce: true });
-      else void loadSessions({ keepSelection: true, announce: true });
+      else void loadSessions({ announce: true });
     }, 180);
   });
   els.sessionTimeFilter.querySelectorAll("[data-session-time]").forEach((button) => {
@@ -464,7 +461,7 @@ function bindEvents() {
       state.historyLoaded = false;
       void loadHistoricalSessions({ announce: true });
     }
-    else void loadSessions({ keepSelection: true, announce: true });
+    else void loadSessions({ announce: true });
   });
   [els.sessionsModeButton, els.promptsModeButton].forEach((button) => {
     button?.addEventListener("click", () => selectSidebarMode(button.dataset.sidebarMode || "sessions"));
@@ -516,6 +513,7 @@ function bindEvents() {
   window.addEventListener("resize", () => {
     applyInspectorWidth(state.inspectorWidth);
     syncMobilePanelNavigation();
+    syncPanelToggleLabels();
   });
   document.querySelectorAll("[data-panel-target]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -575,19 +573,24 @@ function cancelRawEventRequest() {
 }
 
 function syncPanelToggleLabels() {
+  const mobile = mobilePanelLayoutActive();
   const leftOpen = els.appShell.dataset.left !== "closed";
   const rightOpen = els.appShell.dataset.right !== "closed";
   const archiveHidesInspector = desktopPromptArchiveInspectorHidden();
   const leftLabel = leftOpen ? "隐藏会话列表" : "显示会话列表";
   const rightLabel = archiveHidesInspector ? "任务归档中复核台不可用" : rightOpen ? "隐藏复核台" : "显示复核台";
+  [els.toggleLeft, els.toggleRight].forEach((button) => {
+    button.hidden = mobile;
+    button.tabIndex = mobile ? -1 : 0;
+  });
   els.toggleLeft.title = leftLabel;
   els.toggleLeft.setAttribute("aria-label", leftLabel);
-  els.toggleLeft.setAttribute("aria-expanded", leftOpen ? "true" : "false");
+  els.toggleLeft.setAttribute("aria-expanded", !mobile && leftOpen ? "true" : "false");
   els.toggleRight.title = rightLabel;
   els.toggleRight.setAttribute("aria-label", rightLabel);
-  els.toggleRight.setAttribute("aria-expanded", !archiveHidesInspector && rightOpen ? "true" : "false");
-  els.toggleRight.disabled = archiveHidesInspector;
-  els.toggleRight.setAttribute("aria-disabled", archiveHidesInspector ? "true" : "false");
+  els.toggleRight.setAttribute("aria-expanded", !mobile && !archiveHidesInspector && rightOpen ? "true" : "false");
+  els.toggleRight.disabled = mobile || archiveHidesInspector;
+  els.toggleRight.setAttribute("aria-disabled", mobile || archiveHidesInspector ? "true" : "false");
   syncPanelVisibilityState();
   syncInspectorResizerState();
 }
@@ -894,7 +897,7 @@ function selectSessionTimeFilter(bucket) {
     return;
   }
   if (selectedSource()?.kind === "remote") {
-    if (state.sessionTimeFilter === "realtime") void loadSessions({ keepSelection: true, announce: true });
+    if (state.sessionTimeFilter === "realtime") void loadSessions({ announce: true });
     else void loadRemoteIndexForCurrentFilter({ announce: true });
   } else if (state.sessionTimeFilter === "earlier" && !state.historyLoaded) {
     renderSessionList();
@@ -1044,7 +1047,26 @@ function promptArchiveCacheKey(sourceId, scope) {
   return `${sourceId}:${scope}`;
 }
 
-async function loadSessions({ keepSelection = false, announce = false } = {}) {
+function invalidatePromptArchiveCache(sourceId, scope) {
+  if (state.promptArchiveScope !== promptArchiveCacheKey(sourceId, scope)) return false;
+  state.promptArchiveAbortController?.abort();
+  state.promptArchiveAbortController = null;
+  state.promptArchiveRequestKey = `invalidated:${++state.promptArchiveRequestSeq}`;
+  state.promptArchiveLoading = false;
+  state.promptArchiveError = "";
+  state.promptArchiveCancelled = false;
+  state.promptArchiveLoaded = false;
+  state.promptArchiveScope = "";
+  resetPromptArchivePage();
+  return true;
+}
+
+function reloadInvalidatedPromptArchive(invalidated, sourceId) {
+  if (!invalidated || state.sidebarMode !== "prompts" || state.selectedSourceId !== sourceId) return;
+  void loadPromptArchive({ force: true, announce: true });
+}
+
+async function loadSessions({ announce = false } = {}) {
   cancelAlternateLocalSourceDiscovery();
   const sourceId = state.selectedSourceId;
   resetRemoteIndexState();
@@ -1064,6 +1086,7 @@ async function loadSessions({ keepSelection = false, announce = false } = {}) {
     const data = await fetchJson(sourceSessionsUrl(sourceId, "recent24h"));
     if (state.sessionsRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
     requireSourceResponse(data, sourceId, "sessions");
+    const promptArchiveInvalidated = invalidatePromptArchiveCache(sourceId, "recent24h");
     state.healthLoadError = "";
     if (data.source) upsertSource(data.source);
     state.sessions = data.sessions || [];
@@ -1078,19 +1101,17 @@ async function loadSessions({ keepSelection = false, announce = false } = {}) {
     renderSourceStatus();
     renderSessionList();
     void discoverAlternateLocalSource();
-    const nextSession =
-      keepSelection && state.filteredSessions.some((session) => sessionKey(session) === state.selectedSessionKey)
-        ? state.filteredSessions.find((session) => sessionKey(session) === state.selectedSessionKey)
-        : state.filteredSessions[0] || state.sessions[0];
+    const nextSession = state.selectedSessionKey ? null : state.filteredSessions[0] || state.sessions[0];
     if (state.sessionsRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
     if (nextSession && !nextSession.remoteIndexOnly) {
       await selectSession(nextSession.id, { announce: false });
-    } else {
+    } else if (!state.selectedSessionKey) {
       clearSelectedSession();
       renderAll();
     }
     if (state.sessionsRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
     await loadRemoteIndexForCurrentFilter();
+    reloadInvalidatedPromptArchive(promptArchiveInvalidated, sourceId);
   } catch (error) {
     if (state.sessionsRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
     showToast(`加载会话失败：${error.message}`);
@@ -1106,7 +1127,7 @@ async function loadSessions({ keepSelection = false, announce = false } = {}) {
     state.sessionsLoading = false;
     state.sessionsLoadError = error.message;
     setWorkbenchStatus(operationKey, `会话列表加载失败：${error.message}。点击刷新列表重试。`, { announce: true });
-    clearSelectedSession();
+    if (!state.selectedSessionKey) clearSelectedSession();
     renderAll();
   } finally {
     if (state.sessionsRequestKey === requestKey) {
@@ -1120,7 +1141,7 @@ async function loadSessions({ keepSelection = false, announce = false } = {}) {
 
 function selectFirstVisibleSession() {
   const nextSession = state.filteredSessions[0];
-  if (!nextSession || nextSession.remoteIndexOnly || state.filteredSessions.some((session) => sessionKey(session) === state.selectedSessionKey)) return;
+  if (state.selectedSessionKey || !nextSession || nextSession.remoteIndexOnly) return;
   void selectSession(nextSession.id);
 }
 
@@ -1202,35 +1223,45 @@ async function loadHistoricalSessions({ announce = false } = {}) {
   state.historyLoadError = "";
   const operationKey = `${requestKey}:status`;
   setWorkbenchStatus(operationKey, "正在读取更早会话", { announce });
+  setBusy(true);
   renderSourceStatus();
   renderSessionList();
   try {
     const data = await fetchJson(sourceSessionsUrl(sourceId, "history"));
     if (state.historyRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
     requireSourceResponse(data, sourceId, "sessions");
+    const promptArchiveInvalidated = invalidatePromptArchiveCache(sourceId, "history");
     if (data.source) upsertSource(data.source);
-    const priorSessions = els.sessionSearch.value.trim()
-      ? state.sessions.filter((session) => sessionTimeBucket(session) !== "earlier")
-      : state.sessions;
+    const priorSessions = state.sessions.filter((session) => sessionTimeBucket(session) !== "earlier");
     const byKey = new Map(priorSessions.map((session) => [sessionKey(session), session]));
     for (const session of data.sessions || []) byKey.set(sessionKey(session), session);
     state.sessions = [...byKey.values()];
     state.historyLoaded = true;
     state.historyLoadError = "";
     setWorkbenchStatus(operationKey, `更早会话已加载：${state.sessions.length} 个会话`, { announce });
+    reloadInvalidatedPromptArchive(promptArchiveInvalidated, sourceId);
   } catch (error) {
     if (state.historyRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
     state.historyLoadError = error.message;
-    setWorkbenchStatus(operationKey, `更早会话读取失败：${error.message}。可刷新列表重试。`, { announce: true });
+    setWorkbenchStatus(operationKey, `更早会话读取失败：${error.message}。可重试更早会话或刷新列表重试。`, { announce: true });
     showToast(`加载历史会话失败：${error.message}`);
   } finally {
     if (state.historyRequestKey === requestKey && state.selectedSourceId === sourceId) {
       state.historyLoading = false;
+      setBusy(false);
       renderSourceStatus();
       renderSessionList();
       selectFirstVisibleSession();
     }
   }
+}
+
+function refreshCurrentSessionList({ announce = false } = {}) {
+  if (selectedSource()?.kind !== "remote" && state.sessionTimeFilter === "earlier") {
+    void loadHistoricalSessions({ announce });
+    return;
+  }
+  void loadSessions({ announce });
 }
 
 function setBusy(isBusy) {
@@ -1439,10 +1470,11 @@ async function refreshSelectedSource() {
 
 async function applySelectedSourceRefresh(result, sourceId, operationKey) {
   requireSourceResponse(result, sourceId, "refresh");
+  invalidatePromptArchiveCache(sourceId, promptArchiveScope());
   state.remoteRefreshError = "";
   if (result.source) upsertSource(result.source);
   renderSourceControls();
-  await loadSessions({ keepSelection: true });
+  await loadSessions();
   if (state.sidebarMode === "prompts") await loadPromptArchive({ force: true });
   setWorkbenchStatus(operationKey, "远端快照已拉取到本机缓存；未修改远端", { announce: true });
   showToast("远端快照已拉取到本机缓存；未修改远端");
@@ -1453,7 +1485,7 @@ async function handleSelectedSourceRefreshFailure(error, operationKey) {
   await reloadSources();
   setWorkbenchStatus(operationKey, `拉取远端快照失败：${error.message}。可再次拉取。`, { announce: true });
   showToast(`拉取远端快照失败：${error.message}；远端未修改`);
-  await loadSessions({ keepSelection: true });
+  await loadSessions();
   if (state.sidebarMode === "prompts") await loadPromptArchive({ force: true });
 }
 
@@ -3123,6 +3155,7 @@ function renderSessionList() {
     return true;
   });
   state.filteredSessions = sessions;
+  renderSessionFilterNotice();
   els.sessionCount.textContent = String(remoteHistory && state.remoteIndexPage ? state.remoteIndexPage.page.total : sessions.length);
   if (sessions.length === 0) {
     if (!remoteHistory && state.sessionTimeFilter === "earlier" && state.historyLoading) {
@@ -3132,7 +3165,12 @@ function renderSessionList() {
       return;
     }
     if (!remoteHistory && state.sessionTimeFilter === "earlier" && state.historyLoadError) {
-      els.sessionList.innerHTML = renderSessionListActionEmptyState(`历史会话读取失败：${state.historyLoadError}`, "可以点击刷新列表后重试。", []);
+      els.sessionList.innerHTML = renderSessionListActionEmptyState(
+        `历史会话读取失败：${state.historyLoadError}`,
+        "可重试更早会话，或点击刷新列表重试。",
+        [{ action: "retry-history", label: "重试更早会话" }],
+      );
+      bindSessionListEmptyActions();
       renderStatusbar();
       syncExportButtons();
       return;
@@ -3289,6 +3327,8 @@ function bindSessionListEmptyActions(container = els.sessionList) {
         returnToRealtimeSessions();
       } else if (action === "retry-remote-index") {
         void loadRemoteIndexForCurrentFilter();
+      } else if (action === "retry-history") {
+        void loadHistoricalSessions({ announce: true });
       } else if (action === "refresh-remote") {
         void refreshSelectedSource();
       } else if (action === "retry-prompts") {
@@ -3325,7 +3365,7 @@ function findSessionSummary(id, sourceId = state.selectedSourceId) {
 }
 
 function currentSessionFilteredOut() {
-  if (!state.detail?.session || !state.selectedSessionKey) return false;
+  if (!state.selectedSessionKey) return false;
   return !state.filteredSessions.some((session) => sessionKey(session) === state.selectedSessionKey);
 }
 
@@ -3354,7 +3394,7 @@ function reloadCurrentSessionListForFilters() {
     void loadHistoricalSessions({ announce: true });
     return;
   }
-  void loadSessions({ keepSelection: true, announce: true });
+  void loadSessions({ announce: true });
 }
 
 function renderSessionFilterNotice(filteredOut = currentSessionFilteredOut()) {

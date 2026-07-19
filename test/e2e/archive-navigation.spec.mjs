@@ -5,7 +5,7 @@ const longTitleSessionId = "88888888-8888-4888-8888-888888888888";
 const piGoalSessionId = "66666666-6666-4666-8666-666666666666";
 const codexGoalSessionId = "77777777-7777-4777-8777-777777777777";
 
-function promptResponse() {
+function promptResponse(prompt = "保持复核面板") {
   return {
     source: { id: "local", label: "本机 Codex Home", kind: "local" },
     scope: "recent24h",
@@ -19,8 +19,8 @@ function promptResponse() {
       projectKey: "local:/workspace/chromium-contract",
       projectLabel: "/workspace/chromium-contract",
       promptState: "found",
-      promptText: "保持复核面板",
-      promptPreview: "保持复核面板",
+      promptText: prompt,
+      promptPreview: prompt,
       promptEventIndex: 2,
       updatedAt: "2025-01-02T03:04:11.000Z",
     }],
@@ -164,6 +164,101 @@ test("刷新成功响应缺少来源标识时失败关闭并恢复再次拉取",
   await expect(page.locator("#sessionsPanel")).toHaveAttribute("aria-busy", "false");
   await expect(page.locator("#sourceStatus")).toContainText("拉取失败：来源响应校验失败，请重试。可再次拉取");
   await expect(page.locator("#workbenchOperationStatus")).not.toContainText("远端快照已拉取到本机缓存");
+});
+
+test("列表刷新会失效同来源归档批次，重新进入只显示新结果", async ({ page }) => {
+  await page.goto("/");
+  let promptRequests = 0;
+  await page.route("**/api/sources/local/prompts?*", async (route) => {
+    promptRequests += 1;
+    await route.fulfill({ json: promptResponse(promptRequests === 1 ? "刷新前归档任务" : "刷新后归档任务") });
+  });
+
+  await page.locator("#promptsModeButton").click();
+  await expect(page.locator("#promptArchiveContent")).toContainText("刷新前归档任务");
+  await page.locator("#sessionsModeButton").click();
+  const refreshed = page.waitForRequest((request) => {
+    const url = new URL(request.url());
+    return url.pathname === "/api/sources/local/sessions" && url.searchParams.get("scope") === "recent24h";
+  });
+  await page.locator("#refreshButton").click();
+  await refreshed;
+  await expect(page.locator("#refreshButton")).toBeEnabled();
+
+  const reloadedArchive = page.waitForRequest("**/api/sources/local/prompts?*");
+  await page.locator("#promptsModeButton").click();
+  await reloadedArchive;
+  await expect(page.locator("#promptArchiveContent")).toContainText("刷新后归档任务");
+  await expect(page.locator("#promptArchiveContent")).not.toContainText("刷新前归档任务");
+  expect(promptRequests).toBe(2);
+});
+
+test("移动端筛选只更新列表，用户显式激活后才打开另一会话", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await expect(page.locator("#sessionTitle")).toContainText("确定性 Chromium 验证会话");
+  await expect(page.locator("#compactContent")).toContainText("会话详情超过读取上限");
+  await expect(page.locator(`[data-session-id="${sessionId}"]`)).toHaveAttribute("aria-current", "true");
+  await page.locator("[data-panel-target=sessions]").click();
+  const filteredResponse = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === "/api/sources/local/sessions" && url.searchParams.get("q") === "CHROMIUM_LONG_TITLE_SUFFIX";
+  });
+  await page.locator("#sessionSearch").fill("CHROMIUM_LONG_TITLE_SUFFIX");
+  await filteredResponse;
+  await expect(page.locator("#sessionCount")).toHaveText("1");
+  const longTitleRow = page.locator(`[data-session-id="${longTitleSessionId}"]`);
+  await expect(longTitleRow).toBeVisible();
+  await expect(longTitleRow).not.toHaveAttribute("aria-current");
+  await expect(page.locator("#appShell")).toHaveAttribute("data-panel", "sessions");
+  await expect(page.locator("#sessionTitle")).toContainText("确定性 Chromium 验证会话");
+  await expect(page.locator("#sessionFilterNotice")).not.toHaveAttribute("hidden");
+
+  await longTitleRow.click();
+  await expect(page.locator("#appShell")).toHaveAttribute("data-panel", "thread");
+  await expect(page.locator("#sessionTitle")).toContainText("Chromium 标题前缀");
+});
+
+test("本机更早会话失败可真实重试 history，并保持当前 recent 详情", async ({ page }) => {
+  let historyRequests = 0;
+  await page.route("**/api/sources/local/sessions?*", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("scope") !== "history") {
+      await route.continue();
+      return;
+    }
+    historyRequests += 1;
+    expect(url.searchParams.get("q")).toBe("历史重试");
+    if (historyRequests === 1) {
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "历史索引暂不可用" }) });
+      return;
+    }
+    await route.fulfill({ json: {
+      source: { id: "local", label: "本机 Codex Home", kind: "local" },
+      scope: "history",
+      sessions: [{
+        id: "history-retry-session",
+        sourceId: "local",
+        displayTitle: "历史重试目标",
+        updatedAt: "2020-01-02T03:04:11.000Z",
+        cwd: "/workspace/history-retry",
+      }],
+    } });
+  });
+  await page.goto("/");
+  await expect(page.locator("#sessionTitle")).toContainText("确定性 Chromium 验证会话");
+  const searched = page.waitForRequest((request) => {
+    const url = new URL(request.url());
+    return url.pathname === "/api/sources/local/sessions" && url.searchParams.get("scope") === "recent24h" && url.searchParams.get("q") === "历史重试";
+  });
+  await page.locator("#sessionSearch").fill("历史重试");
+  await searched;
+  await page.locator("#sessionTimeFilter [data-session-time=earlier]").click();
+  await expect(page.locator("[data-session-empty-action=retry-history]")).toHaveText("重试更早会话");
+  await page.locator("[data-session-empty-action=retry-history]").click();
+  await expect(page.locator('[data-session-id="history-retry-session"]')).toBeVisible();
+  await expect(page.locator("#sessionTitle")).toContainText("确定性 Chromium 验证会话");
+  expect(historyRequests).toBe(2);
 });
 
 test("从归档打开会话后，详情响应不会覆盖用户后续的移动复核导航", async ({ page }) => {

@@ -6577,6 +6577,11 @@ mark {
     overflow: hidden;
   }
 
+  #toggleLeft,
+  #toggleRight {
+    display: none;
+  }
+
   .app-shell,
   .app-shell[data-left="closed"],
   .app-shell[data-right="closed"],
