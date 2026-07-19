@@ -11,11 +11,14 @@ const state = {
   healthLoadError: "",
   sessionsRequestKey: "",
   sessionsRequestSeq: 0,
+  sessionsAbortController: null,
   historyLoading: false,
   historyLoadError: "",
   historyLoaded: false,
   historyRequestKey: "",
   historyRequestSeq: 0,
+  historyAbortController: null,
+  sessionListScopeVersion: 0,
   remoteIndexLoading: false,
   remoteIndexError: "",
   remoteIndexRequestKey: "",
@@ -70,6 +73,8 @@ const state = {
   expandedAuditGroupIds: new Set(),
   inspectorWidth: 360,
   resizingInspector: false,
+  inspectorResizerFocusPending: false,
+  desktopToggleFocusPending: false,
   sidebarMode: "sessions",
   promptArchive: [],
   promptArchiveProjects: [],
@@ -438,6 +443,7 @@ function bindEvents() {
     input?.addEventListener("change", handlePeerFormInput);
   });
   els.sessionSearch.addEventListener("input", () => {
+    invalidateSessionListRequests();
     void loadRemoteIndexForCurrentFilter();
     if (isRemoteHistoryIndexMode()) return;
     clearTimeout(sessionSearchTimer);
@@ -452,6 +458,7 @@ function bindEvents() {
     });
   });
   els.sessionTypeFilter.addEventListener("change", () => {
+    invalidateSessionListRequests();
     if (isRemoteHistoryIndexMode()) {
       void loadRemoteIndexForCurrentFilter({ reset: true, announce: true });
       return;
@@ -510,6 +517,7 @@ function bindEvents() {
     syncPanelToggleLabels();
   });
   bindInspectorResize();
+  bindDesktopToggleFocusTracking();
   window.addEventListener("resize", () => {
     applyInspectorWidth(state.inspectorWidth);
     syncMobilePanelNavigation();
@@ -574,6 +582,7 @@ function cancelRawEventRequest() {
 
 function syncPanelToggleLabels() {
   const mobile = mobilePanelLayoutActive();
+  moveFocusFromHiddenDesktopToggles();
   const leftOpen = els.appShell.dataset.left !== "closed";
   const rightOpen = els.appShell.dataset.right !== "closed";
   const archiveHidesInspector = desktopPromptArchiveInspectorHidden();
@@ -593,6 +602,24 @@ function syncPanelToggleLabels() {
   els.toggleRight.setAttribute("aria-disabled", mobile || archiveHidesInspector ? "true" : "false");
   syncPanelVisibilityState();
   syncInspectorResizerState();
+}
+
+function moveFocusFromHiddenDesktopToggles() {
+  if (!mobilePanelLayoutActive()) return;
+  if (![els.toggleLeft, els.toggleRight].includes(document.activeElement) && !state.desktopToggleFocusPending) return;
+  state.desktopToggleFocusPending = false;
+  mobilePanelTab(els.appShell.dataset.panel || "thread")?.focus({ preventScroll: true });
+}
+
+function bindDesktopToggleFocusTracking() {
+  [els.toggleLeft, els.toggleRight].forEach((button) => {
+    button.addEventListener("focus", () => { state.desktopToggleFocusPending = true; });
+    button.addEventListener("blur", () => {
+      queueMicrotask(() => {
+        if (document.activeElement !== document.body) state.desktopToggleFocusPending = false;
+      });
+    });
+  });
 }
 
 function syncPanelVisibilityState() {
@@ -687,6 +714,12 @@ function handleDialogEscapeKey(event) {
 
 function bindInspectorResize() {
   if (!els.inspectorResizer) return;
+  els.inspectorResizer.addEventListener("focus", () => { state.inspectorResizerFocusPending = true; });
+  els.inspectorResizer.addEventListener("blur", () => {
+    queueMicrotask(() => {
+      if (document.activeElement !== document.body) state.inspectorResizerFocusPending = false;
+    });
+  });
   els.inspectorResizer.addEventListener("pointerdown", (event) => {
     if (!inspectorResizeEnabled()) return;
     event.preventDefault();
@@ -758,6 +791,7 @@ function applyInspectorWidth(width, options = {}) {
   els.appShell.style.setProperty("--inspector-width", `${state.inspectorWidth}px`);
   if (els.inspectorResizer) {
     const resizeEnabled = inspectorResizeEnabled();
+    const moveFocusedResizer = resizerNeedsFocusMigration(resizeEnabled);
     const min = bounds?.min ?? inspectorWidthDefaults.min;
     const max = bounds?.max ?? inspectorWidthDefaults.max;
     els.inspectorResizer.setAttribute("aria-valuemin", String(min));
@@ -770,8 +804,24 @@ function applyInspectorWidth(width, options = {}) {
     } else {
       els.inspectorResizer.setAttribute("aria-hidden", "true");
     }
+    if (moveFocusedResizer) {
+      state.inspectorResizerFocusPending = false;
+      focusResizerFallback();
+    }
   }
   if (options.persist) saveInspectorWidth(state.inspectorWidth);
+}
+
+function resizerNeedsFocusMigration(resizeEnabled) {
+  return !resizeEnabled && (document.activeElement === els.inspectorResizer || state.inspectorResizerFocusPending);
+}
+
+function focusResizerFallback() {
+  const fallback = mobilePanelLayoutActive()
+    ? mobilePanelTab(els.appShell?.dataset.panel || "thread") || mobilePanelTab("inspector")
+    : els.toggleRight;
+  if (!fallback || fallback.hidden || fallback.disabled || fallback.inert || fallback.getAttribute("aria-hidden") === "true") return;
+  fallback.focus({ preventScroll: true });
 }
 
 function widthFromPointer(clientX) {
@@ -891,7 +941,9 @@ function renderSourceStatus() {
 }
 
 function selectSessionTimeFilter(bucket) {
-  state.sessionTimeFilter = bucket || "realtime";
+  const next = bucket || "realtime";
+  if (next !== state.sessionTimeFilter) invalidateSessionListRequests();
+  state.sessionTimeFilter = next;
   if (state.sidebarMode === "prompts") {
     void loadPromptArchive({ announce: true });
     return;
@@ -947,6 +999,7 @@ async function loadPromptArchive({ force = false, pageToken = "", restarted = fa
   const requestKey = request.key;
   state.promptArchiveRequestKey = requestKey;
   state.promptArchiveLoading = true;
+  state.promptArchiveLoaded = false;
   state.promptArchiveError = "";
   state.promptArchiveCancelled = false;
   state.promptArchiveScope = archiveCacheKey;
@@ -985,7 +1038,7 @@ function resetPromptArchivePage() {
 async function requestPromptArchive({ sourceId, scope, pageToken, controller, requestKey, archiveContext }) {
   const data = await fetchJson(promptArchiveUrl(sourceId, scope, pageToken), { signal: controller.signal });
   const requestState = sourceRequestState({ requestKey, expectedRequestKey: state.promptArchiveRequestKey, sourceId, context: archiveContext });
-  if (requestState === "current") requireSourceResponse(data, sourceId, "prompts");
+  if (requestState === "current") requireSourceResponse(data, sourceId, "prompts", scope);
   return { data, requestState };
 }
 
@@ -1069,11 +1122,17 @@ function reloadInvalidatedPromptArchive(invalidated, sourceId) {
 async function loadSessions({ announce = false } = {}) {
   cancelAlternateLocalSourceDiscovery();
   const sourceId = state.selectedSourceId;
+  const scopeVersion = state.sessionListScopeVersion;
+  const controller = new AbortController();
+  state.sessionsAbortController?.abort();
+  state.sessionsAbortController = controller;
   resetRemoteIndexState();
-  const requestKey = `sessions:${++state.sessionsRequestSeq}:${sourceId}`;
+  const requestKey = `sessions:${++state.sessionsRequestSeq}:${sourceId}:recent24h:${scopeVersion}`;
   state.sessionsRequestKey = requestKey;
   state.sessionsLoading = true;
   state.sessionsLoadError = "";
+  state.historyAbortController?.abort();
+  state.historyAbortController = null;
   state.historyLoading = false;
   state.historyLoadError = "";
   state.historyLoaded = false;
@@ -1083,9 +1142,9 @@ async function loadSessions({ announce = false } = {}) {
   setBusy(true);
   renderSessionList();
   try {
-    const data = await fetchJson(sourceSessionsUrl(sourceId, "recent24h"));
-    if (state.sessionsRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
-    requireSourceResponse(data, sourceId, "sessions");
+    const data = await fetchJson(sourceSessionsUrl(sourceId, "recent24h"), { signal: controller.signal });
+    if (!sessionListRequestIsCurrent({ requestKey, sourceId, scopeVersion, kind: "sessions" })) return;
+    requireSourceResponse(data, sourceId, "sessions", "recent24h");
     const promptArchiveInvalidated = invalidatePromptArchiveCache(sourceId, "recent24h");
     state.healthLoadError = "";
     if (data.source) upsertSource(data.source);
@@ -1101,19 +1160,19 @@ async function loadSessions({ announce = false } = {}) {
     renderSourceStatus();
     renderSessionList();
     void discoverAlternateLocalSource();
-    const nextSession = state.selectedSessionKey ? null : state.filteredSessions[0] || state.sessions[0];
-    if (state.sessionsRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
+    const nextSession = state.selectedSessionKey ? null : state.filteredSessions[0];
+    if (!sessionListRequestIsCurrent({ requestKey, sourceId, scopeVersion, kind: "sessions" })) return;
     if (nextSession && !nextSession.remoteIndexOnly) {
       await selectSession(nextSession.id, { announce: false });
     } else if (!state.selectedSessionKey) {
       clearSelectedSession();
       renderAll();
     }
-    if (state.sessionsRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
+    if (!sessionListRequestIsCurrent({ requestKey, sourceId, scopeVersion, kind: "sessions" })) return;
     await loadRemoteIndexForCurrentFilter();
     reloadInvalidatedPromptArchive(promptArchiveInvalidated, sourceId);
   } catch (error) {
-    if (state.sessionsRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
+    if (isAbortError(error) || !sessionListRequestIsCurrent({ requestKey, sourceId, scopeVersion, kind: "sessions" })) return;
     showToast(`加载会话失败：${error.message}`);
     if (error.message?.includes("无法连接本机服务")) {
       state.healthLoadError = localServiceUnavailableMessage;
@@ -1130,7 +1189,8 @@ async function loadSessions({ announce = false } = {}) {
     if (!state.selectedSessionKey) clearSelectedSession();
     renderAll();
   } finally {
-    if (state.sessionsRequestKey === requestKey) {
+    if (state.sessionsAbortController === controller) state.sessionsAbortController = null;
+    if (sessionListRequestIsCurrent({ requestKey, sourceId, scopeVersion, kind: "sessions" })) {
       state.sessionsLoading = false;
       setBusy(false);
       renderSourceStatus();
@@ -1201,7 +1261,7 @@ async function discoverAlternateLocalSource() {
   try {
     const data = await fetchJson(sourceSessionsUrl(source.id, "recent24h"), { signal: controller.signal });
     if (!alternateLocalSourceDiscoveryCurrent(requestKey)) return;
-    requireSourceResponse(data, source.id, "sessions");
+    requireSourceResponse(data, source.id, "sessions", "recent24h");
     if (data.source) upsertSource(data.source);
     state.alternateLocalSource = alternateLocalSourceResult(data, source);
   } catch (error) {
@@ -1217,9 +1277,14 @@ async function discoverAlternateLocalSource() {
 
 async function loadHistoricalSessions({ announce = false } = {}) {
   const sourceId = state.selectedSourceId;
-  const requestKey = `history:${++state.historyRequestSeq}:${sourceId}`;
+  const scopeVersion = state.sessionListScopeVersion;
+  const controller = new AbortController();
+  state.historyAbortController?.abort();
+  state.historyAbortController = controller;
+  const requestKey = `history:${++state.historyRequestSeq}:${sourceId}:history:${scopeVersion}`;
   state.historyRequestKey = requestKey;
   state.historyLoading = true;
+  state.sessionsLoadError = "";
   state.historyLoadError = "";
   const operationKey = `${requestKey}:status`;
   setWorkbenchStatus(operationKey, "正在读取更早会话", { announce });
@@ -1227,9 +1292,9 @@ async function loadHistoricalSessions({ announce = false } = {}) {
   renderSourceStatus();
   renderSessionList();
   try {
-    const data = await fetchJson(sourceSessionsUrl(sourceId, "history"));
-    if (state.historyRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
-    requireSourceResponse(data, sourceId, "sessions");
+    const data = await fetchJson(sourceSessionsUrl(sourceId, "history"), { signal: controller.signal });
+    if (!sessionListRequestIsCurrent({ requestKey, sourceId, scopeVersion, kind: "history" })) return;
+    requireSourceResponse(data, sourceId, "sessions", "history");
     const promptArchiveInvalidated = invalidatePromptArchiveCache(sourceId, "history");
     if (data.source) upsertSource(data.source);
     const priorSessions = state.sessions.filter((session) => sessionTimeBucket(session) !== "earlier");
@@ -1241,12 +1306,13 @@ async function loadHistoricalSessions({ announce = false } = {}) {
     setWorkbenchStatus(operationKey, `更早会话已加载：${state.sessions.length} 个会话`, { announce });
     reloadInvalidatedPromptArchive(promptArchiveInvalidated, sourceId);
   } catch (error) {
-    if (state.historyRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
+    if (isAbortError(error) || !sessionListRequestIsCurrent({ requestKey, sourceId, scopeVersion, kind: "history" })) return;
     state.historyLoadError = error.message;
     setWorkbenchStatus(operationKey, `更早会话读取失败：${error.message}。可重试更早会话或刷新列表重试。`, { announce: true });
     showToast(`加载历史会话失败：${error.message}`);
   } finally {
-    if (state.historyRequestKey === requestKey && state.selectedSourceId === sourceId) {
+    if (state.historyAbortController === controller) state.historyAbortController = null;
+    if (sessionListRequestIsCurrent({ requestKey, sourceId, scopeVersion, kind: "history" })) {
       state.historyLoading = false;
       setBusy(false);
       renderSourceStatus();
@@ -1257,11 +1323,32 @@ async function loadHistoricalSessions({ announce = false } = {}) {
 }
 
 function refreshCurrentSessionList({ announce = false } = {}) {
+  if (selectedSource()?.kind === "remote" && state.sessionTimeFilter !== "realtime") {
+    void loadRemoteIndexForCurrentFilter({ reset: true, force: true, preserve: true, announce });
+    return;
+  }
   if (selectedSource()?.kind !== "remote" && state.sessionTimeFilter === "earlier") {
     void loadHistoricalSessions({ announce });
     return;
   }
   void loadSessions({ announce });
+}
+
+function invalidateSessionListRequests() {
+  state.sessionListScopeVersion += 1;
+  state.sessionsAbortController?.abort();
+  state.sessionsAbortController = null;
+  state.historyAbortController?.abort();
+  state.historyAbortController = null;
+  state.sessionsRequestKey = `inactive:${++state.sessionsRequestSeq}`;
+  state.historyRequestKey = `inactive:${++state.historyRequestSeq}`;
+  state.sessionsLoading = false;
+  state.historyLoading = false;
+}
+
+function sessionListRequestIsCurrent({ requestKey, sourceId, scopeVersion, kind }) {
+  const expectedRequestKey = kind === "history" ? state.historyRequestKey : state.sessionsRequestKey;
+  return expectedRequestKey === requestKey && state.selectedSourceId === sourceId && state.sessionListScopeVersion === scopeVersion;
 }
 
 function setBusy(isBusy) {
@@ -1412,6 +1499,7 @@ function clearSelectedSession() {
 async function selectSource(sourceId) {
   if (!sourceId || sourceId === state.selectedSourceId) return;
   cancelPromptArchiveRequest();
+  invalidateSessionListRequests();
   cancelAlternateLocalSourceDiscovery();
   state.selectedSourceId = sourceId;
   state.remoteRefreshLoading = false;
@@ -2636,7 +2724,7 @@ function prepareRemoteIndexRequest(options) {
   const sourceId = state.selectedSourceId;
   const filterKey = remoteIndexFilterKey(sourceId);
   if (options.reset || state.remoteIndexFilterKey !== filterKey) {
-    resetRemoteIndexState();
+    resetRemoteIndexState({ preserve: options.preserve === true });
     state.remoteIndexFilterKey = filterKey;
   }
   const cursor = String(options.cursor ?? "0");
@@ -2663,8 +2751,10 @@ async function requestRemoteIndexPage({ sourceId, filterKey, cursor, options }) 
   const requestKey = [++state.remoteIndexRequestSeq, filterKey, cursor].join("\n");
   state.remoteIndexRequestKey = requestKey;
   state.remoteIndexLoading = true;
-  state.remoteIndexSessions = [];
-  state.remoteIndexPage = null;
+  if (!options.preserve) {
+    state.remoteIndexSessions = [];
+    state.remoteIndexPage = null;
+  }
   state.remoteIndexError = "";
   const operationKey = `${requestKey}:status`;
   setWorkbenchStatus(operationKey, `正在检索${remoteHistoryBucketLabel()}`, { announce: options.announce === true });
@@ -2685,8 +2775,7 @@ async function requestRemoteIndexPage({ sourceId, filterKey, cursor, options }) 
       setWorkbenchStatus(operationKey, "远端历史索引已变化，正在从第一页重新开始定位", { announce: true });
       return loadRemoteIndexForCurrentFilter({ reset: true });
     }
-    state.remoteIndexSessions = [];
-    state.remoteIndexPage = null;
+    restoreRemoteIndexAfterFailedRequest(options);
     state.remoteIndexError = error.message;
     setWorkbenchStatus(operationKey, `远端历史索引失败：${error.message}。可重试或返回实时。`, { announce: true });
     showToast(`远端索引检索失败：${error.message}`);
@@ -2717,15 +2806,26 @@ function applyRemoteIndexResponse({ data, sourceId, cursor, options }) {
   return entry;
 }
 
-function resetRemoteIndexState() {
+function restoreRemoteIndexAfterFailedRequest(options) {
+  if (options.preserve && state.remoteIndexPage) {
+    state.remoteIndexSessions = state.remoteIndexPage.sessions;
+    return;
+  }
+  state.remoteIndexSessions = [];
+  state.remoteIndexPage = null;
+}
+
+function resetRemoteIndexState({ preserve = false } = {}) {
+  const preservedEntry = preserve ? state.remoteIndexPage : null;
+  const preservedSessions = preserve ? state.remoteIndexSessions : [];
   state.remoteIndexAbortController?.abort();
   state.remoteIndexAbortController = null;
   state.remoteIndexRequestKey = `inactive:${++state.remoteIndexRequestSeq}`;
   state.remoteIndexFilterKey = "";
-  state.remoteIndexSessions = [];
+  state.remoteIndexSessions = preservedSessions;
   state.remoteIndexLoading = false;
   state.remoteIndexError = "";
-  state.remoteIndexPage = null;
+  state.remoteIndexPage = preservedEntry;
   state.remoteIndexPages = new Map();
 }
 
@@ -2759,15 +2859,21 @@ function sourceRequestState({ requestKey, expectedRequestKey, sourceId, context 
 }
 
 function sourceResponseMatches(data, sourceId, responseKind) {
+  const expectedScope = arguments[3];
   if (responseKind === "detail") return data?.session?.sourceId === sourceId;
   if (data?.source?.id !== sourceId) return false;
+  if (!responseScopeMatches(data, expectedScope)) return false;
   const collectionKey = responseKind === "prompts" ? "entries" : responseKind === "sessions" || responseKind === "remote-index" ? "sessions" : "";
   const entries = collectionKey ? data?.[collectionKey] : null;
   return !Array.isArray(entries) || entries.every((entry) => !entry?.sourceId || entry.sourceId === sourceId);
 }
 
-function requireSourceResponse(data, sourceId, responseKind) {
-  if (sourceResponseMatches(data, sourceId, responseKind)) return;
+function responseScopeMatches(data, expectedScope) {
+  return !expectedScope || data?.scope === expectedScope;
+}
+
+function requireSourceResponse(data, sourceId, responseKind, expectedScope = "") {
+  if (sourceResponseMatches(data, sourceId, responseKind, expectedScope)) return;
   const error = new Error("来源响应校验失败，请重试。");
   error.code = "source_response_mismatch";
   throw error;
@@ -3370,6 +3476,7 @@ function currentSessionFilteredOut() {
 }
 
 function clearSessionFiltersForSelectedSession() {
+  invalidateSessionListRequests();
   els.sessionSearch.value = "";
   els.sessionTypeFilter.value = "all";
   if (state.detail?.session) {
@@ -3379,6 +3486,7 @@ function clearSessionFiltersForSelectedSession() {
 }
 
 function returnToRealtimeSessions() {
+  if (state.sessionTimeFilter !== "realtime") invalidateSessionListRequests();
   state.sessionTimeFilter = "realtime";
   reloadCurrentSessionListForFilters();
 }
