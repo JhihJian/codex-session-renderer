@@ -85,7 +85,14 @@ async function readLimitedResponseText(response, options = {}) {
 }
 
 async function pipelineLimitedResponse(response, writable, options = {}) {
-  await pipeline(limitResponseBody(response, options), writable, { signal: options.signal });
+  const readable = limitResponseBody(response, options);
+  const abort = () => readable.destroy(abortReason(options.signal));
+  options.signal?.addEventListener("abort", abort, { once: true });
+  try {
+    await pipeline(readable, writable, { signal: options.signal });
+  } finally {
+    options.signal?.removeEventListener("abort", abort);
+  }
 }
 
 async function fetchWithDeadline(fetchImpl, url, init = {}, options = {}) {

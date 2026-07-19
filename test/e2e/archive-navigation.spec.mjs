@@ -77,70 +77,35 @@ test("内容类型筛选在各主视图保留稳定可访问名称", async ({ pa
   }
 });
 
-test("来源切换后过期远端刷新不会污染当前来源或导航状态", async ({ page }) => {
+test("来源切换会中止远端刷新 POST，不污染当前来源或导航状态", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#sessionTitle")).toContainText("确定性 Chromium 验证会话");
-  await page.locator("#sourceSelect").selectOption("office");
+  await page.locator("#sourceSelect").selectOption("slow-office");
   await expect(page.locator("#refreshRemoteButton")).toBeVisible();
-
-  let releaseRefresh;
-  const refreshStarted = new Promise((resolve) => {
-    releaseRefresh = resolve;
-  });
-  let beginRefresh;
-  const refreshCanFinish = new Promise((resolve) => {
-    beginRefresh = resolve;
-  });
-  await page.route("**/api/sources/office/refresh", async (route) => {
-    releaseRefresh();
-    await refreshCanFinish;
-    await route.fulfill({ json: {
-      source: {
-        id: "office",
-        label: "过期刷新不得写入来源缓存",
-        kind: "remote",
-        status: { refreshable: true, snapshotAvailable: true },
-      },
-    } });
-  });
+  const refreshStarted = page.waitForRequest("**/api/sources/slow-office/refresh");
+  const refreshAborted = page.waitForEvent("requestfailed", (request) => new URL(request.url()).pathname === "/api/sources/slow-office/refresh");
 
   await page.locator("#refreshRemoteButton").click();
   await refreshStarted;
   await page.locator("#sourceSelect").selectOption("local");
+  const failure = await refreshAborted;
+  expect(failure.failure()?.errorText).toContain("net::ERR_ABORTED");
   await expect(page.locator("#sourceSelect")).toHaveValue("local");
-  beginRefresh();
   await expect(page.locator("#sessionTitle")).toContainText("确定性 Chromium 验证会话");
   await expect(page.locator("#workbenchOperationStatus")).not.toContainText("远端快照已拉取到本机缓存");
-  await expect(page.locator("#sourceSelect").locator("option[value=office]")).not.toContainText("过期刷新不得写入来源缓存");
 });
 
-test("同一远端来源的导航变化会丢弃刷新结果但恢复刷新入口", async ({ page }) => {
+test("同一远端来源的导航变化中止刷新 POST 并恢复无障碍状态", async ({ page }) => {
   await page.goto("/");
-  await page.locator("#sourceSelect").selectOption("office");
-  let releaseRefresh;
-  const refreshStarted = new Promise((resolve) => {
-    releaseRefresh = resolve;
-  });
-  let allowRefresh;
-  const refreshFinished = new Promise((resolve) => {
-    allowRefresh = resolve;
-  });
-  await page.route("**/api/sources/office/refresh", async (route) => {
-    releaseRefresh();
-    await refreshFinished;
-    await route.fulfill({ json: {
-      ok: true,
-      source: { id: "office", label: "过期结果不能写回", kind: "remote", status: { refreshable: true, snapshotAvailable: true } },
-    } });
-  });
+  await page.locator("#sourceSelect").selectOption("slow-office");
+  const refreshStarted = page.waitForRequest("**/api/sources/slow-office/refresh");
+  const refreshAborted = page.waitForEvent("requestfailed", (request) => new URL(request.url()).pathname === "/api/sources/slow-office/refresh");
 
   await page.locator("#refreshRemoteButton").click();
   await refreshStarted;
   await page.locator("#auditViewButton").click();
-  await page.locator("#statsViewButton").click();
-  await page.locator("#rawViewButton").click();
-  await page.locator("#reviewTabEvidence").click();
-  allowRefresh();
+  const failure = await refreshAborted;
+  expect(failure.failure()?.errorText).toContain("net::ERR_ABORTED");
 
   await expect(page.locator("#refreshRemoteButton")).toBeEnabled();
   await expect(page.locator("#refreshRemoteButton")).toHaveText("拉取远端快照");
@@ -148,7 +113,6 @@ test("同一远端来源的导航变化会丢弃刷新结果但恢复刷新入�
   await expect(page.locator("#sourceStatus")).toContainText("拉取已取消，可再次拉取");
   await expect(page.locator("#workbenchOperationStatus")).toContainText("远端快照拉取已取消，可再次拉取");
   await expect(page.locator("#workbenchOperationStatus")).not.toContainText("远端快照已拉取到本机缓存");
-  await expect(page.locator("#sourceSelect").locator("option[value=office]")).not.toContainText("过期结果不能写回");
 });
 
 test("刷新成功响应缺少来源标识时失败关闭并恢复再次拉取", async ({ page }) => {

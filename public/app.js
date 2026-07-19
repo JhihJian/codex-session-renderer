@@ -92,6 +92,7 @@ const state = {
   remoteRefreshCancelled: false,
   remoteRefreshError: "",
   remoteRefreshRequestKey: "",
+  remoteRefreshAbortController: null,
   alternateLocalSource: null,
   alternateLocalSourceLoading: false,
   alternateLocalSourceRequestKey: "",
@@ -655,8 +656,10 @@ function mobilePanelTab(panel) {
 
 function setMobilePanel(panel, { userInitiated = false } = {}) {
   const next = ["sessions", "thread", "inspector"].includes(panel) ? panel : "thread";
-  if (userInitiated && els.appShell.dataset.panel !== next) state.mobilePanelNavigationVersion += 1;
+  const changed = els.appShell.dataset.panel !== next;
+  if (userInitiated && changed) state.mobilePanelNavigationVersion += 1;
   els.appShell.dataset.panel = next;
+  if (changed) cancelRemoteRefreshForNavigation();
   syncMobilePanelNavigation();
 }
 
@@ -942,8 +945,10 @@ function renderSourceStatus() {
 
 function selectSessionTimeFilter(bucket) {
   const next = bucket || "realtime";
-  if (next !== state.sessionTimeFilter) invalidateSessionListRequests();
+  const changed = next !== state.sessionTimeFilter;
+  if (changed) invalidateSessionListRequests();
   state.sessionTimeFilter = next;
+  if (changed) cancelRemoteRefreshForNavigation();
   if (state.sidebarMode === "prompts") {
     void loadPromptArchive({ announce: true });
     return;
@@ -968,6 +973,7 @@ function selectSidebarMode(mode) {
   }
   if (next !== "prompts") cancelPromptArchiveRequest();
   state.sidebarMode = next;
+  cancelRemoteRefreshForNavigation();
   els.appShell.dataset.mode = next;
   setMobilePanel(next === "prompts" ? "thread" : "sessions");
   if (els.promptArchiveControls) els.promptArchiveControls.hidden = next !== "prompts";
@@ -1392,6 +1398,7 @@ async function selectSession(id, { announce = true, focusMobilePanel = true, imm
   if (immediateMobilePanel) setMobilePanel("thread");
   state.selectedSessionId = id;
   state.selectedSessionKey = sessionKey({ id, sourceId });
+  cancelRemoteRefreshForNavigation();
   state.sessionRequestKey = requestKey;
   const operationKey = `${requestKey}:status`;
   state.sessionLoading = true;
@@ -1478,6 +1485,7 @@ function clearSelectedSession() {
   markdownAbortController = null;
   state.selectedSessionId = null;
   state.selectedSessionKey = null;
+  cancelRemoteRefreshForNavigation();
   state.sessionLoading = false;
   state.sessionLoadError = "";
   state.sessionRequestKey = "";
@@ -1502,6 +1510,7 @@ async function selectSource(sourceId) {
   invalidateSessionListRequests();
   cancelAlternateLocalSourceDiscovery();
   state.selectedSourceId = sourceId;
+  cancelRemoteRefreshForNavigation();
   state.remoteRefreshLoading = false;
   state.remoteRefreshCancelled = false;
   state.remoteRefreshError = "";
@@ -1533,6 +1542,9 @@ async function refreshSelectedSource() {
   cancelPromptArchiveRequest();
   cancelRawDiagnosticRequest({ clear: true });
   cancelRawEventRequest();
+  state.remoteRefreshAbortController?.abort();
+  const controller = new AbortController();
+  state.remoteRefreshAbortController = controller;
   const operationKey = `refresh:${sourceId}:${Date.now()}`;
   state.remoteRefreshRequestKey = operationKey;
   state.remoteRefreshLoading = true;
@@ -1543,7 +1555,7 @@ async function refreshSelectedSource() {
   els.refreshRemoteButton.disabled = true;
   els.refreshRemoteButton.textContent = "正在拉取快照";
   try {
-    const result = await fetchJson(`/api/sources/${encodeURIComponent(sourceId)}/refresh`, { method: "POST" });
+    const result = await fetchJson(`/api/sources/${encodeURIComponent(sourceId)}/refresh`, { method: "POST", signal: controller.signal });
     requestState = sourceRequestState({ requestKey: operationKey, expectedRequestKey: state.remoteRefreshRequestKey, sourceId, context: refreshContext });
     if (requestState !== "current") return;
     await applySelectedSourceRefresh(result, sourceId, operationKey);
@@ -1552,7 +1564,7 @@ async function refreshSelectedSource() {
     if (requestState !== "current") return;
     await handleSelectedSourceRefreshFailure(error, operationKey);
   } finally {
-    finishSelectedSourceRefresh({ sourceId, operationKey, requestState });
+    finishSelectedSourceRefresh({ controller, sourceId, operationKey, requestState });
   }
 }
 
@@ -1577,7 +1589,8 @@ async function handleSelectedSourceRefreshFailure(error, operationKey) {
   if (state.sidebarMode === "prompts") await loadPromptArchive({ force: true });
 }
 
-function finishSelectedSourceRefresh({ sourceId, operationKey, requestState }) {
+function finishSelectedSourceRefresh({ controller, sourceId, operationKey, requestState }) {
+  if (state.remoteRefreshAbortController === controller) state.remoteRefreshAbortController = null;
   if (!sourceRequestOwnsState({ requestKey: operationKey, expectedRequestKey: state.remoteRefreshRequestKey, sourceId })) return;
   state.remoteRefreshLoading = false;
   if (requestState === "navigation-changed") {
@@ -1586,6 +1599,11 @@ function finishSelectedSourceRefresh({ sourceId, operationKey, requestState }) {
   }
   renderSourceControls();
   renderAll();
+}
+
+function cancelRemoteRefreshForNavigation() {
+  if (!state.remoteRefreshAbortController || state.remoteRefreshAbortController.signal.aborted) return;
+  state.remoteRefreshAbortController.abort();
 }
 
 async function reloadSources() {
@@ -1836,6 +1854,7 @@ async function deleteSelectedPeer() {
     state.peerLoading = false;
     if (state.selectedSourceId === id) {
       state.selectedSourceId = "local";
+      cancelRemoteRefreshForNavigation();
       clearSelectedSession();
     }
     state.selectedPeerId = state.peers[0]?.id || null;
@@ -2900,11 +2919,13 @@ function renderAll() {
 
 function setViewMode(mode) {
   const nextMode = normalizeViewMode(mode);
+  const changed = state.viewMode !== nextMode;
   if (state.viewMode === "raw" && nextMode !== "raw") {
     cancelRawDiagnosticRequest();
     cancelRawEventRequest();
   }
   state.viewMode = nextMode;
+  if (changed) cancelRemoteRefreshForNavigation();
   syncViewControls();
   renderMainContent();
 }
@@ -3182,6 +3203,7 @@ function openPromptArchiveSession(entry) {
   if (!entry?.sessionId) return;
   cancelPromptArchiveRequest();
   state.sidebarMode = "sessions";
+  cancelRemoteRefreshForNavigation();
   state.promptArchiveProject = entry.projectKey || "all";
   els.appShell.dataset.mode = "sessions";
   if (els.promptArchiveControls) els.promptArchiveControls.hidden = true;
@@ -3479,15 +3501,19 @@ function clearSessionFiltersForSelectedSession() {
   invalidateSessionListRequests();
   els.sessionSearch.value = "";
   els.sessionTypeFilter.value = "all";
+  const previousTimeFilter = state.sessionTimeFilter;
   if (state.detail?.session) {
     state.sessionTimeFilter = sessionTimeBucket(state.detail.session);
   }
+  if (state.sessionTimeFilter !== previousTimeFilter) cancelRemoteRefreshForNavigation();
   reloadCurrentSessionListForFilters();
 }
 
 function returnToRealtimeSessions() {
-  if (state.sessionTimeFilter !== "realtime") invalidateSessionListRequests();
+  const changed = state.sessionTimeFilter !== "realtime";
+  if (changed) invalidateSessionListRequests();
   state.sessionTimeFilter = "realtime";
+  if (changed) cancelRemoteRefreshForNavigation();
   reloadCurrentSessionListForFilters();
 }
 
@@ -6903,6 +6929,7 @@ function locateRelatedAuditNode(node) {
   }
   if (state.viewMode !== "audit") {
     state.viewMode = "audit";
+    cancelRemoteRefreshForNavigation();
     syncItemTypeFilterOptions();
   }
   renderMainContent();
@@ -7368,7 +7395,9 @@ function renderRawEventInsight(event, query = "") {
 }
 
 async function openRawEventFromAudit(index) {
+  const changed = state.viewMode !== "raw";
   state.viewMode = "raw";
+  if (changed) cancelRemoteRefreshForNavigation();
   state.selectedEventIndex = index;
   renderMainContent();
   await selectRawViewEvent(index);
@@ -8462,7 +8491,10 @@ function renderReviewTabs() {
 }
 
 function setReviewTab(tab) {
-  state.reviewTab = tab || "summary";
+  const next = tab || "summary";
+  const changed = state.reviewTab !== next;
+  state.reviewTab = next;
+  if (changed) cancelRemoteRefreshForNavigation();
   renderInspector();
 }
 
@@ -8930,8 +8962,7 @@ async function runReviewAction(action, context = buildReviewContext()) {
   if (action.action === "open-trace-node") return locateTraceNode(action.id);
   if (action.action === "open-audit-node") return locateAuditNode(action.id || action.node?.relatedNodeId);
   if (action.action === "switch-review-tab") {
-    state.reviewTab = action.tab || "summary";
-    renderInspector();
+    setReviewTab(action.tab || "summary");
     return;
   }
   if (action.copy != null) return copyInspectorText(action.copy, action.toast || "已复制", { sensitive: action.sensitive !== false });
@@ -9178,7 +9209,10 @@ function locateAuditNode(id) {
     showToast("未找到审计链节点");
     return;
   }
-  if (state.viewMode !== "audit") state.viewMode = "audit";
+  if (state.viewMode !== "audit") {
+    state.viewMode = "audit";
+    cancelRemoteRefreshForNavigation();
+  }
   renderMainContent();
   selectAuditNode(target.id);
 }

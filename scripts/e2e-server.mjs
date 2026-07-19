@@ -112,13 +112,29 @@ await new Promise((resolve, reject) => {
   });
 });
 const remoteAddress = remoteServer.address();
+const slowRemoteServer = createServer((req, res) => {
+  if (req.url?.startsWith("/api/codex-snapshot.tar")) {
+    res.writeHead(200, { "content-type": "application/x-tar" });
+    res.write("slow snapshot response");
+    return;
+  }
+  res.writeHead(404).end();
+});
+await new Promise((resolve, reject) => {
+  slowRemoteServer.once("error", reject);
+  slowRemoteServer.listen(0, "127.0.0.1", () => {
+    slowRemoteServer.off("error", reject);
+    resolve();
+  });
+});
+const slowRemoteAddress = slowRemoteServer.address();
 
 process.env.CODEX_HOME = codexHome;
 process.env.HOME = tempRoot;
 process.env.USERPROFILE = tempRoot;
 process.env.PI_AGENT_SESSIONS_ROOT = piSessionsRoot;
 process.env.CODEX_SESSION_DETAIL_MAX_EVENTS = "4";
-process.env.CODEX_REMOTE_PEERS = `office|E2E 远端索引=http://127.0.0.1:${remoteAddress.port}`;
+process.env.CODEX_REMOTE_PEERS = `office|E2E 远端索引=http://127.0.0.1:${remoteAddress.port},slow-office|E2E 慢速远端=http://127.0.0.1:${slowRemoteAddress.port}`;
 process.env.CODEX_REMOTE_TOKEN = remoteToken;
 process.env.CODEX_REMOTE_SOURCES = "";
 process.env.HOST = "127.0.0.1";
@@ -133,6 +149,7 @@ async function stop() {
   stopped = true;
   await new Promise((resolve) => server.close(resolve));
   await new Promise((resolve) => remoteServer.close(resolve));
+  await new Promise((resolve) => slowRemoteServer.close(resolve));
   await rm(tempRoot, { recursive: true, force: true });
 }
 
