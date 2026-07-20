@@ -196,7 +196,7 @@ test("分页快照变化清空选择和完整事件缓存后可重新开始", as
   expect(eventReadCount).toBe(1);
 
   await page.locator("#rawContent [data-next-raw-page]").click();
-  await expect(page.locator("#rawContent")).toContainText("会话诊断快照已变化，已清空过期摘要、选择和完整事件缓存，请重新开始读取。");
+  await expect(page.locator("#rawContent")).toContainText("会话文件或诊断快照已变化，已清空过期摘要、选择和完整事件缓存，请重新开始读取。");
   await expect(rows).toHaveCount(0);
   await expect(page.locator("#selectedEventLabel")).toHaveText("会话详情超过读取上限");
 
@@ -237,7 +237,7 @@ test("重新开始会中止在途单事件读取", async ({ page }) => {
   await expect(rows.first()).toBeVisible();
 });
 
-test("重新开始隔离取消竞争下迟到的旧快照 409", async ({ page }) => {
+test("重新开始隔离取消竞争下迟到的旧文件变化 409", async ({ page }) => {
   await page.addInitScript((eventPath) => {
     const originalFetch = globalThis.fetch.bind(globalThis);
     globalThis.fetch = (input, init) => {
@@ -280,7 +280,7 @@ test("重新开始隔离取消竞争下迟到的旧快照 409", async ({ page })
     await route.fulfill({
       status: 409,
       contentType: "application/json",
-      body: JSON.stringify({ error: "会话诊断快照已变化，请重新开始读取。", details: { code: "session_snapshot_changed" } }),
+      body: JSON.stringify({ error: "Session file changed during read", details: { code: "session_file_changed" } }),
     });
     oldEventFulfilled();
   });
@@ -304,11 +304,11 @@ test("重新开始隔离取消竞争下迟到的旧快照 409", async ({ page })
   }));
 
   await expect(page.locator("#rawContent")).toContainText("重新开始后的新快照摘要");
-  await expect(page.locator("#rawContent")).not.toContainText("会话诊断快照已变化，已清空过期摘要、选择和完整事件缓存，请重新开始读取。");
+  await expect(page.locator("#rawContent")).not.toContainText("会话文件或诊断快照已变化，已清空过期摘要、选择和完整事件缓存，请重新开始读取。");
   await expect(rows.first()).toBeVisible();
 });
 
-test("单事件快照变化清空诊断状态和缓存，普通失败保留当前页", async ({ page }) => {
+test("单事件文件读取中变化清空诊断状态和缓存，普通失败保留当前页", async ({ page }) => {
   await openWorkbench(page);
   let eventReadCount = 0;
   await page.route(`**/api/sources/local/sessions/${sessionId}/events/*`, async (route) => {
@@ -325,7 +325,7 @@ test("单事件快照变化清空诊断状态和缓存，普通失败保留当�
       await route.fulfill({
         status: 409,
         contentType: "application/json",
-        body: JSON.stringify({ error: "会话诊断快照已变化，请重新开始读取。", details: { code: "session_snapshot_changed" } }),
+        body: JSON.stringify({ error: "Session file changed during read", details: { code: "session_file_changed" } }),
       });
       return;
     }
@@ -350,7 +350,7 @@ test("单事件快照变化清空诊断状态和缓存，普通失败保留当�
   await rows.nth(1).click();
   await page.locator("#reviewTabs [data-review-tab=source]").click();
   await page.locator("#selectionDetails [data-review-source]").click();
-  await expect(page.locator("#rawContent")).toContainText("会话诊断快照已变化，已清空过期摘要、选择和完整事件缓存，请重新开始读取。");
+  await expect(page.locator("#rawContent")).toContainText("会话文件或诊断快照已变化，已清空过期摘要、选择和完整事件缓存，请重新开始读取。");
   await expect(page.locator("#rawContent [data-raw-event-index]")).toHaveCount(0);
   expect(eventReadCount).toBe(3);
 

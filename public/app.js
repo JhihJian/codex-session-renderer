@@ -7476,7 +7476,7 @@ function rawDiagnosticNextPageNumber(diagnostic) {
 
 function failRawDiagnosticPage(request, error) {
   if (!rawDiagnosticRequestIsCurrent(request)) return;
-  if (isRawDiagnosticSnapshotChanged(error)) {
+  if (isRawDiagnosticSnapshotInvalidated(error)) {
     resetRawDiagnosticForSnapshotChange({
       sourceId: request.sourceId,
       sessionId: request.sessionId,
@@ -7489,8 +7489,8 @@ function failRawDiagnosticPage(request, error) {
   request.diagnostic.error = error.message;
 }
 
-function isRawDiagnosticSnapshotChanged(error) {
-  return error?.status === 409 && error?.code === "session_snapshot_changed";
+function isRawDiagnosticSnapshotInvalidated(error) {
+  return error?.status === 409 && ["session_snapshot_changed", "session_file_changed"].includes(error?.code);
 }
 
 function resetRawDiagnosticForSnapshotChange({ sourceId, sessionId, snapshot, diagnostic: requestDiagnostic }) {
@@ -7505,7 +7505,7 @@ function resetRawDiagnosticForSnapshotChange({ sourceId, sessionId, snapshot, di
     || diagnostic.snapshot !== snapshot
   ) return false;
   resetRawDiagnosticPages(diagnostic, { clearSelection: true });
-  diagnostic.error = "会话诊断快照已变化，已清空过期摘要、选择和完整事件缓存，请重新开始读取。";
+  diagnostic.error = "会话文件或诊断快照已变化，已清空过期摘要、选择和完整事件缓存，请重新开始读取。";
   renderRawView();
   renderInspector();
   return true;
@@ -7918,7 +7918,7 @@ async function loadRawEvent(index) {
     }
     return raw;
   } catch (error) {
-    if (isRawDiagnosticSnapshotChanged(error) && rawEventRequestIsCurrent({ controller, sourceId, requestSessionKey, diagnostic, snapshot })) {
+    if (isRawDiagnosticSnapshotInvalidated(error) && rawEventRequestIsCurrent({ controller, sourceId, requestSessionKey, diagnostic, snapshot })) {
       resetRawDiagnosticForSnapshotChange({ sourceId, sessionId: id, snapshot, diagnostic });
     }
     throw error;
