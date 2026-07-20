@@ -1,3 +1,10 @@
+const rawEventCacheLimits = {
+  maxEntries: 24,
+  maxBytes: 8 * 1024 * 1024,
+};
+
+const { createRawEventCache } = window.RawEventCache;
+
 const state = {
   sources: [],
   peers: [],
@@ -43,7 +50,7 @@ const state = {
   selectedTerminalBlockId: null,
   expandedTraceNodeIds: new Set(),
   expandedAuditTurnKeys: new Set(),
-  rawEventCache: new Map(),
+  rawEventCache: createRawEventCache(rawEventCacheLimits),
   rawDiagnostic: null,
   viewMode: "compact",
   auditMinimalMode: false,
@@ -575,12 +582,19 @@ function cancelRawDiagnosticRequest({ clear = false } = {}) {
   rawDiagnosticAbortController = null;
   if (!state.rawDiagnostic) state.rawDiagnostic = createRawDiagnosticState();
   state.rawDiagnostic.loading = false;
-  if (clear) state.rawDiagnostic = createRawDiagnosticState();
+  if (clear) {
+    state.rawDiagnostic = createRawDiagnosticState();
+    clearRawEventCache();
+  }
 }
 
 function cancelRawEventRequest() {
   rawEventAbortController?.abort();
   rawEventAbortController = null;
+}
+
+function clearRawEventCache() {
+  state.rawEventCache.clear();
 }
 
 function syncPanelToggleLabels() {
@@ -1418,7 +1432,7 @@ async function selectSession(id, { announce = true, focusMobilePanel = true, imm
   state.expandedTraceNodeIds = new Set();
   state.expandedAuditTurnKeys = new Set();
   state.expandedAuditGroupIds = new Set();
-  state.rawEventCache = new Map();
+  clearRawEventCache();
   state.visibleEvents = 40;
   state.visibleThreadItems = 140;
   state.visibleRawEvents = 240;
@@ -1504,7 +1518,7 @@ function clearSelectedSession() {
   state.expandedTraceNodeIds = new Set();
   state.expandedAuditTurnKeys = new Set();
   state.expandedAuditGroupIds = new Set();
-  state.rawEventCache = new Map();
+  clearRawEventCache();
   syncExportButtons();
 }
 
@@ -7346,6 +7360,7 @@ function startRawDiagnosticPageRequest(restart) {
   if (restart || diagnostic.sessionKey !== diagnosticSessionKey) {
     cancelRawDiagnosticRequest();
     if (restart) cancelRawEventRequest();
+    clearRawEventCache();
     diagnostic = createRawDiagnosticState();
     diagnostic.sessionKey = diagnosticSessionKey;
     state.rawDiagnostic = diagnostic;
@@ -7403,6 +7418,7 @@ function resetRawDiagnosticPages(diagnostic, { clearSelection = false, readState
   diagnostic.pageIndex = 0;
   diagnostic.snapshot = "";
   diagnostic.readState = readState;
+  clearRawEventCache();
   if (clearSelection) state.selectedEventIndex = null;
 }
 
@@ -7431,8 +7447,18 @@ function applyRawDiagnosticPage(request, data) {
   diagnostic.readState = page.readState;
   diagnostic.pages.push(page);
   if (diagnostic.pages.length > 6) diagnostic.pages.shift();
+  retainRawEventsForDiagnosticPages(diagnostic);
   diagnostic.pageIndex = diagnostic.pages.length - 1;
   state.selectedEventIndex = null;
+}
+
+function retainRawEventsForDiagnosticPages(diagnostic) {
+  const retainedIndexes = new Set(diagnostic.pages.flatMap((cachedPage) => cachedPage.events || []).map((event) => event.index));
+  state.rawEventCache.retain((entry) => (
+    entry.sessionKey === diagnostic.sessionKey
+    && entry.snapshot === diagnostic.snapshot
+    && retainedIndexes.has(entry.index)
+  ));
 }
 
 function rawDiagnosticPageMatchesRequest(request, page) {
@@ -7479,7 +7505,6 @@ function resetRawDiagnosticForSnapshotChange({ sourceId, sessionId, snapshot, di
     || diagnostic.snapshot !== snapshot
   ) return false;
   resetRawDiagnosticPages(diagnostic, { clearSelection: true });
-  state.rawEventCache.clear();
   diagnostic.error = "会话诊断快照已变化，已清空过期摘要、选择和完整事件缓存，请重新开始读取。";
   renderRawView();
   renderInspector();
@@ -7880,14 +7905,17 @@ async function loadRawEvent(index) {
   const diagnostic = state.rawDiagnostic;
   const snapshot = rawDiagnosticSnapshotForEvent(index);
   const cacheKey = rawEventCacheKey(sourceId, id, index, snapshot);
-  if (state.rawEventCache.has(cacheKey)) return state.rawEventCache.get(cacheKey);
+  const cached = state.rawEventCache.get(cacheKey);
+  if (cached !== undefined) return cached;
   cancelRawEventRequest();
   const controller = new AbortController();
   rawEventAbortController = controller;
   try {
     const raw = await fetchJson(sourceEventUrl(id, index, sourceId, snapshot), { signal: controller.signal });
     if (!rawEventRequestIsCurrent({ controller, sourceId, requestSessionKey, diagnostic, snapshot })) return null;
-    state.rawEventCache.set(cacheKey, raw);
+    if (rawEventStillInDiagnosticPages(diagnostic, index, snapshot)) {
+      state.rawEventCache.remember(cacheKey, raw, { index, sessionKey: requestSessionKey, snapshot });
+    }
     return raw;
   } catch (error) {
     if (isRawDiagnosticSnapshotChanged(error) && rawEventRequestIsCurrent({ controller, sourceId, requestSessionKey, diagnostic, snapshot })) {
@@ -7911,6 +7939,11 @@ function rawEventCacheKey(sourceId, id, index, snapshot = "") {
 
 function rawDiagnosticSnapshotForEvent(index) {
   return state.rawDiagnostic?.pages.find((page) => page.events?.some((event) => event.index === index))?.snapshot || "";
+}
+
+function rawEventStillInDiagnosticPages(diagnostic, index, snapshot) {
+  if (!snapshot) return true;
+  return diagnostic?.pages.some((page) => page.snapshot === snapshot && page.events?.some((event) => event.index === index));
 }
 
 function selectTraceNode(id) {

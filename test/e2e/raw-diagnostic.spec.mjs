@@ -67,6 +67,80 @@ test("受限诊断复用前进缓存，不重复请求或追加页面", async ({
   expect(diagnosticPageCursors).toEqual(["0", "100"]);
 });
 
+test("完整原始事件缓存有条数上限且按最近访问保留", async ({ page }) => {
+  await openWorkbench(page);
+  const readsByIndex = new Map();
+  await page.route(`**/api/sources/local/sessions/${sessionId}/events/*`, async (route) => {
+    const index = Number(route.request().url().match(/\/events\/(\d+)/)?.[1]);
+    readsByIndex.set(index, (readsByIndex.get(index) || 0) + 1);
+    await route.continue();
+  });
+
+  await page.locator("#rawViewButton").click();
+  const rows = page.locator("#rawContent [data-raw-event-index]");
+  await expect(rows.nth(24)).toBeVisible();
+
+  for (let row = 0; row < 24; row += 1) {
+    await rows.nth(row).click();
+    await page.locator("#reviewTabs [data-review-tab=source]").click();
+    await page.locator("#selectionDetails [data-review-source]").click();
+    await expect(page.locator("[data-review-source-preview]")).toContainText('"raw"');
+  }
+
+  const firstIndex = Number(await rows.nth(0).getAttribute("data-raw-event-index"));
+  const secondIndex = Number(await rows.nth(1).getAttribute("data-raw-event-index"));
+  const twentyFifthIndex = Number(await rows.nth(24).getAttribute("data-raw-event-index"));
+  await rows.nth(0).click();
+  await page.locator("#selectionDetails [data-review-source]").click();
+  await expect(page.locator("[data-review-source-preview]")).toContainText('"raw"');
+  expect(readsByIndex.get(firstIndex)).toBe(1);
+
+  await rows.nth(24).click();
+  await page.locator("#selectionDetails [data-review-source]").click();
+  await expect(page.locator("[data-review-source-preview]")).toContainText('"raw"');
+  expect(readsByIndex.get(twentyFifthIndex)).toBe(1);
+
+  await rows.nth(1).click();
+  await page.locator("#selectionDetails [data-review-source]").click();
+  await expect(page.locator("[data-review-source-preview]")).toContainText('"raw"');
+  expect(readsByIndex.get(secondIndex)).toBe(2);
+
+  await rows.nth(0).click();
+  await page.locator("#selectionDetails [data-review-source]").click();
+  await expect(page.locator("[data-review-source-preview]")).toContainText('"raw"');
+  expect(readsByIndex.get(firstIndex)).toBe(1);
+});
+
+test("受限诊断跨第七页时只保留最近六页摘要", async ({ page }) => {
+  await openWorkbench(page);
+  await page.route(`**/api/sources/local/query/sessions/${sessionId}/events?*`, async (route) => {
+    const cursor = Number(new URL(route.request().url()).searchParams.get("cursor") || 0);
+    const pageNumber = cursor / 100 + 1;
+    await route.fulfill({ json: {
+      events: [{ index: cursor, kind: "event", preview: `诊断页 ${pageNumber}` }],
+      page: {
+        cursor,
+        nextCursor: pageNumber < 7 ? cursor + 100 : null,
+        hasMore: pageNumber < 7,
+        snapshot: "six-page-cache-snapshot",
+      },
+    } });
+  });
+
+  await page.locator("#rawViewButton").click();
+  await expect(page.locator("#rawContent")).toContainText("第 1 页");
+  for (let pageNumber = 2; pageNumber <= 7; pageNumber += 1) {
+    await page.locator("#rawContent [data-next-raw-page]").click();
+    await expect(page.locator("#rawContent")).toContainText(`第 ${pageNumber} 页`);
+  }
+  for (let pageNumber = 6; pageNumber >= 2; pageNumber -= 1) {
+    await page.locator("#rawContent [data-previous-raw-page]").click();
+    await expect(page.locator("#rawContent")).toContainText(`第 ${pageNumber} 页`);
+  }
+  await expect(page.locator("#rawContent [data-previous-raw-page]")).toBeDisabled();
+  await expect(page.locator("#rawContent")).not.toContainText("诊断页 1");
+});
+
 test("刷新列表会中止在途诊断页并清空旧缓存", async ({ page }) => {
   await openWorkbench(page);
   let releaseDelayedPage;
