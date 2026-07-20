@@ -133,7 +133,7 @@ process.env.CODEX_HOME = codexHome;
 process.env.HOME = tempRoot;
 process.env.USERPROFILE = tempRoot;
 process.env.PI_AGENT_SESSIONS_ROOT = piSessionsRoot;
-process.env.CODEX_SESSION_DETAIL_MAX_EVENTS = "4";
+
 process.env.CODEX_REMOTE_PEERS = `office|E2E 远端索引=http://127.0.0.1:${remoteAddress.port},slow-office|E2E 慢速远端=http://127.0.0.1:${slowRemoteAddress.port}`;
 process.env.CODEX_REMOTE_TOKEN = remoteToken;
 process.env.CODEX_REMOTE_SOURCES = "";

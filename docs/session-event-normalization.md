@@ -166,11 +166,11 @@ Raw event 仍可按需查看完整原始 JSON。默认视图、事件预览和�
 
 这些读取方式会把无法解析的非空 JSONL 行转换为 `jsonl_parse_error` 诊断事件，保留逻辑索引、物理行号、错误类别和安全预览。这样 Raw/查询路径可以提示数据质量问题，而不是静默丢失。
 
-## 详情读取边界
+## 完整详情与诊断预算
 
-详情、compact/view、turns/audit 和 Markdown 导出不会把 JSONL 作为无界输入。服务端通过同一个协调器在读取前后比较文件签名；默认单文件最多 8 MiB、10,000 条事件，服务全局最多 4 路读取，稳定完整派生以 24 条/48 MiB 的版本 LRU 缓存。具体环境变量和默认值见 README 的“会话详情有界读取”。
+详情、compact/view、turns/audit 和 Markdown 导出完整读取当前 JSONL，不按文件字节数或事件数降级。服务端通过同一个协调器在读取前后比较文件签名，保留全局 4 路读取闸门与稳定完整派生的 24 条/48 MiB 版本 LRU；单个结果超过缓存总预算时只是不写入缓存，不能拒绝展示。具体环境变量和默认值见 README 的“完整详情读取与诊断预算”。
 
-超限、文件在读取或派生期间变化、读取失败和取消都不会产生缓存条目，也不会返回已读的一部分事件来继续构造 Turn、Audit、Trace 或 Markdown。详情响应以 `complete: false` 和 `readState` 明示受限/变化；外部 view 同样携带这两个字段。Markdown 导出返回 `413` JSON 状态。原始事件分页仍是大文件诊断入口，但使用同一并发闸门，并受单次字节边界、页大小和扫描数量限制；单条事件读取也支持 `AbortSignal` 与上限。
+文件在读取或派生期间变化、读取失败和取消都不会产生缓存条目，也不会把已读旧内容当作当前详情。文件变化时详情和外部 view 返回 `complete: false` 及 `readState.code = session_file_changed`，Markdown 返回 `409`；这不是大小或事件数能力降级。原始事件分页始终是独立诊断入口，使用同一并发闸门，但只受 `CODEX_SESSION_DIAGNOSTIC_MAX_FILE_BYTES` 单次字节预算、页大小和 `CODEX_SESSION_DIAGNOSTIC_MAX_EVENT_SCAN` 扫描预算约束；预算到达会返回诊断状态或 `413/session_event_scan_limited`，不会影响完整详情。单条事件读取也支持 `AbortSignal`、快照校验和这些诊断预算。
 
 ## 测试要求
 

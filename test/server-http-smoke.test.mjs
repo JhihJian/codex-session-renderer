@@ -26,6 +26,9 @@ const envKeys = [
   "CODEX_REMOTE_SNAPSHOT_ROOT",
   "CODEX_REMOTE_REMOTE_A_SNAPSHOT_ROOT",
   "CODEX_REMOTE_REMOTE_A_CODEX_HOME",
+  "CODEX_SESSION_DETAIL_MAX_FILE_BYTES",
+  "CODEX_SESSION_DETAIL_MAX_EVENTS",
+  "CODEX_SESSION_DIAGNOSTIC_MAX_FILE_BYTES",
   "CODEX_SESSION_DIAGNOSTIC_MAX_EVENT_SCAN",
   "PI_AGENT_SESSIONS_ROOT",
 ];
@@ -240,6 +243,8 @@ process.env.CODEX_REMOTE_SNAPSHOT_PATH = "";
 process.env.CODEX_REMOTE_SNAPSHOT_ROOT = path.join(tempRoot, ".codex-session-renderer", "remote-snapshots");
 process.env.CODEX_REMOTE_REMOTE_A_SNAPSHOT_ROOT = remoteSnapshotRoot;
 process.env.CODEX_REMOTE_REMOTE_A_CODEX_HOME = remoteOriginalCodexHome;
+process.env.CODEX_SESSION_DETAIL_MAX_FILE_BYTES = "64";
+process.env.CODEX_SESSION_DETAIL_MAX_EVENTS = "4";
 process.env.CODEX_SESSION_DIAGNOSTIC_MAX_EVENT_SCAN = "10001";
 process.env.PI_AGENT_SESSIONS_ROOT = piSessionsRoot;
 
@@ -652,38 +657,45 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   assert.equal(markdown.status, 200);
   assert.match(await markdown.text(), /# SQLite 稳定 HTTP smoke 标题/);
 
-  const limitedId = "33333333-3333-4333-8333-333333333333";
-  const limitedRows = Array.from({ length: 10_002 }, (_, index) => JSON.stringify({ type: "event_msg", payload: { type: "agent_message", message: `event-${index}` } })).join("\n") + "\n";
-  const localLimitedPath = path.join(sessionDir, `rollout-2026-07-08T10-00-00-${limitedId}.jsonl`);
-  const remoteLimitedPath = path.join(remoteSessionDir, `rollout-2026-07-08T10-00-00-${limitedId}.jsonl`);
-  const piLimitedPath = path.join(piProjectDir, `2026-07-10T04-51-55-870Z_${limitedId}.jsonl`);
-  await Promise.all([fs.writeFile(localLimitedPath, limitedRows, "utf8"), fs.writeFile(remoteLimitedPath, limitedRows, "utf8"), fs.writeFile(piLimitedPath, limitedRows, "utf8")]);
+  const largeDetailId = "33333333-3333-4333-8333-333333333333";
+  const largeDetailRows = Array.from({ length: 10_002 }, (_, index) => JSON.stringify({ type: "event_msg", payload: { type: "agent_message", message: `event-${index}` } })).join("\n") + "\n";
+  const localLargeDetailPath = path.join(sessionDir, `rollout-2026-07-08T10-00-00-${largeDetailId}.jsonl`);
+  const remoteLargeDetailPath = path.join(remoteSessionDir, `rollout-2026-07-08T10-00-00-${largeDetailId}.jsonl`);
+  const piLargeDetailPath = path.join(piProjectDir, `2026-07-10T04-51-55-870Z_${largeDetailId}.jsonl`);
+  await Promise.all([fs.writeFile(localLargeDetailPath, largeDetailRows, "utf8"), fs.writeFile(remoteLargeDetailPath, largeDetailRows, "utf8"), fs.writeFile(piLargeDetailPath, largeDetailRows, "utf8")]);
 
   for (const pathname of [
-    `/api/sources/local/sessions/${limitedId}`,
-    `/api/sources/pi-agent/sessions/${limitedId}`,
-    `/api/sources/remote-a/sessions/${limitedId}`,
+    `/api/sources/local/sessions/${largeDetailId}`,
+    `/api/sources/pi-agent/sessions/${largeDetailId}`,
+    `/api/sources/remote-a/sessions/${largeDetailId}`,
   ]) {
-    const limited = await requestJson(baseUrl, pathname);
-    assert.equal(limited.response.status, 200);
-    assert.equal(limited.body.complete, false);
-    assert.equal(limited.body.readState.code, "session_read_limited");
-    assert.equal(limited.body.readState.reason, "too_many_events");
-    assert.deepEqual(limited.body.events, []);
-    assert.deepEqual(limited.body.turns, []);
+    const detail = await requestJson(baseUrl, pathname);
+    assert.equal(detail.response.status, 200);
+    assert.equal(detail.body.complete, true);
+    assert.equal(detail.body.readState.code, "session_read_complete");
+    assert.equal(detail.body.events.length, 10_002);
+    assert.equal(detail.body.stats.eventCount, 10_002);
+    assert.ok(detail.body.turns.length > 0);
   }
-  const limitedCompact = await requestJson(baseUrl, `/api/sources/local/query/sessions/${limitedId}/view?view=compact`);
-  assert.equal(limitedCompact.response.status, 200);
-  assert.equal(limitedCompact.body.complete, false);
-  assert.equal(limitedCompact.body.readState.code, "session_read_limited");
-  assert.equal(limitedCompact.body.compact, null);
-  const limitedMarkdown = await requestJson(baseUrl, `/api/sources/local/sessions/${limitedId}/markdown`);
-  assert.equal(limitedMarkdown.response.status, 413);
-  assert.equal(limitedMarkdown.body.code, "session_read_limited");
-  const limitedEvents = await requestJson(baseUrl, `/api/sources/local/query/sessions/${limitedId}/events?limit=2`);
-  assert.equal(limitedEvents.response.status, 200);
-  assert.equal(limitedEvents.body.events.length, 2);
-  await assertBoundedDiagnosticEndpoints({ baseUrl, fs, limitedEvents, limitedId, requestJson, sessionDir });
+  for (const view of ["compact", "turns", "trace", "audit"]) {
+    const externalView = await requestJson(baseUrl, `/api/sources/local/query/sessions/${largeDetailId}/view?view=${view}`);
+    assert.equal(externalView.response.status, 200);
+    assert.equal(externalView.body.complete, true);
+    assert.equal(externalView.body.readState.code, "session_read_complete");
+    assert.ok(externalView.body[view]);
+  }
+  for (const pathname of [
+    `/api/sessions/${largeDetailId}/markdown`,
+    `/api/sources/local/sessions/${largeDetailId}/markdown`,
+  ]) {
+    const markdown = await requestText(baseUrl, pathname);
+    assert.equal(markdown.response.status, 200);
+    assert.match(markdown.body, /event-10001/);
+  }
+  const diagnosticEvents = await requestJson(baseUrl, `/api/sources/local/query/sessions/${largeDetailId}/events?limit=2`);
+  assert.equal(diagnosticEvents.response.status, 200);
+  assert.equal(diagnosticEvents.body.events.length, 2);
+  await assertBoundedDiagnosticEndpoints({ baseUrl, fs, diagnosticEvents, sessionId: largeDetailId, requestJson, sessionDir });
 
   const createPeer = await requestJson(baseUrl, "/api/peers", {
     method: "POST",

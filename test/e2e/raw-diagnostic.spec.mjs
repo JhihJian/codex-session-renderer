@@ -28,9 +28,9 @@ async function expectNoUnhandledRejections(page) {
   await expect.poll(() => page.evaluate(() => globalThis.__rawDiagnosticUnhandledRejections)).toEqual([]);
 }
 
-test("受限诊断复用前进缓存，不重复请求或追加页面", async ({ page }) => {
+test("分页诊断复用前进缓存，不重复请求或追加页面", async ({ page }) => {
   await openWorkbench(page);
-  await expect(page.locator("#compactContent")).toContainText("会话详情超过读取上限");
+  await expect(page.locator("#compactContent")).toContainText("验证工作台的 Chromium 交互契约");
   let fullEventReads = 0;
   const diagnosticPageCursors = [];
   page.on("request", (request) => {
@@ -46,7 +46,7 @@ test("受限诊断复用前进缓存，不重复请求或追加页面", async ({
   const firstPage = page.waitForRequest((request) => request.url().includes("/api/sources/local/query/sessions/") && request.url().includes("/events?") && request.url().includes("cursor=0"));
   await openRawDiagnostic(page);
   await firstPage;
-  await expect(page.locator("#rawContent")).toContainText("有界原始事件诊断");
+  await expect(page.locator("#rawContent")).toContainText("分页原始事件诊断");
   await expect(page.locator("#rawContent [data-raw-event-index]").first()).toBeVisible();
   expect(diagnosticPageCursors).toEqual(["0"]);
   expect(fullEventReads).toBe(0);
@@ -130,7 +130,7 @@ test("完整原始事件缓存有条数上限且按最近访问保留", async ({
   expect(readsByIndex.get(firstIndex)).toBe(1);
 });
 
-test("受限诊断跨第七页时只保留最近六页摘要", async ({ page }) => {
+test("分页诊断跨第七页时只保留最近六页摘要", async ({ page }) => {
   await openWorkbench(page);
   await page.route(`**/api/sources/local/query/sessions/${sessionId}/events?*`, async (route) => {
     const cursor = Number(new URL(route.request().url()).searchParams.get("cursor") || 0);
@@ -217,7 +217,7 @@ test("分页快照变化清空选择和完整事件缓存后可重新开始", as
   await page.locator("#rawContent [data-next-raw-page]").click();
   await expect(page.locator("#rawContent")).toContainText("会话文件或诊断快照已变化，已清空过期摘要、选择和完整事件缓存，请重新开始读取。");
   await expect(rows).toHaveCount(0);
-  await expect(page.locator("#selectedEventLabel")).toHaveText("会话详情超过读取上限");
+  await expect(page.locator("#selectedEventLabel")).toHaveText(sessionTitle);
 
   await page.locator("#rawContent [data-retry-raw-diagnostic]").click();
   await expect(rows.first()).toBeVisible();

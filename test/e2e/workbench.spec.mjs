@@ -510,6 +510,6 @@ test("离开有界诊断会取消请求，过期页不会写回新视图", async
   await page.locator("#compactViewButton").click();
   await failed;
   release();
-  await expect(page.locator("#compactContent")).toContainText("会话详情超过读取上限");
+  await expect(page.locator("#compactContent")).toContainText("验证工作台的 Chromium 交互契约");
   await expect(page.locator("#rawContent")).not.toContainText("过期诊断页");
 });

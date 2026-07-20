@@ -86,7 +86,7 @@ test("详情协调器检测读取后文件变化，不返回或缓存旧详情",
   assert.equal(coordinator.cache.size, 0);
 });
 
-test("详情协调器拒绝超限文件，并按估算字节维护有限版本 LRU", async () => {
+test("详情协调器完整读取大文件，并按估算字节维护有限版本 LRU", async () => {
   const versions = new Map([
     ["large", stat({ size: 101, mtimeMs: 1 })],
     ["a", stat({ size: 10, mtimeMs: 1 })],
@@ -94,7 +94,6 @@ test("详情协调器拒绝超限文件，并按估算字节维护有限版本 L
   ]);
   let reads = 0;
   const coordinator = createSessionDetailCoordinator({
-    maxFileBytes: 100,
     maxCacheEntries: 2,
     maxCacheBytes: 70,
     stat: async (filePath) => versions.get(filePath.split("/").at(-1).replace(".jsonl", "")),
@@ -105,19 +104,18 @@ test("详情协调器拒绝超限文件，并按估算字节维护有限版本 L
     derive: undefined,
   });
   const large = await coordinator.read(session("large"), { cacheKey: "large" });
-  assert.equal(large.state, "limited");
-  assert.equal(large.reason, "file_too_large");
+  assert.equal(large.state, "ready");
   await coordinator.read(session("a"), { cacheKey: "a", derive: () => ({ payload: "a".repeat(36) }) });
   await coordinator.read(session("b"), { cacheKey: "b", derive: () => ({ payload: "b".repeat(36) }) });
-  assert.equal(reads, 2);
+  assert.equal(reads, 3);
   assert.equal(coordinator.cache.size, 1);
   assert.ok(coordinator.cacheBytes <= 70);
 });
 
-test("详情协调器为单条诊断保留独立于完整详情的扫描上限", () => {
-  const coordinator = createSessionDetailCoordinator({ maxEvents: 4, maxDiagnosticEventScan: 80 });
+test("详情协调器为原始诊断保留独立预算，不限制完整详情", () => {
+  const coordinator = createSessionDetailCoordinator({ diagnosticMaxFileBytes: 4, maxDiagnosticEventScan: 80 });
 
-  assert.equal(coordinator.limits.maxEvents, 4);
+  assert.equal(coordinator.limits.diagnosticMaxFileBytes, 4);
   assert.equal(coordinator.limits.maxDiagnosticEventScan, 80);
 });
 

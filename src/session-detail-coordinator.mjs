@@ -9,8 +9,7 @@ import { readJsonlWithDiagnostics } from "./jsonl-reader.mjs";
 
 const defaultSessionDetailLimits = {
   maxConcurrentReads: 4,
-  maxFileBytes: 8 * 1024 * 1024,
-  maxEvents: 10_000,
+  diagnosticMaxFileBytes: 8 * 1024 * 1024,
   maxDiagnosticEventScan: 100_000,
   maxCacheEntries: 24,
   maxCacheBytes: 48 * 1024 * 1024,
@@ -26,29 +25,13 @@ function throwIfAborted(signal) {
   if (signal?.aborted) throw createAbortError();
 }
 
-function limitedRead(reason, stat, limits) {
-  return {
-    state: "limited",
-    code: "session_read_limited",
-    reason,
-    fileSizeBytes: stat?.size ?? null,
-    limits: {
-      maxFileBytes: limits.maxFileBytes,
-      maxEvents: limits.maxEvents,
-    },
-  };
-}
-
-function changingRead(stat, limits) {
+function changingRead(stat) {
   return {
     state: "changing",
     code: "session_file_changed",
     reason: "file_changed_during_read",
     fileSizeBytes: stat?.size ?? null,
-    limits: {
-      maxFileBytes: limits.maxFileBytes,
-      maxEvents: limits.maxEvents,
-    },
+
   };
 }
 
@@ -63,8 +46,7 @@ function estimateBytes(value) {
 function createSessionDetailCoordinator(options = {}) {
   const limits = {
     maxConcurrentReads: clampPositive(options.maxConcurrentReads, defaultSessionDetailLimits.maxConcurrentReads, 32),
-    maxFileBytes: clampPositive(options.maxFileBytes, defaultSessionDetailLimits.maxFileBytes, 256 * 1024 * 1024),
-    maxEvents: clampPositive(options.maxEvents, defaultSessionDetailLimits.maxEvents, 500_000),
+    diagnosticMaxFileBytes: clampPositive(options.diagnosticMaxFileBytes, defaultSessionDetailLimits.diagnosticMaxFileBytes, 256 * 1024 * 1024),
     maxDiagnosticEventScan: clampPositive(options.maxDiagnosticEventScan, defaultSessionDetailLimits.maxDiagnosticEventScan, 500_000),
     maxCacheEntries: clampPositive(options.maxCacheEntries, defaultSessionDetailLimits.maxCacheEntries, 2_000),
     maxCacheBytes: clampPositive(options.maxCacheBytes, defaultSessionDetailLimits.maxCacheBytes, 512 * 1024 * 1024),
@@ -106,7 +88,6 @@ function createSessionDetailCoordinator(options = {}) {
     if (!session?.path) return { state: "unavailable", code: "session_file_unavailable", reason: "missing_session_path" };
     const beforeStat = await stat(session.path);
     throwIfAborted(signal);
-    if (beforeStat.size > limits.maxFileBytes) return limitedRead("file_too_large", beforeStat, limits);
     const signature = fileSignature(session.path, beforeStat);
     const existing = cached(cacheKey, signature);
     if (existing) return { state: "ready", value: existing, stat: beforeStat, signature, cached: true };
@@ -115,21 +96,16 @@ function createSessionDetailCoordinator(options = {}) {
       `${cacheKey}:${signature}`,
       async (sharedSignal) => {
         const events = await readGate.run(
-          () => readEvents(session.path, {
-            signal: sharedSignal,
-            maxBytes: limits.maxFileBytes,
-            maxLines: limits.maxEvents + 1,
-          }),
+          () => readEvents(session.path, { signal: sharedSignal }),
           sharedSignal,
         );
         throwIfAborted(sharedSignal);
         const afterReadStat = await stat(session.path);
-        if (signature !== fileSignature(session.path, afterReadStat)) return changingRead(afterReadStat, limits);
-        if (events.length > limits.maxEvents) return limitedRead("too_many_events", afterReadStat, limits);
+        if (signature !== fileSignature(session.path, afterReadStat)) return changingRead(afterReadStat);
         const value = await derive(events, afterReadStat, sharedSignal);
         throwIfAborted(sharedSignal);
         const afterDeriveStat = await stat(session.path);
-        if (signature !== fileSignature(session.path, afterDeriveStat)) return changingRead(afterDeriveStat, limits);
+        if (signature !== fileSignature(session.path, afterDeriveStat)) return changingRead(afterDeriveStat);
         if (shouldCache(value)) remember(cacheKey, signature, value);
         return { state: "ready", value, stat: afterDeriveStat, signature, cached: false };
       },
@@ -140,4 +116,4 @@ function createSessionDetailCoordinator(options = {}) {
   return { cache, get cacheBytes() { return cacheBytes; }, inFlight: registry.tasks, limits, read, readGate };
 }
 
-export { changingRead, createSessionDetailCoordinator, defaultSessionDetailLimits, limitedRead };
+export { changingRead, createSessionDetailCoordinator, defaultSessionDetailLimits };

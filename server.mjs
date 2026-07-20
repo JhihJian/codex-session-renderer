@@ -109,8 +109,7 @@ function readPositiveEnv(name, fallback, maximum) {
 function sessionDetailCoordinatorOptions() {
   return {
     maxConcurrentReads: readPositiveEnv("CODEX_SESSION_DETAIL_MAX_CONCURRENT_READS", 4, 32),
-    maxFileBytes: readPositiveEnv("CODEX_SESSION_DETAIL_MAX_FILE_BYTES", 8 * 1024 * 1024, 256 * 1024 * 1024),
-    maxEvents: readPositiveEnv("CODEX_SESSION_DETAIL_MAX_EVENTS", 10_000, 500_000),
+    diagnosticMaxFileBytes: readPositiveEnv("CODEX_SESSION_DIAGNOSTIC_MAX_FILE_BYTES", 8 * 1024 * 1024, 256 * 1024 * 1024),
     maxDiagnosticEventScan: readPositiveEnv("CODEX_SESSION_DIAGNOSTIC_MAX_EVENT_SCAN", 100_000, 500_000),
     maxCacheEntries: readPositiveEnv("CODEX_SESSION_DETAIL_MAX_CACHE_ENTRIES", 24, 2_000),
     maxCacheBytes: readPositiveEnv("CODEX_SESSION_DETAIL_MAX_CACHE_BYTES", 48 * 1024 * 1024, 512 * 1024 * 1024),
@@ -1040,7 +1039,7 @@ async function getSessionDetail(context, id, options = {}) {
     },
   });
   if (result.state === "ready") return result.value;
-  return limitedSessionDetail(context, session, result.stat, result, id);
+  return changingSessionDetail(context, session, result.stat, result);
 }
 
 function sessionDetailStats(context, session, { stat, rawEvents = [], analysisEvents = [], turns = [], hierarchy = { children: [] } } = {}) {
@@ -1065,13 +1064,10 @@ function sessionDetailStats(context, session, { stat, rawEvents = [], analysisEv
   };
 }
 
-function limitedSessionDetail(context, session, stat, readState, id) {
+function changingSessionDetail(context, session, stat, readState) {
   return {
     complete: false,
-    readState: {
-      ...readState,
-      diagnosticUrl: `/api/sources/${encodeURIComponent(context.source.id)}/query/sessions/${encodeURIComponent(id)}/events?limit=100`,
-    },
+    readState,
     session: withFileStat(session, stat),
     turns: [],
     events: [],
@@ -1108,7 +1104,7 @@ function diagnosticRangeMaxScan(query, maxDiagnosticEventScan) {
   return Math.min(query.maxScan, maxDiagnosticEventScan - query.cursor);
 }
 
-function diagnosticPageState(range, { query, maxDiagnosticEventScan, maxFileBytes, byteLimited, snapshot }) {
+function diagnosticPageState(range, { query, maxDiagnosticEventScan, diagnosticMaxFileBytes, byteLimited, snapshot }) {
   const eventScanLimited = range.nextCursor >= maxDiagnosticEventScan && !range.exhausted;
   const byteScanLimited = byteLimited && range.exhausted;
   return {
@@ -1124,13 +1120,13 @@ function diagnosticPageState(range, { query, maxDiagnosticEventScan, maxFileByte
       stopReason: eventScanLimited ? "raw_event_scan_limit" : byteScanLimited ? "raw_scan_byte_limit" : null,
       snapshot,
     },
-    readState: eventScanLimited || byteLimited
+    readState: eventScanLimited || byteScanLimited
       ? {
           state: "limited",
-          code: "session_read_limited",
+          code: "diagnostic_budget_reached",
           reason: eventScanLimited ? "raw_event_scan_limit" : "raw_scan_byte_limit",
           limits: {
-            maxFileBytes,
+            diagnosticMaxFileBytes,
             maxDiagnosticEventScan,
           },
         }
@@ -1150,7 +1146,7 @@ async function querySessionEvents(context, id, params, projectionOptions = {}, o
   assertEventDiagnosticSnapshot(query.snapshot, snapshot);
   const maxDiagnosticEventScan = context.sessionDetailCoordinator.limits.maxDiagnosticEventScan;
   const maxScan = diagnosticRangeMaxScan(query, maxDiagnosticEventScan);
-  const byteLimited = beforeStat.size > context.sessionDetailCoordinator.limits.maxFileBytes;
+  const byteLimited = beforeStat.size > context.sessionDetailCoordinator.limits.diagnosticMaxFileBytes;
   const goalProjector = createPiGoalMessageProjector();
   let currentGoalProjection = null;
   const range = await context.sessionDetailCoordinator.readGate.run(
@@ -1158,7 +1154,7 @@ async function querySessionEvents(context, id, params, projectionOptions = {}, o
       start: query.cursor,
       limit: query.limit,
       maxScan,
-      maxBytes: context.sessionDetailCoordinator.limits.maxFileBytes,
+      maxBytes: context.sessionDetailCoordinator.limits.diagnosticMaxFileBytes,
       signal: options.signal,
       // The bounded stream can end in the middle of a JSON record; never turn that tail into a fake parse diagnostic.
       includeInvalid: !byteLimited,
@@ -1186,7 +1182,7 @@ async function querySessionEvents(context, id, params, projectionOptions = {}, o
   const diagnosticState = diagnosticPageState(range, {
     query,
     maxDiagnosticEventScan,
-    maxFileBytes: context.sessionDetailCoordinator.limits.maxFileBytes,
+    diagnosticMaxFileBytes: context.sessionDetailCoordinator.limits.diagnosticMaxFileBytes,
     byteLimited,
     snapshot,
   });
@@ -1231,7 +1227,7 @@ async function getSessionEvent(context, id, index, options = {}) {
   const event = await context.sessionDetailCoordinator.readGate.run(
     () => readJsonlLineWithDiagnostics(session.path, index, {
       signal: options.signal,
-      maxBytes: context.sessionDetailCoordinator.limits.maxFileBytes,
+      maxBytes: context.sessionDetailCoordinator.limits.diagnosticMaxFileBytes,
       maxScan: maxDiagnosticEventScan,
     }),
     options.signal,
@@ -1243,10 +1239,10 @@ async function getSessionEvent(context, id, index, options = {}) {
     error.code = "session_file_changed";
     throw error;
   }
-  if (!event && beforeStat.size > context.sessionDetailCoordinator.limits.maxFileBytes) {
+  if (!event && beforeStat.size > context.sessionDetailCoordinator.limits.diagnosticMaxFileBytes) {
     const error = new Error("Session event exceeds the diagnostic scan limit");
     error.status = 413;
-    error.code = "session_read_limited";
+    error.code = "diagnostic_byte_budget_reached";
     throw error;
   }
   if (!event) return null;
@@ -1833,7 +1829,7 @@ async function route(req, res) {
       if (!context) return sendError(res, 404, "Data source not found");
       const markdown = await getSessionMarkdown(context, decodeURIComponent(sourceMarkdownMatch[2]), { signal: requestSubscription.signal });
       if (markdown == null) return sendError(res, 404, "Session not found");
-      if (markdown.readState) return sendJson(res, 413, { error: "会话详情超过读取上限", code: markdown.readState.code, readState: markdown.readState });
+      if (markdown.readState) return sendJson(res, 409, { error: "会话文件在读取中发生变化", code: markdown.readState.code, readState: markdown.readState });
       return sendText(res, 200, markdown.markdown);
     }
     const sourceEventMatch = pathname.match(/^\/api\/sources\/([^/]+)\/sessions\/([^/]+)\/events\/(\d+)$/);
@@ -1904,7 +1900,7 @@ async function route(req, res) {
       if (!context) return sendError(res, 404, "Data source not found");
       const markdown = await getSessionMarkdown(context, decodeURIComponent(markdownMatch[1]), { signal: requestSubscription.signal });
       if (markdown == null) return sendError(res, 404, "Session not found");
-      if (markdown.readState) return sendJson(res, 413, { error: "会话详情超过读取上限", code: markdown.readState.code, readState: markdown.readState });
+      if (markdown.readState) return sendJson(res, 409, { error: "会话文件在读取中发生变化", code: markdown.readState.code, readState: markdown.readState });
       return sendText(res, 200, markdown.markdown);
     }
     const eventMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/events\/(\d+)$/);

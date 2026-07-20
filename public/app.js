@@ -58,7 +58,7 @@ const state = {
   sessionTimeFilter: "realtime",
   visibleEvents: 40,
   visibleThreadItems: 140,
-  visibleRawEvents: 240,
+
   reviewTab: "summary",
   summaryRules: [],
   executionGroupRules: [],
@@ -502,7 +502,7 @@ function bindEvents() {
   els.returnRealtimeButton?.addEventListener("click", returnToRealtimeSessions);
   els.itemSearch.addEventListener("input", () => {
     state.visibleThreadItems = 140;
-    state.visibleRawEvents = 240;
+
     renderMainContent();
   });
   els.itemTypeFilter.addEventListener("change", () => {
@@ -1481,7 +1481,7 @@ async function selectSession(id, { announce = true, focusMobilePanel = true, imm
   clearRawEventCache();
   state.visibleEvents = 40;
   state.visibleThreadItems = 140;
-  state.visibleRawEvents = 240;
+
   syncExportButtons();
   setWorkbenchStatus(operationKey, `正在读取会话：${firstLine(state.pendingSessionTitle, 54)}`, { announce });
   renderAll();
@@ -3744,7 +3744,6 @@ function renderSessionFilterNotice(filteredOut = currentSessionFilteredOut()) {
 function markdownExportBlockedReason() {
   if (state.sessionLoading) return "正在读取目标会话，暂不能导出";
   if (state.sessionLoadError) return "目标会话读取失败，无法导出";
-  if (state.detail?.complete === false) return "会话详情受读取上限保护，不能导出不完整 Markdown";
   if (state.healthLoadError) return "接口不可用，无法导出会话";
   if (state.sessionsLoadError && !state.detail?.session?.id) return "会话列表加载失败，未选择可导出会话";
   if (!state.detail?.session?.id) return "未选择可导出的会话";
@@ -3781,8 +3780,8 @@ function selectedSessionDisplayTitle() {
 
 function sessionPlaceholderState() {
   const target = selectedSessionDisplayTitle();
-  const limited = limitedSessionPlaceholder(target, state.detail);
-  if (limited) return limited;
+  const changing = changingSessionPlaceholder(target, state.detail);
+  if (changing) return changing;
   if (state.healthLoadError && !state.detail?.session) return { title: "接口不可用", subtitle: state.healthLoadError };
   if (state.sessionLoading) return { title: "正在读取目标会话", subtitle: `${target} · 正在解析当前数据源中的 JSONL 事件流。` };
   if (state.sessionLoadError) return { title: "无法读取目标会话", subtitle: `${target} · ${state.sessionLoadError}` };
@@ -3792,23 +3791,19 @@ function sessionPlaceholderState() {
   return null;
 }
 
-function limitedSessionPlaceholder(target, detail) {
+function changingSessionPlaceholder(target, detail) {
   const readState = detail?.readState;
-  if (detail?.complete !== false || !readState) return null;
-  const limits = readState.limits || {};
+  if (readState?.state !== "changing") return null;
   const fileSize = readState.fileSizeBytes ? `文件 ${formatBytes(readState.fileSizeBytes)}；` : "";
-  const reason = readState.state === "changing" ? "读取期间文件发生变化，未展示可能过期的内容。" : "为保护工作台，未读取或展示任何部分详情。";
   return {
-    title: readState.state === "changing" ? "会话文件正在变化" : "会话详情超过读取上限",
-    subtitle: `${target} · ${fileSize}${reason}详情上限为 ${formatBytes(limits.maxFileBytes || 0)} / ${limits.maxEvents || 0} 个事件。`,
-    diagnosticUrl: readState.diagnosticUrl || "",
+    title: "会话文件正在变化",
+    subtitle: `${target} · ${fileSize}读取期间文件发生变化，未展示可能过期的内容。请重新读取会话。`,
   };
 }
 
-function renderSessionPlaceholder(title, subtitle, diagnosticUrl = "") {
+function renderSessionPlaceholder(title, subtitle) {
   const actions = [];
-  if (diagnosticUrl) actions.push(`<a class="ghost-button" href="${escapeAttr(diagnosticUrl)}" target="_blank" rel="noreferrer">打开原始事件分页诊断</a>`);
-  if (state.sessionLoadError && state.selectedSessionId) actions.push('<button class="ghost-button" type="button" data-session-placeholder-action="retry-detail">重试读取会话</button>');
+  if ((state.sessionLoadError || state.detail?.readState?.state === "changing") && state.selectedSessionId) actions.push('<button class="ghost-button" type="button" data-session-placeholder-action="retry-detail">重新读取会话</button>');
   const action = actions.length ? `<div class="empty-state-actions">${actions.join("")}</div>` : "";
   const html = emptyState(title, subtitle, action);
   [els.threadContent, els.compactContent, els.terminalContent, els.auditContent, els.statsContent, els.traceContent, els.rawContent]
@@ -4086,7 +4081,6 @@ function renderSessionHandoff() {
 }
 
 function sessionHandoffFacts(detail) {
-  if (detail.complete === false) return limitedSessionHandoffFacts(detail);
   const nodes = (detail.audit || buildAuditFallback(detail) || { nodes: [] }).nodes || [];
   const intent = nodes.find((node) => node.type === "intent");
   const final = [...nodes].reverse().find((node) => node.type === "final");
@@ -4103,19 +4097,6 @@ function sessionHandoffFacts(detail) {
   ];
 }
 
-function limitedSessionHandoffFacts(detail) {
-  const readState = detail.readState || {};
-  const status = readState.state === "changing" ? "会话文件正在变化" : "会话详情读取受限";
-  return [
-    handoffFact("目标", "未读取正文，无法派生目标", null, "intent"),
-    handoffFact("当前状态", status, null, "status"),
-    handoffFact("结果", "未读取正文，无法确认结果或待继续事项", null, "final"),
-    handoffFact("验证", "未读取审计链，验证证据不可用", null, "verification"),
-    handoffFact("风险 / 缺口", "未读取审计链，风险与缺口不可用", null, "risk"),
-    handoffFact("改动范围", "未读取正文，改动范围不可用", null, "changes"),
-    handoffFact("子代理", "未读取执行树，子代理状态不可用", null, "children"),
-  ];
-}
 
 function handoffNodeText(node, fallback) {
   return auditNodeFullBody(node) || node?.summary || fallback;
@@ -4458,9 +4439,8 @@ function renderMainContent() {
   els.promptArchiveContent.hidden = true;
   syncViewControls();
   const placeholder = sessionPlaceholderState();
-  const rawDiagnosticAvailable = state.viewMode === "diagnostic" && state.diagnosticMode === "raw" && state.detail?.complete === false;
-  if (placeholder && !rawDiagnosticAvailable) {
-    renderSessionPlaceholder(placeholder.title, placeholder.subtitle, placeholder.diagnosticUrl);
+  if (placeholder) {
+    renderSessionPlaceholder(placeholder.title, placeholder.subtitle);
     renderInspector();
     return;
   }
@@ -7435,77 +7415,24 @@ function auditNodeLabel(node) {
 function renderRawView() {
   const detail = state.detail;
   if (!detail) {
-    els.rawContent.innerHTML = emptyState("选择一个会话", "原始事件视图展示会话级事件摘要和调试 JSON。");
+    els.rawContent.innerHTML = emptyState("选择一个会话", "原始事件诊断按页读取当前会话的事件摘要。");
     return;
   }
-  if (detail.complete === false) {
-    renderLimitedRawDiagnostic(detail);
-    return;
-  }
-  const query = els.itemSearch.value.trim().toLowerCase();
-  const typeFilter = els.itemTypeFilter.value;
-  const events = (detail.events || []).filter((event) => rawEventMatches(event, query, typeFilter));
-  if (events.length === 0) {
-    els.rawContent.innerHTML = emptyState("没有匹配的原始事件", "调整内容搜索或类型过滤。");
-    return;
-  }
-  const shown = events.slice(0, state.visibleRawEvents);
-  const selected = selectedRawViewEvent(shown, events);
-  els.rawContent.innerHTML = `
-    <div class="raw-view-shell">
-      <div class="raw-view-head">
-        <div>
-          <p class="eyebrow">原始 JSON</p>
-          <h3>${escapeHtml(events.length)} / ${escapeHtml(detail.events.length)} 个事件</h3>
-        </div>
-        <div class="raw-view-actions">
-          <button class="ghost-button small" type="button" data-copy-raw-session>复制事件摘要</button>
-        </div>
-      </div>
-      <div class="raw-view-layout">
-        <div class="raw-view-list">
-          ${shown.map((event) => renderRawViewEventRow(event)).join("")}
-          ${
-            events.length > shown.length
-              ? `<button class="ghost-button full-width" type="button" data-show-more-raw>显示更多事件 (${shown.length}/${events.length})</button>`
-              : ""
-          }
-        </div>
-        <div class="raw-view-preview${selected && isCompactEvent(selected) ? " has-insight" : ""}">
-          <div class="raw-preview-title">
-            <strong>${escapeHtml(selected ? `事件 ${selected.index} ${humanEventTitle(selected)}` : "事件摘要")}</strong>
-            <span>${escapeHtml(selected ? selected.kind || "" : "格式化 JSON")}</span>
-          </div>
-          ${selected ? renderRawEventInsight(selected, query) : ""}
-          <pre class="raw-preview">${escapeHtml(JSON.stringify(selected || detailSummaryForRaw(detail), null, 2))}</pre>
-        </div>
-      </div>
-    </div>
-  `;
-  els.rawContent.querySelectorAll("[data-raw-event-index]").forEach((button) => {
-    button.addEventListener("click", () => selectRawViewEvent(Number(button.dataset.rawEventIndex)));
-  });
-  els.rawContent.querySelector("[data-show-more-raw]")?.addEventListener("click", () => {
-    state.visibleRawEvents += 240;
-    renderRawView();
-  });
-  els.rawContent.querySelector("[data-copy-raw-session]")?.addEventListener("click", async () => {
-    await copyWithToast(JSON.stringify(detailSummaryForRaw(detail), null, 2), sensitiveCopyToast("已复制会话事件摘要"));
-  });
+  renderRawDiagnostic(detail);
 }
 
-function renderLimitedRawDiagnostic(detail) {
+function renderRawDiagnostic(detail) {
   const model = rawDiagnosticRenderModel(detail);
   const { diagnostic, currentPage } = model;
   const header = rawDiagnosticHeader(model);
   if (!currentPage) {
     els.rawContent.innerHTML = `${header}${rawDiagnosticEmptyMarkup(diagnostic)}`;
-    bindLimitedRawDiagnosticActions();
+    bindRawDiagnosticActions();
     if (rawDiagnosticAwaitingFirstPage(diagnostic)) void loadRawDiagnosticPage({ restart: true });
     return;
   }
   els.rawContent.innerHTML = rawDiagnosticResultsMarkup(model, header);
-  bindLimitedRawDiagnosticActions();
+  bindRawDiagnosticActions();
 }
 
 function rawDiagnosticRenderModel(detail) {
@@ -7517,7 +7444,7 @@ function rawDiagnosticRenderModel(detail) {
     diagnostic,
     currentPage,
     events,
-    limits: currentPage?.readState?.limits || detail.readState?.limits || {},
+    limits: currentPage?.readState?.limits || {},
     query,
     selected: selectedRawViewEvent(events, events),
     session: detail.session || {},
@@ -7529,9 +7456,9 @@ function rawDiagnosticHeader({ diagnostic, currentPage, limits, session }) {
   const header = `
     <div class="raw-view-head raw-diagnostic-head">
       <div>
-        <p class="eyebrow">有界原始事件诊断</p>
+        <p class="eyebrow">分页原始事件诊断</p>
         <h3>${escapeHtml(session.title || selectedSessionDisplayTitle())}</h3>
-        <p>数据源：${escapeHtml(session.sourceLabel || selectedSource()?.label || state.selectedSourceId)} · 详情读取受限</p>
+        <p>数据源：${escapeHtml(session.sourceLabel || selectedSource()?.label || state.selectedSourceId)} · 独立诊断预算</p>
       </div>
       <div class="raw-view-actions">
         <button class="ghost-button small" type="button" data-retry-raw-diagnostic ${diagnostic.loading ? "disabled" : ""}>重新开始</button>
@@ -7548,8 +7475,8 @@ function rawDiagnosticHeader({ diagnostic, currentPage, limits, session }) {
 function rawDiagnosticStateNote(diagnostic, currentPage, limits) {
   if (diagnostic.readState?.state === "changing") return "文件在读取中发生变化。已清空本次诊断结果，请重新开始读取。";
   if (currentPage?.stopReason === "raw_event_scan_limit") return `已到达诊断事件索引上限（${compactNumber(limits.maxDiagnosticEventScan || 0)} 条），后续内容未读取。`;
-  if (currentPage?.truncated) return `已到达单次扫描边界（${formatBytes(limits.maxFileBytes || 0)}），后续内容未读取。`;
-  return "仅展示当前服务端分页返回的事件摘要；这不是完整会话。";
+  if (currentPage?.truncated) return `已到达单次诊断字节预算（${formatBytes(limits.diagnosticMaxFileBytes || 0)}），后续内容未读取。`;
+  return "仅展示当前服务端分页返回的事件摘要；完整会话仍可在会话和复盘视图查看。";
 }
 
 function rawDiagnosticAwaitingFirstPage(diagnostic) {
@@ -7591,7 +7518,7 @@ function rawDiagnosticResultsMarkup({ diagnostic, currentPage, events, selected 
     </div>`;
 }
 
-function bindLimitedRawDiagnosticActions() {
+function bindRawDiagnosticActions() {
   els.rawContent.querySelectorAll("[data-raw-event-index]").forEach((button) => {
     button.addEventListener("click", () => selectRawViewEvent(Number(button.dataset.rawEventIndex)));
   });
@@ -7605,9 +7532,9 @@ function bindLimitedRawDiagnosticActions() {
   els.rawContent.querySelector("[data-next-raw-page]")?.addEventListener("click", () => void loadRawDiagnosticPage());
 }
 
-async function loadRawDiagnosticPage({ restart = false } = {}) {
+async function loadRawDiagnosticPage({ restart = false, cursor = null } = {}) {
   if (!restart && showCachedNextRawDiagnosticPage()) return;
-  const request = startRawDiagnosticPageRequest(restart);
+  const request = startRawDiagnosticPageRequest(restart, cursor);
   if (!request) return;
   renderRawView();
   try {
@@ -7627,7 +7554,7 @@ async function loadRawDiagnosticPage({ restart = false } = {}) {
   }
 }
 
-function startRawDiagnosticPageRequest(restart) {
+function startRawDiagnosticPageRequest(restart, initialCursor = null) {
   const detail = state.detail;
   if (!rawDiagnosticDetailAvailable(detail)) return null;
   const sourceId = detail.session.sourceId || state.selectedSourceId;
@@ -7643,7 +7570,7 @@ function startRawDiagnosticPageRequest(restart) {
   } else if (diagnostic.loading) {
     return null;
   }
-  const cursor = rawDiagnosticRequestCursor(diagnostic, restart);
+  const cursor = initialCursor ?? rawDiagnosticRequestCursor(diagnostic, restart);
   if (cursor == null) return null;
   rawDiagnosticAbortController?.abort();
   const controller = new AbortController();
@@ -7657,7 +7584,7 @@ function startRawDiagnosticPageRequest(restart) {
 }
 
 function rawDiagnosticDetailAvailable(detail) {
-  return state.viewMode === "diagnostic" && state.diagnosticMode === "raw" && detail?.complete === false && Boolean(detail.session?.id);
+  return state.viewMode === "diagnostic" && state.diagnosticMode === "raw" && Boolean(detail?.session?.id);
 }
 
 function rawDiagnosticRequestCursor(diagnostic, restart) {
@@ -7864,7 +7791,7 @@ async function openRawEventFromAudit(index) {
   state.selectedEventIndex = index;
   syncViewControls();
   renderStats();
-  renderMainContent();
+  await loadRawDiagnosticPage({ restart: true, cursor: index });
   await selectRawViewEvent(index);
   const active = els.rawContent.querySelector(`[data-raw-event-index="${index}"]`);
   active?.scrollIntoView({ behavior: preferredScrollBehavior(), block: "center" });
@@ -7876,13 +7803,6 @@ async function selectRawViewEvent(index) {
   renderInspector();
 }
 
-function detailSummaryForRaw(detail) {
-  return {
-    session: detail.session,
-    stats: detail.stats,
-    events: detail.events || [],
-  };
-}
 
 function renderTrace() {
   const detail = state.detail;
@@ -8575,14 +8495,14 @@ function buildReviewContext() {
       summary: "左侧选择会话后，复核台会显示当前对象的摘要、证据、关系和来源。",
     });
   }
-  if (state.detail.complete === false && !(state.viewMode === "diagnostic" && state.diagnosticMode === "raw" && state.selectedEventIndex != null && eventByIndex(state.selectedEventIndex))) {
+  if (state.detail.readState?.state === "changing") {
     const readState = state.detail.readState || {};
     return reviewContextBase({
-      kind: "limited",
-      kindLabel: "读取受限",
-      title: readState.state === "changing" ? "会话文件正在变化" : "会话详情超过读取上限",
-      summary: "未读取正文、事件、审计链或风险结论。请使用原始事件分页诊断。",
-      badges: [readState.code || "session_read_limited"],
+      kind: "changing",
+      kindLabel: "文件变化",
+      title: "会话文件正在变化",
+      summary: "读取期间文件发生变化，未展示可能过期的正文、审计链或风险结论。请重新读取会话。",
+      badges: [readState.code || "session_file_changed"],
       metrics: { events: 0, evidence: 0, relations: 0 },
     });
   }

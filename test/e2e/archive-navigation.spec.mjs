@@ -162,7 +162,7 @@ test("移动端筛选只更新列表，用户显式激活后才打开另一会�
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   await expect(page.locator("#sessionTitle")).toContainText("确定性 Chromium 验证会话");
-  await expect(page.locator("#compactContent")).toContainText("会话详情超过读取上限");
+  await expect(page.locator("#compactContent")).toContainText("验证工作台的 Chromium 交互契约");
   await expect(page.locator(`[data-session-id="${sessionId}"]`)).toHaveAttribute("aria-current", "true");
   await page.locator("[data-panel-target=sessions]").click();
   const filteredResponse = page.waitForResponse((response) => {

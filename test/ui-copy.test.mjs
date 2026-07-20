@@ -41,7 +41,7 @@ test("workbench status and mobile panel semantics remain accessible", async () =
   assert.match(app, /button\.setAttribute\("aria-pressed", active \? "true" : "false"\)/);
   assert.match(app, /panel\.inert = !open/);
   assert.match(app, /已取消任务归档读取/);
-  assert.match(app, /重试读取会话/);
+  assert.match(app, /重新读取会话/);
   assert.match(app, /检测到 .* 有可读会话，可切换查看/);
   assert.match(app, /function discoverAlternateLocalSource\(\)/);
   assert.match(app, /kind: "prompt_archive"/);
