@@ -9,6 +9,20 @@ async function openWorkbench(page) {
   await expect(page.locator("#compactContent")).toBeVisible();
 }
 
+async function captureUnhandledRejections(page) {
+  await page.addInitScript(() => {
+    globalThis.__rawDiagnosticUnhandledRejections = [];
+    globalThis.addEventListener("unhandledrejection", (event) => {
+      globalThis.__rawDiagnosticUnhandledRejections.push(String(event.reason?.message || event.reason));
+      event.preventDefault();
+    });
+  });
+}
+
+async function expectNoUnhandledRejections(page) {
+  await expect.poll(() => page.evaluate(() => globalThis.__rawDiagnosticUnhandledRejections)).toEqual([]);
+}
+
 test("受限诊断复用前进缓存，不重复请求或追加页面", async ({ page }) => {
   await openWorkbench(page);
   await expect(page.locator("#compactContent")).toContainText("会话详情超过读取上限");
@@ -369,4 +383,91 @@ test("单事件文件读取中变化清空诊断状态和缓存，普通失败�
   await recoveredRead;
   await expect(page.locator("[data-review-source-preview]")).toContainText('"raw"');
   expect(eventReadCount).toBe(4);
+});
+
+test("复制 JSON 在当前单事件读取 409 后重置诊断并给出失败回执", async ({ page }) => {
+  await captureUnhandledRejections(page);
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.route(`**/api/sources/local/sessions/${sessionId}/events/*`, async (route) => {
+    await route.fulfill({
+      status: 409,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "会话文件在读取中发生变化", details: { code: "session_file_changed" } }),
+    });
+  });
+
+  await openWorkbench(page);
+  await page.locator("#rawViewButton").click();
+  const rows = page.locator("#rawContent [data-raw-event-index]");
+  await rows.first().click();
+  await page.locator("#inspectorActions [data-review-action-type=copy-debug]").click();
+
+  await expect(page.locator("#rawContent")).toContainText("会话文件或诊断快照已变化，已清空过期摘要、选择和完整事件缓存，请重新开始读取。");
+  await expect(page.locator("#toast")).toContainText("复制失败：会话文件或诊断快照已变化，请重新开始读取。");
+  await expect(page.locator("#toast")).not.toContainText("已复制原始事件调试 JSON");
+  await expectNoUnhandledRejections(page);
+  expect(pageErrors).toEqual([]);
+});
+
+test("复制 JSON 的普通读取失败保留诊断页且不会产生未处理拒绝", async ({ page }) => {
+  await captureUnhandledRejections(page);
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.route(`**/api/sources/local/sessions/${sessionId}/events/*`, async (route) => {
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "完整原始事件暂不可用", details: { code: "temporary_event_failure" } }),
+    });
+  });
+
+  await openWorkbench(page);
+  await page.locator("#rawViewButton").click();
+  const rows = page.locator("#rawContent [data-raw-event-index]");
+  await expect(rows.first()).toBeVisible();
+  await rows.first().click();
+  await page.locator("#inspectorActions [data-review-action-type=copy-debug]").click();
+
+  await expect(page.locator("#toast")).toContainText("复制失败：完整原始事件暂不可用");
+  await expect(rows.first()).toBeVisible();
+  await expectNoUnhandledRejections(page);
+  expect(pageErrors).toEqual([]);
+});
+
+test("复制 JSON 的迟到响应不会复制已切换选择的原始内容", async ({ page }) => {
+  await captureUnhandledRejections(page);
+  await page.addInitScript(() => {
+    globalThis.__copiedRawJson = [];
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (text) => globalThis.__copiedRawJson.push(text) },
+    });
+  });
+  let releaseRead;
+  const readReleased = new Promise((resolve) => {
+    releaseRead = resolve;
+  });
+  await page.route(`**/api/sources/local/sessions/${sessionId}/events/*`, async (route) => {
+    await readReleased;
+    await route.continue().catch(() => {});
+  });
+
+  await openWorkbench(page);
+  await page.locator("#rawViewButton").click();
+  const rows = page.locator("#rawContent [data-raw-event-index]");
+  await expect(rows.nth(1)).toBeVisible();
+  await rows.first().click();
+  const rawRead = page.waitForRequest((request) => request.url().includes(`/api/sources/local/sessions/${sessionId}/events/`));
+  await page.locator("#inspectorActions [data-review-action-type=copy-debug]").click();
+  await rawRead;
+  await rows.nth(1).click();
+  releaseRead();
+  await page.evaluate(() => new Promise((resolve) => {
+    globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(resolve));
+  }));
+
+  await expect.poll(() => page.evaluate(() => globalThis.__copiedRawJson)).toEqual([]);
+  await expect(page.locator("#toast")).not.toContainText("已复制原始事件调试 JSON");
+  await expectNoUnhandledRejections(page);
 });

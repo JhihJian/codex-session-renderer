@@ -131,6 +131,7 @@ let sessionAbortController = null;
 let markdownAbortController = null;
 let rawDiagnosticAbortController = null;
 let rawEventAbortController = null;
+let reviewSourceRequestSeq = 0;
 let alternateLocalSourceAbortController = null;
 let sessionSearchTimer = null;
 const markdownCacheLimit = 700;
@@ -385,7 +386,9 @@ function bindEvents() {
     }
     void refreshCurrentSessionList({ announce: true });
   });
-  document.addEventListener("click", handleMarkdownCodeCopy);
+  document.addEventListener("click", (event) => {
+    void handleMarkdownCodeCopy(event).catch(reportReviewActionFailure);
+  });
   document.addEventListener("keydown", handleDialogEscapeKey);
   els.refreshRemoteButton.addEventListener("click", refreshSelectedSource);
   els.sourceSelect.addEventListener("change", () => selectSource(els.sourceSelect.value));
@@ -512,7 +515,9 @@ function bindEvents() {
   bindRovingTablist(els.reviewTabs, "[data-review-tab]", (button) => setReviewTab(button.dataset.reviewTab || "summary"));
   bindRovingTablist(els.settingsTabs, "[data-settings-view]", (button) => selectSettingsView(button.dataset.settingsView || "summary"));
   els.showMoreEventsButton.addEventListener("click", renderInspector);
-  els.copyRawButton.addEventListener("click", () => copyReviewReference());
+  els.copyRawButton.addEventListener("click", () => {
+    void copyReviewReference().catch(reportReviewActionFailure);
+  });
   els.copyMarkdownButton.addEventListener("click", copyMarkdown);
   els.downloadMarkdownButton.addEventListener("click", downloadMarkdown);
   els.toggleLeft.addEventListener("click", () => {
@@ -588,7 +593,8 @@ function cancelRawDiagnosticRequest({ clear = false } = {}) {
   }
 }
 
-function cancelRawEventRequest() {
+function cancelRawEventRequest({ invalidateReviewSource = true } = {}) {
+  if (invalidateReviewSource) reviewSourceRequestSeq += 1;
   rawEventAbortController?.abort();
   rawEventAbortController = null;
 }
@@ -674,6 +680,7 @@ function setMobilePanel(panel, { userInitiated = false } = {}) {
   const next = ["sessions", "thread", "inspector"].includes(panel) ? panel : "thread";
   const changed = els.appShell.dataset.panel !== next;
   if (userInitiated && changed) state.mobilePanelNavigationVersion += 1;
+  if (mobilePanelLayoutActive() && changed && next !== "inspector") cancelRawEventRequest();
   els.appShell.dataset.panel = next;
   if (changed) cancelRemoteRefreshForNavigation();
   syncMobilePanelNavigation();
@@ -3026,6 +3033,7 @@ function setViewMode(mode) {
   if (changed) cancelRemoteRefreshForNavigation();
   syncViewControls();
   renderMainContent();
+  if (changed) renderInspector();
 }
 
 function normalizeViewMode(mode) {
@@ -7477,13 +7485,13 @@ function rawDiagnosticNextPageNumber(diagnostic) {
 function failRawDiagnosticPage(request, error) {
   if (!rawDiagnosticRequestIsCurrent(request)) return;
   if (isRawDiagnosticSnapshotInvalidated(error)) {
-    resetRawDiagnosticForSnapshotChange({
+    const reset = resetRawDiagnosticForSnapshotChange({
       sourceId: request.sourceId,
       sessionId: request.sessionId,
       snapshot: request.snapshot,
       diagnostic: request.diagnostic,
     });
-    return;
+    if (reset) return;
   }
   resetRawDiagnosticPages(request.diagnostic);
   request.diagnostic.error = error.message;
@@ -7897,7 +7905,7 @@ async function selectRawEvent(index, { rerender = true } = {}) {
   if (rerender) renderInspector();
 }
 
-async function loadRawEvent(index) {
+async function loadRawEvent(index, { cancelPrevious = true } = {}) {
   const id = state.detail?.session?.id;
   if (!id) throw new Error("未选择会话");
   const sourceId = state.detail?.session?.sourceId || state.selectedSourceId;
@@ -7907,7 +7915,7 @@ async function loadRawEvent(index) {
   const cacheKey = rawEventCacheKey(sourceId, id, index, snapshot);
   const cached = state.rawEventCache.get(cacheKey);
   if (cached !== undefined) return cached;
-  cancelRawEventRequest();
+  if (cancelPrevious) cancelRawEventRequest();
   const controller = new AbortController();
   rawEventAbortController = controller;
   try {
@@ -8145,33 +8153,37 @@ function bindSelectionActions() {
   const actions = currentSelectionActions();
   els.selectionDetails.querySelectorAll("[data-selection-action]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const action = actions[Number(button.dataset.selectionAction)];
-      if (!action) return;
-      if (action.action === "copy-debug") {
-        await copySelectedRawEvent();
-        return;
+      try {
+        const action = actions[Number(button.dataset.selectionAction)];
+        if (!action) return;
+        if (action.action === "copy-debug") {
+          await copySelectedRawEvent();
+          return;
+        }
+        if (action.action === "open-thread" && action.threadId) {
+          selectSession(action.threadId);
+          return;
+        }
+        if (action.action === "open-raw-event") {
+          await openRawEventFromAudit(action.index);
+          return;
+        }
+        if (action.action === "open-item-ref") {
+          locateItemRef(action.ref);
+          return;
+        }
+        if (action.action === "open-trace-node") {
+          locateTraceNode(action.id);
+          return;
+        }
+        if (action.action === "open-audit-node") {
+          locateRelatedAuditNode(action.node);
+          return;
+        }
+        if (action.copy != null) await copyInspectorText(action.copy, action.toast || "已复制", { sensitive: action.sensitive !== false });
+      } catch (error) {
+        reportReviewActionFailure(error);
       }
-      if (action.action === "open-thread" && action.threadId) {
-        selectSession(action.threadId);
-        return;
-      }
-      if (action.action === "open-raw-event") {
-        openRawEventFromAudit(action.index);
-        return;
-      }
-      if (action.action === "open-item-ref") {
-        locateItemRef(action.ref);
-        return;
-      }
-      if (action.action === "open-trace-node") {
-        locateTraceNode(action.id);
-        return;
-      }
-      if (action.action === "open-audit-node") {
-        locateRelatedAuditNode(action.node);
-        return;
-      }
-      if (action.copy != null) await copyInspectorText(action.copy, action.toast || "已复制", { sensitive: action.sensitive !== false });
     });
   });
 }
@@ -8702,6 +8714,7 @@ function renderReviewTabs() {
 function setReviewTab(tab) {
   const next = tab || "summary";
   const changed = state.reviewTab !== next;
+  if (changed && state.reviewTab === "source") cancelRawEventRequest();
   state.reviewTab = next;
   if (changed) cancelRemoteRefreshForNavigation();
   renderInspector();
@@ -9129,15 +9142,19 @@ function bindReviewBodyActions(context) {
   const evidence = context.evidence || [];
   const sources = context.sources || [];
   els.selectionDetails.querySelectorAll("[data-review-relation]").forEach((button) => {
-    button.addEventListener("click", () => runReviewAction(relations[Number(button.dataset.reviewRelation)]));
+    button.addEventListener("click", () => {
+      void runReviewAction(relations[Number(button.dataset.reviewRelation)]).catch(reportReviewActionFailure);
+    });
   });
   els.selectionDetails.querySelectorAll("[data-review-evidence-action]").forEach((button) => {
-    button.addEventListener("click", () => runReviewAction(evidence[Number(button.dataset.reviewEvidenceAction)]));
+    button.addEventListener("click", () => {
+      void runReviewAction(evidence[Number(button.dataset.reviewEvidenceAction)]).catch(reportReviewActionFailure);
+    });
   });
   els.selectionDetails.querySelectorAll("[data-review-source]").forEach((button) => {
-    button.addEventListener("click", async () => {
+    button.addEventListener("click", () => {
       const source = sources[Number(button.dataset.reviewSource)];
-      if (source) await loadReviewSource(source);
+      if (source) void loadReviewSource(source).catch(reportReviewActionFailure);
     });
   });
 }
@@ -9145,9 +9162,9 @@ function bindReviewBodyActions(context) {
 function bindReviewActions(context) {
   const actions = normalizeReviewActions(context);
   els.inspectorActions.querySelectorAll("[data-review-action]").forEach((button) => {
-    button.addEventListener("click", async () => {
+    button.addEventListener("click", () => {
       const action = actions[Number(button.dataset.reviewAction)];
-      await runReviewAction(action, context);
+      void runReviewAction(action, context).catch(reportReviewActionFailure);
     });
   });
 }
@@ -9192,17 +9209,55 @@ async function loadReviewSource(source) {
     preview.textContent = JSON.stringify(source.data ?? source.value ?? null, null, 2);
     return;
   }
+  cancelRawEventRequest();
+  const request = createReviewSourceRequest(source.eventIndex);
   preview.textContent = JSON.stringify(source.data || {}, null, 2) + "\n\n正在按需读取完整原始事件...";
   try {
-    const raw = await loadRawEvent(source.eventIndex);
-    if (!raw) {
-      preview.textContent = JSON.stringify(source.data || {}, null, 2) + "\n\n会话已切换，已忽略旧原始事件响应。";
-      return;
-    }
+    const raw = await loadRawEvent(source.eventIndex, { cancelPrevious: false });
+    if (!raw || !reviewSourceRequestIsCurrent(request)) return;
     preview.textContent = JSON.stringify(raw, null, 2);
   } catch (error) {
+    if (isAbortError(error) || !reviewSourceRequestIsCurrent(request)) return;
     preview.textContent = JSON.stringify(source.data || {}, null, 2) + `\n\n读取完整事件失败：${error.message}`;
   }
+}
+
+function createReviewSourceRequest(eventIndex) {
+  return {
+    eventIndex,
+    requestSeq: ++reviewSourceRequestSeq,
+    sourceId: state.selectedSourceId,
+    sessionKey: state.selectedSessionKey,
+    viewMode: state.viewMode,
+    reviewTab: state.reviewTab,
+    selectionKey: reviewSelectionKey(),
+  };
+}
+
+function reviewSourceRequestIsCurrent(request) {
+  return request.requestSeq === reviewSourceRequestSeq
+    && request.sourceId === state.selectedSourceId
+    && request.sessionKey === state.selectedSessionKey
+    && request.viewMode === state.viewMode
+    && request.reviewTab === state.reviewTab
+    && request.reviewTab === "source"
+    && request.selectionKey === reviewSelectionKey();
+}
+
+function reviewSelectionKey() {
+  return JSON.stringify({
+    eventIndex: state.selectedEventIndex,
+    traceNodeId: state.selectedTraceNodeId,
+    auditNodeId: state.selectedAuditNodeId,
+    auditTurnKey: state.selectedAuditTurnKey,
+    itemRef: state.selectedItemRef,
+  });
+}
+
+function reportReviewActionFailure(error) {
+  if (isAbortError(error)) return;
+  console.warn("复核台操作失败", error);
+  showToast(`操作失败：${errorTextFromError(error)}`);
 }
 
 function reviewEvidenceFromAuditNode(node) {
@@ -9491,9 +9546,62 @@ async function copySelectedRawEvent() {
     return;
   }
   if (state.selectedEventIndex == null) return;
-  const event = await loadRawEvent(state.selectedEventIndex);
-  if (!event) return;
-  await copyWithToast(JSON.stringify(event, null, 2), sensitiveCopyToast("已复制原始事件调试 JSON"));
+  const copyContext = createRawEventCopyContext(state.selectedEventIndex);
+  try {
+    const event = await loadRawEvent(copyContext.eventIndex);
+    if (!event || !rawEventCopyContextIsCurrent(copyContext)) return;
+    await copyWithToastWhileCurrent(
+      JSON.stringify(event, null, 2),
+      sensitiveCopyToast("已复制原始事件调试 JSON"),
+      () => rawEventCopyContextIsCurrent(copyContext),
+    );
+  } catch (error) {
+    if (isAbortError(error)) return;
+    if (isRawDiagnosticSnapshotInvalidated(error) && rawEventCopySnapshotWasInvalidated(copyContext)) {
+      showToast("复制失败：会话文件或诊断快照已变化，请重新开始读取。");
+      return;
+    }
+    if (rawEventCopyContextIsCurrent(copyContext)) showToast(`复制失败：${errorTextFromError(error)}`);
+  }
+}
+
+function createRawEventCopyContext(eventIndex) {
+  const detail = state.detail;
+  const sourceId = detail?.session?.sourceId || state.selectedSourceId;
+  return {
+    eventIndex,
+    sourceId,
+    sessionKey: state.selectedSessionKey,
+    diagnostic: state.rawDiagnostic,
+    snapshot: rawDiagnosticSnapshotForEvent(eventIndex),
+    viewMode: state.viewMode,
+    reviewTab: state.reviewTab,
+    selectionKey: reviewSelectionKey(),
+  };
+}
+
+function rawEventCopyContextIsCurrent(context) {
+  if (
+    context.sourceId !== state.selectedSourceId
+    || context.sessionKey !== state.selectedSessionKey
+    || context.eventIndex !== state.selectedEventIndex
+    || context.viewMode !== state.viewMode
+    || context.reviewTab !== state.reviewTab
+    || context.selectionKey !== reviewSelectionKey()
+  ) return false;
+  if (!context.snapshot) return true;
+  return state.rawDiagnostic === context.diagnostic && state.rawDiagnostic?.snapshot === context.snapshot;
+}
+
+function rawEventCopySnapshotWasInvalidated(context) {
+  return Boolean(
+    context.snapshot
+    && state.selectedSourceId === context.sourceId
+    && state.selectedSessionKey === context.sessionKey
+    && state.rawDiagnostic === context.diagnostic
+    && !state.rawDiagnostic?.snapshot
+    && state.rawDiagnostic?.error,
+  );
 }
 
 async function copyMarkdown() {
@@ -10155,6 +10263,20 @@ async function copyWithToast(text, successMessage) {
     showToast(successMessage);
     return true;
   } catch (error) {
+    console.warn("复制到剪贴板失败", error);
+    showToast(`复制失败：${errorTextFromError(error)}`);
+    return false;
+  }
+}
+
+async function copyWithToastWhileCurrent(text, successMessage, isCurrent) {
+  try {
+    await copyText(String(text));
+    if (!isCurrent()) return false;
+    showToast(successMessage);
+    return true;
+  } catch (error) {
+    if (!isCurrent()) return false;
     console.warn("复制到剪贴板失败", error);
     showToast(`复制失败：${errorTextFromError(error)}`);
     return false;

@@ -153,7 +153,7 @@ test("review and filtering copy keeps noisy interactions explicit", async () => 
   assert.match(app, /row\.focus\(\)/);
   assert.match(app, /heading\.textContent = "复核对象"/);
   assert.match(html, /<p class="eyebrow">复核台<\/p>\s*<h2>复核对象<\/h2>/);
-  assert.match(app, /copyRawButton\.addEventListener\("click", \(\) => copyReviewReference\(\)\)/);
+  assert.match(app, /void copyReviewReference\(\)\.catch\(reportReviewActionFailure\)/);
   assert.match(app, /context\.kind === "session" \? "已复制会话引用" : "已复制对象引用"/);
   assert.match(app, /const outlineRows = Array\.from\(els\.compactContent\.querySelectorAll\("\[data-compact-nav-target\]"\)\)/);
   assert.match(app, /event\.key === "ArrowDown"/);
@@ -234,4 +234,19 @@ test("review and filtering copy keeps noisy interactions explicit", async () => 
   assert.match(readme, /复核台 \/ 复核对象/);
   assert.match(readme, /证据风险页内容较长时只滚动编辑区/);
   assert.match(readme, /1280px 以下会把复核台收进正文下方/);
+});
+
+test("受限诊断复制与来源展开保留受控失败和失效契约", async () => {
+  const [app, readme] = await Promise.all([
+    readProjectFile("public/app.js"),
+    readProjectFile("README.md"),
+  ]);
+
+  assert.match(app, /function createRawEventCopyContext\(eventIndex\)/);
+  assert.match(app, /function rawEventCopyContextIsCurrent\(context\)/);
+  assert.match(app, /function copyWithToastWhileCurrent\(text, successMessage, isCurrent\)/);
+  assert.match(app, /复制失败：会话文件或诊断快照已变化，请重新开始读取/);
+  assert.match(app, /function createReviewSourceRequest\(eventIndex\)/);
+  assert.match(app, /function reviewSourceRequestIsCurrent\(request\)/);
+  assert.match(readme, /复制 JSON 遇到这两类响应会额外给出明确的复制失败回执/);
 });
