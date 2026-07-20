@@ -7449,7 +7449,16 @@ function rawDiagnosticNextPageNumber(diagnostic) {
 }
 
 function failRawDiagnosticPage(request, error) {
-  if (!rawDiagnosticStillSelected(request)) return;
+  if (!rawDiagnosticRequestIsCurrent(request)) return;
+  if (isRawDiagnosticSnapshotChanged(error)) {
+    resetRawDiagnosticForSnapshotChange({
+      sourceId: request.sourceId,
+      sessionId: request.sessionId,
+      snapshot: request.snapshot,
+      diagnostic: request.diagnostic,
+    });
+    return;
+  }
   resetRawDiagnosticPages(request.diagnostic);
   request.diagnostic.error = error.message;
 }

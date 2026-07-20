@@ -93,6 +93,48 @@ test("刷新列表会中止在途诊断页并清空旧缓存", async ({ page }) 
   await expect(page.locator("#rawContent")).not.toContainText("第 2 页");
 });
 
+test("分页快照变化清空选择和完整事件缓存后可重新开始", async ({ page }) => {
+  await openWorkbench(page);
+  let eventReadCount = 0;
+  await page.route(`**/api/sources/local/sessions/${sessionId}/events/*`, async (route) => {
+    eventReadCount += 1;
+    await route.continue();
+  });
+  await page.route(`**/api/sources/local/query/sessions/${sessionId}/events?*`, async (route) => {
+    if (new URL(route.request().url()).searchParams.get("cursor") !== "100") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 409,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "会话诊断快照已变化，请重新开始读取。", details: { code: "session_snapshot_changed" } }),
+    });
+  });
+
+  await page.locator("#rawViewButton").click();
+  const rows = page.locator("#rawContent [data-raw-event-index]");
+  await expect(rows.first()).toBeVisible();
+  await rows.first().click();
+  await page.locator("#reviewTabs [data-review-tab=source]").click();
+  await page.locator("#selectionDetails [data-review-source]").click();
+  await expect(page.locator("[data-review-source-preview]")).toContainText('"raw"');
+  expect(eventReadCount).toBe(1);
+
+  await page.locator("#rawContent [data-next-raw-page]").click();
+  await expect(page.locator("#rawContent")).toContainText("会话诊断快照已变化，已清空过期摘要、选择和完整事件缓存，请重新开始读取。");
+  await expect(rows).toHaveCount(0);
+  await expect(page.locator("#selectedEventLabel")).toHaveText("会话详情超过读取上限");
+
+  await page.locator("#rawContent [data-retry-raw-diagnostic]").click();
+  await expect(rows.first()).toBeVisible();
+  await rows.first().click();
+  await page.locator("#reviewTabs [data-review-tab=source]").click();
+  await page.locator("#selectionDetails [data-review-source]").click();
+  await expect(page.locator("[data-review-source-preview]")).toContainText('"raw"');
+  expect(eventReadCount).toBe(2);
+});
+
 test("重新开始会中止在途单事件读取", async ({ page }) => {
   await openWorkbench(page);
   let releaseEventRead;
