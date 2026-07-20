@@ -93,6 +93,105 @@ test("刷新列表会中止在途诊断页并清空旧缓存", async ({ page }) 
   await expect(page.locator("#rawContent")).not.toContainText("第 2 页");
 });
 
+test("重新开始会中止在途单事件读取", async ({ page }) => {
+  await openWorkbench(page);
+  let releaseEventRead;
+  const eventReadReleased = new Promise((resolve) => {
+    releaseEventRead = resolve;
+  });
+  await page.route(`**/api/sources/local/sessions/${sessionId}/events/*`, async (route) => {
+    await eventReadReleased;
+    await route.continue().catch(() => {});
+  });
+
+  await page.locator("#rawViewButton").click();
+  const rows = page.locator("#rawContent [data-raw-event-index]");
+  await expect(rows.first()).toBeVisible();
+  const firstIndex = await rows.first().getAttribute("data-raw-event-index");
+  await rows.first().click();
+  await page.locator("#reviewTabs [data-review-tab=source]").click();
+  const eventRequest = page.waitForRequest((request) => request.url().includes(`/api/sources/local/sessions/${sessionId}/events/${firstIndex}`));
+  await page.locator("#selectionDetails [data-review-source]").click();
+  await eventRequest;
+
+  const cancelled = page.waitForEvent("requestfailed", (request) => request.url().includes(`/api/sources/local/sessions/${sessionId}/events/${firstIndex}`));
+  await page.locator("#rawContent [data-retry-raw-diagnostic]").click();
+  await cancelled;
+  releaseEventRead();
+  await expect(rows.first()).toBeVisible();
+});
+
+test("重新开始隔离取消竞争下迟到的旧快照 409", async ({ page }) => {
+  await page.addInitScript((eventPath) => {
+    const originalFetch = globalThis.fetch.bind(globalThis);
+    globalThis.fetch = (input, init) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (!url.includes(eventPath)) return originalFetch(input, init);
+      const { signal: _signal, ...withoutSignal } = init || {};
+      return originalFetch(input, withoutSignal);
+    };
+  }, `/api/sources/local/sessions/${sessionId}/events/`);
+
+  let diagnosticReadCount = 0;
+  await page.route(`**/api/sources/local/query/sessions/${sessionId}/events?*`, async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("cursor") !== "0" || url.searchParams.has("snapshot")) {
+      await route.continue();
+      return;
+    }
+    diagnosticReadCount += 1;
+    if (diagnosticReadCount !== 2) {
+      await route.continue();
+      return;
+    }
+    const response = await route.fetch();
+    const body = await response.json();
+    body.page.snapshot = "fresh-diagnostic-snapshot";
+    body.events[0].preview = "重新开始后的新快照摘要";
+    await route.fulfill({ response, json: body });
+  });
+
+  let releaseOldEvent;
+  const oldEventReleased = new Promise((resolve) => {
+    releaseOldEvent = resolve;
+  });
+  let oldEventFulfilled;
+  const oldEventCompleted = new Promise((resolve) => {
+    oldEventFulfilled = resolve;
+  });
+  await page.route(`**/api/sources/local/sessions/${sessionId}/events/*`, async (route) => {
+    await oldEventReleased;
+    await route.fulfill({
+      status: 409,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "会话诊断快照已变化，请重新开始读取。", details: { code: "session_snapshot_changed" } }),
+    });
+    oldEventFulfilled();
+  });
+
+  await openWorkbench(page);
+  await page.locator("#rawViewButton").click();
+  const rows = page.locator("#rawContent [data-raw-event-index]");
+  await expect(rows.first()).toBeVisible();
+  await rows.first().click();
+  await page.locator("#reviewTabs [data-review-tab=source]").click();
+  const oldEventRequest = page.waitForRequest((request) => request.url().includes(`/api/sources/local/sessions/${sessionId}/events/`));
+  await page.locator("#selectionDetails [data-review-source]").click();
+  await oldEventRequest;
+
+  await page.locator("#rawContent [data-retry-raw-diagnostic]").click();
+  await expect(page.locator("#rawContent")).toContainText("重新开始后的新快照摘要");
+  releaseOldEvent();
+  await oldEventCompleted;
+  await page.evaluate(() => new Promise((resolve) => {
+    globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(resolve));
+  }));
+
+  await expect(page.locator("#rawContent")).toContainText("重新开始后的新快照摘要");
+  await expect(page.locator("#rawContent")).not.toContainText("会话诊断快照已变化，已清空过期摘要、选择和完整事件缓存，请重新开始读取。");
+  await expect(rows.first()).toBeVisible();
+});
+
 test("单事件快照变化清空诊断状态和缓存，普通失败保留当前页", async ({ page }) => {
   await openWorkbench(page);
   let eventReadCount = 0;

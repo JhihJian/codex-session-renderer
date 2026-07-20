@@ -7345,6 +7345,7 @@ function startRawDiagnosticPageRequest(restart) {
   let diagnostic = state.rawDiagnostic || (state.rawDiagnostic = createRawDiagnosticState());
   if (restart || diagnostic.sessionKey !== diagnosticSessionKey) {
     cancelRawDiagnosticRequest();
+    if (restart) cancelRawEventRequest();
     diagnostic = createRawDiagnosticState();
     diagnostic.sessionKey = diagnosticSessionKey;
     state.rawDiagnostic = diagnostic;
@@ -7457,10 +7458,17 @@ function isRawDiagnosticSnapshotChanged(error) {
   return error?.status === 409 && error?.code === "session_snapshot_changed";
 }
 
-function resetRawDiagnosticForSnapshotChange({ sourceId, sessionId, snapshot }) {
+function resetRawDiagnosticForSnapshotChange({ sourceId, sessionId, snapshot, diagnostic: requestDiagnostic }) {
   const diagnostic = state.rawDiagnostic;
   const diagnosticSessionKey = sessionKey({ id: sessionId, sourceId });
-  if (!snapshot || state.selectedSourceId !== sourceId || state.selectedSessionKey !== diagnosticSessionKey || diagnostic?.sessionKey !== diagnosticSessionKey) return false;
+  if (
+    !snapshot
+    || state.selectedSourceId !== sourceId
+    || state.selectedSessionKey !== diagnosticSessionKey
+    || diagnostic !== requestDiagnostic
+    || diagnostic?.sessionKey !== diagnosticSessionKey
+    || diagnostic.snapshot !== snapshot
+  ) return false;
   resetRawDiagnosticPages(diagnostic, { clearSelection: true });
   state.rawEventCache.clear();
   diagnostic.error = "会话诊断快照已变化，已清空过期摘要、选择和完整事件缓存，请重新开始读取。";
@@ -7860,6 +7868,7 @@ async function loadRawEvent(index) {
   if (!id) throw new Error("未选择会话");
   const sourceId = state.detail?.session?.sourceId || state.selectedSourceId;
   const requestSessionKey = sessionKey({ id, sourceId });
+  const diagnostic = state.rawDiagnostic;
   const snapshot = rawDiagnosticSnapshotForEvent(index);
   const cacheKey = rawEventCacheKey(sourceId, id, index, snapshot);
   if (state.rawEventCache.has(cacheKey)) return state.rawEventCache.get(cacheKey);
@@ -7868,15 +7877,23 @@ async function loadRawEvent(index) {
   rawEventAbortController = controller;
   try {
     const raw = await fetchJson(sourceEventUrl(id, index, sourceId, snapshot), { signal: controller.signal });
-    if (state.selectedSourceId !== sourceId || state.selectedSessionKey !== requestSessionKey) return null;
+    if (!rawEventRequestIsCurrent({ controller, sourceId, requestSessionKey, diagnostic, snapshot })) return null;
     state.rawEventCache.set(cacheKey, raw);
     return raw;
   } catch (error) {
-    if (isRawDiagnosticSnapshotChanged(error)) resetRawDiagnosticForSnapshotChange({ sourceId, sessionId: id, snapshot });
+    if (isRawDiagnosticSnapshotChanged(error) && rawEventRequestIsCurrent({ controller, sourceId, requestSessionKey, diagnostic, snapshot })) {
+      resetRawDiagnosticForSnapshotChange({ sourceId, sessionId: id, snapshot, diagnostic });
+    }
     throw error;
   } finally {
     if (rawEventAbortController === controller) rawEventAbortController = null;
   }
+}
+
+function rawEventRequestIsCurrent({ controller, sourceId, requestSessionKey, diagnostic, snapshot }) {
+  if (controller.signal.aborted || state.selectedSourceId !== sourceId || state.selectedSessionKey !== requestSessionKey) return false;
+  if (!snapshot) return true;
+  return state.rawDiagnostic === diagnostic && diagnostic?.sessionKey === requestSessionKey && diagnostic.snapshot === snapshot;
 }
 
 function rawEventCacheKey(sourceId, id, index, snapshot = "") {
