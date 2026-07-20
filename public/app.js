@@ -7431,6 +7431,7 @@ function applyRawDiagnosticPage(request, data) {
   diagnostic.pages.push(page);
   if (diagnostic.pages.length > 6) diagnostic.pages.shift();
   diagnostic.pageIndex = diagnostic.pages.length - 1;
+  state.selectedEventIndex = null;
 }
 
 function rawDiagnosticPageMatchesRequest(request, page) {
@@ -7450,6 +7451,22 @@ function failRawDiagnosticPage(request, error) {
   if (!rawDiagnosticStillSelected(request)) return;
   resetRawDiagnosticPages(request.diagnostic);
   request.diagnostic.error = error.message;
+}
+
+function isRawDiagnosticSnapshotChanged(error) {
+  return error?.status === 409 && error?.code === "session_snapshot_changed";
+}
+
+function resetRawDiagnosticForSnapshotChange({ sourceId, sessionId, snapshot }) {
+  const diagnostic = state.rawDiagnostic;
+  const diagnosticSessionKey = sessionKey({ id: sessionId, sourceId });
+  if (!snapshot || state.selectedSourceId !== sourceId || state.selectedSessionKey !== diagnosticSessionKey || diagnostic?.sessionKey !== diagnosticSessionKey) return false;
+  resetRawDiagnosticPages(diagnostic, { clearSelection: true });
+  state.rawEventCache.clear();
+  diagnostic.error = "会话诊断快照已变化，已清空过期摘要、选择和完整事件缓存，请重新开始读取。";
+  renderRawView();
+  renderInspector();
+  return true;
 }
 
 function rawEventMatches(event, query, typeFilter) {
@@ -7849,11 +7866,17 @@ async function loadRawEvent(index) {
   cancelRawEventRequest();
   const controller = new AbortController();
   rawEventAbortController = controller;
-  const raw = await fetchJson(sourceEventUrl(id, index, sourceId, snapshot), { signal: controller.signal });
-  if (rawEventAbortController === controller) rawEventAbortController = null;
-  if (state.selectedSourceId !== sourceId || state.selectedSessionKey !== requestSessionKey) return null;
-  state.rawEventCache.set(cacheKey, raw);
-  return raw;
+  try {
+    const raw = await fetchJson(sourceEventUrl(id, index, sourceId, snapshot), { signal: controller.signal });
+    if (state.selectedSourceId !== sourceId || state.selectedSessionKey !== requestSessionKey) return null;
+    state.rawEventCache.set(cacheKey, raw);
+    return raw;
+  } catch (error) {
+    if (isRawDiagnosticSnapshotChanged(error)) resetRawDiagnosticForSnapshotChange({ sourceId, sessionId: id, snapshot });
+    throw error;
+  } finally {
+    if (rawEventAbortController === controller) rawEventAbortController = null;
+  }
 }
 
 function rawEventCacheKey(sourceId, id, index, snapshot = "") {

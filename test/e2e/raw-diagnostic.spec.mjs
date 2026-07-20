@@ -92,3 +92,66 @@ test("刷新列表会中止在途诊断页并清空旧缓存", async ({ page }) 
   releaseDelayedPage();
   await expect(page.locator("#rawContent")).not.toContainText("第 2 页");
 });
+
+test("单事件快照变化清空诊断状态和缓存，普通失败保留当前页", async ({ page }) => {
+  await openWorkbench(page);
+  let eventReadCount = 0;
+  await page.route(`**/api/sources/local/sessions/${sessionId}/events/*`, async (route) => {
+    eventReadCount += 1;
+    if (eventReadCount === 1) {
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "完整原始事件暂不可用", details: { code: "temporary_event_failure" } }),
+      });
+      return;
+    }
+    if (eventReadCount === 3) {
+      await route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "会话诊断快照已变化，请重新开始读取。", details: { code: "session_snapshot_changed" } }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.locator("#rawViewButton").click();
+  const rows = page.locator("#rawContent [data-raw-event-index]");
+  await expect(rows.first()).toBeVisible();
+
+  await rows.first().click();
+  await page.locator("#reviewTabs [data-review-tab=source]").click();
+  await page.locator("#selectionDetails [data-review-source]").click();
+  await expect(page.locator("[data-review-source-preview]")).toContainText("读取完整事件失败：完整原始事件暂不可用");
+  await expect(rows).not.toHaveCount(0);
+  expect(eventReadCount).toBe(1);
+
+  await page.locator("#selectionDetails [data-review-source]").click();
+  await expect(page.locator("[data-review-source-preview]")).toContainText('"raw"');
+  expect(eventReadCount).toBe(2);
+
+  await rows.nth(1).click();
+  await page.locator("#reviewTabs [data-review-tab=source]").click();
+  await page.locator("#selectionDetails [data-review-source]").click();
+  await expect(page.locator("#rawContent")).toContainText("会话诊断快照已变化，已清空过期摘要、选择和完整事件缓存，请重新开始读取。");
+  await expect(page.locator("#rawContent [data-raw-event-index]")).toHaveCount(0);
+  expect(eventReadCount).toBe(3);
+
+  const restarted = page.waitForRequest((request) => {
+    const url = new URL(request.url());
+    return url.pathname.includes(`/api/sources/local/query/sessions/${sessionId}/events`) && url.searchParams.get("cursor") === "0" && !url.searchParams.has("snapshot");
+  });
+  await page.locator("#rawContent [data-retry-raw-diagnostic]").click();
+  await restarted;
+  const recoveredRows = page.locator("#rawContent [data-raw-event-index]");
+  await expect(recoveredRows.first()).toBeVisible();
+  await recoveredRows.first().click();
+  await page.locator("#reviewTabs [data-review-tab=source]").click();
+  const recoveredRead = page.waitForRequest((request) => request.url().includes(`/api/sources/local/sessions/${sessionId}/events/`) && request.url().includes("snapshot="));
+  await page.locator("#selectionDetails [data-review-source]").click();
+  await recoveredRead;
+  await expect(page.locator("[data-review-source-preview]")).toContainText('"raw"');
+  expect(eventReadCount).toBe(4);
+});
