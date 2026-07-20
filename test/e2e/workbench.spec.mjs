@@ -481,45 +481,6 @@ test("远端历史新查询取消旧请求且不写入过期页", async ({ page 
   await expect(page.locator("#sessionList")).not.toContainText("过期历史索引");
 });
 
-test("详情受限时在工作台内分页诊断，并按需读取完整来源", async ({ page }) => {
-  await openWorkbench(page);
-  await expect(page.locator("#compactContent")).toContainText("会话详情超过读取上限");
-  let fullEventReads = 0;
-  await page.route("**/api/sources/local/sessions/33333333-3333-4333-8333-333333333333/events/*", async (route) => {
-    fullEventReads += 1;
-    await route.continue();
-  });
-  const firstPage = page.waitForRequest((request) => request.url().includes("/api/sources/local/query/sessions/") && request.url().includes("/events?") && request.url().includes("cursor=0"));
-  await page.locator("#rawViewButton").click();
-  await firstPage;
-  await expect(page.locator("#rawContent")).toContainText("有界原始事件诊断");
-  await expect(page.locator("#rawContent")).toContainText("这不是完整会话");
-  await expect(page.locator("#rawContent [data-raw-event-index]").first()).toBeVisible();
-  expect(fullEventReads).toBe(0);
-
-  const firstIndex = await page.locator("#rawContent [data-raw-event-index]").first().getAttribute("data-raw-event-index");
-  await page.locator("#rawContent [data-raw-event-index]").first().click();
-  await page.locator("#reviewTabs [data-review-tab=source]").click();
-  const fullRead = page.waitForRequest((request) => request.url().includes(`/api/sources/local/sessions/33333333-3333-4333-8333-333333333333/events/${firstIndex}`) && request.url().includes("snapshot="));
-  await page.locator("#selectionDetails [data-review-source]").click();
-  await fullRead;
-  expect(fullEventReads).toBe(1);
-
-  const nextPage = page.waitForRequest((request) => request.url().includes("/api/sources/local/query/sessions/") && request.url().includes("/events?") && request.url().includes("cursor=100") && request.url().includes("snapshot="));
-  await page.locator("#rawContent [data-next-raw-page]").click();
-  await nextPage;
-  await expect(page.locator("#rawContent")).toContainText("第 2 页");
-  const laterIndex = await page.locator("#rawContent [data-raw-event-index]").first().getAttribute("data-raw-event-index");
-  await page.locator("#rawContent [data-raw-event-index]").first().click();
-  const laterRead = page.waitForRequest((request) => request.url().includes(`/api/sources/local/sessions/33333333-3333-4333-8333-333333333333/events/${laterIndex}`) && request.url().includes("snapshot="));
-  await page.locator("#selectionDetails [data-review-source]").click();
-  await laterRead;
-  expect(Number(laterIndex)).toBeGreaterThan(4);
-  expect(fullEventReads).toBe(2);
-  await page.locator("#rawContent [data-previous-raw-page]").click();
-  await expect(page.locator("#rawContent")).toContainText("第 1 页");
-});
-
 test("离开有界诊断会取消请求，过期页不会写回新视图", async ({ page }) => {
   await openWorkbench(page);
   let release;

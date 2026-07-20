@@ -1331,6 +1331,8 @@ async function loadHistoricalSessions({ announce = false } = {}) {
 }
 
 function refreshCurrentSessionList({ announce = false } = {}) {
+  cancelRawDiagnosticRequest({ clear: true });
+  cancelRawEventRequest();
   if (selectedSource()?.kind === "remote" && state.sessionTimeFilter !== "realtime") {
     void loadRemoteIndexForCurrentFilter({ reset: true, force: true, preserve: true, announce });
     return;
@@ -7247,7 +7249,7 @@ function rawDiagnosticHeader({ diagnostic, currentPage, limits, session }) {
     </div>
     <div class="raw-diagnostic-status" role="status">
       <span>${escapeHtml(diagnostic.loading ? "正在读取当前页摘要" : stateNote)}</span>
-      ${currentPage ? `<span>第 ${diagnostic.pageIndex + 1} 页 · 扫描 ${currentPage.scanned} 条</span>` : ""}
+      ${currentPage ? `<span>第 ${rawDiagnosticPageNumber(currentPage, diagnostic.pageIndex)} 页 · 扫描 ${currentPage.scanned} 条</span>` : ""}
       ${diagnostic.error ? `<strong>${escapeHtml(`读取失败：${diagnostic.error}`)}</strong>` : ""}
     </div>`;
   return header;
@@ -7314,13 +7316,14 @@ function bindLimitedRawDiagnosticActions() {
 }
 
 async function loadRawDiagnosticPage({ restart = false } = {}) {
+  if (!restart && showCachedNextRawDiagnosticPage()) return;
   const request = startRawDiagnosticPageRequest(restart);
   if (!request) return;
   renderRawView();
   try {
-    const data = await fetchJson(sourceSessionEventsUrl(request.sessionId, request.sourceId, { cursor: request.cursor, snapshot: request.diagnostic.snapshot }), { signal: request.controller.signal });
+    const data = await fetchJson(sourceSessionEventsUrl(request.sessionId, request.sourceId, { cursor: request.cursor, snapshot: request.snapshot }), { signal: request.controller.signal });
     if (!rawDiagnosticRequestIsCurrent(request)) return;
-    applyRawDiagnosticPage(request.diagnostic, data);
+    applyRawDiagnosticPage(request, data);
   } catch (error) {
     if (isAbortError(error)) return;
     failRawDiagnosticPage(request, error);
@@ -7358,7 +7361,7 @@ function startRawDiagnosticPageRequest(restart) {
   diagnostic.error = "";
   diagnostic.readState = null;
   if (restart) resetRawDiagnosticPages(diagnostic, { clearSelection: true });
-  return { controller, cursor, diagnostic, diagnosticSessionKey, requestSeq: diagnostic.requestSeq, sessionId: detail.session.id, sourceId };
+  return { controller, cursor, snapshot: diagnostic.snapshot, diagnostic, diagnosticSessionKey, requestSeq: diagnostic.requestSeq, sessionId: detail.session.id, sourceId };
 }
 
 function rawDiagnosticDetailAvailable(detail) {
@@ -7367,9 +7370,31 @@ function rawDiagnosticDetailAvailable(detail) {
 
 function rawDiagnosticRequestCursor(diagnostic, restart) {
   if (restart) return 0;
+  if (rawDiagnosticCachedNextPage(diagnostic)) return null;
   const currentPage = diagnostic.pages[diagnostic.pageIndex];
   if (!currentPage?.hasMore || currentPage.nextCursor == null) return null;
   return currentPage.nextCursor;
+}
+
+function rawDiagnosticCachedNextPage(diagnostic) {
+  const currentPage = diagnostic.pages[diagnostic.pageIndex];
+  const nextPage = diagnostic.pages[diagnostic.pageIndex + 1];
+  if (!diagnostic.snapshot || currentPage?.snapshot !== diagnostic.snapshot || nextPage?.snapshot !== diagnostic.snapshot) return null;
+  return nextPage;
+}
+
+function showCachedNextRawDiagnosticPage() {
+  const diagnostic = state.rawDiagnostic;
+  if (!diagnostic || diagnostic.loading || !rawDiagnosticCachedNextPage(diagnostic)) return false;
+  diagnostic.pageIndex += 1;
+  state.selectedEventIndex = null;
+  renderRawView();
+  renderInspector();
+  return true;
+}
+
+function rawDiagnosticPageNumber(page, fallbackIndex) {
+  return Number.isInteger(page?.pageNumber) ? page.pageNumber : fallbackIndex + 1;
 }
 
 function resetRawDiagnosticPages(diagnostic, { clearSelection = false, readState = null } = {}) {
@@ -7388,17 +7413,37 @@ function rawDiagnosticStillSelected(request) {
   return state.rawDiagnostic === request.diagnostic && state.selectedSessionKey === request.diagnosticSessionKey;
 }
 
-function applyRawDiagnosticPage(diagnostic, data) {
+function applyRawDiagnosticPage(request, data) {
+  const { diagnostic } = request;
   if (data.readState?.state === "changing") {
     resetRawDiagnosticPages(diagnostic, { readState: data.readState });
     return;
   }
   const page = { ...data.page, events: data.events || [], readState: data.readState || null };
-  diagnostic.snapshot = page.snapshot || diagnostic.snapshot;
+  if (!rawDiagnosticPageMatchesRequest(request, page)) {
+    resetRawDiagnosticPages(diagnostic);
+    diagnostic.error = "原始事件诊断响应与当前分页不一致，请重新开始读取。";
+    return;
+  }
+  page.pageNumber = rawDiagnosticNextPageNumber(diagnostic);
+  diagnostic.snapshot = page.snapshot;
   diagnostic.readState = page.readState;
   diagnostic.pages.push(page);
   if (diagnostic.pages.length > 6) diagnostic.pages.shift();
   diagnostic.pageIndex = diagnostic.pages.length - 1;
+}
+
+function rawDiagnosticPageMatchesRequest(request, page) {
+  return Number.isInteger(page.cursor)
+    && page.cursor === request.cursor
+    && Boolean(page.snapshot)
+    && (!request.snapshot || page.snapshot === request.snapshot)
+    && !request.diagnostic.pages.some((cachedPage) => cachedPage.cursor === page.cursor);
+}
+
+function rawDiagnosticNextPageNumber(diagnostic) {
+  const lastPage = diagnostic.pages.at(-1);
+  return lastPage ? rawDiagnosticPageNumber(lastPage, diagnostic.pages.length - 1) + 1 : 1;
 }
 
 function failRawDiagnosticPage(request, error) {
