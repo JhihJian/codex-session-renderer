@@ -9,6 +9,11 @@ async function openWorkbench(page) {
   await expect(page.locator("#compactContent")).toBeVisible();
 }
 
+async function openRawDiagnostic(page) {
+  await page.locator("#diagnosticViewButton").click();
+  await page.locator("#rawViewButton").click();
+}
+
 async function captureUnhandledRejections(page) {
   await page.addInitScript(() => {
     globalThis.__rawDiagnosticUnhandledRejections = [];
@@ -39,7 +44,7 @@ test("受限诊断复用前进缓存，不重复请求或追加页面", async ({
   });
 
   const firstPage = page.waitForRequest((request) => request.url().includes("/api/sources/local/query/sessions/") && request.url().includes("/events?") && request.url().includes("cursor=0"));
-  await page.locator("#rawViewButton").click();
+  await openRawDiagnostic(page);
   await firstPage;
   await expect(page.locator("#rawContent")).toContainText("有界原始事件诊断");
   await expect(page.locator("#rawContent [data-raw-event-index]").first()).toBeVisible();
@@ -90,7 +95,7 @@ test("完整原始事件缓存有条数上限且按最近访问保留", async ({
     await route.continue();
   });
 
-  await page.locator("#rawViewButton").click();
+  await openRawDiagnostic(page);
   const rows = page.locator("#rawContent [data-raw-event-index]");
   await expect(rows.nth(24)).toBeVisible();
 
@@ -141,7 +146,7 @@ test("受限诊断跨第七页时只保留最近六页摘要", async ({ page }) 
     } });
   });
 
-  await page.locator("#rawViewButton").click();
+  await openRawDiagnostic(page);
   await expect(page.locator("#rawContent")).toContainText("第 1 页");
   for (let pageNumber = 2; pageNumber <= 7; pageNumber += 1) {
     await page.locator("#rawContent [data-next-raw-page]").click();
@@ -169,7 +174,7 @@ test("刷新列表会中止在途诊断页并清空旧缓存", async ({ page }) 
     await delayedPage;
     await route.continue().catch(() => {});
   });
-  await page.locator("#rawViewButton").click();
+  await openRawDiagnostic(page);
   await expect(page.locator("#rawContent [data-raw-event-index]").first()).toBeVisible();
   const pageTwoRequest = page.waitForRequest((request) => request.url().includes("/events?") && request.url().includes("cursor=100"));
   await page.locator("#rawContent [data-next-raw-page]").click();
@@ -200,7 +205,7 @@ test("分页快照变化清空选择和完整事件缓存后可重新开始", as
     });
   });
 
-  await page.locator("#rawViewButton").click();
+  await openRawDiagnostic(page);
   const rows = page.locator("#rawContent [data-raw-event-index]");
   await expect(rows.first()).toBeVisible();
   await rows.first().click();
@@ -234,7 +239,7 @@ test("重新开始会中止在途单事件读取", async ({ page }) => {
     await route.continue().catch(() => {});
   });
 
-  await page.locator("#rawViewButton").click();
+  await openRawDiagnostic(page);
   const rows = page.locator("#rawContent [data-raw-event-index]");
   await expect(rows.first()).toBeVisible();
   const firstIndex = await rows.first().getAttribute("data-raw-event-index");
@@ -300,7 +305,7 @@ test("重新开始隔离取消竞争下迟到的旧文件变化 409", async ({ p
   });
 
   await openWorkbench(page);
-  await page.locator("#rawViewButton").click();
+  await openRawDiagnostic(page);
   const rows = page.locator("#rawContent [data-raw-event-index]");
   await expect(rows.first()).toBeVisible();
   await rows.first().click();
@@ -346,7 +351,7 @@ test("单事件文件读取中变化清空诊断状态和缓存，普通失败�
     await route.continue();
   });
 
-  await page.locator("#rawViewButton").click();
+  await openRawDiagnostic(page);
   const rows = page.locator("#rawContent [data-raw-event-index]");
   await expect(rows.first()).toBeVisible();
 
@@ -398,7 +403,7 @@ test("复制 JSON 在当前单事件读取 409 后重置诊断并给出失败回
   });
 
   await openWorkbench(page);
-  await page.locator("#rawViewButton").click();
+  await openRawDiagnostic(page);
   const rows = page.locator("#rawContent [data-raw-event-index]");
   await rows.first().click();
   await page.locator("#inspectorActions [data-review-action-type=copy-debug]").click();
@@ -423,7 +428,7 @@ test("复制 JSON 的普通读取失败保留诊断页且不会产生未处理�
   });
 
   await openWorkbench(page);
-  await page.locator("#rawViewButton").click();
+  await openRawDiagnostic(page);
   const rows = page.locator("#rawContent [data-raw-event-index]");
   await expect(rows.first()).toBeVisible();
   await rows.first().click();
@@ -454,7 +459,7 @@ test("复制 JSON 的迟到响应不会复制已切换选择的原始内容", as
   });
 
   await openWorkbench(page);
-  await page.locator("#rawViewButton").click();
+  await openRawDiagnostic(page);
   const rows = page.locator("#rawContent [data-raw-event-index]");
   await expect(rows.nth(1)).toBeVisible();
   await rows.first().click();

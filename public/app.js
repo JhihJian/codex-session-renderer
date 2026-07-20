@@ -53,6 +53,7 @@ const state = {
   rawEventCache: createRawEventCache(rawEventCacheLimits),
   rawDiagnostic: null,
   viewMode: "compact",
+  diagnosticMode: "stats",
   auditMinimalMode: false,
   sessionTimeFilter: "realtime",
   visibleEvents: 40,
@@ -82,6 +83,9 @@ const state = {
   resizingInspector: false,
   inspectorResizerFocusPending: false,
   desktopToggleFocusPending: false,
+  narrowInspectorActive: false,
+  narrowInspectorUserOpened: false,
+  desktopRightState: "open",
   sidebarMode: "sessions",
   promptArchive: [],
   promptArchiveProjects: [],
@@ -125,6 +129,7 @@ const {
   sessionTimeBucket,
   shortPath,
 } = window.AppFormat;
+const { buildEvidenceId } = window.EvidenceId;
 
 const markdownCache = new Map();
 let sessionAbortController = null;
@@ -145,7 +150,7 @@ const inspectorWidthDefaults = {
   step: 24,
   contentMin: 360,
 };
-const visibleViewModes = new Set(["compact", "audit", "stats", "raw"]);
+const visibleViewModes = new Set(["compact", "audit", "diagnostic"]);
 const markdownRenderer = window.markdownit?.({
   html: false,
   linkify: true,
@@ -226,6 +231,7 @@ const els = {
   importantOnlyLabel: document.getElementById("importantOnlyLabel"),
   sessionMetaLabel: document.getElementById("sessionMetaLabel"),
   sessionTitle: document.getElementById("sessionTitle"),
+  sessionHandoff: document.getElementById("sessionHandoff"),
   sessionFilterNotice: document.getElementById("sessionFilterNotice"),
   sessionFilterNoticeText: document.getElementById("sessionFilterNoticeText"),
   clearSessionFiltersButton: document.getElementById("clearSessionFiltersButton"),
@@ -237,6 +243,7 @@ const els = {
   terminalContent: document.getElementById("terminalContent"),
   auditContent: document.getElementById("auditContent"),
   statsContent: document.getElementById("statsContent"),
+  diagnosticContent: document.getElementById("diagnosticContent"),
   traceContent: document.getElementById("traceContent"),
   rawContent: document.getElementById("rawContent"),
   sessionDetails: document.getElementById("sessionDetails"),
@@ -305,6 +312,8 @@ const els = {
   auditViewButton: document.getElementById("auditViewButton"),
   statsViewButton: document.getElementById("statsViewButton"),
   rawViewButton: document.getElementById("rawViewButton"),
+  diagnosticViewButton: document.getElementById("diagnosticViewButton"),
+  diagnosticSwitch: document.getElementById("diagnosticSwitch"),
   viewSwitch: document.querySelector(".view-switch"),
   toggleLeft: document.getElementById("toggleLeft"),
   toggleRight: document.getElementById("toggleRight"),
@@ -372,6 +381,7 @@ function init() {
   state.evidenceRiskRules = window.EvidenceRiskRules?.loadCustomRules?.() || [];
   loadInspectorWidth();
   bindEvents();
+  syncResponsiveInspectorLayout();
   syncPanelToggleLabels();
   syncMobilePanelNavigation();
   applyInspectorWidth(state.inspectorWidth);
@@ -502,8 +512,9 @@ function bindEvents() {
   els.importantOnly.addEventListener("change", renderMainContent);
   els.compactViewButton.addEventListener("click", () => setViewMode("compact"));
   els.auditViewButton.addEventListener("click", () => setViewMode("audit"));
-  els.statsViewButton.addEventListener("click", () => setViewMode("stats"));
-  els.rawViewButton.addEventListener("click", () => setViewMode("raw"));
+  els.diagnosticViewButton.addEventListener("click", () => setViewMode("diagnostic"));
+  els.statsViewButton.addEventListener("click", () => setDiagnosticMode("stats"));
+  els.rawViewButton.addEventListener("click", () => setDiagnosticMode("raw"));
   els.reviewTabs?.querySelectorAll("[data-review-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       setReviewTab(button.dataset.reviewTab || "summary");
@@ -512,6 +523,7 @@ function bindEvents() {
   bindRovingTablist(els.sessionTimeFilter, "[data-session-time]", (button) => selectSessionTimeFilter(button.dataset.sessionTime || "realtime"));
   bindRovingTablist(document.querySelector(".sidebar-mode-switch"), "[data-sidebar-mode]", (button) => selectSidebarMode(button.dataset.sidebarMode || "sessions"));
   bindRovingTablist(els.viewSwitch, "[data-view-mode]", (button) => setViewMode(button.dataset.viewMode || "compact"));
+  bindRovingTablist(els.diagnosticSwitch, "[data-diagnostic-mode]", (button) => setDiagnosticMode(button.dataset.diagnosticMode || "stats"));
   bindRovingTablist(els.reviewTabs, "[data-review-tab]", (button) => setReviewTab(button.dataset.reviewTab || "summary"));
   bindRovingTablist(els.settingsTabs, "[data-settings-view]", (button) => selectSettingsView(button.dataset.settingsView || "summary"));
   els.showMoreEventsButton.addEventListener("click", renderInspector);
@@ -525,15 +537,21 @@ function bindEvents() {
     els.appShell.dataset.left = next;
     syncPanelToggleLabels();
   });
-  els.toggleRight.addEventListener("click", () => {
+  els.toggleRight.addEventListener("click", (event) => {
     if (desktopPromptArchiveInspectorHidden()) return;
     const next = els.appShell.dataset.right === "open" ? "closed" : "open";
     els.appShell.dataset.right = next;
+    if (narrowDesktopInspectorLayoutActive()) state.narrowInspectorUserOpened = next === "open";
+    else state.desktopRightState = next;
     syncPanelToggleLabels();
+    if (event.detail === 0 && narrowDesktopInspectorLayoutActive() && next === "open") {
+      queueMicrotask(() => els.selectionDetails?.focus({ preventScroll: true }));
+    }
   });
   bindInspectorResize();
   bindDesktopToggleFocusTracking();
   window.addEventListener("resize", () => {
+    syncResponsiveInspectorLayout();
     applyInspectorWidth(state.inspectorWidth);
     syncMobilePanelNavigation();
     syncPanelToggleLabels();
@@ -666,6 +684,27 @@ function syncPanelVisibilityState() {
 
 function mobilePanelLayoutActive() {
   return window.matchMedia("(width <= 820px)").matches;
+}
+
+function narrowDesktopInspectorLayoutActive() {
+  return window.matchMedia("(width > 820px) and (max-width: 1280px)").matches;
+}
+
+function syncResponsiveInspectorLayout() {
+  if (mobilePanelLayoutActive()) return;
+  if (narrowDesktopInspectorLayoutActive()) {
+    if (!state.narrowInspectorActive) {
+      state.desktopRightState = els.appShell.dataset.right || "open";
+      state.narrowInspectorActive = true;
+      if (!state.narrowInspectorUserOpened) els.appShell.dataset.right = "closed";
+    }
+    return;
+  }
+  if (state.narrowInspectorActive) {
+    els.appShell.dataset.right = state.desktopRightState;
+    state.narrowInspectorActive = false;
+    state.narrowInspectorUserOpened = false;
+  }
 }
 
 function desktopPromptArchiveInspectorHidden() {
@@ -3025,33 +3064,79 @@ function renderAll() {
 function setViewMode(mode) {
   const nextMode = normalizeViewMode(mode);
   const changed = state.viewMode !== nextMode;
-  if (state.viewMode === "raw" && nextMode !== "raw") {
+  if (state.viewMode === "diagnostic" && state.diagnosticMode === "raw" && nextMode !== "diagnostic") {
     cancelRawDiagnosticRequest();
     cancelRawEventRequest();
   }
   state.viewMode = nextMode;
   if (changed) cancelRemoteRefreshForNavigation();
   syncViewControls();
+  renderStats();
   renderMainContent();
   if (changed) renderInspector();
 }
 
 function normalizeViewMode(mode) {
   if (visibleViewModes.has(mode)) return mode;
+  if (mode === "raw") {
+    state.diagnosticMode = "raw";
+    return "diagnostic";
+  }
+  if (mode === "stats") {
+    state.diagnosticMode = "stats";
+    return "diagnostic";
+  }
   if (mode === "trace" || mode === "terminal") return "audit";
   return "compact";
 }
 
+function setDiagnosticMode(mode) {
+  const nextMode = mode === "raw" ? "raw" : "stats";
+  const wasRaw = state.viewMode === "diagnostic" && state.diagnosticMode === "raw";
+  const changed = state.viewMode !== "diagnostic" || state.diagnosticMode !== nextMode;
+  if (wasRaw && nextMode !== "raw") {
+    cancelRawDiagnosticRequest();
+    cancelRawEventRequest();
+  }
+  state.diagnosticMode = nextMode;
+  state.viewMode = "diagnostic";
+  if (changed) cancelRemoteRefreshForNavigation();
+  syncViewControls();
+  renderStats();
+  renderMainContent();
+  if (changed) renderInspector();
+}
+
 function syncViewControls() {
   state.viewMode = normalizeViewMode(state.viewMode);
+  const diagnosticVisible = state.viewMode === "diagnostic";
+  if (!diagnosticVisible && els.diagnosticSwitch?.contains(document.activeElement)) {
+    const activePrimaryView = [els.compactViewButton, els.auditViewButton, els.diagnosticViewButton]
+      .find((button) => button?.dataset.viewMode === state.viewMode);
+    activePrimaryView?.focus({ preventScroll: true });
+  }
+  if (els.diagnosticSwitch) {
+    els.diagnosticSwitch.hidden = !diagnosticVisible;
+    els.diagnosticSwitch.inert = !diagnosticVisible;
+    if (diagnosticVisible) els.diagnosticSwitch.removeAttribute("aria-hidden");
+    else els.diagnosticSwitch.setAttribute("aria-hidden", "true");
+  }
   syncItemTypeFilterOptions();
   [
     [els.compactViewButton, "compact"],
     [els.auditViewButton, "audit"],
+    [els.diagnosticViewButton, "diagnostic"],
+  ].forEach(([button, mode]) => {
+    const active = state.viewMode === mode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+    button.tabIndex = active ? 0 : -1;
+  });
+  [
     [els.statsViewButton, "stats"],
     [els.rawViewButton, "raw"],
   ].forEach(([button, mode]) => {
-    const active = state.viewMode === mode;
+    const active = state.viewMode === "diagnostic" && state.diagnosticMode === mode;
     button.classList.toggle("active", active);
     button.setAttribute("aria-selected", active ? "true" : "false");
     button.tabIndex = active ? 0 : -1;
@@ -3060,9 +3145,10 @@ function syncViewControls() {
   els.compactContent.hidden = state.viewMode !== "compact";
   els.terminalContent.hidden = true;
   els.auditContent.hidden = state.viewMode !== "audit";
-  els.statsContent.hidden = state.viewMode !== "stats";
+  els.diagnosticContent.hidden = state.viewMode !== "diagnostic";
+  els.statsContent.hidden = state.viewMode !== "diagnostic" || state.diagnosticMode !== "stats";
   els.traceContent.hidden = true;
-  els.rawContent.hidden = state.viewMode !== "raw";
+  els.rawContent.hidden = state.viewMode !== "diagnostic" || state.diagnosticMode !== "raw";
   if (els.importantOnlyLabel) {
     els.importantOnlyLabel.textContent = "复核优先";
   }
@@ -3075,7 +3161,8 @@ function syncViewControls() {
 }
 
 function syncItemTypeFilterOptions() {
-  const mode = state.viewMode === "audit" ? "audit" : state.viewMode === "raw" || state.viewMode === "stats" ? "raw" : "standard";
+  // Legacy view state `state.viewMode === "stats"` now maps to diagnosticMode.
+  const mode = state.viewMode === "audit" ? "audit" : state.viewMode === "diagnostic" ? "raw" : "standard";
   const previousMode = els.itemTypeFilter.dataset.optionMode || "standard";
   const options = mode === "audit" ? auditItemTypeOptions : mode === "raw" ? rawItemTypeOptions : standardItemTypeOptions;
   const currentFirstLabel = els.itemTypeFilter.options?.[0]?.textContent || "";
@@ -3836,7 +3923,7 @@ function renderSessionRow(session, query) {
     ? 'role="listitem"'
     : `role="button" tabindex="0" ${active ? 'aria-current="true"' : ""}`;
   return `
-    <div class="session-row${active}${indexOnly}" ${rowSemantics} data-session-id="${escapeAttr(session.id)}" data-remote-index-only="${session.remoteIndexOnly ? "true" : "false"}" ${title ? `title="${escapeAttr(title)}"` : ""} aria-label="${escapeAttr(ariaLabel)}">
+    <div class="session-row${active}${indexOnly}" ${rowSemantics} data-session-id="${escapeAttr(session.id)}" data-evidence-id="${escapeAttr(sessionEvidenceId(session))}" data-remote-index-only="${session.remoteIndexOnly ? "true" : "false"}" ${title ? `title="${escapeAttr(title)}"` : ""} aria-label="${escapeAttr(ariaLabel)}">
       <span class="agent-dot" data-agent="${escapeAttr(agentName.toLowerCase())}" aria-hidden="true"></span>
       <span class="session-title markdown-inline-title">${renderMarkdownTitle(displayTitle, query)}</span>
       <span class="session-date">${formatShortDate(session.updatedAt || session.fileModifiedAt)}</span>
@@ -3854,6 +3941,58 @@ function renderSessionRow(session, query) {
 
 function remoteIndexOnlyMessage() {
   return "这是远端历史索引结果，仅含标题、时间、路径等元数据，未同步正文。拉取远端实时快照默认只补最近 3 小时；历史正文需要远端扩大共享窗口或额外同步后再拉取，或切回已有本地快照查看已同步会话。";
+}
+
+function evidenceScopeForSession(session = {}, inherited = {}) {
+  const activeSession = state.detail?.session || {};
+  return {
+    sourceId: session.sourceId || inherited.sourceId || activeSession.sourceId || state.selectedSourceId,
+    sessionId: session.id || inherited.sessionId || activeSession.id || state.selectedSessionId,
+  };
+}
+
+function sessionEvidenceId(session) {
+  return buildEvidenceId({ ...evidenceScopeForSession(session), threadPath: "root", entity: "session" });
+}
+
+function auditTurnEvidenceId(turn) {
+  return buildEvidenceId({ ...evidenceScopeForSession(), threadPath: "root", turnNumber: turn.turnNumber, entity: "turn" });
+}
+
+function rawEventEvidenceId(event) {
+  return buildEvidenceId({ ...evidenceScopeForSession(), threadPath: "root", eventIndex: event.index, entity: "event" });
+}
+
+function auditNodeEvidenceId(node) {
+  return buildEvidenceId({
+    ...evidenceScopeForSession(),
+    threadPath: node.traceNodeId || "root",
+    turnNumber: node.turnNumber,
+    eventIndex: node.eventIndex ?? node.sourceIndex,
+    nodeId: node.id,
+    entity: "audit-node",
+  });
+}
+
+function traceNodeEvidenceId(node) {
+  const item = node.detail?.item || {};
+  return buildEvidenceId({
+    ...evidenceScopeForSession(),
+    threadNodeId: node.id,
+    turnNumber: item.turnIndex == null ? undefined : item.turnIndex + 1,
+    eventIndex: item.sourceIndex ?? item.outputSourceIndex,
+    entity: "trace-node",
+  });
+}
+
+function itemEvidenceId(item) {
+  return buildEvidenceId({
+    ...evidenceScopeForSession(),
+    threadPath: "root",
+    turnNumber: item.turnIndex == null ? undefined : item.turnIndex + 1,
+    eventIndex: item.sourceIndex ?? item.outputSourceIndex,
+    entity: "item",
+  });
 }
 
 function sessionStatusLabel(status) {
@@ -3878,39 +4017,40 @@ function renderThreadHeader() {
   if (state.sidebarMode === "prompts") {
     els.sessionTitle.textContent = "任务归档";
     els.sessionMetaLabel.textContent = `${selectedSource()?.label || "当前数据源"} · 只读派生索引`;
+    renderSessionHandoff();
     return;
   }
   const session = state.detail?.session;
   if (!session) {
     const placeholder = sessionPlaceholderState();
     els.sessionTitle.textContent = placeholder?.title || "选择一个会话";
-    els.sessionMetaLabel.textContent = selectedSource()?.label || "未选择";
-    if (placeholder?.subtitle) els.sessionMetaLabel.textContent = firstLine(placeholder.subtitle, 96);
+    els.sessionMetaLabel.textContent = placeholder?.subtitle ? firstLine(placeholder.subtitle, 96) : selectedSource()?.label || "未选择";
+    renderSessionHandoff();
     return;
   }
   els.sessionTitle.innerHTML = renderMarkdownTitle(session.title || "未命名会话");
   const parts = [session.sourceLabel || selectedSource()?.label, session.model, session.reasoningEffort, formatDate(session.updatedAt)].filter(Boolean);
   els.sessionMetaLabel.textContent = parts.join(" · ") || session.id;
+  renderSessionHandoff();
 }
 
 function renderStats() {
-  if (state.sidebarMode === "prompts") {
+  if (state.sidebarMode === "prompts" || state.viewMode !== "diagnostic") {
     els.statsStrip.innerHTML = "";
+    els.statsStrip.hidden = true;
     return;
   }
   const stats = state.detail?.stats;
   if (!stats) {
     els.statsStrip.innerHTML = "";
+    els.statsStrip.hidden = true;
     return;
   }
+  els.statsStrip.hidden = false;
   const tokenUsage = latestTokenUsage(state.detail.turns);
   const rows = [
-    ["轮次", stats.turnCount, "对话轮次"],
     ["事件", stats.eventCount, "事件流"],
-    ["重点", stats.importantEventCount, "关键事件"],
     ["工具", countItems("tool-call"), "工具调用"],
-    ["压缩", stats.compactEventCount ?? countItems("context-compact"), "上下文压缩"],
-    ["子代理", stats.childThreadCount || 0, "子代理"],
     ["占用", tokenUsage ? compactNumber(tokenUsage.total_tokens || tokenUsage.totalTokens || 0) : "未记录", "上下文占用"],
   ];
   els.statsStrip.innerHTML = rows
@@ -3924,6 +4064,118 @@ function renderStats() {
       `,
     )
     .join("");
+}
+
+function renderSessionHandoff() {
+  if (!els.sessionHandoff) return;
+  const detail = state.detail;
+  if (!detail || state.sidebarMode === "prompts") {
+    els.sessionHandoff.hidden = true;
+    els.sessionHandoff.innerHTML = "";
+    return;
+  }
+  const facts = sessionHandoffFacts(detail);
+  els.sessionHandoff.hidden = false;
+  els.sessionHandoff.innerHTML = `
+    <div class="handoff-head"><span>交接摘要</span><em>基于当前会话派生数据</em></div>
+    <div class="handoff-grid">${facts.map((fact, index) => renderHandoffFact(fact, index + 1)).join("")}</div>
+  `;
+  els.sessionHandoff.querySelectorAll("[data-handoff-kind]").forEach((button) => {
+    button.addEventListener("click", () => openHandoffFact(button.dataset.handoffKind, button.dataset.handoffNodeId || ""));
+  });
+}
+
+function sessionHandoffFacts(detail) {
+  if (detail.complete === false) return limitedSessionHandoffFacts(detail);
+  const nodes = (detail.audit || buildAuditFallback(detail) || { nodes: [] }).nodes || [];
+  const intent = nodes.find((node) => node.type === "intent");
+  const final = [...nodes].reverse().find((node) => node.type === "final");
+  const verification = nodes.filter((node) => node.type === "verification");
+  const risks = nodes.filter((node) => node.type === "risk" || (node.riskLevel && node.riskLevel !== "none"));
+  return [
+    handoffFact("目标", handoffNodeText(intent, "未检测到明确目标"), intent, "intent"),
+    handoffFact("当前状态", handoffSessionStatus(detail), null, "status"),
+    handoffFact("结果", handoffNodeText(final, "尚无最终回复，可能仍待继续"), final, "final"),
+    handoffFact("验证", handoffVerificationText(verification), verification[0], "verification"),
+    handoffFact("风险 / 缺口", handoffRiskText(risks), risks[0], "risk"),
+    handoffFact("改动范围", handoffChangeText(nodes), null, "changes"),
+    handoffFact("子代理", handoffChildText(detail), null, "children"),
+  ];
+}
+
+function limitedSessionHandoffFacts(detail) {
+  const readState = detail.readState || {};
+  const status = readState.state === "changing" ? "会话文件正在变化" : "会话详情读取受限";
+  return [
+    handoffFact("目标", "未读取正文，无法派生目标", null, "intent"),
+    handoffFact("当前状态", status, null, "status"),
+    handoffFact("结果", "未读取正文，无法确认结果或待继续事项", null, "final"),
+    handoffFact("验证", "未读取审计链，验证证据不可用", null, "verification"),
+    handoffFact("风险 / 缺口", "未读取审计链，风险与缺口不可用", null, "risk"),
+    handoffFact("改动范围", "未读取正文，改动范围不可用", null, "changes"),
+    handoffFact("子代理", "未读取执行树，子代理状态不可用", null, "children"),
+  ];
+}
+
+function handoffNodeText(node, fallback) {
+  return auditNodeFullBody(node) || node?.summary || fallback;
+}
+
+function handoffSessionStatus(detail) {
+  const latestTurn = detail.turns?.at(-1) || {};
+  return sessionStatusLabel(latestTurn.status || detail.session?.status) || "状态未记录";
+}
+
+function handoffVerificationText(nodes) {
+  return nodes.length ? `已检测到 ${nodes.length} 项验证` : "未检测到验证证据";
+}
+
+function handoffRiskText(nodes) {
+  return nodes.length ? `${auditRiskLabel(highestRiskLevel(nodes))} · ${nodes.length} 项待复核` : "未检测到风险或缺口";
+}
+
+function handoffChangeText(nodes) {
+  const files = nodes.flatMap((node) => readableAuditNode(node)?.changeSet?.files || []);
+  const count = new Set(files.map((file) => file.path).filter(Boolean)).size;
+  return count ? `${count} 个文件` : "未从现有派生数据检测到文件改动";
+}
+
+function handoffChildText(detail) {
+  const count = detail.trace?.hierarchy?.children?.length || 0;
+  return count ? `${count} 个子代理` : "未检测到子代理";
+}
+
+function handoffFact(label, value, node, kind) {
+  return { label, value: firstLine(value, 180), nodeId: node?.id || "", kind };
+}
+
+function renderHandoffFact(fact, index) {
+  const target = fact.nodeId ? ` data-handoff-node-id="${escapeAttr(fact.nodeId)}"` : "";
+  const accessibleSummary = `${fact.label}：${fact.value}`;
+  return `<button class="handoff-fact kind-${escapeAttr(fact.kind)}" type="button" data-handoff-kind="${escapeAttr(fact.kind)}"${target} title="${escapeAttr(accessibleSummary)}" aria-label="${escapeAttr(accessibleSummary)}">
+    <span class="handoff-index" aria-hidden="true">${index}</span>
+    <span class="handoff-copy"><strong>${escapeHtml(fact.label)}</strong><em>${escapeHtml(fact.value)}</em></span>
+  </button>`;
+}
+
+function openHandoffFact(kind, nodeId) {
+  const node = nodeId ? findAuditNode(nodeId) : null;
+  if (node) {
+    setViewMode("audit");
+    selectAuditNode(node.id);
+    return;
+  }
+  if (kind === "intent" || kind === "status") {
+    if (state.viewMode !== "compact") setViewMode("compact");
+    const targetId = els.compactContent?.querySelector("[data-compact-nav-target]")?.dataset.compactNavTarget;
+    if (targetId) scrollToCompactTarget(targetId);
+    return;
+  }
+  if (kind === "children") {
+    setViewMode("audit");
+    return;
+  }
+  showToast("当前会话没有可跳转的对应证据");
 }
 
 function buildEventTypeStats(detail) {
@@ -4197,7 +4449,7 @@ function renderMainContent() {
   if (state.sidebarMode === "prompts") {
     els.promptArchiveContent.hidden = false;
     renderPromptArchive();
-    [els.threadContent, els.compactContent, els.terminalContent, els.auditContent, els.statsContent, els.traceContent, els.rawContent].forEach((container) => {
+    [els.threadContent, els.compactContent, els.terminalContent, els.auditContent, els.diagnosticContent, els.statsContent, els.traceContent, els.rawContent].forEach((container) => {
       if (container) container.hidden = true;
     });
     renderInspector();
@@ -4206,16 +4458,15 @@ function renderMainContent() {
   els.promptArchiveContent.hidden = true;
   syncViewControls();
   const placeholder = sessionPlaceholderState();
-  const rawDiagnosticAvailable = state.viewMode === "raw" && state.detail?.complete === false;
+  const rawDiagnosticAvailable = state.viewMode === "diagnostic" && state.diagnosticMode === "raw" && state.detail?.complete === false;
   if (placeholder && !rawDiagnosticAvailable) {
     renderSessionPlaceholder(placeholder.title, placeholder.subtitle, placeholder.diagnosticUrl);
     renderInspector();
     return;
   }
-  if (state.viewMode === "raw") {
-    renderRawView();
-  } else if (state.viewMode === "stats") {
-    renderStatsInfoView();
+  if (state.viewMode === "diagnostic") {
+    if (state.diagnosticMode === "raw") renderRawView();
+    else renderStatsInfoView();
   } else if (state.viewMode === "audit") {
     renderAudit();
   } else {
@@ -4552,6 +4803,7 @@ function renderCompactOutline(node, context) {
 
 function renderCompactExecutionDirectory(node, context) {
   const session = node.session || {};
+  const evidenceScope = evidenceScopeForSession(session, context.evidenceScope);
   const depth = Math.min(context.depth ?? 0, 7);
   const name = session.agentNickname || session.title || session.id || "当前会话";
   const targetId = compactElementId("thread", context.path);
@@ -4567,6 +4819,8 @@ function renderCompactExecutionDirectory(node, context) {
         query: context.query,
         seen,
         allowChildren: !repeated,
+        evidenceScope,
+        threadPath: context.path,
       }),
     )
     .join("");
@@ -4580,6 +4834,7 @@ function renderCompactExecutionDirectory(node, context) {
             query: context.query,
             root: false,
             seen,
+            evidenceScope,
           }),
         )
         .join("");
@@ -4590,14 +4845,14 @@ function renderCompactExecutionDirectory(node, context) {
       : "";
   return `
     <div class="compact-outline-group">
-      <div class="compact-outline-item thread" role="button" tabindex="-1" style="--depth:${depth}" data-compact-nav-target="${escapeAttr(targetId)}" aria-label="${escapeAttr(`${context.root ? "根会话" : "子代理"}：${name}`)}">
+      <button class="compact-outline-item thread" role="button" tabindex="-1" type="button" style="--depth:${depth}" data-compact-nav-target="${escapeAttr(targetId)}" data-evidence-id="${escapeAttr(buildEvidenceId({ ...evidenceScope, threadPath: context.path, entity: "session" }))}" aria-label="${escapeAttr(`${context.root ? "根会话" : "子代理"}：${name}`)}">
         <span class="compact-outline-indent" aria-hidden="true"></span>
         <span class="compact-outline-icon">${context.root ? "R" : "A"}</span>
         <span class="compact-outline-copy">
           <strong class="markdown-inline-title">${renderMarkdownTitle(name, context.query)}</strong>
           <em>${escapeHtml([session.agentRole, node.notificationSummary?.label, `${(node.turns || []).length} 轮次`].filter(Boolean).join(" · "))}</em>
         </span>
-      </div>
+      </button>
       ${repeatedNotice}
       ${repeated ? "" : turns}
       ${unanchoredTitle}
@@ -4613,6 +4868,7 @@ function renderCompactOutlineThreadUnderTurn(node, context) {
     query: context.query,
     root: false,
     seen: context.seen,
+    evidenceScope: context.evidenceScope,
   });
 }
 
@@ -4625,6 +4881,8 @@ function renderCompactOutlineTurn(turn, context) {
         depth: depth + 1,
         path: `${context.path}-compact-${index}`,
         query: context.query,
+        evidenceScope: context.evidenceScope,
+        threadPath: context.threadPath,
       }),
     )
     .join("");
@@ -4638,19 +4896,20 @@ function renderCompactOutlineTurn(turn, context) {
               path: `${context.path}-child-${index}`,
               query: context.query,
               seen: context.seen,
+              evidenceScope: context.evidenceScope,
             }),
           )
           .join("");
   return `
     <div class="compact-outline-group">
-      <div class="compact-outline-item turn" role="button" tabindex="-1" style="--depth:${depth}" data-compact-nav-target="${escapeAttr(targetId)}" aria-label="${escapeAttr(`第 ${turn.turnNumber || ""} 轮：${compactTurnOutlineTitle(turn)}`)}">
+      <button class="compact-outline-item turn" role="button" tabindex="-1" type="button" style="--depth:${depth}" data-compact-nav-target="${escapeAttr(targetId)}" data-evidence-id="${escapeAttr(buildEvidenceId({ ...context.evidenceScope, threadPath: context.threadPath, turnNumber: turn.turnNumber, entity: "turn" }))}" aria-label="${escapeAttr(`第 ${turn.turnNumber || ""} 轮：${compactTurnOutlineTitle(turn)}`)}">
         <span class="compact-outline-indent" aria-hidden="true"></span>
         <span class="compact-outline-icon">T</span>
         <span class="compact-outline-copy">
           <strong>第 ${escapeHtml(String(turn.turnNumber || ""))} 轮</strong>
           <em>${highlight(escapeHtml(compactTurnOutlineTitle(turn)), context.query)}</em>
         </span>
-      </div>
+      </button>
       ${compactEvents}
       ${children}
     </div>
@@ -4671,14 +4930,14 @@ function renderCompactOutlineContextEvent(event, context) {
     .filter(Boolean)
     .join(" · ");
   return `
-    <div class="compact-outline-item compact-event" role="button" tabindex="-1" style="--depth:${depth}" data-compact-nav-target="${escapeAttr(targetId)}" aria-label="${escapeAttr(label)}">
+    <button class="compact-outline-item compact-event" role="button" tabindex="-1" type="button" style="--depth:${depth}" data-compact-nav-target="${escapeAttr(targetId)}" data-evidence-id="${escapeAttr(buildEvidenceId({ ...context.evidenceScope, threadPath: context.threadPath, eventIndex: event.sourceIndex ?? event.id, entity: "event" }))}" aria-label="${escapeAttr(label)}">
       <span class="compact-outline-indent" aria-hidden="true"></span>
       <span class="compact-outline-icon">C</span>
       <span class="compact-outline-copy">
         <strong>${highlight(escapeHtml(label), context.query)}</strong>
         <em>${highlight(escapeHtml(meta || "压缩事件"), context.query)}</em>
       </span>
-    </div>
+    </button>
   `;
 }
 
@@ -4727,12 +4986,21 @@ function scrollToCompactTarget(targetId) {
   if (!targetId) return;
   const target = els.compactContent.querySelector(`#${cssEscape(targetId)}`);
   if (!target) return;
-  target.scrollIntoView({ behavior: "smooth", block: "start" });
+  target.scrollIntoView({ behavior: preferredScrollBehavior(), block: "start" });
   target.classList.remove("compact-jump-highlight");
+  if (prefersReducedMotion()) return;
   window.setTimeout(() => {
     target.classList.add("compact-jump-highlight");
     window.setTimeout(() => target.classList.remove("compact-jump-highlight"), 1400);
   }, 80);
+}
+
+function prefersReducedMotion() {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+}
+
+function preferredScrollBehavior() {
+  return prefersReducedMotion() ? "auto" : "smooth";
 }
 
 function scrollToCompactEvent(sourceIndex) {
@@ -5416,7 +5684,7 @@ function jumpTerminalRole(role) {
   if (candidates.length === 0) return;
   const currentIndex = candidates.findIndex((el) => el.dataset.terminalBlockId === state.selectedTerminalBlockId);
   const next = candidates[(currentIndex + 1) % candidates.length];
-  next.scrollIntoView({ behavior: "smooth", block: "center" });
+  next.scrollIntoView({ behavior: preferredScrollBehavior(), block: "center" });
   selectTerminalBlock(next.dataset.terminalBlockId);
 }
 
@@ -6083,7 +6351,7 @@ function renderAuditTurn(turn, context = {}) {
     .filter(Boolean)
     .join(" · ");
   return `
-    <article class="audit-turn${selected}${expanded ? " expanded" : ""}" role="listitem" data-audit-turn-root="${escapeAttr(turn.key)}">
+    <article class="audit-turn${selected}${expanded ? " expanded" : ""}" role="listitem" data-audit-turn-root="${escapeAttr(turn.key)}" data-evidence-id="${escapeAttr(auditTurnEvidenceId(turn))}">
       <div class="audit-turn-header">
         <button class="audit-turn-toggle" type="button" data-audit-turn-toggle="${escapeAttr(turn.key)}" title="${expanded ? "收起轮次" : "展开轮次"}">
           ${expanded ? "⌄" : "›"}
@@ -7043,7 +7311,7 @@ function locateRelatedAuditNode(node) {
   window.setTimeout(() => {
     const active = els.auditContent.querySelector(`[data-audit-node-id="${cssEscape(target.id)}"]`);
     if (active) {
-      active.scrollIntoView({ behavior: "smooth", block: "center" });
+      active.scrollIntoView({ behavior: preferredScrollBehavior(), block: "center" });
     } else {
       showToast("关联节点已在右侧显示；当前搜索或过滤隐藏了它");
     }
@@ -7389,7 +7657,7 @@ function startRawDiagnosticPageRequest(restart) {
 }
 
 function rawDiagnosticDetailAvailable(detail) {
-  return state.viewMode === "raw" && detail?.complete === false && Boolean(detail.session?.id);
+  return state.viewMode === "diagnostic" && state.diagnosticMode === "raw" && detail?.complete === false && Boolean(detail.session?.id);
 }
 
 function rawDiagnosticRequestCursor(diagnostic, restart) {
@@ -7431,7 +7699,7 @@ function resetRawDiagnosticPages(diagnostic, { clearSelection = false, readState
 }
 
 function rawDiagnosticRequestIsCurrent(request) {
-  return !request.controller.signal.aborted && state.viewMode === "raw" && state.selectedSessionKey === request.diagnosticSessionKey && state.rawDiagnostic === request.diagnostic && request.diagnostic.requestSeq === request.requestSeq;
+  return !request.controller.signal.aborted && state.viewMode === "diagnostic" && state.diagnosticMode === "raw" && state.selectedSessionKey === request.diagnosticSessionKey && state.rawDiagnostic === request.diagnostic && request.diagnostic.requestSeq === request.requestSeq;
 }
 
 function rawDiagnosticStillSelected(request) {
@@ -7542,7 +7810,7 @@ function renderRawViewEventRow(event) {
   const active = event.index === state.selectedEventIndex ? " active" : "";
   const compact = isCompactEvent(event) ? " compact-event" : "";
   return `
-    <button class="raw-view-row${active}${compact}" type="button" data-raw-event-index="${event.index}">
+    <button class="raw-view-row${active}${compact}" type="button" data-raw-event-index="${event.index}" data-evidence-id="${escapeAttr(rawEventEvidenceId(event))}">
       <span class="raw-view-kind">${escapeHtml(event.kind || event.type || "event")}</span>
       <strong>${escapeHtml(`事件 ${event.index} ${humanEventTitle(event)}`)}</strong>
       <em>${escapeHtml(formatDate(event.timestamp) || event.payloadType || "")}</em>
@@ -7589,14 +7857,17 @@ function renderRawEventInsight(event, query = "") {
 }
 
 async function openRawEventFromAudit(index) {
-  const changed = state.viewMode !== "raw";
-  state.viewMode = "raw";
+  const changed = state.viewMode !== "diagnostic" || state.diagnosticMode !== "raw";
+  state.viewMode = "diagnostic";
+  state.diagnosticMode = "raw";
   if (changed) cancelRemoteRefreshForNavigation();
   state.selectedEventIndex = index;
+  syncViewControls();
+  renderStats();
   renderMainContent();
   await selectRawViewEvent(index);
   const active = els.rawContent.querySelector(`[data-raw-event-index="${index}"]`);
-  active?.scrollIntoView({ behavior: "smooth", block: "center" });
+  active?.scrollIntoView({ behavior: preferredScrollBehavior(), block: "center" });
 }
 
 async function selectRawViewEvent(index) {
@@ -7850,6 +8121,8 @@ function renderInspector() {
   renderReviewHeader(context);
   renderReviewTabs();
   els.selectionDetails.innerHTML = renderReviewPanels(context);
+  els.selectionDetails.tabIndex = 0;
+  els.selectionDetails.setAttribute("aria-label", "复核内容，可使用方向键或 Page Up/Page Down 滚动");
   els.inspectorActions.innerHTML = renderReviewActions(context);
   bindReviewBodyActions(context);
   bindReviewActions(context);
@@ -8302,7 +8575,7 @@ function buildReviewContext() {
       summary: "左侧选择会话后，复核台会显示当前对象的摘要、证据、关系和来源。",
     });
   }
-  if (state.detail.complete === false && !(state.viewMode === "raw" && state.selectedEventIndex != null && eventByIndex(state.selectedEventIndex))) {
+  if (state.detail.complete === false && !(state.viewMode === "diagnostic" && state.diagnosticMode === "raw" && state.selectedEventIndex != null && eventByIndex(state.selectedEventIndex))) {
     const readState = state.detail.readState || {};
     return reviewContextBase({
       kind: "limited",
@@ -8391,6 +8664,7 @@ function buildSessionBriefReviewContext(detail) {
   }
   return reviewContextBase({
     kind: "session",
+    evidenceId: sessionEvidenceId(session),
     kindLabel: "会话概览",
     title: session.title || "未命名会话",
     riskLevel: highestRiskLevel(risks),
@@ -8449,6 +8723,7 @@ function buildAuditNodeReviewContext(node) {
   ].filter(Boolean);
   return reviewContextBase({
     kind: "audit_node",
+    evidenceId: auditNodeEvidenceId(node),
     kindLabel: "审计链节点",
     title: readable.title || node.title || auditTypeLabel(node.type),
     riskLevel: node.riskLevel || "none",
@@ -8493,6 +8768,7 @@ function buildAuditTurnReviewContext(turn) {
   ];
   return reviewContextBase({
     kind: "audit_turn",
+    evidenceId: auditTurnEvidenceId(turn),
     kindLabel: "轮次审计",
     title: `第 ${turn.turnNumber} 轮`,
     riskLevel: highestRiskLevel(riskNodes),
@@ -8533,6 +8809,7 @@ function buildTraceReviewContext(node) {
   const childRelations = (node.children || []).slice(0, 10).map((child) => reviewRelationFromTraceNode(child, "下游"));
   return reviewContextBase({
     kind: "trace_node",
+    evidenceId: traceNodeEvidenceId(node),
     kindLabel: "执行节点",
     title: readable?.title || node.title || node.label || node.id,
     riskLevel: traceRiskLevel(node, item),
@@ -8568,6 +8845,7 @@ function buildItemReviewContext(item) {
   const body = bestAuditBodyForItem(linkedAuditNodes) || readable.body || readable.summary || item.text || item.output || item.arguments || item.payloadPreview || "";
   return reviewContextBase({
     kind: "item",
+    evidenceId: itemEvidenceId(item),
     kindLabel: itemTitle(item),
     title: readable.title || itemTitle(item),
     riskLevel: itemRiskLevel(item, linkedAuditNodes),
@@ -8608,6 +8886,7 @@ function buildRawEventReviewContext(event) {
   const summary = isCompactEvent(event) ? readable.body || readable.summary || event.preview : readable.summary || event.preview || "原始事件没有预览正文。";
   return reviewContextBase({
     kind: "raw_event",
+    evidenceId: rawEventEvidenceId(event),
     kindLabel: "原始事件",
     title: `事件 ${event.index} ${readable.title || humanEventTitle(event)}`,
     riskLevel: rawEventRiskLevel(event, linkedAuditNodes),
@@ -8678,7 +8957,7 @@ function renderReviewHeader(context) {
   syncReviewPanelHeading();
   if (!state.detail) {
     els.sessionDetails.innerHTML = `
-      <div class="review-object-head empty risk-${escapeAttr(context.riskLevel || "none")}">
+      <div class="review-object-head empty risk-${escapeAttr(context.riskLevel || "none")}" data-evidence-id="${escapeAttr(reviewContextEvidenceId(context))}">
         <span class="review-kind">${escapeHtml(context.kindLabel || "未选择")}</span>
         <strong>${escapeHtml(context.title || "选择一个会话")}</strong>
         <p>${escapeHtml(context.summary || "复核台会显示当前对象的摘要、证据、关系和来源。")}</p>
@@ -8687,7 +8966,7 @@ function renderReviewHeader(context) {
     return;
   }
   els.sessionDetails.innerHTML = `
-    <div class="review-object-head risk-${escapeAttr(context.riskLevel || "none")}">
+    <div class="review-object-head risk-${escapeAttr(context.riskLevel || "none")}" data-evidence-id="${escapeAttr(reviewContextEvidenceId(context))}">
       <div class="review-object-topline">
         <span class="review-kind">${escapeHtml(context.kindLabel || "对象")}</span>
         <span class="review-risk">${escapeHtml(auditRiskLabel(context.riskLevel || "none"))}</span>
@@ -8698,6 +8977,10 @@ function renderReviewHeader(context) {
       </div>
     </div>
   `;
+}
+
+function reviewContextEvidenceId(context) {
+  return context.evidenceId || buildEvidenceId({ ...evidenceScopeForSession(), entity: context.kind || "object" });
 }
 
 function renderReviewTabs() {

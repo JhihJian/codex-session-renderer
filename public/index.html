@@ -113,10 +113,13 @@
 
           <div class="thread-controls">
             <div class="view-switch" role="tablist" aria-label="视图切换">
-              <button class="view-tab active" id="compactViewButton" type="button" role="tab" aria-selected="true" aria-controls="compactContent" data-view-mode="compact" title="阅读视图：整理后的会话正文" aria-label="阅读视图：整理后的会话正文">阅读</button>
-              <button class="view-tab" id="auditViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="auditContent" data-view-mode="audit" title="审计链视图：按轮次复核目标、证据和风险" aria-label="审计链视图：按轮次复核目标、证据和风险">审计链</button>
-              <button class="view-tab" id="statsViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="statsContent" data-view-mode="stats" title="统计信息视图：事件类型和 token 估算" aria-label="统计信息视图：事件类型和 token 估算">统计</button>
-              <button class="view-tab" id="rawViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="rawContent" data-view-mode="raw" title="原始事件视图：诊断 JSONL 事件流" aria-label="原始事件视图：诊断 JSONL 事件流">原始事件</button>
+              <button class="view-tab active" id="compactViewButton" type="button" role="tab" aria-selected="true" aria-controls="compactContent" data-view-mode="compact" title="会话：先查看可交接结论和阅读正文" aria-label="会话：先查看可交接结论和阅读正文">会话</button>
+              <button class="view-tab" id="auditViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="auditContent" data-view-mode="audit" title="复盘：按轮次核对目标、证据和风险" aria-label="复盘：按轮次核对目标、证据和风险">复盘</button>
+              <button class="view-tab" id="diagnosticViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="diagnosticContent" data-view-mode="diagnostic" title="诊断：查看会话构成或按需读取原始事件" aria-label="诊断：查看会话构成或按需读取原始事件">诊断</button>
+            </div>
+            <div class="diagnostic-switch" id="diagnosticSwitch" role="tablist" aria-label="诊断视图">
+              <button class="diagnostic-tab active" id="statsViewButton" type="button" role="tab" aria-selected="true" aria-controls="statsContent" data-diagnostic-mode="stats">统计</button>
+              <button class="diagnostic-tab" id="rawViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="rawContent" data-diagnostic-mode="raw">原始事件</button>
             </div>
             <input class="text-input compact" id="itemSearch" type="search" autocomplete="off" placeholder="搜索内容、命令、输出..." />
             <select class="select-input compact" id="itemTypeFilter" aria-label="内容类型筛选">
@@ -134,6 +137,7 @@
               <span id="importantOnlyLabel">重要事件</span>
             </label>
           </div>
+          <section class="session-handoff" id="sessionHandoff" aria-label="会话交接摘要" hidden></section>
         </section>
 
         <section class="stats-strip" id="statsStrip" aria-label="会话统计"></section>
@@ -144,9 +148,11 @@
         <section class="compact-content" id="compactContent" role="tabpanel" aria-labelledby="compactViewButton" tabindex="-1"></section>
         <section class="terminal-content" id="terminalContent" tabindex="-1" hidden></section>
         <section class="audit-content" id="auditContent" role="tabpanel" aria-labelledby="auditViewButton" tabindex="-1" hidden></section>
-        <section class="stats-content" id="statsContent" role="tabpanel" aria-labelledby="statsViewButton" tabindex="-1" hidden></section>
+        <section class="diagnostic-content" id="diagnosticContent" role="tabpanel" aria-labelledby="diagnosticViewButton" tabindex="-1" hidden>
+          <section class="stats-content" id="statsContent" role="tabpanel" aria-labelledby="statsViewButton" tabindex="-1" hidden></section>
+          <section class="raw-content" id="rawContent" role="tabpanel" aria-labelledby="rawViewButton" tabindex="-1" hidden></section>
+        </section>
         <section class="trace-content" id="traceContent" tabindex="-1" hidden></section>
-        <section class="raw-content" id="rawContent" role="tabpanel" aria-labelledby="rawViewButton" tabindex="-1" hidden></section>
       </main>
 
       <div
@@ -171,7 +177,12 @@
           <button class="ghost-button small" id="copyRawButton" type="button" disabled>复制会话引用</button>
         </div>
 
-        <section class="review-context" id="sessionDetails"></section>
+        <section
+          class="review-context"
+          id="sessionDetails"
+          tabindex="0"
+          aria-label="当前复核对象，可使用方向键或 Page Up/Page Down 滚动"
+        ></section>
 
         <div class="review-tabs" id="reviewTabs" role="tablist" aria-label="复核模式">
           <button class="review-tab active" id="reviewTabSummary" type="button" role="tab" aria-selected="true" aria-controls="reviewPanelSummary" data-review-tab="summary">摘要</button>
@@ -372,6 +383,7 @@
     <script src="./execution-grouping.js" defer></script>
     <script src="./audit-view-model.js" defer></script>
     <script src="./evidence-risk-rules.js" defer></script>
+    <script src="./evidence-id.js" defer></script>
     <script src="./raw-event-cache.js" defer></script>
     <script src="./app.js" defer></script>
   </body>

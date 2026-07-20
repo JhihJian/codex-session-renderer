@@ -4,10 +4,15 @@ const sessionId = "33333333-3333-4333-8333-333333333333";
 const alternateSessionId = "77777777-7777-4777-8777-777777777777";
 const sessionTitle = /(?:验证工作台的 Chromium 交互契约|确定性 Chromium 验证会话)/;
 
+async function openRawDiagnostic(page) {
+  await page.locator("#diagnosticViewButton").click();
+  await page.locator("#rawViewButton").click();
+}
+
 async function openRawSource(page) {
   await page.goto("/");
   await expect(page.locator("#sessionTitle")).toHaveText(sessionTitle);
-  await page.locator("#rawViewButton").click();
+  await openRawDiagnostic(page);
   await page.locator("#rawContent [data-raw-event-index]").first().click();
   await page.locator("#reviewTabs [data-review-tab=source]").click();
 }
@@ -79,7 +84,7 @@ test("移动端离开复核台会取消来源展开且迟到响应不写入失�
   const { releaseRead } = await delayRawSourceRead(page);
   await page.goto("/");
   await expect(page.locator("#sessionTitle")).toHaveText(sessionTitle);
-  await page.locator("#rawViewButton").click();
+  await openRawDiagnostic(page);
   await page.locator("#rawContent [data-raw-event-index]").first().click();
   await page.locator("[data-panel-target=inspector]").click();
   await page.locator("#reviewTabs [data-review-tab=source]").click();

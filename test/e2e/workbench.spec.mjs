@@ -94,6 +94,13 @@ test("桌面三栏、复核台调整与真实 tab/panel 契约同步", async ({ 
   await expect(page.locator("#auditContent")).toBeVisible();
   await expectTabPanels(page, viewTabs);
 
+  await page.locator("#diagnosticViewButton").click();
+  const diagnosticTabs = page.locator("#diagnosticSwitch [role=tab]");
+  await expect(page.locator("#diagnosticContent")).toBeVisible();
+  await expectTabPanels(page, diagnosticTabs);
+  await diagnosticTabs.last().click();
+  await expect(page.locator("#rawContent")).toBeVisible();
+
   const reviewTabs = page.locator("#reviewTabs [role=tab]");
   await reviewTabs.first().focus();
   await page.keyboard.press("End");
@@ -111,11 +118,15 @@ test("桌面三栏、复核台调整与真实 tab/panel 契约同步", async ({ 
   await page.keyboard.press("Escape");
 });
 
-test("窄屏使用流式复核区，移动端仅展示当前三面板", async ({ page }) => {
+test("窄屏按需打开复核区，移动端仅展示当前三面板", async ({ page }) => {
   await page.setViewportSize({ width: 1100, height: 720 });
   await openWorkbench(page);
+  await expect(page.locator("#inspectorPanel")).toBeHidden();
+  await expect(page.locator("#inspectorPanel")).toHaveJSProperty("inert", true);
+  await page.locator("#toggleRight").click();
   const [threadBox, inspectorBox] = await Promise.all([page.locator("#threadPanel").boundingBox(), page.locator("#inspectorPanel").boundingBox()]);
   expect(inspectorBox.y).toBeGreaterThanOrEqual(threadBox.y + threadBox.height);
+  await expect(page.locator("#inspectorPanel")).toHaveJSProperty("inert", false);
   await expect(page.locator("#inspectorResizer")).toBeHidden();
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -492,6 +503,7 @@ test("离开有界诊断会取消请求，过期页不会写回新视图", async
     await route.fulfill({ json: { events: [{ index: 99, kind: "event", preview: "过期诊断页" }], page: { cursor: 0, nextCursor: 1, hasMore: false, snapshot: "old" } } }).catch(() => {});
   });
   const request = page.waitForRequest("**/api/sources/local/query/sessions/33333333-3333-4333-8333-333333333333/events?*");
+  await page.locator("#diagnosticViewButton").click();
   await page.locator("#rawViewButton").click();
   await request;
   const failed = page.waitForEvent("requestfailed", (candidate) => candidate.url().includes("/query/sessions/") && candidate.url().includes("/events?"));

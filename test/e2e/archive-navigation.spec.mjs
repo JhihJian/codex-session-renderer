@@ -71,7 +71,8 @@ test("内容类型筛选在各主视图保留稳定可访问名称", async ({ pa
   await expect(page.locator("#sessionTitle")).toContainText("确定性 Chromium 验证会话");
   const filter = page.getByLabel("内容类型筛选", { exact: true });
   await expect(filter).toHaveValue("all");
-  for (const viewId of ["auditViewButton", "statsViewButton", "rawViewButton", "compactViewButton"]) {
+  for (const viewId of ["auditViewButton", "diagnosticViewButton", "statsViewButton", "rawViewButton", "compactViewButton"]) {
+    if (viewId === "statsViewButton" || viewId === "rawViewButton") await page.locator("#diagnosticViewButton").click();
     await page.locator(`#${viewId}`).click();
     await expect(filter).toHaveAccessibleName("内容类型筛选");
   }
