@@ -4,6 +4,7 @@ const $ = (id) => document.getElementById(id);
 const statusOrder = ["external", "unassessed", "candidate", "evidence_ready", "assertion_ready", "fixture_ready", "reproduced", "independently_replicated", "blocked", "inconclusive", "rejected", "confirmed"];
 const statusLabels = {
   external: "外部服务异常",
+  context_missing: "上下文不足",
   unassessed: "影响待判定",
   candidate: "待冻结证据",
   evidence_ready: "待形成断言",
@@ -179,9 +180,9 @@ function formatPredicate(predicate) {
 }
 
 function renderCaseReview(problemCase) {
-  const scope = [problemCase.providers?.length ? `服务：${problemCase.providers.join("、")}` : "", problemCase.models?.length ? `模型：${problemCase.models.join("、")}` : ""].filter(Boolean).join("；") || "服务和模型信息未完整保留。";
+  const scope = [problemCase.providers?.length ? `服务：${problemCase.providers.join("、")}` : "", problemCase.models?.length ? `模型：${problemCase.models.join("、")}` : "", problemCase.api ? `API：${problemCase.api}` : ""].filter(Boolean).join("；") || "服务和模型信息未完整保留。";
   const observedAt = problemCase.observedAt ? formatDate(problemCase.observedAt) : "原始事件未保留时间";
-  return `<section class="case-review"><div class="case-section"><h3>原始内容</h3><pre class="raw-error">${esc(problemCase.errorMessage)}</pre></div><dl class="facts"><div class="fact"><dt>记录范围</dt><dd>${esc(`${problemCase.sourceCount} 个会话，${problemCase.physicalCount} 次同类原始记录`)}</dd></div><div class="fact"><dt>原始记录时间</dt><dd>${esc(observedAt)}</dd></div><div class="fact"><dt>记录中的环境</dt><dd>${esc(scope)}</dd></div></dl><div class="case-section"><h3>为什么需要评审</h3><p>${esc(problemCase.reviewReason)}</p></div><div class="case-section"><h3>待核实的问题</h3><p>${esc(problemCase.reviewQuestion)}</p></div></section>`;
+  return `<section class="case-review"><div class="case-section"><h3>原始内容</h3><pre class="raw-error">${esc(problemCase.errorMessage)}</pre></div><dl class="facts"><div class="fact"><dt>记录范围</dt><dd>${esc(`${problemCase.sourceCount} 个会话，${problemCase.physicalCount} 次同类原始记录`)}</dd></div><div class="fact"><dt>原始记录时间</dt><dd>${esc(observedAt)}</dd></div><div class="fact"><dt>记录中的环境</dt><dd>${esc(scope)}</dd></div>${problemCase.responseId ? `<div class="fact"><dt>响应关联 ID</dt><dd>${esc(problemCase.responseId)}</dd></div>` : ""}${problemCase.precedingEvent ? `<div class="fact"><dt>相邻原始事件</dt><dd>${esc(problemCase.precedingEvent)}</dd></div>` : ""}</dl><div class="case-section"><h3>为什么需要评审</h3><p>${esc(problemCase.reviewReason)}</p></div><div class="case-section"><h3>待核实的问题</h3><p>${esc(problemCase.reviewQuestion)}</p></div></section>`;
 }
 
 function formatSource(archive, source) {
