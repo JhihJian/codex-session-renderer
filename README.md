@@ -18,9 +18,9 @@
 HARNESS_DEFECT_LAB_ROOT=/tmp/harness-real-pi-json-exit-status npm start
 ```
 
-页面只读展示候选、confirmed/rejected 缺陷、来源会话锚点、失败谓词、candidate/baseline 三次对照、运行时版本、fixture、完整 trace、重放命令和独立审查状态。页面不会运行 fixture 或修改登记簿。
+页面只读展示候选、状态时间线、冻结证据哈希、执行 epoch、盲审结论和决策原因。页面不会运行 fixture、调用 subagent 或修改登记簿。
 
-`npm run harness:defects` 将一个历史 Pi 会话线索转化为可验证的 Harness 缺陷。它不从会话中的错误文本直接得出结论，而是要求为候选编写最小 fixture，在相同输入下分别运行被测 Harness 与基线，并连续三次判断同一个失败谓词。
+`npm run harness:defects` 将历史 Pi 会话线索送入追加式哈希链账本。普通 `replay` 仅用于诊断，不能创建确认结论。`confirmed` 只能由决策器在两个相互独立的可信 sandbox epoch 中分别完成 candidate/baseline 三次执行、冻结来源/契约/谓词/fixture/runtime、并取得盲审接受后写入。没有外部可信 sandbox backend 时流程会显式停在 `blocked`。
 
 本地闭环如下：
 
@@ -38,21 +38,22 @@ npm run harness:defects -- candidate \
   --observation "同一工具调用出现两次" \
   --rule "同一 tool call 只能执行一次"
 
-# 3. 执行 fixture，并将结果登记为 confirmed 或 rejected
-npm run harness:defects -- run \
-  --candidate <candidate-id> \
-  --fixture fixtures/H-001/fixture.json
-
-# 4. 不修改登记簿地重新执行一个 fixture
+# 3. 普通 replay 只用于诊断，不会创建 confirmed
 npm run harness:defects -- replay --fixture fixtures/H-001/fixture.json
 
-# 5. 查看归档、候选、复现和确认缺陷
+# 4. 摄取经过结构化校验的 assertion、fixture 或 blind review
+npm run harness:defects -- ingest-agent-result --input assertion.json
+# verify 仅由已接入的外部可信 sandbox backend 触发；本机 CLI 会明确返回 blocked
+npm run harness:defects -- verify --candidate <candidate-id>
+# 两个可信 epoch 和盲审齐全后，才可请求决策
+npm run harness:defects -- decide --candidate <candidate-id> --defect H-001 --title "标题"
+
+# 5. 校验账本哈希链并查看投影
+npm run harness:defects -- audit
 npm run harness:defects -- list
 ```
 
-默认登记簿目录为当前工作目录下的 `.harness-defects`，可通过每条命令的 `--lab <dir>` 指定其他目录。fixture 是一个 JSON 文件，必须提供 `id`、`title`、`predicate`、`expected`、`runner`、`candidate` 和 `baseline`。若要登记 `confirmed`，它还必须声明 `runtime.kind: "pi"`，并分别给出 `runtime.candidate.command` 和 `runtime.baseline.command`。执行器会运行两条命令的 `--version` 并把结果写入登记簿。`predicate` 当前支持 `event_count`，由 `id`、`eventType` 与 `expected` 组成。`runner` 位于 fixture 目录内，由执行器在独立临时工作目录中为 `candidate` 与 `baseline` 各运行三次，并且只输出一个 JSON 对象：`{"trace": [...]}`。执行器从 `trace` 计算失败谓词，不接受 runner 自报的结论。用于登记的 fixture 必须位于当前仓库内，缺陷条目的 replay 命令因此只保存仓库相对路径。fixture runner 负责启动固定版本的 Pi、脚本化 provider 和必要的工具替身。
-
-只有 candidate 三次均触发 `failed: true`、baseline 三次均为 `failed: false` 时才会创建 `confirmed` 缺陷；没有稳定差异时登记为 `rejected`。`test/fixtures/harness-defect/` 仅用于验证 fixture 协议和执行器，不是实际 Pi 缺陷。
+默认登记簿目录为当前工作目录下的 `.harness-defects`，可通过每条命令的 `--lab <dir>` 指定其他目录。事实源是 `ledger.jsonl`，`registry.json` 只是可重建的只读投影；发现断链或投影异常时审计会失败。`ingest-agent-result` 接受受限的候选、断言、fixture 或盲审结构化结果，agent 永远不能写入终态。可信执行必须由外部 sandbox backend 生成原始工件和可验证回执，runner 自报的 `failed` 或 trace 不能作为确认凭据。旧登记簿会迁移为 `inconclusive`，并带有 `legacy_verification_requires_refreeze` 原因。
 
 `examples/harness-fixtures/pi-tool-free/` 是一个可直接运行的真实 Pi fixture。它启动固定的 OpenAI 兼容流式 provider，在临时目录中以隔离配置运行 Pi，并将 `--mode json` 输出作为 trace。该示例的候选和基线都符合“无 tool call 时不得执行工具”，因此用来演示真实运行得到 `rejected`，不代表一个 Pi 缺陷：
 

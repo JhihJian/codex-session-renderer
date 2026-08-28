@@ -41,7 +41,7 @@ function comparison({ candidateFailed = true, baselineFailed = false } = {}) {
   };
 }
 
-test("归档、候选与确认缺陷形成可持久化闭环", async (t) => {
+test("非可信 runner 输出只能登记为 inconclusive，不能直接确认", async (t) => {
   const { root, lab } = await createTempLab();
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const sourcePath = path.join(root, "source.jsonl");
@@ -64,17 +64,16 @@ test("归档、候选与确认缺陷形成可持久化闭环", async (t) => {
     comparison: comparison(),
   });
 
-  assert.equal(result.candidate.status, "confirmed");
-  assert.equal(result.reproduction.status, "confirmed");
-  assert.equal(result.defect.predicate, "no_duplicate_tool_execution");
-  assert.deepEqual(result.defect.comparison, { candidateFailed: true, baselineFailed: false });
+  assert.equal(result.candidate.status, "inconclusive");
+  assert.equal(result.reproduction.status, "inconclusive");
+  assert.equal(result.defect, null);
   const state = await lab.list();
   assert.equal(state.archives.length, 1);
-  assert.equal(state.candidates[0].status, "confirmed");
-  assert.equal(state.defects.length, 1);
+  assert.equal(state.candidates[0].status, "inconclusive");
+  assert.equal(state.defects.length, 0);
 });
 
-test("基线同样失败时登记为 rejected，不生成缺陷", async (t) => {
+test("非可信 runner 即使显示基线反证也不产生 rejected", async (t) => {
   const { root, lab } = await createTempLab();
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const sourcePath = path.join(root, "source.jsonl");
@@ -92,12 +91,12 @@ test("基线同样失败时登记为 rejected，不生成缺陷", async (t) => {
     fixture: fixtureReference(root),
     comparison: comparison({ baselineFailed: true }),
   });
-  assert.equal(result.candidate.status, "rejected");
+  assert.equal(result.candidate.status, "inconclusive");
   assert.equal(result.defect, null);
   assert.equal((await lab.list()).defects.length, 0);
 });
 
-test("不稳定的三次结果登记为 rejected", async (t) => {
+test("不稳定的非可信结果登记为 inconclusive", async (t) => {
   const { root, lab } = await createTempLab();
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const sourcePath = path.join(root, "source.jsonl");
@@ -109,8 +108,8 @@ test("不稳定的三次结果登记为 rejected", async (t) => {
   unstable.candidate.failed = null;
   unstable.candidate.runs[2] = { error: { message: "runner failed" } };
   const result = await lab.recordReproduction({ candidateId: candidate.id, fixture: fixtureReference(root), comparison: unstable });
-  assert.equal(result.candidate.status, "rejected");
-  assert.equal((await lab.list()).candidates[0].status, "rejected");
+  assert.equal(result.candidate.status, "inconclusive");
+  assert.equal((await lab.list()).candidates[0].status, "inconclusive");
 });
 
 test("候选必须指向归档中存在的 JSONL 事件", async (t) => {

@@ -23,6 +23,7 @@ function createHarnessDefectRegistryReader(options = {}) {
       },
       candidates: registry.candidates.map((candidate) => summarizeCandidate(candidate, registry)),
       defects: registry.defects.map(summarizeDefect),
+      timeline: (registry.timeline || []).map(projectTimeline),
     };
   }
 
@@ -38,6 +39,9 @@ function createHarnessDefectRegistryReader(options = {}) {
       archive: archive ? projectArchive(archive) : null,
       reproduction: reproduction ? projectReproduction(reproduction) : null,
       defect: loaded.registry.defects.find((item) => item.candidateId === candidate.id) || null,
+      timeline: (loaded.registry.timeline || []).filter((item) => item.candidateId === candidate.id).map(projectTimeline),
+      evidence: (loaded.registry.evidence || []).filter((item) => item.candidateId === candidate.id).map(projectEvidence),
+      reviews: (loaded.registry.reviews || []).filter((item) => item.candidateId === candidate.id).map(projectReview),
     };
   }
 
@@ -54,6 +58,9 @@ function createHarnessDefectRegistryReader(options = {}) {
       candidate: candidate ? summarizeCandidate(candidate, loaded.registry) : null,
       archive: archive ? projectArchive(archive) : null,
       reproduction: reproduction ? projectReproduction(reproduction) : null,
+      timeline: (loaded.registry.timeline || []).filter((item) => item.candidateId === defect.candidateId).map(projectTimeline),
+      evidence: (loaded.registry.evidence || []).filter((item) => item.candidateId === defect.candidateId).map(projectEvidence),
+      reviews: (loaded.registry.reviews || []).filter((item) => item.candidateId === defect.candidateId).map(projectReview),
     };
   }
 
@@ -186,11 +193,19 @@ function projectRun(run = {}) {
 function projectReview(review) {
   if (!review || typeof review !== "object") return { state: "pending", conclusion: "尚未登记独立审查结论。" };
   return {
-    state: review.state || "pending",
+    state: review.state || review.decision || "pending",
     reviewer: review.reviewer || null,
-    reviewedAt: review.reviewedAt || null,
-    conclusion: review.conclusion || "尚未登记独立审查结论。",
+    reviewedAt: review.reviewedAt || review.createdAt || null,
+    conclusion: review.conclusion || (review.recomputedPredicate ? "已独立重算谓词。" : "尚未登记独立审查结论。"),
   };
+}
+
+function projectTimeline(item) {
+  return { id: item.id, type: item.type, timestamp: item.timestamp, payloadHash: item.payloadHash };
+}
+
+function projectEvidence(item) {
+  return { id: item.id, kind: item.kind, sha256: item.sha256, runId: item.runId || null, epochId: item.epochId || null, createdAt: item.createdAt };
 }
 
 function fingerprint(contents) {

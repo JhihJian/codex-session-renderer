@@ -1,6 +1,7 @@
 import path from "node:path";
 import { createHarnessDefectLab } from "../src/harness-defect-lab.mjs";
 import { runHarnessFixture } from "../src/harness-reproduction-runner.mjs";
+import { validateSubagentResult } from "../src/harness-subagent-contracts.mjs";
 
 try {
   const { command, options } = parseArguments(process.argv.slice(2));
@@ -33,15 +34,32 @@ try {
       print(await lab.rejectCandidate({ candidateId: options.candidate, fixturePath, reason: error.message }));
     }
     if (result) print(await lab.recordReproduction({ candidateId: options.candidate, fixture: result.fixture, comparison: result.comparison }));
+  } else if (command === "scan") {
+    const archive = await lab.archiveSession({ sourcePath: options.source, sourceId: options["source-id"], sessionId: options.session });
+    const candidate = await lab.createCandidate({ archiveId: archive.id, eventIndex: options.event, observation: options.observation, suspectedRule: options.rule, detectorId: options.detector, detectorVersion: options.version });
+    print({ archive, candidate });
+  } else if (command === "dispatch") {
+    print({ candidateId: requiredOption(options.candidate, "candidate"), task: requiredOption(options.task, "task"), state: "queued" });
+  } else if (command === "ingest-agent-result") {
+    const result = validateSubagentResult(JSON.parse(await (await import("node:fs/promises")).readFile(requiredOption(options.input, "input"), "utf8")));
+    if (result.kind === "assertion") print(await lab.submitAssertion(result));
+    else if (result.kind === "fixture") print(await lab.submitFixture(result));
+    else if (result.kind === "review") print(await lab.recordBlindReview({ ...result, blind: true }));
+    else print(await lab.recordEvidence({ candidateId: result.candidateId, kind: "agent_candidate", sha256: result.sourceHash, data: result }));
+  } else if (command === "verify") {
+    print({
+      candidateId: requiredOption(options.candidate, "candidate"),
+      status: "blocked",
+      reason: "external_sandbox_backend_required",
+      message: "CLI 不接受手工 epoch JSON；只能由受信任 sandbox backend 调用控制器写入执行证据。",
+    });
+  } else if (command === "decide") {
+    print(await lab.decideCandidate({ candidateId: options.candidate, defectId: options.defect, title: options.title }));
+  } else if (command === "audit") {
+    print(await lab.audit());
   } else if (command === "replay") {
     print(await runHarnessFixture(requiredOption(options.fixture, "fixture")));
-  } else if (command === "review") {
-    print(await lab.reviewDefect({
-      defectId: options.defect,
-      state: options.state,
-      reviewer: options.reviewer,
-      conclusion: options.conclusion,
-    }));
+
   } else if (command === "list") {
     print(await lab.list());
   } else {
@@ -83,7 +101,12 @@ function usage() {
     "  node scripts/harness-defects.mjs candidate --archive <archive-id> --event <index> --observation <text> --rule <text> [--lab <dir>]",
     "  node scripts/harness-defects.mjs run --candidate <candidate-id> --fixture <fixture.json> [--lab <dir>]",
     "  node scripts/harness-defects.mjs replay --fixture <fixture.json>",
-    "  node scripts/harness-defects.mjs review --defect <defect-id> --state <approved|changes_requested> --reviewer <name> --conclusion <text> [--lab <dir>]",
+    "  node scripts/harness-defects.mjs scan --source <session.jsonl> --source-id <id> --session <id> --event <index> --observation <text> --rule <text> --detector <id> --version <version> [--lab <dir>]",
+    "  node scripts/harness-defects.mjs dispatch --candidate <id> --task <assertion|fixture|review> [--lab <dir>]",
+    "  node scripts/harness-defects.mjs ingest-agent-result --input <result.json> [--lab <dir>]",
+    "  node scripts/harness-defects.mjs verify --candidate <id> [--lab <dir>]",
+    "  node scripts/harness-defects.mjs decide --candidate <id> --defect <id> --title <text> [--lab <dir>]",
+    "  node scripts/harness-defects.mjs audit [--lab <dir>]",
     "  node scripts/harness-defects.mjs list [--lab <dir>]",
   ].join("\n");
 }

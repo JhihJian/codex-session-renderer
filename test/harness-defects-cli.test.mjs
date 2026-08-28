@@ -24,7 +24,7 @@ function runCli(args) {
   });
 }
 
-test("CLI 将未声明 Pi runtime 的协议 fixture 登记为 rejected", async (t) => {
+test("CLI 将普通 replay 结果登记为 inconclusive", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "harness-defect-cli-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const sourcePath = path.join(root, "session.jsonl");
@@ -43,7 +43,7 @@ test("CLI 将未声明 Pi runtime 的协议 fixture 登记为 rejected", async (
   const state = await runCli(["list", "--lab", labPath]);
   const replay = await runCli(["replay", "--fixture", fixturePath]);
 
-  assert.equal(result.candidate.status, "rejected");
+  assert.equal(result.candidate.status, "inconclusive");
   assert.equal(result.defect, null);
   assert.equal(state.defects.length, 0);
   assert.equal(state.reproductions[0].comparison.candidate.runs.length, 3);
