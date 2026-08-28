@@ -88,11 +88,19 @@ id: H-001
 input: "执行任务"
 provider_script: provider.json
 tool_script: tools.mjs
-predicate: no_tool_execution_after_cancel
+predicate:
+  id: no_tool_execution_after_cancel
+  type: event_count
+  eventType: tool_execution_end
+  expected: 0
 baseline:
   pi: <基线版本或配置>
 candidate:
   pi: <被测版本或配置>
+runtime:
+  kind: pi
+  candidate: { command: <候选 Pi 命令> }
+  baseline: { command: <基线 Pi 命令> }
 expected: 工具调用次数为 0
 ```
 

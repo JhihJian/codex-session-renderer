@@ -1,0 +1,20 @@
+{
+  "id": "H-DEMO-001",
+  "title": "演示性工具调用不变量",
+  "predicate": {
+    "id": "no_duplicate_tool_execution",
+    "type": "event_count",
+    "eventType": "tool_execution_end",
+    "expected": 0
+  },
+  "expected": "工具调用次数为 0",
+  "runner": "run.mjs",
+  "candidate": {
+    "pi": "candidate",
+    "failed": true
+  },
+  "baseline": {
+    "pi": "baseline",
+    "failed": false
+  }
+}

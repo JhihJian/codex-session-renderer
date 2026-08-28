@@ -10,6 +10,48 @@
 
 首次归档和每次“继续定位更早任务”都是有界工作：每批最多解析 200 个候选会话，服务实例内最多 4 路 JSONL 读取并发；缓存最多保留 400 个当前文件版本；单个文件最多读取 2 MiB 或 20,000 条非空 JSONL 记录，提示词正文上限为 12,000 个字符。即使 JSONL 总文件超过 2 MiB，只要这段固定有界前缀内能识别首个有效用户任务，归档仍会返回该任务并支持现有搜索和项目筛选；不会继续读取后缀，且会隐藏可能来自前缀外索引的会话标题。只有前缀内未找到可归档任务时，才按先命中的事件或字节预算返回受限状态。SQLite 与文件回退都按规范会话文件路径倒序、会话 ID 升序稳定续页；路径中的会话时间使“继续定位”始终朝更早任务推进。续页令牌绑定当前数据源、时间分类和候选快照，不包含路径、正文或访问令牌。数据源、SQLite/目录候选范围，或已扫描批中的文件版本发生变化时，续页会返回 `409/prompt_archive_snapshot_changed`；浏览器会清空旧批并从最近任务重新开始，绝不混合批次。超过任一读取上限时只返回“内容超过归档读取上限”状态和原因，不返回可能敏感的正文。浏览器在切换数据源、时间分类、刷新或离开任务归档时会取消过期请求；同一来源的有效会话列表刷新、成功拉取远端快照或本机更早会话重试也会使对应时间范围的归档批次立即失效：归档正在打开时会从空批重新整理，离开后再次进入也会重新请求，旧响应不能复活或与新批混合。同一来源内仅切换阅读、复核或移动面板时，旧响应不会写回新导航，待请求结束后会明确显示“已取消，可重新整理”，不会保持加载状态。服务端会解除对应订阅，只有没有其他订阅者时才中止共享读取。归档不写入 Codex 文件或新数据库；正文未同步、仅有图片附件、没有有效用户输入和读取失败都会明确标记。远端历史索引只有元数据，不能生成虚假的首个提示词；需要先把正文同步到本机快照。
 
+## Harness 缺陷发现 MVP
+
+`npm run harness:defects` 将一个历史 Pi 会话线索转化为可验证的 Harness 缺陷。它不从会话中的错误文本直接得出结论，而是要求为候选编写最小 fixture，在相同输入下分别运行被测 Harness 与基线，并连续三次判断同一个失败谓词。
+
+本地闭环如下：
+
+```bash
+# 1. 归档一个 Pi 会话文件，输出 archive.id
+npm run harness:defects -- archive \
+  --source ~/.pi/agent/sessions/<project>/<session>.jsonl \
+  --source-id pi-agent \
+  --session <session-id>
+
+# 2. 从归档中的一个原始事件建立候选，输出 candidate.id
+npm run harness:defects -- candidate \
+  --archive <archive-id> \
+  --event 42 \
+  --observation "同一工具调用出现两次" \
+  --rule "同一 tool call 只能执行一次"
+
+# 3. 执行 fixture，并将结果登记为 confirmed 或 rejected
+npm run harness:defects -- run \
+  --candidate <candidate-id> \
+  --fixture fixtures/H-001/fixture.json
+
+# 4. 不修改登记簿地重新执行一个 fixture
+npm run harness:defects -- replay --fixture fixtures/H-001/fixture.json
+
+# 5. 查看归档、候选、复现和确认缺陷
+npm run harness:defects -- list
+```
+
+默认登记簿目录为当前工作目录下的 `.harness-defects`，可通过每条命令的 `--lab <dir>` 指定其他目录。fixture 是一个 JSON 文件，必须提供 `id`、`title`、`predicate`、`expected`、`runner`、`candidate` 和 `baseline`。若要登记 `confirmed`，它还必须声明 `runtime.kind: "pi"`，并分别给出 `runtime.candidate.command` 和 `runtime.baseline.command`。执行器会运行两条命令的 `--version` 并把结果写入登记簿。`predicate` 当前支持 `event_count`，由 `id`、`eventType` 与 `expected` 组成。`runner` 位于 fixture 目录内，由执行器在独立临时工作目录中为 `candidate` 与 `baseline` 各运行三次，并且只输出一个 JSON 对象：`{"trace": [...]}`。执行器从 `trace` 计算失败谓词，不接受 runner 自报的结论。用于登记的 fixture 必须位于当前仓库内，缺陷条目的 replay 命令因此只保存仓库相对路径。fixture runner 负责启动固定版本的 Pi、脚本化 provider 和必要的工具替身。
+
+只有 candidate 三次均触发 `failed: true`、baseline 三次均为 `failed: false` 时才会创建 `confirmed` 缺陷；没有稳定差异时登记为 `rejected`。`test/fixtures/harness-defect/` 仅用于验证 fixture 协议和执行器，不是实际 Pi 缺陷。
+
+`examples/harness-fixtures/pi-tool-free/` 是一个可直接运行的真实 Pi fixture。它启动固定的 OpenAI 兼容流式 provider，在临时目录中以隔离配置运行 Pi，并将 `--mode json` 输出作为 trace。该示例的候选和基线都符合“无 tool call 时不得执行工具”，因此用来演示真实运行得到 `rejected`，不代表一个 Pi 缺陷：
+
+```bash
+npm run harness:defects -- replay --fixture examples/harness-fixtures/pi-tool-free/fixture.json
+```
+
 ## 完整详情读取与诊断预算
 
 会话详情、`compact/turns/trace/audit` 外部 view 和 Markdown 导出都完整读取当前 JSONL 文件，不存在按文件字节数或事件数将详情降级为空正文、`complete: false` 或 Markdown `413` 的产品分支。读取前后仍校验文件签名（路径、大小、修改/创建时间）；文件在读取或派生期间变化时，详情不会把旧内容当作最新内容，而是返回可恢复的 `session_file_changed` 状态，Markdown 返回 `409`。浏览器切换会话或数据源会取消旧详情和 Markdown 请求；HTTP 客户端断连同样会传到服务端 JSONL 流。服务进程中的详情、compact 子会话、单条原始事件和分页诊断共用读取并发闸门。
