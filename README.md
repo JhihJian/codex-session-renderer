@@ -20,6 +20,15 @@ HARNESS_DEFECT_LAB_ROOT=/tmp/harness-real-pi-json-exit-status npm start
 
 页面以验证关口组织候选和缺陷：先显示当前结论、下一步、可读规则与确认关口，再按需展开冻结哈希、执行轨迹和重放命令。页面不会运行 fixture、调用 subagent 或修改登记簿。
 
+用户反馈复盘页面位于 [`/review-contexts.html`](./public/review-contexts.html)。它只收集用户在此前交付后发出的明确纠正，原样展示用户原话、原始任务、此前助手交付与关联工具记录，不会自动将其判为 Harness 缺陷。先冻结并扫描一个会话：
+
+```bash
+npm run harness:defects -- review-contexts \
+  --source ~/.pi/agent/sessions/<project>/<session>.jsonl \
+  --source-id pi-agent \
+  --session <session-id>
+```
+
 `npm run harness:defects` 将历史 Pi 会话线索送入追加式哈希链账本。普通 `replay` 仅用于诊断，不能创建确认结论。`confirmed` 只能由决策器在两个相互独立的可信 sandbox epoch 中分别完成 candidate/baseline 三次执行、冻结来源/契约/谓词/fixture/runtime、并取得盲审接受后写入。没有外部可信 sandbox backend 时流程会显式停在 `blocked`。
 
 本地闭环如下：
