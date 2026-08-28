@@ -164,16 +164,20 @@ async function providerObservation(members, registry) {
   const representative = [...members].sort((left, right) => left.eventIndex - right.eventIndex)[0];
   const archive = registry.archives.find((item) => item.id === representative.archiveId);
   let detection = representative.detection || null;
-  if (!detection?.errorMessage && archive?.archivePath) {
+  let errorRecord = null;
+  let precedingRecord = null;
+  if (archive?.archivePath) {
     try {
       const event = await readJsonlLine(archive.archivePath, representative.eventIndex);
       const message = event?.type === "message" ? event.message : null;
       const previous = representative.eventIndex > 0 ? await readJsonlLine(archive.archivePath, representative.eventIndex - 1) : null;
-      detection = { ...detection, errorMessage: String(message?.errorMessage || message?.error_message || message?.error?.message || "模型服务返回错误，但归档未保留错误详情。"), provider: message?.provider || null, model: message?.model || null, api: message?.api || null, responseId: message?.responseId || null, precedingEvent: summarizePrecedingEvent(previous), observedAt: event?.timestamp || message?.timestamp || null, exitStatusEvidence: "absent" };
-    } catch { detection = { ...detection, errorMessage: "模型服务返回错误，但归档未保留错误详情。", exitStatusEvidence: "absent" }; }
+      errorRecord = projectErrorRecord(event);
+      precedingRecord = projectPrecedingRecord(previous);
+      detection = { ...detection, errorMessage: detection?.errorMessage || String(message?.errorMessage || message?.error_message || message?.error?.message || "模型服务返回错误，但归档未保留错误详情。"), provider: detection?.provider || message?.provider || null, model: detection?.model || message?.model || null, api: detection?.api || message?.api || null, responseId: detection?.responseId || message?.responseId || null, precedingEvent: summarizePrecedingEvent(previous), observedAt: detection?.observedAt || event?.timestamp || message?.timestamp || null, exitStatusEvidence: "absent" };
+    } catch { detection = { ...detection, errorMessage: detection?.errorMessage || "模型服务返回错误，但归档未保留错误详情。", exitStatusEvidence: "absent" }; }
   }
   const errorMessage = String(detection?.errorMessage || "模型服务返回错误，但归档未保留错误详情。").trim();
-  return { archive, detection, errorMessage, fingerprint: fingerprintError(errorMessage), members, representative };
+  return { archive, detection, errorMessage, errorRecord, precedingRecord, fingerprint: fingerprintError(errorMessage), members, representative };
 }
 
 // Classification is deliberately explicit so the page never promotes raw observations into a Harness claim.
@@ -200,7 +204,7 @@ function providerCase(fingerprint, observations, registry) {
     detection: { ...first.detection, exitStatusEvidence: "absent", occurrenceCount: physicalCount },
     memberCount: physicalCount,
     workflow: externalService ? { label: "外部服务异常", nextStep: "该记录归类为 OpenAI HTTP 服务响应，不进入 Harness 缺陷验证。", reason: null } : contextMissing ? { label: "上下文不足", nextStep: "需要关联 Provider 或网关的请求追踪，当前归档不能归因。", reason: null } : { label: "待核实", nextStep: "需要采集同一条件下的 CLI 进程退出码。", reason: null },
-    case: { errorMessage: first.errorMessage, sourceCount, physicalCount, providers, models, api: first.detection?.api || null, responseId: first.detection?.responseId || null, precedingEvent: first.detection?.precedingEvent || null, observedAt: first.detection?.observedAt || null, hasErrorDetail, reviewReason: externalService ? `原始内容${httpStatus ? `包含 HTTP ${httpStatus} 响应码` : "指向 OpenAI 服务错误"}；该记录归类为外部服务异常。` : contextMissing ? "原始事件只记录了 stream_read_error，没有 Provider 响应、传输原因或进程退出码。" : "原始会话记录到 assistant 最终状态为 error；同一归档没有对应的 CLI 进程退出码。", reviewQuestion: externalService ? "是否需要在外部服务监控或供应商支持渠道继续跟进？" : contextMissing ? "能否用 response ID 关联 Provider 或网关日志，补齐流读取失败的原始原因？" : "在相同调用条件下，CLI 进程以何种退出码结束？" },
+    case: { errorMessage: first.errorMessage, sourceCount, physicalCount, providers, models, api: first.detection?.api || null, responseId: first.detection?.responseId || null, precedingEvent: first.detection?.precedingEvent || null, errorRecord: first.errorRecord, precedingRecord: first.precedingRecord, observedAt: first.detection?.observedAt || null, hasErrorDetail, reviewReason: externalService ? `原始内容${httpStatus ? `包含 HTTP ${httpStatus} 响应码` : "指向 OpenAI 服务错误"}；该记录归类为外部服务异常。` : contextMissing ? "原始事件只记录了 stream_read_error，没有 Provider 响应、传输原因或进程退出码。" : "原始会话记录到 assistant 最终状态为 error；同一归档没有对应的 CLI 进程退出码。", reviewQuestion: externalService ? "是否需要在外部服务监控或供应商支持渠道继续跟进？" : contextMissing ? "能否用 response ID 关联 Provider 或网关日志，补齐流读取失败的原始原因？" : "在相同调用条件下，CLI 进程以何种退出码结束？" },
   };
   return { id: candidate.id, candidate, archive: first.archive ? projectArchive(first.archive) : null, reproduction: null, reproductions: [], evidence: [], reviews: [], timeline: [] };
 }
@@ -209,6 +213,10 @@ function fingerprintError(value) { return createHash("sha256").update(String(val
 function shortError(value) { const normalized = String(value).replace(/\s+/g, " ").trim(); return normalized.length > 92 ? `${normalized.slice(0, 89)}...` : normalized; }
 function externalHttpStatus(value) { const match = String(value).match(/^(?:OpenAI API error \()?([45]\d{2})(?:\)|\s*:)/i); return match ? Number(match[1]) : null; }
 function summarizePrecedingEvent(event) { const message = event?.message; if (message?.role === "toolResult") return `上一事件：工具 ${message.toolName || "unknown"} 返回${message.isError ? "错误" : "成功"}。`; return event?.type ? `上一事件：${event.type}。` : "上一事件未保留。"; }
+// This is a faithful, bounded projection of the source event fields relevant to an error review.
+// eslint-disable-next-line complexity
+function projectErrorRecord(event) { const message = event?.message || {}; return { type: event?.type || null, timestamp: event?.timestamp || message.timestamp || null, role: message.role || null, api: message.api || null, provider: message.provider || null, model: message.model || null, stopReason: message.stopReason || message.stop_reason || null, responseId: message.responseId || null, errorMessage: message.errorMessage || message.error_message || message.error?.message || null }; }
+function projectPrecedingRecord(event) { const message = event?.message || {}; return { type: event?.type || null, timestamp: event?.timestamp || message.timestamp || null, role: message.role || null, toolName: message.toolName || null, toolCallId: message.toolCallId || null, isError: message.isError ?? null }; }
 
 function summarizeCandidateForDetail(candidate, registry) {
   const group = legacyProviderErrorGroup(candidate, registry);
