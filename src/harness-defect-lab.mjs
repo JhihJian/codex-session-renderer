@@ -105,7 +105,7 @@ function createHarnessDefectLab(options = {}) {
       const prior = known.get(dedupeKey);
       if (prior) { candidates.push(prior); continue; }
       const now = new Date().toISOString();
-      const candidate = { id: `C-${randomUUID()}`, archiveId: archive.id, eventIndex: index, eventType: text(item.eventType || "discovered", "eventType"), observation: text(item.observation, "observation"), suspectedRule: text(item.suspectedRule, "suspectedRule"), detectorId, detectorVersion, dedupeKey, sourceHash: archive.sha256, status: "candidate", createdAt: now, updatedAt: now, supersedes: null };
+      const candidate = { id: `C-${randomUUID()}`, archiveId: archive.id, eventIndex: index, eventType: text(item.eventType || "discovered", "eventType"), observation: text(item.observation, "observation"), suspectedRule: text(item.suspectedRule, "suspectedRule"), detectorId, detectorVersion, dedupeKey, sourceHash: archive.sha256, detection: item.evidence || null, status: "candidate", createdAt: now, updatedAt: now, supersedes: null };
       known.set(dedupeKey, candidate); created.push(candidate); candidates.push(candidate);
     }
     await ledger.appendMany(created.map((candidate) => ({ type: "candidate_created", candidateId: candidate.id, payload: candidate })));

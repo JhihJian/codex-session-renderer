@@ -40,3 +40,39 @@ test("Harness 登记簿投影提供面向验证工作的状态、原因和执行
   assert.equal(detail.reproductions[0].trust, "trusted_executor");
   assert.equal(detail.reproductions[0].epochId, "epoch-1");
 });
+
+test("登记簿概览将同源的旧版 provider error 记录收束为一个待验证线索", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "harness-registry-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const candidates = [4, 8, 12].map((eventIndex) => ({
+    id: `C-${eventIndex}`,
+    archiveId: "A-1",
+    sourceHash: "a".repeat(64),
+    detectorId: "provider-error-exit-status",
+    detectorVersion: "1",
+    status: "candidate",
+    observation: "会话记录了 provider 错误，需验证非交互模式的退出状态。",
+    suspectedRule: "最终 assistant 为 error 时，非交互输出必须返回非零退出码。",
+    eventIndex,
+  }));
+  await fs.writeFile(path.join(root, "registry.json"), JSON.stringify({
+    version: 2,
+    archives: [{ id: "A-1", sourceId: "pi-agent", sessionId: "session-1", sha256: "a".repeat(64) }],
+    candidates,
+    reproductions: [],
+    defects: [],
+    evidence: [],
+    reviews: [],
+    timeline: [],
+  }), "utf8");
+
+  const reader = createHarnessDefectRegistryReader({ rootDir: root });
+  const overview = await reader.readOverview();
+  assert.equal(overview.candidates.length, 1);
+  assert.equal(overview.candidates[0].memberCount, 3);
+  assert.match(overview.candidates[0].observation, /未记录非交互进程退出码/);
+
+  const detail = await reader.readCandidate("C-8", overview.revision);
+  assert.equal(detail.candidate.memberCount, 3);
+  assert.equal(detail.candidate.detection.exitStatusEvidence, "absent");
+});

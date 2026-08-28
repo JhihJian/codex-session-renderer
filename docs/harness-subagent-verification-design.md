@@ -80,15 +80,15 @@ candidate
 ```json
 {
   "detectorId": "provider-error-exit-status",
-  "detectorVersion": "1",
+  "detectorVersion": "2",
   "sourceSha256": "...",
   "eventCoordinate": { "logicalIndex": 23 },
   "observation": "...",
-  "dedupeKey": "sha256(source,event,detector,version)"
+  "dedupeKey": "sha256(source,detector,version)"
 }
 ```
 
-首批规则仅覆盖重复 tool call、缺失 tool result、异常退出码、取消后执行与上下文投影不变量。文本风险词只用于排序，不能产生 `evidence_ready`。
+首批规则仅覆盖重复 tool call、缺失 tool result、异常退出码、取消后执行与上下文投影不变量。`provider-error-exit-status` 是会话级待验证线索：仅在终态 assistant 为 `error` 时产生一条候选，并明确归档未提供非交互进程退出码。它不是已确认的退出码异常。其他事件级规则仍以事件坐标去重。文本风险词只用于排序，不能产生 `evidence_ready`。
 
 ### 证据冻结器
 

@@ -57,8 +57,8 @@ test("scan-all 覆盖所有 JSONL、汇总命中并在重复扫描时去重", as
   const sessions = path.join(root, "sessions");
   const labPath = path.join(root, "lab");
   await fs.mkdir(path.join(sessions, "nested"), { recursive: true });
-  await fs.writeFile(path.join(sessions, "first.jsonl"), '{"message":{"stopReason":"error"}}\n', "utf8");
-  await fs.writeFile(path.join(sessions, "nested", "second.jsonl"), '{"message":{"stopReason":"error"}}\ninvalid\n', "utf8");
+  await fs.writeFile(path.join(sessions, "first.jsonl"), '{"type":"message","message":{"role":"assistant","stopReason":"error"}}\n', "utf8");
+  await fs.writeFile(path.join(sessions, "nested", "second.jsonl"), '{"type":"message","message":{"role":"assistant","stopReason":"error"}}\ninvalid\n', "utf8");
 
   const first = await runCli(["scan-all", "--lab", labPath, "--root", sessions, "--detector", "provider-error-exit-status"]);
   const second = await runCli(["scan-all", "--lab", labPath, "--root", sessions, "--detector", "provider-error-exit-status"]);

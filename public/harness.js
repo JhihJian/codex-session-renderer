@@ -106,7 +106,8 @@ function renderRow(item) {
   const title = item.title || item.observation || item.id;
   const workflow = item.workflow?.label || statusLabels[item.status] || item.status;
   const source = item.source?.sessionId || item.candidateId || item.id;
-  return `<button class="queue-row ${state.selected === item.id ? "active" : ""}" type="button" data-id="${esc(item.id)}" aria-current="${state.selected === item.id ? "true" : "false"}"><span class="queue-row-title">${esc(title)}</span><span class="queue-row-meta">${statusBadge(item.status, workflow)}<span title="${esc(source)}">${esc(source)}</span></span></button>`;
+  const context = item.memberCount ? `${item.memberCount} 条同源记录` : source;
+  return `<button class="queue-row ${state.selected === item.id ? "active" : ""}" type="button" data-id="${esc(item.id)}" aria-current="${state.selected === item.id ? "true" : "false"}"><span class="queue-row-title">${esc(title)}</span><span class="queue-row-meta">${statusBadge(item.status, workflow)}<span title="${esc(source)}">${esc(context)}</span></span></button>`;
 }
 
 function empty(title, copy) {
@@ -210,12 +211,18 @@ function renderTechnical(data, command) {
   const reproduction = data.reproduction;
   const reviews = data.reviews || [];
   const evidence = data.evidence || [];
+  const detection = candidate.detection;
   return `<details class="technical"><summary>查看技术证据与重放细节</summary>
-    <section class="technical-section"><h3>冻结来源</h3><div class="technical-grid"><dl><dt>来源会话</dt><dd>${esc(formatSource(data.archive, candidate.source))}</dd></dl><dl><dt>来源事件</dt><dd>${candidate.eventIndex === undefined ? "未记录" : `第 ${esc(candidate.eventIndex)} 条事件（${esc(candidate.eventType || "未知类型")}）`}</dd></dl><dl><dt>归档 SHA-256</dt><dd><code class="code">${esc(data.archive?.sha256 || candidate.source?.sha256 || "未记录")}</code></dd></dl></div><p class="source-note">归档副本是证据真相。当前会话发生变化时，不能用它替换该归档。</p></section>
+    <section class="technical-section"><h3>冻结来源</h3><div class="technical-grid"><dl><dt>来源会话</dt><dd>${esc(formatSource(data.archive, candidate.source))}</dd></dl><dl><dt>来源事件</dt><dd>${candidate.eventIndex === undefined ? "未记录" : `第 ${esc(candidate.eventIndex)} 条事件（${esc(candidate.eventType || "未知类型")}）`}</dd></dl><dl><dt>归档 SHA-256</dt><dd><code class="code">${esc(data.archive?.sha256 || candidate.source?.sha256 || "未记录")}</code></dd></dl>${detection ? `<dl><dt>发现范围</dt><dd>${esc(formatDetection(detection))}</dd></dl>` : ""}</div><p class="source-note">归档副本是证据真相。当前会话发生变化时，不能用它替换该归档。</p></section>
     <section class="technical-section"><h3>证据与审查</h3><div class="technical-grid"><dl><dt>冻结证据</dt><dd>${esc(evidence.length ? evidence.map((item) => item.kind).join("、") : "尚无冻结证据")}</dd></dl><dl><dt>盲审结论</dt><dd>${esc(reviews.length ? reviews.map((item) => item.conclusion).join("；") : "尚无盲审回执")}</dd></dl></div></section>
     ${reproduction ? renderReproduction(reproduction) : ""}
     ${command ? `<section class="technical-section"><h3>重放命令</h3><code class="code">${esc(command)}</code></section>` : ""}
   </details>`;
+}
+
+function formatDetection(detection) {
+  if (detection.exitStatusEvidence === "absent") return `观察到 ${detection.occurrenceCount || 1} 个终态错误，归档未含进程退出码。`;
+  return JSON.stringify(detection);
 }
 
 function renderReproduction(reproduction) {

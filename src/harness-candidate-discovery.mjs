@@ -5,7 +5,7 @@ import readline from "node:readline";
 const detectorDefinitions = [
   { id: "duplicate-tool-call", version: "1", create: duplicateToolCallDetector },
   { id: "missing-tool-result", version: "1", create: missingToolResultDetector },
-  { id: "provider-error-exit-status", version: "1", create: providerErrorExitStatusDetector },
+  { id: "provider-error-exit-status", version: "2", create: providerErrorExitStatusDetector },
   { id: "cancelled-after-execution", version: "1", create: cancelledAfterExecutionDetector },
   { id: "context-projection-invariant", version: "1", create: contextProjectionInvariantDetector },
 ];
@@ -63,15 +63,34 @@ function missingToolResultDetector() {
   return { observe(index, value) { for (const id of toolCallIds(value)) calls.set(id, index); for (const id of toolResultIds(value)) calls.delete(id); }, finish: () => [...calls].map(([id, eventIndex]) => ({ eventIndex, observation: `工具调用 ${id} 未找到对应结果。`, suspectedRule: "每个 tool call 必须有对应 tool result。", evidence: { toolCallId: id } })) };
 }
 
-function providerErrorExitStatusDetector() { const matches = []; return { observe(index, value) { if (hasProviderError(value)) matches.push({ eventIndex: index, observation: "会话记录了 provider 错误，需验证非交互模式的退出状态。", suspectedRule: "最终 assistant 为 error 时，非交互输出必须返回非零退出码。", evidence: { stopReason: "error" } }); }, finish: () => matches }; }
+function providerErrorExitStatusDetector() {
+  let firstEventIndex = null;
+  let lastEventIndex = null;
+  let occurrenceCount = 0;
+  return {
+    observe(index, value) {
+      if (!isTerminalAssistantProviderError(value)) return;
+      if (firstEventIndex === null) firstEventIndex = index;
+      lastEventIndex = index;
+      occurrenceCount += 1;
+    },
+    finish: () => firstEventIndex === null ? [] : [{
+      eventIndex: firstEventIndex,
+      observation: `归档中观察到 ${occurrenceCount} 个最终 assistant provider error；归档未记录非交互进程退出码。`,
+      suspectedRule: "当最终 assistant 为 error 时，受控非交互执行必须返回非零退出码。",
+      evidence: { firstEventIndex, lastEventIndex, occurrenceCount, exitStatusEvidence: "absent" },
+      dedupeScope: "source",
+    }],
+  };
+}
 function cancelledAfterExecutionDetector() { let cancelledAt = null; const matches = []; return { observe(index, value) { if (cancelledAt !== null && toolCallIds(value).length) matches.push({ eventIndex: index, observation: "取消后仍出现工具执行请求。", suspectedRule: "取消后的会话不得继续执行工具。", evidence: { cancelledAt, executionAt: index } }); if (isCancelled(value)) cancelledAt = index; }, finish: () => matches }; }
 function contextProjectionInvariantDetector() { const matches = []; return { observe(index, value) { if (hasContextMismatch(value)) matches.push({ eventIndex: index, observation: "上下文投影声明的消息数量与实际消息数量不一致。", suspectedRule: "上下文投影计数必须与事件中的消息数一致。", evidence: projectionCounts(value) }); }, finish: () => matches }; }
 
-function draft(detector, sourceHash, match) { return { detectorId: detector.id, detectorVersion: detector.version, sourceHash, eventIndex: match.eventIndex, eventType: "discovered", observation: match.observation, suspectedRule: match.suspectedRule, evidence: match.evidence, dedupeKey: sha256(`${sourceHash}:${match.eventIndex}:${detector.id}:${detector.version}`) }; }
+function draft(detector, sourceHash, match) { const coordinate = match.dedupeScope === "source" ? "source" : match.eventIndex; return { detectorId: detector.id, detectorVersion: detector.version, sourceHash, eventIndex: match.eventIndex, eventType: "discovered", observation: match.observation, suspectedRule: match.suspectedRule, evidence: match.evidence, dedupeKey: sha256(`${sourceHash}:${coordinate}:${detector.id}:${detector.version}`) }; }
 function toolCallIds(value) { return ids(value, ["toolCallId", "tool_call_id", "call_id"], ["tool_call", "toolCall", "function_call"]); }
 function toolResultIds(value) { return ids(value, ["toolCallId", "tool_call_id", "call_id"], ["tool_result", "toolResult", "function_result"]); }
 function ids(value, keys, types) { const found = []; walk(value, (item) => { if (item && typeof item === "object" && types.includes(String(item.type || item.kind || ""))) for (const key of keys) if (typeof item[key] === "string") found.push(item[key]); }); return found; }
-function hasProviderError(value) { let found = false; walk(value, (item) => { if (item && typeof item === "object" && String(item.stopReason || item.stop_reason || "") === "error") found = true; }); return found; }
+function isTerminalAssistantProviderError(value) { const message = value?.type === "message" ? value.message : null; return message?.role === "assistant" && String(message.stopReason || message.stop_reason || "") === "error"; }
 function isCancelled(value) { let found = false; walk(value, (item) => { if (item && typeof item === "object" && ["aborted", "cancelled", "canceled"].includes(String(item.stopReason || item.stop_reason || item.status || "").toLowerCase())) found = true; }); return found; }
 function hasContextMismatch(value) { const counts = projectionCounts(value); return Number.isSafeInteger(counts?.projected) && Number.isSafeInteger(counts?.actual) && counts.projected !== counts.actual; }
 function projectionCounts(value) { if (!value || typeof value !== "object") return null; const projected = value.contextMessageCount ?? value.context_message_count; const actual = Array.isArray(value.contextMessages) ? value.contextMessages.length : Array.isArray(value.context_messages) ? value.context_messages.length : undefined; return { projected, actual }; }

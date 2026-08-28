@@ -21,7 +21,7 @@ function createHarnessDefectRegistryReader(options = {}) {
         reproductions: registry.reproductions.length,
         defects: registry.defects.length,
       },
-      candidates: registry.candidates.map((candidate) => summarizeCandidate(candidate, registry)),
+      candidates: summarizeOverviewCandidates(registry),
       defects: registry.defects.map((defect) => summarizeDefect(defect, registry)),
       timeline: (registry.timeline || []).map(projectTimeline),
     };
@@ -35,7 +35,7 @@ function createHarnessDefectRegistryReader(options = {}) {
     const reproduction = loaded.registry.reproductions.find((item) => item.candidateId === candidate.id) || null;
     return {
       revision: loaded.revision,
-      candidate: summarizeCandidate(candidate, loaded.registry),
+      candidate: summarizeCandidateForDetail(candidate, loaded.registry),
       archive: archive ? projectArchive(archive) : null,
       reproduction: reproduction ? projectReproduction(reproduction) : null,
       defect: loaded.registry.defects.find((item) => item.candidateId === candidate.id) || null,
@@ -111,12 +111,58 @@ function summarizeCandidate(candidate, registry) {
     suspectedRule: candidate.suspectedRule,
     eventIndex: candidate.eventIndex,
     eventType: candidate.eventType || "unknown",
+    detectorId: candidate.detectorId || null,
+    detectorVersion: candidate.detectorVersion || null,
+    detection: candidate.detection || null,
     source: archive ? { sourceId: archive.sourceId, sessionId: archive.sessionId, sha256: archive.sha256 } : null,
     reproductionId: reproduction?.id || null,
     reason: candidate.reason || null,
     workflow: projectWorkflow(candidate.status, candidate.reason),
     createdAt: candidate.createdAt,
     updatedAt: candidate.updatedAt,
+  };
+}
+
+function summarizeOverviewCandidates(registry) {
+  const groupedSources = new Set();
+  const summaries = [];
+  for (const candidate of registry.candidates) {
+    const group = legacyProviderErrorGroup(candidate, registry);
+    if (!group) {
+      summaries.push(summarizeCandidate(candidate, registry));
+      continue;
+    }
+    const groupKey = group[0].sourceHash;
+    if (groupedSources.has(groupKey)) continue;
+    groupedSources.add(groupKey);
+    summaries.push(summarizeLegacyProviderErrorGroup(group, registry));
+  }
+  return summaries;
+}
+
+function summarizeCandidateForDetail(candidate, registry) {
+  const group = legacyProviderErrorGroup(candidate, registry);
+  return group ? summarizeLegacyProviderErrorGroup(group, registry) : summarizeCandidate(candidate, registry);
+}
+
+function legacyProviderErrorGroup(candidate, registry) {
+  if (candidate.detectorId !== "provider-error-exit-status" || candidate.detectorVersion !== "1" || candidate.status !== "candidate") return null;
+  const members = registry.candidates
+    .filter((item) => item.detectorId === candidate.detectorId && item.detectorVersion === candidate.detectorVersion && item.sourceHash === candidate.sourceHash && item.status === "candidate")
+    .sort((left, right) => left.eventIndex - right.eventIndex);
+  return members.length > 1 ? members : null;
+}
+
+function summarizeLegacyProviderErrorGroup(members, registry) {
+  const representative = members[0];
+  const firstEventIndex = representative.eventIndex;
+  const lastEventIndex = members.at(-1).eventIndex;
+  return {
+    ...summarizeCandidate(representative, registry),
+    observation: `同一归档包含 ${members.length} 条 provider error 历史记录；归档未记录非交互进程退出码。`,
+    suspectedRule: "当最终 assistant 为 error 时，受控非交互执行必须返回非零退出码。",
+    detection: { firstEventIndex, lastEventIndex, occurrenceCount: members.length, exitStatusEvidence: "absent", legacyGrouped: true },
+    memberCount: members.length,
   };
 }
 
