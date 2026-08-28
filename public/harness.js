@@ -1,8 +1,9 @@
 const state = { kind: "candidates", data: null, selected: null, status: "all" };
 const $ = (id) => document.getElementById(id);
 
-const statusOrder = ["unassessed", "candidate", "evidence_ready", "assertion_ready", "fixture_ready", "reproduced", "independently_replicated", "blocked", "inconclusive", "rejected", "confirmed"];
+const statusOrder = ["external", "unassessed", "candidate", "evidence_ready", "assertion_ready", "fixture_ready", "reproduced", "independently_replicated", "blocked", "inconclusive", "rejected", "confirmed"];
 const statusLabels = {
+  external: "外部服务异常",
   unassessed: "影响待判定",
   candidate: "待冻结证据",
   evidence_ready: "待形成断言",
@@ -76,10 +77,10 @@ function render() {
   renderStatusFilters();
   const items = filteredItems();
   const total = currentItems().length;
-  $("queueHeading").textContent = state.kind === "candidates" ? "按验证关口处理" : "确认结论已通过全部关口";
+  $("queueHeading").textContent = state.kind === "candidates" ? "按验证关口处理" : state.kind === "externalErrors" ? "不进入 Harness 缺陷验证的 HTTP 服务响应" : "确认结论已通过全部关口";
   $("counts").textContent = state.status === "all" ? `共 ${total} 项` : `显示 ${items.length} / ${total} 项`;
-  $("listScope").textContent = state.kind === "candidates" ? "候选线索" : "确认结论";
-  $("listHeading").textContent = state.kind === "candidates" ? "等待核查" : "已确认缺陷";
+  $("listScope").textContent = state.kind === "candidates" ? "候选线索" : state.kind === "externalErrors" ? "外部依赖" : "确认结论";
+  $("listHeading").textContent = state.kind === "candidates" ? "等待核查" : state.kind === "externalErrors" ? "外部服务异常" : "已确认缺陷";
   $("list").innerHTML = items.length ? items.map(renderRow).join("") : empty("当前没有匹配项", "调整状态筛选或搜索条件后再查看。");
   document.querySelectorAll(".queue-row").forEach((button) => {
     button.addEventListener("click", () => { void detail(button.dataset.id); });
@@ -89,7 +90,7 @@ function render() {
 
 function renderStatusFilters() {
   const items = currentItems();
-  if (state.kind === "defects") {
+  if (state.kind === "defects" || state.kind === "externalErrors") {
     $("statusFilters").innerHTML = `<p class="queue-context">确认结论保留在此处，便于回看已通过的验证证据。</p>`;
     return;
   }
@@ -119,7 +120,8 @@ function empty(title, copy) {
 
 async function detail(id) {
   const revision = state.data.revision;
-  const response = await fetch(`/api/harness/${state.kind}/${encodeURIComponent(id)}?revision=${encodeURIComponent(revision)}`);
+  const routeKind = state.kind === "externalErrors" ? "candidates" : state.kind;
+  const response = await fetch(`/api/harness/${routeKind}/${encodeURIComponent(id)}?revision=${encodeURIComponent(revision)}`);
   if (response.status === 409) {
     await load();
     return;

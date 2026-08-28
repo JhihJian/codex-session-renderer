@@ -14,6 +14,8 @@ function createHarnessDefectRegistryReader(options = {}) {
     const loaded = await readRegistry();
     if (loaded.state !== "ready") return loaded;
     const { registry, revision } = loaded;
+    const cases = await providerErrorCases(registry, revision, providerCaseCache);
+    const externalErrors = cases.filter((item) => item.candidate.category === "external_service").map((item) => item.candidate);
     return {
       state: "ready",
       revision,
@@ -22,8 +24,10 @@ function createHarnessDefectRegistryReader(options = {}) {
         candidates: registry.candidates.length,
         reproductions: registry.reproductions.length,
         defects: registry.defects.length,
+        externalErrors: externalErrors.length,
       },
-      candidates: await summarizeOverviewCandidates(registry, revision, providerCaseCache),
+      candidates: [...cases.filter((item) => item.candidate.category !== "external_service").map((item) => item.candidate), ...registry.candidates.filter((candidate) => candidate.detectorId !== "provider-error-exit-status").map((candidate) => summarizeCandidate(candidate, registry))],
+      externalErrors,
       defects: registry.defects.map((defect) => summarizeDefect(defect, registry)),
       timeline: (registry.timeline || []).map(projectTimeline),
     };
@@ -128,12 +132,6 @@ function summarizeCandidate(candidate, registry) {
   };
 }
 
-async function summarizeOverviewCandidates(registry, revision, cache) {
-  const ordinary = registry.candidates.filter((candidate) => candidate.detectorId !== "provider-error-exit-status").map((candidate) => summarizeCandidate(candidate, registry));
-  const cases = await providerErrorCases(registry, revision, cache);
-  return [...cases.map((item) => item.candidate), ...ordinary];
-}
-
 async function providerErrorCases(registry, revision, cache) {
   if (cache.has(revision)) return cache.get(revision);
   const work = buildProviderErrorCases(registry);
@@ -184,18 +182,20 @@ function providerCase(fingerprint, observations, registry) {
   const providers = [...new Set(observations.map((item) => item.detection?.provider).filter(Boolean))];
   const models = [...new Set(observations.map((item) => item.detection?.model).filter(Boolean))];
   const hasErrorDetail = first.errorMessage !== "模型服务返回错误，但归档未保留错误详情。";
+  const externalService = /^OpenAI API error \(\d{3}\)/i.test(first.errorMessage);
   const headline = shortError(first.errorMessage);
   const candidate = {
     ...summarizeCandidate(first.representative, registry),
     id: `P-${fingerprint.slice(0, 16)}`,
     title: headline,
-    status: "unassessed",
+    status: externalService ? "external" : "unassessed",
+    category: externalService ? "external_service" : "harness_review",
     observation: first.errorMessage,
     suspectedRule: "归档记录到 assistant 终态为 error，但未记录 CLI 进程退出码。",
     detection: { ...first.detection, exitStatusEvidence: "absent", occurrenceCount: physicalCount },
     memberCount: physicalCount,
-    workflow: { label: "待核实", nextStep: "需要采集同一条件下的 CLI 进程退出码。", reason: null },
-    case: { errorMessage: first.errorMessage, sourceCount, physicalCount, providers, models, observedAt: first.detection?.observedAt || null, hasErrorDetail, reviewReason: "原始会话记录到 assistant 最终状态为 error；同一归档没有对应的 CLI 进程退出码。", reviewQuestion: "在相同调用条件下，CLI 进程以何种退出码结束？" },
+    workflow: externalService ? { label: "外部服务异常", nextStep: "该记录归类为 OpenAI HTTP 服务响应，不进入 Harness 缺陷验证。", reason: null } : { label: "待核实", nextStep: "需要采集同一条件下的 CLI 进程退出码。", reason: null },
+    case: { errorMessage: first.errorMessage, sourceCount, physicalCount, providers, models, observedAt: first.detection?.observedAt || null, hasErrorDetail, reviewReason: externalService ? "原始内容包含 OpenAI API HTTP 响应码；该记录归类为外部服务异常。" : "原始会话记录到 assistant 最终状态为 error；同一归档没有对应的 CLI 进程退出码。", reviewQuestion: externalService ? "是否需要在外部服务监控或供应商支持渠道继续跟进？" : "在相同调用条件下，CLI 进程以何种退出码结束？" },
   };
   return { id: candidate.id, candidate, archive: first.archive ? projectArchive(first.archive) : null, reproduction: null, reproductions: [], evidence: [], reviews: [], timeline: [] };
 }
