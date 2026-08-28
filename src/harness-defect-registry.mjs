@@ -157,7 +157,7 @@ async function buildProviderErrorCases(registry) {
   }
   return [...byError.entries()]
     .map(([fingerprint, group]) => providerCase(fingerprint, group, registry))
-    .sort((left, right) => right.candidate.case.physicalCount - left.candidate.case.physicalCount || left.candidate.title.localeCompare(right.candidate.title, "zh-CN"));
+    .sort((left, right) => Number(right.candidate.case.hasErrorDetail) - Number(left.candidate.case.hasErrorDetail) || right.candidate.case.physicalCount - left.candidate.case.physicalCount || left.candidate.title.localeCompare(right.candidate.title, "zh-CN"));
 }
 
 // Legacy archives may need a single source event read to recover the user-facing error context.
@@ -183,6 +183,7 @@ function providerCase(fingerprint, observations, registry) {
   const sourceCount = observations.length;
   const providers = [...new Set(observations.map((item) => item.detection?.provider).filter(Boolean))];
   const models = [...new Set(observations.map((item) => item.detection?.model).filter(Boolean))];
+  const hasErrorDetail = first.errorMessage !== "模型服务返回错误，但归档未保留错误详情。";
   const headline = `Provider 请求被拒绝：${shortError(first.errorMessage)}`;
   const candidate = {
     ...summarizeCandidate(first.representative, registry),
@@ -194,7 +195,7 @@ function providerCase(fingerprint, observations, registry) {
     detection: { ...first.detection, exitStatusEvidence: "absent", occurrenceCount: physicalCount },
     memberCount: physicalCount,
     workflow: { label: "影响待判定", nextStep: "先确认服务拒绝的原因；退出码行为需要受控非交互执行才能判断。", reason: null },
-    case: { errorMessage: first.errorMessage, sourceCount, physicalCount, providers, models, meaning: "模型服务拒绝了请求，因此该次会话未获得模型响应。", impact: `已在 ${sourceCount} 份归档会话中观察到；是否影响脚本、CI 或编排器仍取决于未采集的进程退出码。` },
+    case: { errorMessage: first.errorMessage, sourceCount, physicalCount, providers, models, hasErrorDetail, meaning: "模型服务拒绝了请求，因此该次会话未获得模型响应。", impact: `已在 ${sourceCount} 份归档会话中观察到；是否影响脚本、CI 或编排器仍取决于未采集的进程退出码。` },
   };
   return { id: candidate.id, candidate, archive: first.archive ? projectArchive(first.archive) : null, reproduction: null, reproductions: [], evidence: [], reviews: [], timeline: [] };
 }
