@@ -1,3 +1,58 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Harness 缺陷工作台</title><link rel="stylesheet" href="./harness.css"></head>
-<body><main class="shell"><header><a href="./">会话工作台</a><div><p>HARNESS REGISTRY</p><h1>候选与缺陷</h1></div><button id="refresh">刷新</button></header><section class="toolbar"><div role="tablist"><button class="tab active" data-kind="candidates">候选</button><button class="tab" data-kind="defects">缺陷</button></div><input id="search" type="search" placeholder="搜索 ID、规则、会话..."/><select id="status"><option value="all">全部状态</option><option value="candidate">候选</option><option value="confirmed">已确认</option><option value="rejected">已驳回</option></select><span id="counts"></span></section><div class="layout"><aside id="list" aria-label="Harness 列表"></aside><section id="detail" tabindex="0" aria-live="polite"></section></div></main><script src="./harness.js"></script></body></html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Harness 缺陷证据登记簿，按验证关口查看候选与已确认缺陷。">
+  <title>Harness 验证工作台</title>
+  <link rel="stylesheet" href="./harness.css">
+</head>
+<body>
+  <a class="skip-link" href="#detail">跳到当前判断</a>
+  <main class="shell">
+    <header class="page-header">
+      <div class="page-heading">
+        <a class="back-link" href="./">会话工作台</a>
+        <p class="eyebrow">质量验证登记簿</p>
+        <h1>Harness 验证工作台</h1>
+        <p class="page-summary">先判断证据是否足够，再查看可复现和可审计的技术细节。</p>
+      </div>
+      <button class="refresh-button" id="refresh" type="button">刷新登记簿</button>
+    </header>
+
+    <section class="queue-overview" aria-labelledby="queueHeading">
+      <div class="queue-heading">
+        <p class="section-label">工作队列</p>
+        <h2 id="queueHeading">按验证关口处理</h2>
+      </div>
+      <div class="queue-filters" id="statusFilters" aria-label="按验证状态筛选"></div>
+    </section>
+
+    <section class="workspace" aria-label="Harness 验证队列">
+      <div class="workspace-toolbar">
+        <div class="kind-tabs" role="tablist" aria-label="登记对象">
+          <button class="kind-tab active" id="candidatesTab" type="button" role="tab" aria-selected="true" aria-controls="list" data-kind="candidates">验证队列</button>
+          <button class="kind-tab" id="defectsTab" type="button" role="tab" aria-selected="false" aria-controls="list" data-kind="defects">已确认缺陷</button>
+        </div>
+        <label class="search-field" for="search">
+          <span class="sr-only">搜索当前列表</span>
+          <input id="search" type="search" placeholder="搜索问题、规则或来源会话">
+        </label>
+        <p class="result-count" id="counts" aria-live="polite"></p>
+      </div>
+
+      <div class="layout">
+        <aside class="queue-list" aria-labelledby="listHeading">
+          <div class="list-heading">
+            <h2 id="listHeading">等待核查</h2>
+            <span id="listScope"></span>
+          </div>
+          <div id="list" aria-label="Harness 列表"></div>
+        </aside>
+        <section class="detail-pane" id="detail" tabindex="-1" aria-live="polite" aria-label="当前验证判断"></section>
+      </div>
+    </section>
+  </main>
+  <script src="./harness.js"></script>
+</body>
+</html>

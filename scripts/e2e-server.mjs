@@ -10,6 +10,7 @@ import { createSnapshotShareHandler } from "../src/snapshot-share.mjs";
 
 const tempRoot = await mkdtemp(path.join(os.tmpdir(), "csr-e2e-"));
 const codexHome = path.join(tempRoot, ".codex");
+const harnessLabRoot = path.join(tempRoot, "harness-defects");
 const sessionDir = path.join(codexHome, "sessions", "isolated");
 const sessionPath = path.join(sessionDir, `rollout-2025-01-02T03-04-05-${sessionId}.jsonl`);
 const codexGoalSessionId = "77777777-7777-4777-8777-777777777777";
@@ -100,6 +101,21 @@ for (let index = 1; index <= 101; index += 1) {
   remoteIndexRows.push(JSON.stringify({ id, thread_name: title, updated_at: "2026-06-27T01:00:00.000Z" }));
 }
 await writeFile(path.join(remoteCodexHome, "session_index.jsonl"), `${remoteIndexRows.join("\n")}\n`, "utf8");
+await mkdir(harnessLabRoot, { recursive: true });
+await writeFile(path.join(harnessLabRoot, "registry.json"), `${JSON.stringify({
+  version: 2,
+  archives: [{ id: "A-harness", sourceId: "pi-agent", sessionId: "harness-session", sha256: "a".repeat(64), createdAt: "2026-08-01T08:00:00.000Z" }],
+  candidates: [
+    { id: "C-fixture", archiveId: "A-harness", status: "fixture_ready", observation: "JSON 模式在 provider 错误后仍以 0 退出。", suspectedRule: "provider 错误必须以非零状态退出。", eventIndex: 12, eventType: "response_item", createdAt: "2026-08-01T08:00:00.000Z", updatedAt: "2026-08-01T08:00:00.000Z" },
+    { id: "C-blocked", archiveId: "A-harness", status: "blocked", reason: "verifiable_sandbox_required", observation: "重复工具调用尚未经过可信复现。", suspectedRule: "同一工具调用只能执行一次。", eventIndex: 24, eventType: "tool_execution_end", createdAt: "2026-08-02T08:00:00.000Z", updatedAt: "2026-08-02T08:00:00.000Z" },
+    { id: "C-confirmed", archiveId: "A-harness", status: "confirmed", observation: "确认的事件计数不变量。", suspectedRule: "工具执行次数必须为 0。", eventIndex: 36, eventType: "tool_execution_end", createdAt: "2026-08-03T08:00:00.000Z", updatedAt: "2026-08-03T08:00:00.000Z" },
+  ],
+  reproductions: [{ id: "R-fixture", candidateId: "C-fixture", trust: "untrusted_legacy_runner", status: "inconclusive", reason: "trusted_executor_required", fixture: { command: "node fixture/run.mjs", predicate: "provider_error_exit", path: "fixture.json" }, comparison: { candidate: { failed: true, runs: [{ failed: true, trace: [{ type: "error" }] }] }, baseline: { failed: false, runs: [{ failed: false, trace: [] }] } } }],
+  defects: [{ id: "H-EXIT-001", title: "JSON 模式错误退出码", candidateId: "C-confirmed", predicate: { id: "no_successful_exit_on_error", type: "event_count", eventType: "tool_execution_end", expected: 0 }, status: "confirmed", decision: { reason: "all_confirmation_gates_passed" }, createdAt: "2026-08-03T08:00:00.000Z" }],
+  evidence: [{ id: "E-assertion", candidateId: "C-confirmed", kind: "assertion", sha256: "b".repeat(64) }, { id: "E-fixture", candidateId: "C-confirmed", kind: "fixture_manifest", sha256: "c".repeat(64) }],
+  reviews: [{ id: "V-1", candidateId: "C-confirmed", decision: "accept", blind: true, recomputedPredicate: true }],
+  timeline: [],
+})}\n`, "utf8");
 
 const remoteServer = createServer(createSnapshotShareHandler({
   config: { codexHome: remoteCodexHome, token: remoteToken },
@@ -139,6 +155,7 @@ process.env.CODEX_REMOTE_TOKEN = remoteToken;
 process.env.CODEX_REMOTE_SOURCES = "";
 process.env.HOST = "127.0.0.1";
 process.env.PORT = process.env.PORT || "4799";
+process.env.HARNESS_DEFECT_LAB_ROOT = harnessLabRoot;
 
 const { startServer } = await import(`${pathToFileURL(path.resolve("server.mjs")).href}?e2e=${Date.now()}`);
 const server = startServer();

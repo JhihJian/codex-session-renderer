@@ -1,10 +1,257 @@
-const state={kind:'candidates',data:null,selected:null};const $=id=>document.getElementById(id);
-async function load(){const q=$('search').value.trim(),status=$('status').value;const r=await fetch(`/api/harness?q=${encodeURIComponent(q)}&status=${encodeURIComponent(status)}`);const body=await r.json();if(!r.ok)throw new Error(body.error||`HTTP ${r.status}`);state.data=body;state.selected=null;render()}
-function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}function badge(v){return `<span class="badge ${esc(v)}">${esc(v)}</span>`}
-function render(){const d=state.data;if(!d||d.state==='missing'){$('list').innerHTML='';$('detail').innerHTML='<div class="empty">尚未创建 Harness 登记簿。使用 CLI 创建候选后会在这里出现。</div>';return}$('counts').textContent=`${d.counts.candidates} 候选 · ${d.counts.defects} 缺陷`;const items=d[state.kind];$('list').innerHTML=items.length?items.map(x=>`<button class="row ${state.selected===x.id?'active':''}" data-id="${esc(x.id)}"><strong>${esc(x.id)} · ${esc(x.title||x.observation)}</strong>${badge(x.status)}<span>${esc(x.predicate||x.suspectedRule)} · ${esc(x.source?.sessionId||x.candidateId||'')}</span></button>`).join(''):'<div class="empty">当前筛选没有结果。</div>';document.querySelectorAll('.row').forEach(b=>b.onclick=()=>detail(b.dataset.id));if(!state.selected)$('detail').innerHTML='<div class="empty">选择一个候选或缺陷查看证据。</div>'}
-// The detail renderer intentionally selects between candidate and defect DTO shapes.
+const state = { kind: "candidates", data: null, selected: null, status: "all" };
+const $ = (id) => document.getElementById(id);
+
+const statusOrder = ["candidate", "evidence_ready", "assertion_ready", "fixture_ready", "reproduced", "independently_replicated", "blocked", "inconclusive", "rejected", "confirmed"];
+const statusLabels = {
+  candidate: "待冻结证据",
+  evidence_ready: "待形成断言",
+  assertion_ready: "待准备复现",
+  fixture_ready: "待可信复现",
+  reproduced: "待独立复现",
+  independently_replicated: "待确认决策",
+  blocked: "已阻塞",
+  inconclusive: "证据不足",
+  rejected: "已驳回",
+  confirmed: "已确认",
+};
+const reasonLabels = {
+  missing_frozen_manifest: "缺少冻结的断言、fixture 或运行时清单。",
+  independent_epochs_required: "需要两个相互独立的执行 epoch。",
+  verifiable_sandbox_required: "需要可验证的可信 sandbox。",
+  stable_contrast_required: "candidate 与 baseline 尚未形成稳定对照。",
+  independent_artifacts_required: "需要十二份彼此独立的执行工件。",
+  blind_review_rejected: "盲审没有接受当前结论。",
+  blind_review_required: "需要独立盲审重新计算谓词并接受结论。",
+  assertion_not_machine_decidable: "当前规则无法形成机器可判定断言。",
+  trusted_executor_required: "本地重放只可诊断，不能替代可信执行。",
+  legacy_verification_requires_refreeze: "旧记录需要重新冻结证据后才能进入确认流程。",
+  all_confirmation_gates_passed: "所有确认关口均已通过。",
+};
+
+async function load() {
+  const query = $("search").value.trim();
+  const response = await fetch(`/api/harness?q=${encodeURIComponent(query)}`);
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+  state.data = body;
+  state.selected = null;
+  state.status = "all";
+  render();
+}
+
+function esc(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]));
+}
+
+function humanReason(reason) {
+  return reasonLabels[reason] || (reason ? String(reason).replaceAll("_", " ") : "");
+}
+
+function statusBadge(status, label = statusLabels[status] || status) {
+  return `<span class="status ${esc(status)}">${esc(label)}</span>`;
+}
+
+function currentItems() {
+  return state.data?.[state.kind] || [];
+}
+
+function filteredItems() {
+  return currentItems().filter((item) => state.status === "all" || item.status === state.status);
+}
+
+function render() {
+  const data = state.data;
+  if (!data || data.state === "missing") {
+    $("statusFilters").innerHTML = "";
+    $("list").innerHTML = "";
+    $("counts").textContent = "";
+    $("listScope").textContent = "";
+    $("detail").innerHTML = empty("尚未创建验证登记簿", "使用 CLI 建立候选后，这里会按验证关口组织待办工作。");
+    return;
+  }
+
+  renderStatusFilters();
+  const items = filteredItems();
+  const total = currentItems().length;
+  $("queueHeading").textContent = state.kind === "candidates" ? "按验证关口处理" : "确认结论已通过全部关口";
+  $("counts").textContent = state.status === "all" ? `共 ${total} 项` : `显示 ${items.length} / ${total} 项`;
+  $("listScope").textContent = state.kind === "candidates" ? "候选线索" : "确认结论";
+  $("listHeading").textContent = state.kind === "candidates" ? "等待核查" : "已确认缺陷";
+  $("list").innerHTML = items.length ? items.map(renderRow).join("") : empty("当前没有匹配项", "调整状态筛选或搜索条件后再查看。");
+  document.querySelectorAll(".queue-row").forEach((button) => {
+    button.addEventListener("click", () => { void detail(button.dataset.id); });
+  });
+  if (!state.selected) $("detail").innerHTML = empty("选择一条记录", "从左侧队列开始。首屏只显示当前结论、规则和下一道验证关口。");
+}
+
+function renderStatusFilters() {
+  const items = currentItems();
+  if (state.kind === "defects") {
+    $("statusFilters").innerHTML = `<p class="queue-context">确认结论保留在此处，便于回看已通过的验证证据。</p>`;
+    return;
+  }
+  const available = statusOrder.filter((status) => items.some((item) => item.status === status));
+  const filters = [["all", "全部", items.length], ...available.map((status) => [status, statusLabels[status] || status, items.filter((item) => item.status === status).length])];
+  $("statusFilters").innerHTML = filters.map(([status, label, count]) => `<button class="queue-filter ${state.status === status ? "active" : ""}" type="button" data-status="${esc(status)}" aria-pressed="${state.status === status}"><strong>${esc(label)}</strong><span>${count} 项</span></button>`).join("");
+  document.querySelectorAll(".queue-filter").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.status = button.dataset.status;
+      state.selected = null;
+      render();
+    });
+  });
+}
+
+function renderRow(item) {
+  const title = item.title || item.observation || item.id;
+  const workflow = item.workflow?.label || statusLabels[item.status] || item.status;
+  const source = item.source?.sessionId || item.candidateId || item.id;
+  return `<button class="queue-row ${state.selected === item.id ? "active" : ""}" type="button" data-id="${esc(item.id)}" aria-current="${state.selected === item.id ? "true" : "false"}"><span class="queue-row-title">${esc(title)}</span><span class="queue-row-meta">${statusBadge(item.status, workflow)}<span title="${esc(source)}">${esc(source)}</span></span></button>`;
+}
+
+function empty(title, copy) {
+  return `<div class="empty"><h2>${esc(title)}</h2><p>${esc(copy)}</p></div>`;
+}
+
+async function detail(id) {
+  const revision = state.data.revision;
+  const response = await fetch(`/api/harness/${state.kind}/${encodeURIComponent(id)}?revision=${encodeURIComponent(revision)}`);
+  if (response.status === 409) {
+    await load();
+    return;
+  }
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  state.selected = id;
+  $("detail").innerHTML = renderDetail(data);
+  const command = data.defect?.command || data.reproduction?.fixture?.command;
+  const copyButton = $("copyCommand");
+  if (copyButton && command) {
+    copyButton.addEventListener("click", () => {
+      void navigator.clipboard.writeText(command).then(() => { copyButton.textContent = "已复制"; });
+    });
+  }
+  render();
+  $("detail").focus({ preventScroll: true });
+}
+
+// The detail view maps two related API shapes into one human-facing verification summary.
 // eslint-disable-next-line complexity
-async function detail(id){const rev=state.data.revision;const r=await fetch(`/api/harness/${state.kind}/${encodeURIComponent(id)}?revision=${encodeURIComponent(rev)}`);if(r.status===409){await load();return}const d=await r.json();state.selected=id;const core=state.kind==='defects'?d.defect:d.candidate;const rep=d.reproduction;const archive=d.archive;$('detail').innerHTML=`<button class="copy" id="copy">复制重放命令</button><h2>${esc(core.id)} · ${esc(core.title||core.observation)}</h2><p class="meta">${badge(core.status)} · ${esc(core.createdAt||'')}</p><div class="grid"><div class="field"><strong>来源会话</strong>${esc(archive?.sourceId||core.source?.sourceId||'')} / ${esc(archive?.sessionId||core.source?.sessionId||'')}</div><div class="field"><strong>事件索引</strong>#${esc(core.eventIndex||d.candidate?.eventIndex||'')}</div><div class="field"><strong>观察 / 规则</strong>${esc(core.observation||d.candidate?.observation||'')}<br>${esc(core.suspectedRule||'')}</div><div class="field"><strong>失败谓词</strong>${esc(core.predicate||rep?.fixture?.predicate||'')}</div><div class="field"><strong>归档 SHA</strong><span class="code">${esc(archive?.sha256||core.source?.sha256||'')}</span></div><div class="field"><strong>独立审查</strong>${esc(core.review?.state||'pending')} · ${esc(core.review?.conclusion||'尚未登记')}</div></div>${rep?renderRep(rep):''}${renderVerification(d)}<h3>来源锚点</h3><p class="meta">归档副本是证据真相。当前会话可能已变化，页面不把当前事件替代归档事件。</p>`;$('copy').onclick=()=>navigator.clipboard.writeText(core.command||rep?.fixture?.command||'').then(()=>{$('copy').textContent='已复制'});render()}
-function renderVerification(d){const timeline=(d.timeline||[]).map(x=>`<li><span class="code">${esc(x.type)}</span> · ${esc(x.timestamp||'')}<br><span class="meta">${esc(x.payloadHash||'')}</span></li>`).join('')||'<li>尚无账本事件。</li>';const evidence=(d.evidence||[]).map(x=>`<li>${esc(x.kind)} · <span class="code">${esc(x.sha256)}</span>${x.epochId?` · ${esc(x.epochId)}`:''}</li>`).join('')||'<li>尚无冻结证据。</li>';const reviews=(d.reviews||[]).map(x=>`<li>${esc(x.state)} · ${esc(x.conclusion)}</li>`).join('')||'<li>尚无盲审回执。</li>';return `<h3>验证账本</h3><div class="grid"><div class="field"><strong>状态时间线</strong><ul>${timeline}</ul></div><div class="field"><strong>冻结证据</strong><ul>${evidence}</ul></div><div class="field"><strong>盲审回执</strong><ul>${reviews}</ul></div></div>`}
-function renderRep(r){const rows=['candidate','baseline'].flatMap(k=>(r.comparison?.[k]?.runs||[]).map((x,i)=>`<tr><td>${k} #${i+1}</td><td>${x.failed===true?'触发谓词':x.failed===false?'满足谓词':'执行异常'}</td><td>${esc(JSON.stringify(x.actual||x.error||{}))}</td><td><details><summary>trace</summary><pre class="code trace">${esc(JSON.stringify(x.trace||[],null,2))}</pre></details></td></tr>`));return `<h3>复现对照</h3><p class="meta">fixture: ${esc(r.fixture?.path||'')}<br>运行时: ${esc(JSON.stringify(r.fixture?.runtime||{}))}</p><table class="runs"><thead><tr><th>组别</th><th>结果</th><th>实际值</th><th>运行轨迹</th></tr></thead><tbody>${rows.join('')}</tbody></table><h3>重放命令</h3><pre class="code">${esc(r.fixture?.command||'')}</pre>`}
-document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{state.kind=b.dataset.kind;state.selected=null;document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x===b));render()});$('refresh').onclick=load;$('search').oninput=()=>clearTimeout(window.t)|| (window.t=setTimeout(load,250));$('status').onchange=load;load().catch(e=>{$('detail').textContent=`读取失败：${e.message}`});
+function renderDetail(data) {
+  const core = state.kind === "defects" ? data.defect : data.candidate;
+  const candidate = data.candidate || core;
+  const predicate = core.predicate || data.reproduction?.fixture?.predicate || candidate.suspectedRule;
+  const workflow = core.workflow || candidate.workflow || {};
+  const command = data.defect?.command || data.reproduction?.fixture?.command;
+  return `
+    <header class="detail-header">
+      <div>
+        <p class="detail-id">${esc(core.id)}</p>
+        <h2>${esc(core.title || candidate.observation || "未命名验证对象")}</h2>
+        <p class="detail-date">登记于 ${esc(formatDate(core.createdAt || candidate.createdAt))}</p>
+      </div>
+      ${command ? '<button class="detail-action" id="copyCommand" type="button">复制重放命令</button>' : ""}
+    </header>
+    <section class="decision" aria-labelledby="decisionHeading">
+      <h3 id="decisionHeading">当前判断</h3>
+      <div class="decision-copy">
+        ${statusBadge(core.status, workflow.label || statusLabels[core.status])}
+        <p>${esc(workflow.nextStep || "需要人工核查当前验证状态。")}</p>
+        ${workflow.reason ? `<p class="reason">原因：${esc(humanReason(workflow.reason))}</p>` : ""}
+      </div>
+    </section>
+    <dl class="facts">
+      <div class="fact"><dt>观察到的问题</dt><dd>${esc(candidate.observation || core.title || "尚未记录")}</dd></div>
+      <div class="fact"><dt>应满足的规则</dt><dd>${esc(formatPredicate(predicate))}</dd></div>
+    </dl>
+    ${renderGates(data)}
+    ${renderTechnical(data, command)}
+  `;
+}
+
+function formatPredicate(predicate) {
+  if (!predicate) return "尚未形成可判定规则。";
+  if (typeof predicate === "string") return predicate;
+  if (predicate.type === "event_count" && predicate.eventType && predicate.expected !== undefined) return `事件 “${predicate.eventType}” 的次数必须为 ${predicate.expected}。`;
+  if (predicate.id) return `规则 “${predicate.id}”。`;
+  return JSON.stringify(predicate);
+}
+
+function formatSource(archive, source) {
+  const sourceId = archive?.sourceId || source?.sourceId;
+  const sessionId = archive?.sessionId || source?.sessionId;
+  return sourceId && sessionId ? `${sourceId} / ${sessionId}` : "尚未关联冻结来源。";
+}
+
+function formatDate(value) {
+  if (!value) return "未知时间";
+  const date = new Date(value);
+  return Number.isNaN(date.valueOf()) ? value : date.toLocaleString("zh-CN", { dateStyle: "medium", timeStyle: "short" });
+}
+
+function renderGates(data) {
+  const evidence = data.evidence || [];
+  const reproductions = data.reproductions || [];
+  const reviews = data.reviews || [];
+  const trustedEpochs = reproductions.filter((item) => item.trust === "trusted_executor" || item.epochId).length;
+  const acceptedReview = reviews.some((review) => review.state === "accept");
+  const gates = [
+    [Boolean(data.archive), "来源已冻结"],
+    [evidence.some((item) => item.kind === "assertion"), "机器断言已冻结"],
+    [evidence.some((item) => item.kind === "fixture_manifest"), "复现包已冻结"],
+    [trustedEpochs >= 2 || data.candidate?.status === "confirmed", "两个可信执行 epoch 已完成"],
+    [acceptedReview || data.defect?.status === "confirmed", "独立盲审已接受"],
+  ];
+  return `<section class="gates" aria-labelledby="gatesHeading"><h3 id="gatesHeading">确认关口</h3><ul class="gate-list">${gates.map(([complete, label]) => `<li class="gate ${complete ? "complete" : ""}">${esc(label)}</li>`).join("")}</ul></section>`;
+}
+
+function renderTechnical(data, command) {
+  const candidate = data.candidate || {};
+  const reproduction = data.reproduction;
+  const reviews = data.reviews || [];
+  const evidence = data.evidence || [];
+  return `<details class="technical"><summary>查看技术证据与重放细节</summary>
+    <section class="technical-section"><h3>冻结来源</h3><div class="technical-grid"><dl><dt>来源会话</dt><dd>${esc(formatSource(data.archive, candidate.source))}</dd></dl><dl><dt>来源事件</dt><dd>${candidate.eventIndex === undefined ? "未记录" : `第 ${esc(candidate.eventIndex)} 条事件（${esc(candidate.eventType || "未知类型")}）`}</dd></dl><dl><dt>归档 SHA-256</dt><dd><code class="code">${esc(data.archive?.sha256 || candidate.source?.sha256 || "未记录")}</code></dd></dl></div><p class="source-note">归档副本是证据真相。当前会话发生变化时，不能用它替换该归档。</p></section>
+    <section class="technical-section"><h3>证据与审查</h3><div class="technical-grid"><dl><dt>冻结证据</dt><dd>${esc(evidence.length ? evidence.map((item) => item.kind).join("、") : "尚无冻结证据")}</dd></dl><dl><dt>盲审结论</dt><dd>${esc(reviews.length ? reviews.map((item) => item.conclusion).join("；") : "尚无盲审回执")}</dd></dl></div></section>
+    ${reproduction ? renderReproduction(reproduction) : ""}
+    ${command ? `<section class="technical-section"><h3>重放命令</h3><code class="code">${esc(command)}</code></section>` : ""}
+  </details>`;
+}
+
+function renderReproduction(reproduction) {
+  const comparison = reproduction.comparison;
+  if (!comparison) return `<section class="technical-section"><h3>可信执行</h3><p>${esc(reproduction.reason ? humanReason(reproduction.reason) : "已登记执行工件，摘要尚不可用。")}</p></section>`;
+  const rows = ["candidate", "baseline"].map((variant) => {
+    const group = comparison[variant] || {};
+    const result = group.failed === true ? "稳定触发" : group.failed === false ? "稳定满足" : "执行异常";
+    const runs = group.runs || [];
+    return `<tr><td>${variant === "candidate" ? "被测对象" : "基线"}</td><td>${esc(result)}</td><td>${runs.length} 次</td><td>${runs.length ? `<details class="run-details"><summary>查看运行轨迹</summary><pre class="code">${esc(JSON.stringify(runs, null, 2))}</pre></details>` : "未记录"}</td></tr>`;
+  }).join("");
+  return `<section class="technical-section"><h3>复现对照</h3><table class="reproduction"><thead><tr><th>组别</th><th>结论</th><th>运行</th><th>原始轨迹</th></tr></thead><tbody>${rows}</tbody></table></section>`;
+}
+
+document.querySelectorAll(".kind-tab").forEach((button) => {
+  button.addEventListener("click", () => {
+    state.kind = button.dataset.kind;
+    state.status = "all";
+    state.selected = null;
+    document.querySelectorAll(".kind-tab").forEach((tab) => {
+      const active = tab === button;
+      tab.classList.toggle("active", active);
+      tab.setAttribute("aria-selected", String(active));
+    });
+    render();
+  });
+});
+
+$("refresh").addEventListener("click", () => { void load().catch(renderError); });
+$("search").addEventListener("input", () => {
+  clearTimeout(window.harnessSearchTimer);
+  window.harnessSearchTimer = setTimeout(() => { void load().catch(renderError); }, 250);
+});
+
+function renderError(error) {
+  $("detail").innerHTML = empty("无法读取登记簿", error.message);
+}
+
+void load().catch(renderError);

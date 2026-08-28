@@ -18,7 +18,7 @@
 HARNESS_DEFECT_LAB_ROOT=/tmp/harness-real-pi-json-exit-status npm start
 ```
 
-页面只读展示候选、状态时间线、冻结证据哈希、执行 epoch、盲审结论和决策原因。页面不会运行 fixture、调用 subagent 或修改登记簿。
+页面以验证关口组织候选和缺陷：先显示当前结论、下一步、可读规则与确认关口，再按需展开冻结哈希、执行轨迹和重放命令。页面不会运行 fixture、调用 subagent 或修改登记簿。
 
 `npm run harness:defects` 将历史 Pi 会话线索送入追加式哈希链账本。普通 `replay` 仅用于诊断，不能创建确认结论。`confirmed` 只能由决策器在两个相互独立的可信 sandbox epoch 中分别完成 candidate/baseline 三次执行、冻结来源/契约/谓词/fixture/runtime、并取得盲审接受后写入。没有外部可信 sandbox backend 时流程会显式停在 `blocked`。
 

@@ -22,7 +22,7 @@ function createHarnessDefectRegistryReader(options = {}) {
         defects: registry.defects.length,
       },
       candidates: registry.candidates.map((candidate) => summarizeCandidate(candidate, registry)),
-      defects: registry.defects.map(summarizeDefect),
+      defects: registry.defects.map((defect) => summarizeDefect(defect, registry)),
       timeline: (registry.timeline || []).map(projectTimeline),
     };
   }
@@ -42,6 +42,7 @@ function createHarnessDefectRegistryReader(options = {}) {
       timeline: (loaded.registry.timeline || []).filter((item) => item.candidateId === candidate.id).map(projectTimeline),
       evidence: (loaded.registry.evidence || []).filter((item) => item.candidateId === candidate.id).map(projectEvidence),
       reviews: (loaded.registry.reviews || []).filter((item) => item.candidateId === candidate.id).map(projectReview),
+      reproductions: loaded.registry.reproductions.filter((item) => item.candidateId === candidate.id).map(projectReproduction),
     };
   }
 
@@ -54,13 +55,14 @@ function createHarnessDefectRegistryReader(options = {}) {
     const reproduction = loaded.registry.reproductions.find((item) => item.id === defect.reproductionId) || null;
     return {
       revision: loaded.revision,
-      defect: projectDefect(defect),
+      defect: projectDefect(defect, loaded.registry),
       candidate: candidate ? summarizeCandidate(candidate, loaded.registry) : null,
       archive: archive ? projectArchive(archive) : null,
       reproduction: reproduction ? projectReproduction(reproduction) : null,
       timeline: (loaded.registry.timeline || []).filter((item) => item.candidateId === defect.candidateId).map(projectTimeline),
       evidence: (loaded.registry.evidence || []).filter((item) => item.candidateId === defect.candidateId).map(projectEvidence),
       reviews: (loaded.registry.reviews || []).filter((item) => item.candidateId === defect.candidateId).map(projectReview),
+      reproductions: loaded.registry.reproductions.filter((item) => item.candidateId === defect.candidateId).map(projectReproduction),
     };
   }
 
@@ -111,12 +113,15 @@ function summarizeCandidate(candidate, registry) {
     eventType: candidate.eventType || "unknown",
     source: archive ? { sourceId: archive.sourceId, sessionId: archive.sessionId, sha256: archive.sha256 } : null,
     reproductionId: reproduction?.id || null,
+    reason: candidate.reason || null,
+    workflow: projectWorkflow(candidate.status, candidate.reason),
     createdAt: candidate.createdAt,
     updatedAt: candidate.updatedAt,
   };
 }
 
-function summarizeDefect(defect) {
+function summarizeDefect(defect, registry) {
+  const candidate = registry?.candidates.find((item) => item.id === defect.candidateId);
   return {
     id: defect.id,
     title: defect.title,
@@ -126,12 +131,13 @@ function summarizeDefect(defect) {
     createdAt: defect.createdAt,
     runtime: defect.runtime || null,
     review: projectReview(defect.review),
+    workflow: projectWorkflow(defect.status, defect.decision?.reason || candidate?.reason),
   };
 }
 
-function projectDefect(defect) {
+function projectDefect(defect, registry) {
   return {
-    ...summarizeDefect(defect),
+    ...summarizeDefect(defect, registry),
     fixture: defect.fixture,
     command: defect.command,
     expected: defect.expected,
@@ -140,6 +146,23 @@ function projectDefect(defect) {
     versions: defect.versions || {},
     reproductionId: defect.reproductionId,
   };
+}
+
+function projectWorkflow(status, reason = null) {
+  const definitions = {
+    candidate: ["待冻结证据", "补充可复核的来源与观察证据。"],
+    evidence_ready: ["待形成断言", "将规则转为可机器判定的断言。"],
+    assertion_ready: ["待准备复现", "冻结 fixture、谓词与运行时。"],
+    fixture_ready: ["待可信复现", "在可信 sandbox 完成 candidate 与 baseline 对照。"],
+    reproduced: ["待独立复现", "补齐第二个独立执行 epoch，并登记盲审。"],
+    independently_replicated: ["待确认决策", "独立复现已完成，等待确认决策。"],
+    confirmed: ["已确认", "双独立执行与盲审已满足确认门槛。"],
+    blocked: ["已阻塞", "当前缺少继续验证所需的可信条件。"],
+    inconclusive: ["证据不足", "现有证据不足以得出确认结论。"],
+    rejected: ["已驳回", "现有证据不支持该缺陷结论。"],
+  };
+  const [label, nextStep] = definitions[status] || ["待处理", "需要人工核查当前验证状态。"];
+  return { label, nextStep, reason: reason || null };
 }
 
 function projectArchive(archive) {
@@ -157,6 +180,8 @@ function projectReproduction(reproduction) {
     id: reproduction.id,
     status: reproduction.status,
     reason: reproduction.reason || null,
+    trust: reproduction.trust || null,
+    epochId: reproduction.epoch?.id || null,
     createdAt: reproduction.createdAt,
     fixture: reproduction.fixture ? {
       id: reproduction.fixture.id || null,
@@ -212,4 +237,4 @@ function fingerprint(contents) {
   return createHash("sha256").update(contents).digest("hex").slice(0, 20);
 }
 
-export { createHarnessDefectRegistryReader, projectReview };
+export { createHarnessDefectRegistryReader, projectReview, projectWorkflow };
