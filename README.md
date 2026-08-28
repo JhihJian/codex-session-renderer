@@ -52,6 +52,12 @@ npm run harness:defects -- list
 npm run harness:defects -- replay --fixture examples/harness-fixtures/pi-tool-free/fixture.json
 ```
 
+`examples/harness-fixtures/pi-json-exit-status/` 记录了已确认的 `PI-JSON-EXIT-STATUS-001`：固定 provider 返回 HTTP 400 时，`--mode json` 会记录 assistant `stopReason: "error"`，却以退出码 `0` 结束；同一请求使用 `-p` 会以非零退出。该 fixture 对 candidate 和 baseline 各运行三次，并从真实 Pi JSON 事件及进程退出码生成 trace：
+
+```bash
+npm run harness:defects -- replay --fixture examples/harness-fixtures/pi-json-exit-status/fixture.json
+```
+
 ## 完整详情读取与诊断预算
 
 会话详情、`compact/turns/trace/audit` 外部 view 和 Markdown 导出都完整读取当前 JSONL 文件，不存在按文件字节数或事件数将详情降级为空正文、`complete: false` 或 Markdown `413` 的产品分支。读取前后仍校验文件签名（路径、大小、修改/创建时间）；文件在读取或派生期间变化时，详情不会把旧内容当作最新内容，而是返回可恢复的 `session_file_changed` 状态，Markdown 返回 `409`。浏览器切换会话或数据源会取消旧详情和 Markdown 请求；HTTP 客户端断连同样会传到服务端 JSONL 流。服务进程中的详情、compact 子会话、单条原始事件和分页诊断共用读取并发闸门。
