@@ -44,7 +44,7 @@ try {
   } else if (command === "scan-all") {
     print(await scanAll(lab, options));
   } else if (command === "review-contexts") {
-    print(await scanReviewContexts(reviewLab, options));
+    print(options.root ? await scanReviewContextRoot(reviewLab, options) : await scanReviewContexts(reviewLab, options));
   } else if (command === "dispatch") {
     print({ candidateId: requiredOption(options.candidate, "candidate"), task: requiredOption(options.task, "task"), state: "queued" });
   } else if (command === "ingest-agent-result") {
@@ -112,6 +112,7 @@ function usage() {
     "  node scripts/harness-defects.mjs scan --source <session.jsonl> --source-id <id> --session <id> [--detector <id[,id]|all>] [--lab <dir>]",
     "  node scripts/harness-defects.mjs scan-all --root <sessions-dir> [--source-id <id>] [--detector <id[,id]|all>] [--dry-run] [--lab <dir>]",
     "  node scripts/harness-defects.mjs review-contexts --source <session.jsonl> --source-id <id> --session <id> [--lab <dir>]",
+    "  node scripts/harness-defects.mjs review-contexts --root <sessions-dir> [--source-id <id>] [--lab <dir>]",
     "  node scripts/harness-defects.mjs dispatch --candidate <id> --task <assertion|fixture|review> [--lab <dir>]",
     "  node scripts/harness-defects.mjs ingest-agent-result --input <result.json> [--lab <dir>]",
     "  node scripts/harness-defects.mjs verify --candidate <id> [--lab <dir>]",
@@ -134,6 +135,22 @@ async function scanReviewContexts(lab, options) {
   const recorded = [];
   for (const context of discovery.matches) recorded.push(await lab.record({ archiveId: archive.id, context }));
   return { archive: { id: archive.id, sha256: archive.sha256 }, eventsScanned: discovery.eventsScanned, matches: discovery.matches.length, created: recorded.filter((item) => item.created).length, deduped: recorded.filter((item) => !item.created).length, contexts: recorded.map((item) => item.context) };
+}
+
+async function scanReviewContextRoot(lab, options) {
+  const root = path.resolve(requiredOption(options.root, "root"));
+  const summary = { root, filesScanned: 0, filesFailed: 0, matches: 0, created: 0, deduped: 0, failures: [] };
+  for (const source of await jsonlFiles(root)) {
+    try {
+      const result = await scanReviewContexts(lab, { ...options, source, "source-id": options["source-id"] || "pi-agent", session: sessionIdFromPath(source) });
+      summary.filesScanned += 1;
+      for (const key of ["matches", "created", "deduped"]) summary[key] += result[key];
+    } catch (error) {
+      summary.filesFailed += 1;
+      summary.failures.push({ file: path.relative(root, source), error: String(error.message) });
+    }
+  }
+  return summary;
 }
 
 async function scanAll(lab, options) {

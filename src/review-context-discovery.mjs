@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { promises as fs } from "node:fs";
+import { createReadStream } from "node:fs";
+import readline from "node:readline";
 import { isLikelyCodexGoalControlText } from "./pi-goal-projection.mjs";
 import { normalizeSessionEvent } from "./session-normalizer.mjs";
 
@@ -7,13 +8,32 @@ const correctionPattern = /\b(?:not\s+(?:fixed|working|resolved|done)|still\s+(?
 
 async function discoverReviewContexts(input = {}) {
   const source = required(input.archivePath, "archivePath");
-  const contents = await (input.fsApi || fs).readFile(source, "utf8");
-  const sourceHash = createHash("sha256").update(contents).digest("hex");
+  const scanned = input.fsApi ? await scanBuffer(await input.fsApi.readFile(source)) : await scanFile(source);
+  const { sourceHash, events } = scanned;
   if (input.sourceHash && input.sourceHash !== sourceHash) throw reviewContextError("归档 SHA-256 与扫描输入不匹配。");
+  return { sourceHash, eventsScanned: events.length, matches: findContexts(events, sourceHash) };
+}
+
+async function scanFile(file) {
+  const hash = createHash("sha256");
+  const stream = createReadStream(file);
+  stream.on("data", (chunk) => hash.update(chunk));
+  const lineReader = readline.createInterface({ input: stream, crlfDelay: Infinity });
+  const events = []; let index = 0;
+  for await (const line of lineReader) {
+    if (!line.trim()) continue;
+    try { events.push(normalizeSessionEvent(JSON.parse(line), index)); } catch { /* Ignore malformed JSONL rows. */ }
+    index += 1;
+  }
+  return { sourceHash: hash.digest("hex"), events };
+}
+
+async function scanBuffer(contents) {
+  const sourceHash = createHash("sha256").update(contents).digest("hex");
   const events = String(contents).split(/\r?\n/).filter(Boolean).flatMap((line, index) => {
     try { return [normalizeSessionEvent(JSON.parse(line), index)]; } catch { return []; }
   });
-  return { sourceHash, eventsScanned: events.length, matches: findContexts(events, sourceHash) };
+  return { sourceHash, events };
 }
 
 function findContexts(events, sourceHash) {

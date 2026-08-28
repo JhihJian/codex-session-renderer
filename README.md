@@ -27,6 +27,11 @@ npm run harness:defects -- review-contexts \
   --source ~/.pi/agent/sessions/<project>/<session>.jsonl \
   --source-id pi-agent \
   --session <session-id>
+
+# 扫描全部 Pi 会话，输出命中、创建、去重和无法读取的文件
+npm run harness:defects -- review-contexts \
+  --root ~/.pi/agent/sessions \
+  --source-id pi-agent
 ```
 
 `npm run harness:defects` 将历史 Pi 会话线索送入追加式哈希链账本。普通 `replay` 仅用于诊断，不能创建确认结论。`confirmed` 只能由决策器在两个相互独立的可信 sandbox epoch 中分别完成 candidate/baseline 三次执行、冻结来源/契约/谓词/fixture/runtime、并取得盲审接受后写入。没有外部可信 sandbox backend 时流程会显式停在 `blocked`。
