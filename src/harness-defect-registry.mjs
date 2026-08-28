@@ -185,7 +185,8 @@ function providerCase(fingerprint, observations, registry) {
   const providers = [...new Set(observations.map((item) => item.detection?.provider).filter(Boolean))];
   const models = [...new Set(observations.map((item) => item.detection?.model).filter(Boolean))];
   const hasErrorDetail = first.errorMessage !== "模型服务返回错误，但归档未保留错误详情。";
-  const externalService = /^OpenAI API error \(\d{3}\)/i.test(first.errorMessage);
+  const httpStatus = externalHttpStatus(first.errorMessage);
+  const externalService = httpStatus !== null || /help\.openai\.com/i.test(first.errorMessage);
   const contextMissing = first.errorMessage === "stream_read_error";
   const headline = shortError(first.errorMessage);
   const candidate = {
@@ -199,13 +200,14 @@ function providerCase(fingerprint, observations, registry) {
     detection: { ...first.detection, exitStatusEvidence: "absent", occurrenceCount: physicalCount },
     memberCount: physicalCount,
     workflow: externalService ? { label: "外部服务异常", nextStep: "该记录归类为 OpenAI HTTP 服务响应，不进入 Harness 缺陷验证。", reason: null } : contextMissing ? { label: "上下文不足", nextStep: "需要关联 Provider 或网关的请求追踪，当前归档不能归因。", reason: null } : { label: "待核实", nextStep: "需要采集同一条件下的 CLI 进程退出码。", reason: null },
-    case: { errorMessage: first.errorMessage, sourceCount, physicalCount, providers, models, api: first.detection?.api || null, responseId: first.detection?.responseId || null, precedingEvent: first.detection?.precedingEvent || null, observedAt: first.detection?.observedAt || null, hasErrorDetail, reviewReason: externalService ? "原始内容包含 OpenAI API HTTP 响应码；该记录归类为外部服务异常。" : contextMissing ? "原始事件只记录了 stream_read_error，没有 Provider 响应、传输原因或进程退出码。" : "原始会话记录到 assistant 最终状态为 error；同一归档没有对应的 CLI 进程退出码。", reviewQuestion: externalService ? "是否需要在外部服务监控或供应商支持渠道继续跟进？" : contextMissing ? "能否用 response ID 关联 Provider 或网关日志，补齐流读取失败的原始原因？" : "在相同调用条件下，CLI 进程以何种退出码结束？" },
+    case: { errorMessage: first.errorMessage, sourceCount, physicalCount, providers, models, api: first.detection?.api || null, responseId: first.detection?.responseId || null, precedingEvent: first.detection?.precedingEvent || null, observedAt: first.detection?.observedAt || null, hasErrorDetail, reviewReason: externalService ? `原始内容${httpStatus ? `包含 HTTP ${httpStatus} 响应码` : "指向 OpenAI 服务错误"}；该记录归类为外部服务异常。` : contextMissing ? "原始事件只记录了 stream_read_error，没有 Provider 响应、传输原因或进程退出码。" : "原始会话记录到 assistant 最终状态为 error；同一归档没有对应的 CLI 进程退出码。", reviewQuestion: externalService ? "是否需要在外部服务监控或供应商支持渠道继续跟进？" : contextMissing ? "能否用 response ID 关联 Provider 或网关日志，补齐流读取失败的原始原因？" : "在相同调用条件下，CLI 进程以何种退出码结束？" },
   };
   return { id: candidate.id, candidate, archive: first.archive ? projectArchive(first.archive) : null, reproduction: null, reproductions: [], evidence: [], reviews: [], timeline: [] };
 }
 
 function fingerprintError(value) { return createHash("sha256").update(String(value).replace(/\s+/g, " ").trim()).digest("hex"); }
 function shortError(value) { const normalized = String(value).replace(/\s+/g, " ").trim(); return normalized.length > 92 ? `${normalized.slice(0, 89)}...` : normalized; }
+function externalHttpStatus(value) { const match = String(value).match(/^(?:OpenAI API error \()?([45]\d{2})(?:\)|\s*:)/i); return match ? Number(match[1]) : null; }
 function summarizePrecedingEvent(event) { const message = event?.message; if (message?.role === "toolResult") return `上一事件：工具 ${message.toolName || "unknown"} 返回${message.isError ? "错误" : "成功"}。`; return event?.type ? `上一事件：${event.type}。` : "上一事件未保留。"; }
 
 function summarizeCandidateForDetail(candidate, registry) {
