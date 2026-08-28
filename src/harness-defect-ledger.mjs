@@ -31,7 +31,24 @@ function createHarnessLedger(options = {}) {
     return work;
   }
 
-  return { append, ledgerPath, read, rootDir };
+  function appendMany(inputs) {
+    const work = queue.then(async () => {
+      await fsApi.mkdir(rootDir, { recursive: true });
+      const entries = await read();
+      let previousHash = entries.at(-1)?.hash || genesisHash;
+      const appended = inputs.map((input) => {
+        const entry = createEntry(input, previousHash);
+        previousHash = entry.hash;
+        return entry;
+      });
+      if (appended.length) await fsApi.appendFile(ledgerPath, `${appended.map((entry) => JSON.stringify(entry)).join("\n")}\n`, "utf8");
+      return appended;
+    });
+    queue = work.catch(() => {});
+    return work;
+  }
+
+  return { append, appendMany, ledgerPath, read, rootDir };
 }
 
 function createEntry(input = {}, previousHash = genesisHash) {

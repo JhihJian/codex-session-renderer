@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { promises as fs } from "node:fs";
+import { createReadStream, promises as fs } from "node:fs";
 import path from "node:path";
 import { decideVerification } from "./harness-decision-engine.mjs";
 import { createHarnessLedger, digest, projectLedger } from "./harness-defect-ledger.mjs";
@@ -46,8 +46,9 @@ function createHarnessDefectLab(options = {}) {
   }
 
   return {
-    archiveSession: (input) => mutate(async () => archiveSession(input)),
+    archiveSession: (input) => mutate(async (current) => archiveSession(input, current)),
     createCandidate: (input) => mutate(async (current) => createCandidate(input, current)),
+    createCandidates: (input) => mutate(async (current) => createCandidates(input, current)),
     list: async () => { await migrateLegacyRegistry(); await writeProjection(); return state(); },
     recordEvidence: (input) => mutate(async (current) => recordEvidence(input, current)),
     submitAssertion: (input) => mutate(async (current) => submitAssertion(input, current)),
@@ -62,14 +63,16 @@ function createHarnessDefectLab(options = {}) {
     rootDir,
   };
 
-  async function archiveSession(input = {}) {
+  async function archiveSession(input = {}, current) {
     const sourcePath = path.resolve(text(input.sourcePath, "sourcePath"));
-    const contents = await fsApi.readFile(sourcePath);
+    const hash = await hashFile(sourcePath);
+    const existing = current.archives.find((archive) => archive.sha256 === hash && archive.sourceId === text(input.sourceId, "sourceId") && archive.sessionId === text(input.sessionId, "sessionId"));
+    if (existing) return existing;
     await fsApi.mkdir(archivesDir, { recursive: true });
     const id = `A-${randomUUID()}`;
     const archivePath = path.join(archivesDir, `${id}${path.extname(sourcePath) || ".jsonl"}`);
-    await fsApi.writeFile(archivePath, contents);
-    const archive = { id, sourceId: text(input.sourceId, "sourceId"), sessionId: text(input.sessionId, "sessionId"), sourcePath, archivePath, sha256: sha256(contents), createdAt: new Date().toISOString() };
+    await fsApi.copyFile(sourcePath, archivePath);
+    const archive = { id, sourceId: text(input.sourceId, "sourceId"), sessionId: text(input.sessionId, "sessionId"), sourcePath, archivePath, sha256: hash, createdAt: new Date().toISOString() };
     await ledger.append({ type: "archive_created", candidateId: null, payload: archive });
     return archive;
   }
@@ -86,6 +89,27 @@ function createHarnessDefectLab(options = {}) {
     const candidate = { id: `C-${randomUUID()}`, archiveId: archive.id, eventIndex: event.index, eventType: event.type, observation: text(input.observation, "observation"), suspectedRule: text(input.suspectedRule, "suspectedRule"), detectorId, detectorVersion, dedupeKey, sourceHash: archive.sha256, status: "candidate", createdAt: now, updatedAt: now, supersedes: input.supersedes || null };
     await ledger.append({ type: "candidate_created", candidateId: candidate.id, payload: candidate });
     return candidate;
+  }
+
+  async function createCandidates(input = {}, current) {
+    const archive = find(current.archives, input.archiveId, "archiveId", "归档会话不存在。");
+    const known = new Map(current.candidates.map((candidate) => [candidate.dedupeKey, candidate]));
+    const created = []; const candidates = [];
+    for (const item of list(input.candidates)) {
+      const index = Number(item.eventIndex);
+      if (!Number.isSafeInteger(index) || index < 0) throw validationError("eventIndex", "必须是非负整数。");
+      if (text(item.sourceHash, "sourceHash") !== archive.sha256) throw validationError("sourceHash", "必须匹配冻结归档。");
+      const detectorId = text(item.detectorId, "detectorId");
+      const detectorVersion = text(item.detectorVersion, "detectorVersion");
+      const dedupeKey = text(item.dedupeKey || digest(`${archive.sha256}:${index}:${detectorId}:${detectorVersion}`), "dedupeKey");
+      const prior = known.get(dedupeKey);
+      if (prior) { candidates.push(prior); continue; }
+      const now = new Date().toISOString();
+      const candidate = { id: `C-${randomUUID()}`, archiveId: archive.id, eventIndex: index, eventType: text(item.eventType || "discovered", "eventType"), observation: text(item.observation, "observation"), suspectedRule: text(item.suspectedRule, "suspectedRule"), detectorId, detectorVersion, dedupeKey, sourceHash: archive.sha256, status: "candidate", createdAt: now, updatedAt: now, supersedes: null };
+      known.set(dedupeKey, candidate); created.push(candidate); candidates.push(candidate);
+    }
+    await ledger.appendMany(created.map((candidate) => ({ type: "candidate_created", candidateId: candidate.id, payload: candidate })));
+    return { candidates, created: created.length, deduped: candidates.length - created.length };
   }
 
   async function recordEvidence(input = {}, current) {
@@ -186,7 +210,7 @@ function candidateFor(state, id) { return find(state.candidates, id, "candidateI
 function find(items, id, field, message) { const item = items.find((entry) => entry.id === text(id, field)); if (!item) throw validationError(field, message); return item; }
 function text(value, field) { const result = String(value ?? "").trim(); if (!result) throw validationError(field, "不能为空。"); return result; }
 function list(value) { return Array.isArray(value) ? value : []; }
-function sha256(value) { return createHash("sha256").update(value).digest("hex"); }
+async function hashFile(file) { const hash = createHash("sha256"); for await (const chunk of createReadStream(file)) hash.update(chunk); return hash.digest("hex"); }
 function validationError(field, message) { const error = new Error(`${field}${message}`); error.code = "validation_error"; error.field = field; return error; }
 function emptyState() { return { version: schemaVersion, archives: [], candidates: [], reproductions: [], defects: [], evidence: [], reviews: [], timeline: [] }; }
 

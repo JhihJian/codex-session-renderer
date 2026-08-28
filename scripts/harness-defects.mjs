@@ -1,5 +1,7 @@
 import path from "node:path";
+import { promises as fs } from "node:fs";
 import { createHarnessDefectLab } from "../src/harness-defect-lab.mjs";
+import { discoverHarnessCandidates } from "../src/harness-candidate-discovery.mjs";
 import { runHarnessFixture } from "../src/harness-reproduction-runner.mjs";
 import { validateSubagentResult } from "../src/harness-subagent-contracts.mjs";
 
@@ -35,9 +37,9 @@ try {
     }
     if (result) print(await lab.recordReproduction({ candidateId: options.candidate, fixture: result.fixture, comparison: result.comparison }));
   } else if (command === "scan") {
-    const archive = await lab.archiveSession({ sourcePath: options.source, sourceId: options["source-id"], sessionId: options.session });
-    const candidate = await lab.createCandidate({ archiveId: archive.id, eventIndex: options.event, observation: options.observation, suspectedRule: options.rule, detectorId: options.detector, detectorVersion: options.version });
-    print({ archive, candidate });
+    print(await scanSource(lab, options));
+  } else if (command === "scan-all") {
+    print(await scanAll(lab, options));
   } else if (command === "dispatch") {
     print({ candidateId: requiredOption(options.candidate, "candidate"), task: requiredOption(options.task, "task"), state: "queued" });
   } else if (command === "ingest-agent-result") {
@@ -78,6 +80,7 @@ function parseArguments(args) {
     if (!token.startsWith("--")) throw new Error(`无法识别的参数：${token}`);
     const key = token.slice(2);
     const value = rest[index + 1];
+    if (key === "dry-run") { options[key] = true; continue; }
     if (!key || !value || value.startsWith("--")) throw new Error(`参数 --${key} 缺少值。`);
     options[key] = value;
     index += 1;
@@ -101,7 +104,8 @@ function usage() {
     "  node scripts/harness-defects.mjs candidate --archive <archive-id> --event <index> --observation <text> --rule <text> [--lab <dir>]",
     "  node scripts/harness-defects.mjs run --candidate <candidate-id> --fixture <fixture.json> [--lab <dir>]",
     "  node scripts/harness-defects.mjs replay --fixture <fixture.json>",
-    "  node scripts/harness-defects.mjs scan --source <session.jsonl> --source-id <id> --session <id> --event <index> --observation <text> --rule <text> --detector <id> --version <version> [--lab <dir>]",
+    "  node scripts/harness-defects.mjs scan --source <session.jsonl> --source-id <id> --session <id> [--detector <id[,id]|all>] [--lab <dir>]",
+    "  node scripts/harness-defects.mjs scan-all --root <sessions-dir> [--source-id <id>] [--detector <id[,id]|all>] [--dry-run] [--lab <dir>]",
     "  node scripts/harness-defects.mjs dispatch --candidate <id> --task <assertion|fixture|review> [--lab <dir>]",
     "  node scripts/harness-defects.mjs ingest-agent-result --input <result.json> [--lab <dir>]",
     "  node scripts/harness-defects.mjs verify --candidate <id> [--lab <dir>]",
@@ -109,6 +113,55 @@ function usage() {
     "  node scripts/harness-defects.mjs audit [--lab <dir>]",
     "  node scripts/harness-defects.mjs list [--lab <dir>]",
   ].join("\n");
+}
+
+async function scanSource(lab, options) {
+  const archive = await lab.archiveSession({ sourcePath: requiredOption(options.source, "source"), sourceId: requiredOption(options["source-id"], "source-id"), sessionId: requiredOption(options.session, "session") });
+  const discovery = await discoverHarnessCandidates({ archivePath: archive.archivePath, sourceHash: archive.sha256, detectorIds: options.detector || "all" });
+  const registered = await lab.createCandidates({ archiveId: archive.id, candidates: discovery.matches });
+  return { archive: { id: archive.id, sha256: archive.sha256 }, scan: scanSummary(discovery, registered), candidates: registered.candidates };
+}
+
+async function scanAll(lab, options) {
+  const root = path.resolve(requiredOption(options.root, "root"));
+  const files = await jsonlFiles(root);
+  const summary = { root, dryRun: options["dry-run"] === true, filesDiscovered: files.length, filesScanned: 0, filesFailed: 0, eventsScanned: 0, invalidLines: 0, matches: 0, created: 0, deduped: 0, detectorMatches: {}, failures: [] };
+  for (const sourcePath of files) {
+    try {
+      const result = summary.dryRun
+        ? { scan: scanSummary(await discoverHarnessCandidates({ archivePath: sourcePath, detectorIds: options.detector || "all" })) }
+        : await scanSource(lab, { ...options, source: sourcePath, "source-id": options["source-id"] || "pi-agent", session: sessionIdFromPath(sourcePath) });
+      summary.filesScanned += 1;
+      for (const key of ["eventsScanned", "invalidLines", "matches", "created", "deduped"]) summary[key] += result.scan[key];
+      for (const detector of result.scan.detectors) summary.detectorMatches[detector.id] = (summary.detectorMatches[detector.id] || 0) + result.scan.matchesByDetector[detector.id];
+    } catch (error) {
+      summary.filesFailed += 1;
+      summary.failures.push({ file: path.relative(root, sourcePath), error: String(error.message) });
+    }
+  }
+  return summary;
+}
+
+function scanSummary(discovery, registered = { created: 0, deduped: 0 }) {
+  const matchesByDetector = Object.fromEntries(discovery.detectors.map((detector) => [detector.id, 0]));
+  for (const match of discovery.matches) matchesByDetector[match.detectorId] += 1;
+  return { eventsScanned: discovery.eventsScanned, invalidLines: discovery.invalidLines, detectors: discovery.detectors, matches: discovery.matches.length, created: registered.created, deduped: registered.deduped, matchesByDetector };
+}
+
+async function jsonlFiles(root) {
+  const entries = await fs.readdir(root, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const target = path.join(root, entry.name);
+    if (entry.isDirectory()) files.push(...await jsonlFiles(target));
+    else if (entry.isFile() && entry.name.endsWith(".jsonl")) files.push(target);
+  }
+  return files.sort();
+}
+
+function sessionIdFromPath(sourcePath) {
+  const name = path.basename(sourcePath, ".jsonl");
+  return name.includes("_") ? name.slice(name.lastIndexOf("_") + 1) : name;
 }
 
 function replayCommand(fixtureReference) {

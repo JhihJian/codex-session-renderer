@@ -50,3 +50,28 @@ test("CLI 将普通 replay 结果登记为 inconclusive", async (t) => {
   assert.equal(replay.comparison.candidate.failed, true);
   assert.equal(replay.comparison.baseline.failed, false);
 });
+
+test("scan-all 覆盖所有 JSONL、汇总命中并在重复扫描时去重", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "harness-defect-scan-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const sessions = path.join(root, "sessions");
+  const labPath = path.join(root, "lab");
+  await fs.mkdir(path.join(sessions, "nested"), { recursive: true });
+  await fs.writeFile(path.join(sessions, "first.jsonl"), '{"message":{"stopReason":"error"}}\n', "utf8");
+  await fs.writeFile(path.join(sessions, "nested", "second.jsonl"), '{"message":{"stopReason":"error"}}\ninvalid\n', "utf8");
+
+  const first = await runCli(["scan-all", "--lab", labPath, "--root", sessions, "--detector", "provider-error-exit-status"]);
+  const second = await runCli(["scan-all", "--lab", labPath, "--root", sessions, "--detector", "provider-error-exit-status"]);
+  const state = await runCli(["list", "--lab", labPath]);
+
+  assert.equal(first.filesDiscovered, 2);
+  assert.equal(first.filesScanned, 2);
+  assert.equal(first.filesFailed, 0);
+  assert.equal(first.eventsScanned, 2);
+  assert.equal(first.invalidLines, 1);
+  assert.equal(first.matches, 2);
+  assert.equal(first.created, 2);
+  assert.equal(second.created, 0);
+  assert.equal(second.deduped, 2);
+  assert.equal(state.candidates.length, 2);
+});

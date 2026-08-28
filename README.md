@@ -53,6 +53,23 @@ npm run harness:defects -- audit
 npm run harness:defects -- list
 ```
 
+发现器会把结构信号登记为 `candidate`，不把历史错误事件直接当作已确认缺陷。可先进行无写入的全量覆盖检查，再只对已验证规则执行正式登记：
+
+```bash
+npm run harness:defects -- scan-all \
+  --root ~/.pi/agent/sessions \
+  --detector provider-error-exit-status \
+  --dry-run
+
+npm run harness:defects -- scan-all \
+  --root ~/.pi/agent/sessions \
+  --source-id pi-agent \
+  --detector provider-error-exit-status \
+  --lab ~/.codex-session-renderer/harness-defects
+```
+
+`scan` 和 `scan-all` 输出文件、事件、无效行、命中、创建与去重统计，以及各规则的命中数。首批规则为 `duplicate-tool-call`、`missing-tool-result`、`provider-error-exit-status`、`cancelled-after-execution` 和 `context-projection-invariant`；批量正式扫描应只启用已经过运行验证的规则。每条候选绑定冻结归档 SHA-256、逻辑事件坐标和规则版本，后续仍须通过断言、fixture、可信执行和盲审流程才能进入确认列表。
+
 默认登记簿目录为当前工作目录下的 `.harness-defects`，可通过每条命令的 `--lab <dir>` 指定其他目录。事实源是 `ledger.jsonl`，`registry.json` 只是可重建的只读投影；发现断链或投影异常时审计会失败。`ingest-agent-result` 接受受限的候选、断言、fixture 或盲审结构化结果，agent 永远不能写入终态。可信执行必须由外部 sandbox backend 生成原始工件和可验证回执，runner 自报的 `failed` 或 trace 不能作为确认凭据。旧登记簿会迁移为 `inconclusive`，并带有 `legacy_verification_requires_refreeze` 原因。
 
 `examples/harness-fixtures/pi-tool-free/` 是一个可直接运行的真实 Pi fixture。它启动固定的 OpenAI 兼容流式 provider，在临时目录中以隔离配置运行 Pi，并将 `--mode json` 输出作为 trace。该示例的候选和基线都符合“无 tool call 时不得执行工具”，因此用来演示真实运行得到 `rejected`，不代表一个 Pi 缺陷：

@@ -11,6 +11,17 @@ test("账本检测任何哈希链篡改", async () => {
   assert.throws(() => verifyLedger(`${JSON.stringify({ ...entry, previousHash: "bad" })}\n`), /哈希链断裂/);
 });
 
+test("账本批量追加保持可验证的连续哈希链", async () => {
+  const ledger = createHarnessLedger({ rootDir: `/tmp/harness-ledger-batch-${Date.now()}-${Math.random()}` });
+  await ledger.appendMany([
+    { type: "archive_created", payload: { id: "A-batch" } },
+    { type: "candidate_created", candidateId: "C-batch", payload: { id: "C-batch", status: "candidate" } },
+  ]);
+  const entries = await ledger.read();
+  assert.equal(entries.length, 2);
+  assert.equal(entries[1].previousHash, entries[0].hash);
+});
+
 test("决策器在缺少强制沙箱时失败关闭", () => {
   const result = decideVerification({ sourceHash: "s", contractRef: "c", predicateHash: "p", fixtureHash: "f", runtimeHash: "r", epochs: [{ id: "one", sandboxReceipt: { enforced: false }, runs: [] }, { id: "two", sandboxReceipt: { enforced: false }, runs: [] }] });
   assert.equal(result.status, "blocked");

@@ -123,3 +123,13 @@ test("候选必须指向归档中存在的 JSONL 事件", async (t) => {
     /超出归档会话事件范围/,
   );
 });
+
+test("批量候选必须绑定同一冻结归档哈希", async (t) => {
+  const { root, lab } = await createTempLab();
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const sourcePath = path.join(root, "source.jsonl");
+  await fs.writeFile(sourcePath, '{"type":"session"}\n', "utf8");
+  const archive = await lab.archiveSession({ sourcePath, sourceId: "pi-agent", sessionId: "session-batch" });
+  const batch = { archiveId: archive.id, candidates: [{ eventIndex: 0, eventType: "session", sourceHash: "other", detectorId: "provider-error-exit-status", detectorVersion: "1", dedupeKey: "key", observation: "错误。", suspectedRule: "规则。" }] };
+  await assert.rejects(lab.createCandidates(batch), /sourceHash必须匹配冻结归档/);
+});
