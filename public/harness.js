@@ -1,8 +1,9 @@
 const state = { kind: "candidates", data: null, selected: null, status: "all" };
 const $ = (id) => document.getElementById(id);
 
-const statusOrder = ["candidate", "evidence_ready", "assertion_ready", "fixture_ready", "reproduced", "independently_replicated", "blocked", "inconclusive", "rejected", "confirmed"];
+const statusOrder = ["unassessed", "candidate", "evidence_ready", "assertion_ready", "fixture_ready", "reproduced", "independently_replicated", "blocked", "inconclusive", "rejected", "confirmed"];
 const statusLabels = {
+  unassessed: "影响待判定",
   candidate: "待冻结证据",
   evidence_ready: "待形成断言",
   assertion_ready: "待准备复现",
@@ -37,6 +38,8 @@ async function load() {
   state.selected = null;
   state.status = "all";
   render();
+  const first = currentItems()[0];
+  if (first) void detail(first.id);
 }
 
 function esc(value) {
@@ -106,7 +109,7 @@ function renderRow(item) {
   const title = item.title || item.observation || item.id;
   const workflow = item.workflow?.label || statusLabels[item.status] || item.status;
   const source = item.source?.sessionId || item.candidateId || item.id;
-  const context = item.memberCount ? `${item.memberCount} 条同源记录` : source;
+  const context = item.memberCount ? `观察 ${item.memberCount} 次` : source;
   return `<button class="queue-row ${state.selected === item.id ? "active" : ""}" type="button" data-id="${esc(item.id)}" aria-current="${state.selected === item.id ? "true" : "false"}"><span class="queue-row-title">${esc(title)}</span><span class="queue-row-meta">${statusBadge(item.status, workflow)}<span title="${esc(source)}">${esc(context)}</span></span></button>`;
 }
 
@@ -161,10 +164,7 @@ function renderDetail(data) {
         ${workflow.reason ? `<p class="reason">原因：${esc(humanReason(workflow.reason))}</p>` : ""}
       </div>
     </section>
-    <dl class="facts">
-      <div class="fact"><dt>观察到的问题</dt><dd>${esc(candidate.observation || core.title || "尚未记录")}</dd></div>
-      <div class="fact"><dt>应满足的规则</dt><dd>${esc(formatPredicate(predicate))}</dd></div>
-    </dl>
+    ${core.case ? renderCaseFacts(core.case) : `<dl class="facts"><div class="fact"><dt>观察到的问题</dt><dd>${esc(candidate.observation || core.title || "尚未记录")}</dd></div><div class="fact"><dt>应满足的规则</dt><dd>${esc(formatPredicate(predicate))}</dd></div></dl>`}
     ${renderGates(data)}
     ${renderTechnical(data, command)}
   `;
@@ -176,6 +176,11 @@ function formatPredicate(predicate) {
   if (predicate.type === "event_count" && predicate.eventType && predicate.expected !== undefined) return `事件 “${predicate.eventType}” 的次数必须为 ${predicate.expected}。`;
   if (predicate.id) return `规则 “${predicate.id}”。`;
   return JSON.stringify(predicate);
+}
+
+function renderCaseFacts(problemCase) {
+  const scope = [problemCase.providers?.length ? `服务：${problemCase.providers.join("、")}` : "", problemCase.models?.length ? `模型：${problemCase.models.join("、")}` : ""].filter(Boolean).join("；") || "服务和模型信息未完整保留。";
+  return `<dl class="facts"><div class="fact"><dt>这代表什么</dt><dd>${esc(problemCase.meaning)}</dd></div><div class="fact"><dt>具体错误</dt><dd>${esc(problemCase.errorMessage)}</dd></div><div class="fact"><dt>影响范围</dt><dd>${esc(problemCase.impact)}</dd></div><div class="fact"><dt>已知环境</dt><dd>${esc(scope)}</dd></div></dl>`;
 }
 
 function formatSource(archive, source) {

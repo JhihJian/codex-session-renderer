@@ -106,7 +106,7 @@ h3 { margin-bottom: .4rem; font-size: .9rem; }
 .status.confirmed { background: var(--success-soft); color: var(--success); }
 .status.blocked, .status.rejected { background: var(--danger-soft); color: var(--danger); }
 .status.fixture_ready, .status.reproduced, .status.independently_replicated, .status.evidence_ready, .status.assertion_ready { background: var(--warning-soft); color: var(--warning); }
-.status.candidate, .status.inconclusive { background: var(--accent-soft); color: var(--accent); }
+.status.candidate, .status.inconclusive, .status.unassessed { background: var(--accent-soft); color: var(--accent); }
 .detail-pane { min-width: 0; padding: clamp(1.1rem, 3vw, 2.4rem); background: var(--surface); }
 .empty { max-width: 42rem; padding: 3rem 0; color: var(--muted); }
 .empty h2 { color: var(--text); font-size: 1.25rem; }

@@ -42,7 +42,7 @@ test("provider error 线索按会话聚合，并明确归档不含退出码证�
   assert.equal(result.detectors[0].version, "2");
   assert.equal(result.matches.length, 1);
   assert.equal(result.matches[0].eventIndex, 0);
-  assert.deepEqual(result.matches[0].evidence, { firstEventIndex: 0, lastEventIndex: 3, occurrenceCount: 2, exitStatusEvidence: "absent" });
+  assert.deepEqual(result.matches[0].evidence, { firstEventIndex: 0, lastEventIndex: 3, occurrenceCount: 2, exitStatusEvidence: "absent", errorMessage: "模型服务返回错误，但归档未保留错误详情。", provider: null, model: null });
   assert.match(result.matches[0].observation, /未记录非交互进程退出码/);
 });
 

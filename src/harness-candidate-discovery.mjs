@@ -67,10 +67,14 @@ function providerErrorExitStatusDetector() {
   let firstEventIndex = null;
   let lastEventIndex = null;
   let occurrenceCount = 0;
+  let errorMessage = null;
+  let provider = null;
+  let model = null;
   return {
     observe(index, value) {
-      if (!isTerminalAssistantProviderError(value)) return;
-      if (firstEventIndex === null) firstEventIndex = index;
+      const message = terminalAssistantProviderError(value);
+      if (!message) return;
+      if (firstEventIndex === null) { firstEventIndex = index; errorMessage = providerErrorMessage(message); provider = message.provider || null; model = message.model || null; }
       lastEventIndex = index;
       occurrenceCount += 1;
     },
@@ -78,7 +82,7 @@ function providerErrorExitStatusDetector() {
       eventIndex: firstEventIndex,
       observation: `归档中观察到 ${occurrenceCount} 个最终 assistant provider error；归档未记录非交互进程退出码。`,
       suspectedRule: "当最终 assistant 为 error 时，受控非交互执行必须返回非零退出码。",
-      evidence: { firstEventIndex, lastEventIndex, occurrenceCount, exitStatusEvidence: "absent" },
+      evidence: { firstEventIndex, lastEventIndex, occurrenceCount, exitStatusEvidence: "absent", errorMessage, provider, model },
       dedupeScope: "source",
     }],
   };
@@ -90,7 +94,8 @@ function draft(detector, sourceHash, match) { const coordinate = match.dedupeSco
 function toolCallIds(value) { return ids(value, ["toolCallId", "tool_call_id", "call_id"], ["tool_call", "toolCall", "function_call"]); }
 function toolResultIds(value) { return ids(value, ["toolCallId", "tool_call_id", "call_id"], ["tool_result", "toolResult", "function_result"]); }
 function ids(value, keys, types) { const found = []; walk(value, (item) => { if (item && typeof item === "object" && types.includes(String(item.type || item.kind || ""))) for (const key of keys) if (typeof item[key] === "string") found.push(item[key]); }); return found; }
-function isTerminalAssistantProviderError(value) { const message = value?.type === "message" ? value.message : null; return message?.role === "assistant" && String(message.stopReason || message.stop_reason || "") === "error"; }
+function terminalAssistantProviderError(value) { const message = value?.type === "message" ? value.message : null; return message?.role === "assistant" && String(message.stopReason || message.stop_reason || "") === "error" ? message : null; }
+function providerErrorMessage(message) { return String(message.errorMessage || message.error_message || message.error?.message || "模型服务返回错误，但归档未保留错误详情。").slice(0, 2_000); }
 function isCancelled(value) { let found = false; walk(value, (item) => { if (item && typeof item === "object" && ["aborted", "cancelled", "canceled"].includes(String(item.stopReason || item.stop_reason || item.status || "").toLowerCase())) found = true; }); return found; }
 function hasContextMismatch(value) { const counts = projectionCounts(value); return Number.isSafeInteger(counts?.projected) && Number.isSafeInteger(counts?.actual) && counts.projected !== counts.actual; }
 function projectionCounts(value) { if (!value || typeof value !== "object") return null; const projected = value.contextMessageCount ?? value.context_message_count; const actual = Array.isArray(value.contextMessages) ? value.contextMessages.length : Array.isArray(value.context_messages) ? value.context_messages.length : undefined; return { projected, actual }; }

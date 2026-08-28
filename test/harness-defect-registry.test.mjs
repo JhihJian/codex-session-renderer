@@ -54,6 +54,7 @@ test("登记簿概览将同源的旧版 provider error 记录收束为一个待�
     observation: "会话记录了 provider 错误，需验证非交互模式的退出状态。",
     suspectedRule: "最终 assistant 为 error 时，非交互输出必须返回非零退出码。",
     eventIndex,
+    detection: { errorMessage: "400: Unsupported value: minimal", provider: "local-sub2api", model: "gpt-5.6-sol", exitStatusEvidence: "absent" },
   }));
   await fs.writeFile(path.join(root, "registry.json"), JSON.stringify({
     version: 2,
@@ -70,9 +71,10 @@ test("登记簿概览将同源的旧版 provider error 记录收束为一个待�
   const overview = await reader.readOverview();
   assert.equal(overview.candidates.length, 1);
   assert.equal(overview.candidates[0].memberCount, 3);
-  assert.match(overview.candidates[0].observation, /未记录非交互进程退出码/);
+  assert.match(overview.candidates[0].title, /Unsupported value/);
+  assert.equal(overview.candidates[0].case.sourceCount, 1);
 
-  const detail = await reader.readCandidate("C-8", overview.revision);
+  const detail = await reader.readCandidate(overview.candidates[0].id, overview.revision);
   assert.equal(detail.candidate.memberCount, 3);
   assert.equal(detail.candidate.detection.exitStatusEvidence, "absent");
 });
