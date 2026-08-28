@@ -35,6 +35,13 @@ try {
     if (result) print(await lab.recordReproduction({ candidateId: options.candidate, fixture: result.fixture, comparison: result.comparison }));
   } else if (command === "replay") {
     print(await runHarnessFixture(requiredOption(options.fixture, "fixture")));
+  } else if (command === "review") {
+    print(await lab.reviewDefect({
+      defectId: options.defect,
+      state: options.state,
+      reviewer: options.reviewer,
+      conclusion: options.conclusion,
+    }));
   } else if (command === "list") {
     print(await lab.list());
   } else {
@@ -76,6 +83,7 @@ function usage() {
     "  node scripts/harness-defects.mjs candidate --archive <archive-id> --event <index> --observation <text> --rule <text> [--lab <dir>]",
     "  node scripts/harness-defects.mjs run --candidate <candidate-id> --fixture <fixture.json> [--lab <dir>]",
     "  node scripts/harness-defects.mjs replay --fixture <fixture.json>",
+    "  node scripts/harness-defects.mjs review --defect <defect-id> --state <approved|changes_requested> --reviewer <name> --conclusion <text> [--lab <dir>]",
     "  node scripts/harness-defects.mjs list [--lab <dir>]",
   ].join("\n");
 }

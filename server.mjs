@@ -10,6 +10,7 @@ import { createDataSourceRegistry, sanitizeErrorMessage } from "./src/data-sourc
 import { evidenceRiskRulesFingerprint, normalizeEvidenceRiskRules, validateEvidenceRiskRules } from "./src/evidence-risk-rules.mjs";
 import { sendError, sendJson, sendText, serveStaticFile } from "./src/http-response.mjs";
 import { createRendererConfigStore } from "./src/renderer-config.mjs";
+import { createHarnessDefectRegistryReader } from "./src/harness-defect-registry.mjs";
 import { createSnapshotRootCommitCoordinator } from "./src/snapshot-root-commit-coordinator.mjs";
 import { createDeadlineSignal, fetchWithDeadline, isAbortError as isRemoteAbortError, readLimitedResponseText } from "./src/remote-http.mjs";
 import { createSessionDetailCoordinator } from "./src/session-detail-coordinator.mjs";
@@ -99,6 +100,9 @@ let dataSources = createDataSourceRegistry({
   snapshotCommitCoordinator,
 });
 const sourceContexts = new Map();
+const harnessRegistry = createHarnessDefectRegistryReader({
+  rootDir: process.env.HARNESS_DEFECT_LAB_ROOT || path.join(process.cwd(), ".harness-defects"),
+});
 
 function readPositiveEnv(name, fallback, maximum) {
   const value = Number(process.env[name]);
@@ -1681,6 +1685,8 @@ function requestAbortSubscription(req, res) {
 function isReadOnlyApiPath(pathname) {
   return (
     pathname === "/api/health" ||
+    pathname === "/api/harness" ||
+    pathname.startsWith("/api/harness/") ||
     pathname === "/api/sources" ||
     pathname === "/api/sessions" ||
     pathname.startsWith("/api/sessions/") ||
@@ -1690,6 +1696,18 @@ function isReadOnlyApiPath(pathname) {
     /^\/api\/sources\/[^/]+\/sessions(?:\/.*)?$/.test(pathname) ||
     /^\/api\/sources\/[^/]+\/query\/.*$/.test(pathname)
   );
+}
+
+function filterHarnessOverview(overview, searchParams) {
+  if (overview.state !== "ready") return overview;
+  const query = String(searchParams.get("q") || "").trim().toLocaleLowerCase();
+  const status = String(searchParams.get("status") || "all");
+  const matches = (value) => !query || JSON.stringify(value).toLocaleLowerCase().includes(query);
+  return {
+    ...overview,
+    candidates: overview.candidates.filter((item) => (status === "all" || item.status === status) && matches(item)),
+    defects: overview.defects.filter((item) => (status === "all" || item.status === status) && matches(item)),
+  };
 }
 
 async function route(req, res) {
@@ -1710,6 +1728,21 @@ async function route(req, res) {
         sources: dataSources.listSources(),
         time: new Date().toISOString(),
       });
+    }
+    if (pathname === "/api/harness") {
+      return sendJson(res, 200, filterHarnessOverview(await harnessRegistry.readOverview(), url.searchParams));
+    }
+    const harnessCandidateMatch = pathname.match(/^\/api\/harness\/candidates\/([^/]+)$/);
+    if (harnessCandidateMatch) {
+      const result = await harnessRegistry.readCandidate(decodeURIComponent(harnessCandidateMatch[1]), url.searchParams.get("revision"));
+      if (!result) return sendError(res, 404, "Not found");
+      return sendJson(res, 200, result);
+    }
+    const harnessDefectMatch = pathname.match(/^\/api\/harness\/defects\/([^/]+)$/);
+    if (harnessDefectMatch) {
+      const result = await harnessRegistry.readDefect(decodeURIComponent(harnessDefectMatch[1]), url.searchParams.get("revision"));
+      if (!result) return sendError(res, 404, "Not found");
+      return sendJson(res, 200, result);
     }
     if (pathname === "/api/sources") {
       return sendJson(res, 200, { sources: dataSources.listSources() });

@@ -16,6 +16,7 @@ function createHarnessDefectLab(options = {}) {
     list: () => stateStore.read(),
     recordReproduction: (input) => stateStore.mutate((state) => recordReproductionMutation(state, input)),
     rejectCandidate: (input) => stateStore.mutate((state) => rejectCandidateMutation(state, input)),
+    reviewDefect: (input) => stateStore.mutate((state) => reviewDefectMutation(state, input)),
     rootDir,
   };
 }
@@ -215,6 +216,18 @@ function rejectCandidateMutation(state, input = {}) {
   return { candidate: { ...candidate }, reproduction, defect: null };
 }
 
+function reviewDefectMutation(state, input = {}) {
+  const defect = state.defects.find((item) => item.id === requireText(input.defectId, "defectId"));
+  if (!defect) throw validationError("defectId", "确认缺陷不存在。");
+  defect.review = {
+    state: requireReviewState(input.state),
+    reviewer: requireText(input.reviewer, "reviewer"),
+    reviewedAt: new Date().toISOString(),
+    conclusion: requireText(input.conclusion, "conclusion"),
+  };
+  return { defect: { ...defect } };
+}
+
 async function eventFromArchive(archive, eventIndexInput, fsApi) {
   const index = requireEventIndex(eventIndexInput);
   const lines = (await fsApi.readFile(archive.archivePath, "utf8")).split(/\r?\n/).filter((line) => line.trim());
@@ -238,6 +251,14 @@ function requireEventIndex(value) {
   const number = Number(value);
   if (!Number.isSafeInteger(number) || number < 0) throw validationError("eventIndex", "必须是非负整数。");
   return number;
+}
+
+function requireReviewState(value) {
+  const state = requireText(value, "state");
+  if (!new Set(["approved", "changes_requested"]).has(state)) {
+    throw validationError("state", "必须是 approved 或 changes_requested。");
+  }
+  return state;
 }
 
 function sha256(contents) {

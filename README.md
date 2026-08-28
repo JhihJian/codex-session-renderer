@@ -12,6 +12,14 @@
 
 ## Harness 缺陷发现 MVP
 
+浏览器可视化登记簿位于 [`/harness.html`](./public/harness.html)。启动服务时设置 `HARNESS_DEFECT_LAB_ROOT` 指向登记簿目录，例如：
+
+```bash
+HARNESS_DEFECT_LAB_ROOT=/tmp/harness-real-pi-json-exit-status npm start
+```
+
+页面只读展示候选、confirmed/rejected 缺陷、来源会话锚点、失败谓词、candidate/baseline 三次对照、运行时版本、fixture、完整 trace、重放命令和独立审查状态。页面不会运行 fixture 或修改登记簿。
+
 `npm run harness:defects` 将一个历史 Pi 会话线索转化为可验证的 Harness 缺陷。它不从会话中的错误文本直接得出结论，而是要求为候选编写最小 fixture，在相同输入下分别运行被测 Harness 与基线，并连续三次判断同一个失败谓词。
 
 本地闭环如下：
