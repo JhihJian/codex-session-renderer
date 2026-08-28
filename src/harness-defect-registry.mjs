@@ -170,7 +170,7 @@ async function providerObservation(members, registry) {
     try {
       const event = await readJsonlLine(archive.archivePath, representative.eventIndex);
       const message = event?.type === "message" ? event.message : null;
-      detection = { ...detection, errorMessage: String(message?.errorMessage || message?.error_message || message?.error?.message || "模型服务返回错误，但归档未保留错误详情。"), provider: message?.provider || null, model: message?.model || null, exitStatusEvidence: "absent" };
+      detection = { ...detection, errorMessage: String(message?.errorMessage || message?.error_message || message?.error?.message || "模型服务返回错误，但归档未保留错误详情。"), provider: message?.provider || null, model: message?.model || null, observedAt: event?.timestamp || message?.timestamp || null, exitStatusEvidence: "absent" };
     } catch { detection = { ...detection, errorMessage: "模型服务返回错误，但归档未保留错误详情。", exitStatusEvidence: "absent" }; }
   }
   const errorMessage = String(detection?.errorMessage || "模型服务返回错误，但归档未保留错误详情。").trim();
@@ -184,18 +184,18 @@ function providerCase(fingerprint, observations, registry) {
   const providers = [...new Set(observations.map((item) => item.detection?.provider).filter(Boolean))];
   const models = [...new Set(observations.map((item) => item.detection?.model).filter(Boolean))];
   const hasErrorDetail = first.errorMessage !== "模型服务返回错误，但归档未保留错误详情。";
-  const headline = `Provider 请求被拒绝：${shortError(first.errorMessage)}`;
+  const headline = shortError(first.errorMessage);
   const candidate = {
     ...summarizeCandidate(first.representative, registry),
     id: `P-${fingerprint.slice(0, 16)}`,
     title: headline,
     status: "unassessed",
-    observation: "模型服务拒绝了请求，会话没有得到可继续处理的模型响应。",
-    suspectedRule: "当前归档没有非交互进程退出码，无法判断 CLI 是否错误地返回成功。",
+    observation: first.errorMessage,
+    suspectedRule: "归档记录到 assistant 终态为 error，但未记录 CLI 进程退出码。",
     detection: { ...first.detection, exitStatusEvidence: "absent", occurrenceCount: physicalCount },
     memberCount: physicalCount,
-    workflow: { label: "影响待判定", nextStep: "先确认服务拒绝的原因；退出码行为需要受控非交互执行才能判断。", reason: null },
-    case: { errorMessage: first.errorMessage, sourceCount, physicalCount, providers, models, hasErrorDetail, meaning: "模型服务拒绝了请求，因此该次会话未获得模型响应。", impact: `已在 ${sourceCount} 份归档会话中观察到；是否影响脚本、CI 或编排器仍取决于未采集的进程退出码。` },
+    workflow: { label: "待核实", nextStep: "需要采集同一条件下的 CLI 进程退出码。", reason: null },
+    case: { errorMessage: first.errorMessage, sourceCount, physicalCount, providers, models, observedAt: first.detection?.observedAt || null, hasErrorDetail, reviewReason: "原始会话记录到 assistant 最终状态为 error；同一归档没有对应的 CLI 进程退出码。", reviewQuestion: "在相同调用条件下，CLI 进程以何种退出码结束？" },
   };
   return { id: candidate.id, candidate, archive: first.archive ? projectArchive(first.archive) : null, reproduction: null, reproductions: [], evidence: [], reviews: [], timeline: [] };
 }

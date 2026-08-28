@@ -6,9 +6,11 @@ test("Harness 页面以验证关口组织队列，并按需展示技术证据", 
   await expect(page.locator("#statusFilters").getByRole("button", { name: /待可信复现/ })).toContainText("1 项");
   await expect(page.locator(".queue-row").filter({ hasText: "观察 3 次" })).toHaveCount(1);
   await page.locator(".queue-row").filter({ hasText: "观察 3 次" }).click();
-  await expect(page.locator("#detail")).toContainText("这代表什么");
+  await expect(page.locator("#detail")).toContainText("原始内容");
+  await expect(page.locator("#detail")).toContainText("为什么需要评审");
+  await expect(page.locator("#detail")).toContainText("待核实的问题");
   await expect(page.locator("#detail")).toContainText("400: Unsupported value: minimal");
-  await expect(page.locator("#detail")).toContainText("未采集的进程退出码");
+  await expect(page.locator("#detail")).toContainText("没有对应的 CLI 进程退出码");
 
   await page.locator("#statusFilters").getByRole("button", { name: /已阻塞/ }).click();
   await expect(page.locator(".queue-row")).toHaveCount(1);

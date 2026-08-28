@@ -156,16 +156,14 @@ function renderDetail(data) {
       </div>
       ${command ? '<button class="detail-action" id="copyCommand" type="button">复制重放命令</button>' : ""}
     </header>
-    <section class="decision" aria-labelledby="decisionHeading">
+    ${core.case ? renderCaseReview(core.case) : `<section class="decision" aria-labelledby="decisionHeading">
       <h3 id="decisionHeading">当前判断</h3>
       <div class="decision-copy">
         ${statusBadge(core.status, workflow.label || statusLabels[core.status])}
         <p>${esc(workflow.nextStep || "需要人工核查当前验证状态。")}</p>
         ${workflow.reason ? `<p class="reason">原因：${esc(humanReason(workflow.reason))}</p>` : ""}
       </div>
-    </section>
-    ${core.case ? renderCaseFacts(core.case) : `<dl class="facts"><div class="fact"><dt>观察到的问题</dt><dd>${esc(candidate.observation || core.title || "尚未记录")}</dd></div><div class="fact"><dt>应满足的规则</dt><dd>${esc(formatPredicate(predicate))}</dd></div></dl>`}
-    ${renderGates(data)}
+    </section><dl class="facts"><div class="fact"><dt>观察到的问题</dt><dd>${esc(candidate.observation || core.title || "尚未记录")}</dd></div><div class="fact"><dt>应满足的规则</dt><dd>${esc(formatPredicate(predicate))}</dd></div></dl>${renderGates(data)}`}
     ${renderTechnical(data, command)}
   `;
 }
@@ -178,9 +176,10 @@ function formatPredicate(predicate) {
   return JSON.stringify(predicate);
 }
 
-function renderCaseFacts(problemCase) {
+function renderCaseReview(problemCase) {
   const scope = [problemCase.providers?.length ? `服务：${problemCase.providers.join("、")}` : "", problemCase.models?.length ? `模型：${problemCase.models.join("、")}` : ""].filter(Boolean).join("；") || "服务和模型信息未完整保留。";
-  return `<dl class="facts"><div class="fact"><dt>这代表什么</dt><dd>${esc(problemCase.meaning)}</dd></div><div class="fact"><dt>具体错误</dt><dd>${esc(problemCase.errorMessage)}</dd></div><div class="fact"><dt>影响范围</dt><dd>${esc(problemCase.impact)}</dd></div><div class="fact"><dt>已知环境</dt><dd>${esc(scope)}</dd></div></dl>`;
+  const observedAt = problemCase.observedAt ? formatDate(problemCase.observedAt) : "原始事件未保留时间";
+  return `<section class="case-review"><div class="case-section"><h3>原始内容</h3><pre class="raw-error">${esc(problemCase.errorMessage)}</pre></div><dl class="facts"><div class="fact"><dt>记录范围</dt><dd>${esc(`${problemCase.sourceCount} 个会话，${problemCase.physicalCount} 次同类原始记录`)}</dd></div><div class="fact"><dt>原始记录时间</dt><dd>${esc(observedAt)}</dd></div><div class="fact"><dt>记录中的环境</dt><dd>${esc(scope)}</dd></div></dl><div class="case-section"><h3>为什么需要评审</h3><p>${esc(problemCase.reviewReason)}</p></div><div class="case-section"><h3>待核实的问题</h3><p>${esc(problemCase.reviewQuestion)}</p></div></section>`;
 }
 
 function formatSource(archive, source) {
