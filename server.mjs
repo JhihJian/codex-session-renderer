@@ -11,6 +11,7 @@ import { evidenceRiskRulesFingerprint, normalizeEvidenceRiskRules, validateEvide
 import { sendError, sendJson, sendText, serveStaticFile } from "./src/http-response.mjs";
 import { createRendererConfigStore } from "./src/renderer-config.mjs";
 import { createHarnessDefectRegistryReader } from "./src/harness-defect-registry.mjs";
+import { createReviewContextRegistryReader } from "./src/review-context-registry.mjs";
 import { createSnapshotRootCommitCoordinator } from "./src/snapshot-root-commit-coordinator.mjs";
 import { createDeadlineSignal, fetchWithDeadline, isAbortError as isRemoteAbortError, readLimitedResponseText } from "./src/remote-http.mjs";
 import { createSessionDetailCoordinator } from "./src/session-detail-coordinator.mjs";
@@ -101,6 +102,9 @@ let dataSources = createDataSourceRegistry({
 });
 const sourceContexts = new Map();
 const harnessRegistry = createHarnessDefectRegistryReader({
+  rootDir: process.env.HARNESS_DEFECT_LAB_ROOT || path.join(process.cwd(), ".harness-defects"),
+});
+const reviewContextRegistry = createReviewContextRegistryReader({
   rootDir: process.env.HARNESS_DEFECT_LAB_ROOT || path.join(process.cwd(), ".harness-defects"),
 });
 
@@ -1687,6 +1691,8 @@ function isReadOnlyApiPath(pathname) {
     pathname === "/api/health" ||
     pathname === "/api/harness" ||
     pathname.startsWith("/api/harness/") ||
+    pathname === "/api/review-contexts" ||
+    pathname.startsWith("/api/review-contexts/") ||
     pathname === "/api/sources" ||
     pathname === "/api/sessions" ||
     pathname.startsWith("/api/sessions/") ||
@@ -1731,6 +1737,13 @@ async function route(req, res) {
     }
     if (pathname === "/api/harness") {
       return sendJson(res, 200, filterHarnessOverview(await harnessRegistry.readOverview(), url.searchParams));
+    }
+    if (pathname === "/api/review-contexts") return sendJson(res, 200, await reviewContextRegistry.readOverview());
+    const reviewContextMatch = pathname.match(/^\/api\/review-contexts\/([^/]+)$/);
+    if (reviewContextMatch) {
+      const result = await reviewContextRegistry.readContext(decodeURIComponent(reviewContextMatch[1]), url.searchParams.get("revision"));
+      if (!result) return sendError(res, 404, "Not found");
+      return sendJson(res, 200, result);
     }
     const harnessCandidateMatch = pathname.match(/^\/api\/harness\/candidates\/([^/]+)$/);
     if (harnessCandidateMatch) {

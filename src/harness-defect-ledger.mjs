@@ -7,7 +7,7 @@ const genesisHash = "0".repeat(64);
 function createHarnessLedger(options = {}) {
   const fsApi = options.fsApi || fs;
   const rootDir = path.resolve(options.rootDir || path.join(process.cwd(), ".harness-defects"));
-  const ledgerPath = path.join(rootDir, "ledger.jsonl");
+  const ledgerPath = path.join(rootDir, options.ledgerName || "ledger.jsonl");
   let queue = Promise.resolve();
 
   async function read() {

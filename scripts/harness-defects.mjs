@@ -4,10 +4,13 @@ import { createHarnessDefectLab } from "../src/harness-defect-lab.mjs";
 import { discoverHarnessCandidates } from "../src/harness-candidate-discovery.mjs";
 import { runHarnessFixture } from "../src/harness-reproduction-runner.mjs";
 import { validateSubagentResult } from "../src/harness-subagent-contracts.mjs";
+import { discoverReviewContexts } from "../src/review-context-discovery.mjs";
+import { createReviewContextLab } from "../src/review-context-lab.mjs";
 
 try {
   const { command, options } = parseArguments(process.argv.slice(2));
   const lab = createHarnessDefectLab({ rootDir: options.lab });
+  const reviewLab = createReviewContextLab({ rootDir: options.lab });
   if (command === "archive") {
     const archive = await lab.archiveSession({
       sourcePath: options.source,
@@ -40,6 +43,8 @@ try {
     print(await scanSource(lab, options));
   } else if (command === "scan-all") {
     print(await scanAll(lab, options));
+  } else if (command === "review-contexts") {
+    print(await scanReviewContexts(reviewLab, options));
   } else if (command === "dispatch") {
     print({ candidateId: requiredOption(options.candidate, "candidate"), task: requiredOption(options.task, "task"), state: "queued" });
   } else if (command === "ingest-agent-result") {
@@ -106,6 +111,7 @@ function usage() {
     "  node scripts/harness-defects.mjs replay --fixture <fixture.json>",
     "  node scripts/harness-defects.mjs scan --source <session.jsonl> --source-id <id> --session <id> [--detector <id[,id]|all>] [--lab <dir>]",
     "  node scripts/harness-defects.mjs scan-all --root <sessions-dir> [--source-id <id>] [--detector <id[,id]|all>] [--dry-run] [--lab <dir>]",
+    "  node scripts/harness-defects.mjs review-contexts --source <session.jsonl> --source-id <id> --session <id> [--lab <dir>]",
     "  node scripts/harness-defects.mjs dispatch --candidate <id> --task <assertion|fixture|review> [--lab <dir>]",
     "  node scripts/harness-defects.mjs ingest-agent-result --input <result.json> [--lab <dir>]",
     "  node scripts/harness-defects.mjs verify --candidate <id> [--lab <dir>]",
@@ -120,6 +126,14 @@ async function scanSource(lab, options) {
   const discovery = await discoverHarnessCandidates({ archivePath: archive.archivePath, sourceHash: archive.sha256, detectorIds: options.detector || "all" });
   const registered = await lab.createCandidates({ archiveId: archive.id, candidates: discovery.matches });
   return { archive: { id: archive.id, sha256: archive.sha256 }, scan: scanSummary(discovery, registered), candidates: registered.candidates };
+}
+
+async function scanReviewContexts(lab, options) {
+  const archive = await lab.archive({ sourcePath: requiredOption(options.source, "source"), sourceId: requiredOption(options["source-id"], "source-id"), sessionId: requiredOption(options.session, "session") });
+  const discovery = await discoverReviewContexts({ archivePath: archive.archivePath, sourceHash: archive.sha256 });
+  const recorded = [];
+  for (const context of discovery.matches) recorded.push(await lab.record({ archiveId: archive.id, context }));
+  return { archive: { id: archive.id, sha256: archive.sha256 }, eventsScanned: discovery.eventsScanned, matches: discovery.matches.length, created: recorded.filter((item) => item.created).length, deduped: recorded.filter((item) => !item.created).length, contexts: recorded.map((item) => item.context) };
 }
 
 async function scanAll(lab, options) {

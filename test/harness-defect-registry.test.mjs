@@ -69,12 +69,13 @@ test("登记簿概览将同源的旧版 provider error 记录收束为一个待�
 
   const reader = createHarnessDefectRegistryReader({ rootDir: root });
   const overview = await reader.readOverview();
-  assert.equal(overview.candidates.length, 1);
-  assert.equal(overview.candidates[0].memberCount, 3);
-  assert.match(overview.candidates[0].title, /Unsupported value/);
-  assert.equal(overview.candidates[0].case.sourceCount, 1);
+  assert.equal(overview.candidates.length, 0);
+  assert.equal(overview.externalErrors.length, 1);
+  assert.equal(overview.externalErrors[0].memberCount, 3);
+  assert.match(overview.externalErrors[0].title, /Unsupported value/);
+  assert.equal(overview.externalErrors[0].case.sourceCount, 1);
 
-  const detail = await reader.readCandidate(overview.candidates[0].id, overview.revision);
+  const detail = await reader.readCandidate(overview.externalErrors[0].id, overview.revision);
   assert.equal(detail.candidate.memberCount, 3);
   assert.equal(detail.candidate.detection.exitStatusEvidence, "absent");
 });
