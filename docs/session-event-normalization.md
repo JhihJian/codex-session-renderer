@@ -168,7 +168,7 @@ Raw event 仍可按需查看完整原始 JSON。默认视图、事件预览和�
 
 ## 会话时间投入
 
-完整详情额外返回 `timing` 投影，用于诊断页展示会话墙钟时长、时间区间覆盖、分类投入、并行关系和数据质量。`timing.session.durationMs` 是首个有效时间点到最后有效时间点的墙钟区间；`coverageMs` 使用所有可关联执行区间的并集计算。工具、委派和子代理可能并行执行，因此分类的 `nodeDurationMs` 累加值可以大于 `coverageMs`，页面同时显示 `overlapMs` 和并行峰值。
+完整详情额外返回 `timing` 投影，用于诊断页展示会话墙钟时长、时间区间覆盖、分类投入、并行关系和数据质量。`timing.session.durationMs` 是首个有效时间点到最后有效时间点的墙钟区间；`coverageMs` 使用所有可关联执行区间的并集计算。工具、委派和子代理可能并行执行，因此分类的 `nodeDurationMs` 累加值可以大于 `coverageMs`，页面同时显示 `overlapMs` 和并行峰值。工具区间之外的时间不再作为单一的不可读总数，而是拆成按轮次排序的“时间缺口（模型处理 / 等待）”；这些区间明确标注没有原始事件，避免伪造工具归因。
 
 每个分类保留 `nodeRefs`，包括 `traceNodeId`、轮次索引和原始事件索引，前端可从时间投入条跳转到 Audit 或 Raw。时间区间的 `durationKind` 使用 `observed`、`estimated`、`partial` 和 `unavailable`，会话和分类的 `confidence` 使用 `observed`、`mixed`、`estimated` 和 `unavailable`。缺少开始或结束事件的项目计入质量摘要，并以部分区间或估算状态展示。
 

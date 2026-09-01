@@ -4326,8 +4326,8 @@ function renderTimingView(timing) {
           const groups = bucket.groups || [];
           const firstRef = refs[0] || {};
           const bar = Math.max(2, Math.round(((bucket.coverageMs || 0) / max) * 100));
-          const details = groups.length > 0 ? `<div class="timing-detail-list">${groups.slice(0, 8).map((group) => { const ref = group.refs[0] || {}; const failed = group.failedCount ? ` · 失败 ${group.failedCount}` : ""; const incomplete = group.incompleteCount ? ` · 未完成 ${group.incompleteCount}` : ""; return `<button class="timing-detail-row" type="button" data-timing-node-id="${escapeAttr(ref.traceNodeId || "")}" data-timing-event-index="${escapeAttr(ref.eventIndex ?? "")}"><strong>${escapeHtml(group.label)} <small>${group.count} 次</small></strong><span>${escapeHtml(formatTimingDuration(group.coverageMs))} · 平均 ${escapeHtml(formatTimingDuration(group.averageDurationMs))} · 最长 ${escapeHtml(formatTimingDuration(group.maxDurationMs))}${escapeHtml(failed + incomplete)}</span></button>`; }).join("")}${groups.length > 8 ? `<span class="timing-more">还有 ${groups.length - 8} 种工具，点击明细回溯</span>` : ""}</div>` : "";
-          return `<div class="timing-bucket-wrap"><button class="timing-bucket timing-${escapeAttr(bucket.id)}" type="button" data-timing-node-id="${escapeAttr(firstRef.traceNodeId || "")}" data-timing-event-index="${escapeAttr(firstRef.eventIndex ?? "")}" aria-label="${escapeAttr(`${bucket.label}，${formatTimingDuration(bucket.coverageMs)}，${bucket.sharePercent}%`)}"><span class="timing-bucket-main"><strong>${escapeHtml(bucket.label)}</strong><em>${escapeHtml(`${formatTimingDuration(bucket.coverageMs)} · ${bucket.sharePercent}% · ${bucket.count} 次调用`)}</em></span><span class="timing-bar" aria-hidden="true"><i style="width:${bar}%"></i></span><span class="timing-bucket-status">${escapeHtml(timingKindLabel(bucket.confidence))}${bucket.overlapMs ? ` · 重叠 ${escapeHtml(formatTimingDuration(bucket.overlapMs))}` : ""}</span></button>${details}</div>`;
+          const details = groups.length > 0 ? renderTimingGroups(groups) : "";
+          return `<div class="timing-bucket-wrap"><button class="timing-bucket timing-${escapeAttr(bucket.id)}" type="button" data-timing-node-id="${escapeAttr(firstRef.traceNodeId || "")}" data-timing-event-index="${escapeAttr(firstRef.eventIndex ?? "")}" aria-label="${escapeAttr(`${bucket.label}，${formatTimingDuration(bucket.coverageMs)}，${bucket.sharePercent}%`)}"><span class="timing-bucket-main"><strong>${escapeHtml(bucket.label)}</strong><em>${escapeHtml(`${formatTimingDuration(bucket.coverageMs)} · ${bucket.sharePercent}% · ${bucket.count} ${bucket.id === "unattributed" ? "个区间" : "次调用"}`)}</em></span><span class="timing-bar" aria-hidden="true"><i style="width:${bar}%"></i></span><span class="timing-bucket-status">${escapeHtml(timingKindLabel(bucket.confidence))}${bucket.overlapMs ? ` · 重叠 ${escapeHtml(formatTimingDuration(bucket.overlapMs))}` : ""}</span></button>${details}</div>`;
         }).join("") : `<div class="timing-empty"><strong>暂无可解释时间区间</strong><span>会话事件中尚未发现可关联的起止时间。</span></div>`}
       </div>
       ${renderTimingTurns(timing.turns)}
@@ -4339,6 +4339,18 @@ function renderTimingView(timing) {
 function renderTimingTurns(turns = []) {
   if (!turns.length) return "";
   return `<div class="timing-turns"><h4>按轮次查看</h4>${turns.map((turn) => `<div class="timing-turn"><div class="timing-turn-head"><strong>第 ${turn.turnNumber} 轮</strong><span>${escapeHtml(formatTimingDuration(turn.durationMs))} · ${escapeHtml(timingKindLabel(turn.confidence))}</span></div><div class="timing-turn-bars">${(turn.buckets || []).map((bucket) => `<span class="timing-turn-bar timing-${escapeAttr(bucket.id)}" style="--bar:${Math.max(3, Math.min(100, bucket.sharePercent || 0))}%" title="${escapeAttr(`${bucket.label} ${formatTimingDuration(bucket.coverageMs)}`)}"><i></i></span>`).join("")}</div></div>`).join("")}</div>`;
+}
+
+function renderTimingGroups(groups) {
+  return `<div class="timing-detail-list">${groups.slice(0, 8).map((group) => {
+    const ref = group.refs[0] || {};
+    const failed = group.failedCount ? ` · 失败 ${group.failedCount}` : "";
+    const incomplete = group.incompleteCount ? ` · 未完成 ${group.incompleteCount}` : "";
+    const gap = ref.actionable === false;
+    const value = `${formatTimingDuration(group.coverageMs)} · 平均 ${formatTimingDuration(group.averageDurationMs)} · 最长 ${formatTimingDuration(group.maxDurationMs)}${failed}${incomplete}${gap ? " · 无原始事件" : ""}`;
+    const content = `<strong>${escapeHtml(group.label)} <small>${group.count} 次</small></strong><span>${escapeHtml(value)}</span>`;
+    return gap ? `<div class="timing-detail-row timing-gap-row">${content}</div>` : `<button class="timing-detail-row" type="button" data-timing-node-id="${escapeAttr(ref.traceNodeId || "")}" data-timing-event-index="${escapeAttr(ref.eventIndex ?? "")}">${content}</button>`;
+  }).join("")}${groups.length > 8 ? `<span class="timing-more">还有 ${groups.length - 8} 个时间区间</span>` : ""}</div>`;
 }
 
 function timingKindLabel(kind) {

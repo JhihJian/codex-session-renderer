@@ -173,16 +173,38 @@ function buildSessionTiming(trace) {
   const unavailableCount = intervals.filter((item) => item.durationKind === "unavailable").length;
   const estimatedCount = intervals.filter((item) => item.durationKind === "estimated").length;
   if (durationMs != null) {
+    const gaps = mergeIntervals([{ startMs, endMs }]).flatMap((outer) => {
+      const inside = mergeIntervals(completeIntervals.map((item) => ({ startMs: Math.max(outer.startMs, item.startMs), endMs: Math.min(outer.endMs, item.endMs) })))
+        .filter((item) => item.endMs > item.startMs);
+      const points = [outer.startMs, ...inside.flatMap((item) => [item.startMs, item.endMs]), outer.endMs].sort((left, right) => left - right);
+      return points.slice(0, -1).flatMap((point, index) => {
+        const next = points[index + 1];
+        const covered = inside.some((item) => point >= item.startMs && next <= item.endMs);
+        return covered || next <= point ? [] : [{ startMs: point, endMs: next }];
+      });
+    });
+    const gapGroups = gaps.map((gap, index) => {
+      const midpoint = gap.startMs + (gap.endMs - gap.startMs) / 2;
+      const turn = (trace?.root?.children || []).find((node) => {
+        const turnStart = Date.parse(node.timestamp || "");
+        const turnEnd = Date.parse(node.completedAt || "");
+        return Number.isFinite(turnStart) && Number.isFinite(turnEnd) && midpoint >= turnStart && midpoint <= turnEnd;
+      });
+      const duration = gap.endMs - gap.startMs;
+      return { key: `gap-${index}`, label: turn ? `第 ${turn.index + 1} 轮 · 事件间隔` : "会话边界间隔", count: 1, coverageMs: duration, nodeDurationMs: null, averageDurationMs: duration, maxDurationMs: duration, failedCount: 0, incompleteCount: 0, refs: [{ traceNodeId: null, eventIndex: null, durationMs: duration, durationKind: "unavailable", label: `时间缺口 ${index + 1}`, startedAt: new Date(gap.startMs).toISOString(), completedAt: new Date(gap.endMs).toISOString(), actionable: false }] };
+    }).sort((left, right) => right.coverageMs - left.coverageMs);
+    const unattributedMs = gaps.reduce((sum, gap) => sum + gap.endMs - gap.startMs, 0);
     buckets.push({
       id: "unattributed",
-      label: "未归因时间",
-      coverageMs: Math.max(0, durationMs - executionCoverage),
+      label: "时间缺口（模型处理 / 等待）",
+      coverageMs: unattributedMs,
       nodeDurationMs: null,
-      sharePercent: Math.max(0, Math.round(((durationMs - executionCoverage) / durationMs) * 1000) / 10),
-      count: 0,
-      confidence: "estimated",
+      sharePercent: Math.max(0, Math.round((unattributedMs / durationMs) * 1000) / 10),
+      count: gapGroups.length,
+      confidence: "unavailable",
       overlapMs: 0,
-      nodeRefs: [],
+      groups: gapGroups,
+      nodeRefs: gapGroups.flatMap((group) => group.refs),
     });
   }
   const quality = {
