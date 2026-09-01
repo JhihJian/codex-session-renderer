@@ -94,13 +94,48 @@ function confidenceFor(intervals) {
 }
 
 function nodeRef(item) {
+  const detail = item.node.detail?.item || {};
   return {
     traceNodeId: item.node.id,
     turnIndex: item.turnIndex,
-    eventIndex: item.eventIndex,
+    eventIndex: detail.sourceIndex ?? item.eventIndex,
+    outputEventIndex: detail.outputSourceIndex ?? null,
     durationMs: item.durationMs,
     durationKind: item.durationKind,
+    label: detail.name || item.node.title || item.node.type,
+    toolName: detail.name || null,
+    callId: detail.callId || null,
+    status: detail.status || item.node.status || null,
+    arguments: detail.arguments || null,
   };
+}
+
+function buildGroups(intervals) {
+  const groups = new Map();
+  for (const item of intervals) {
+    const ref = nodeRef(item);
+    const key = ref.toolName || ref.label || "未命名节点";
+    const group = groups.get(key) || { key, label: key, intervals: [], refs: [] };
+    group.intervals.push(item);
+    group.refs.push(ref);
+    groups.set(key, group);
+  }
+  return [...groups.values()].map((group) => {
+    const complete = group.intervals.filter((item) => item.durationMs != null);
+    const durations = complete.map((item) => item.durationMs).sort((a, b) => a - b);
+    return {
+      key: group.key,
+      label: group.label,
+      count: group.intervals.length,
+      coverageMs: coveredMs(complete.map((item) => ({ startMs: item.startMs, endMs: item.endMs }))),
+      nodeDurationMs: durations.reduce((sum, duration) => sum + duration, 0),
+      averageDurationMs: durations.length ? Math.round(durations.reduce((sum, duration) => sum + duration, 0) / durations.length) : null,
+      maxDurationMs: durations.at(-1) ?? null,
+      failedCount: group.intervals.filter((item) => /fail|error|abort/i.test(item.node.status || item.node.detail?.item?.status || "")).length,
+      incompleteCount: group.intervals.filter((item) => item.durationMs == null).length,
+      refs: group.refs,
+    };
+  }).sort((left, right) => right.coverageMs - left.coverageMs || right.count - left.count);
 }
 
 function buildBucket(id, label, intervals, totalMs) {
@@ -116,6 +151,7 @@ function buildBucket(id, label, intervals, totalMs) {
     count: intervals.length,
     confidence: confidenceFor(complete),
     overlapMs: overlap.overlapMs,
+    groups: buildGroups(intervals),
     nodeRefs: intervals.map(nodeRef),
   };
 }

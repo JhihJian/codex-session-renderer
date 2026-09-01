@@ -4323,9 +4323,11 @@ function renderTimingView(timing) {
       <div class="timing-buckets" aria-label="时间投入分类">
         ${buckets.length ? buckets.map((bucket) => {
           const refs = bucket.nodeRefs || [];
+          const groups = bucket.groups || [];
+          const firstRef = refs[0] || {};
           const bar = Math.max(2, Math.round(((bucket.coverageMs || 0) / max) * 100));
-          const details = refs.length > 1 ? `<div class="timing-detail-list">${refs.map((ref, index) => `<button class="timing-detail-row" type="button" data-timing-node-id="${escapeAttr(ref.traceNodeId || "")}" data-timing-event-index="${escapeAttr(ref.eventIndex ?? "")}"><strong>${escapeHtml(`${index + 1}. ${timingRefLabel(ref)}`)}</strong><span>${escapeHtml(formatTimingDuration(ref.durationMs))} · ${escapeHtml(timingKindLabel(ref.durationKind))}</span></button>`).join("")}</div>` : "";
-          return `<div class="timing-bucket-wrap"><button class="timing-bucket timing-${escapeAttr(bucket.id)}" type="button" data-timing-node-id="${escapeAttr(refs[0]?.traceNodeId || "")}" data-timing-event-index="${escapeAttr(refs[0]?.eventIndex ?? "")}" aria-label="${escapeAttr(`${bucket.label}，${formatTimingDuration(bucket.coverageMs)}，${bucket.sharePercent}%`)}"><span class="timing-bucket-main"><strong>${escapeHtml(bucket.label)}</strong><em>${escapeHtml(`${formatTimingDuration(bucket.coverageMs)} · ${bucket.sharePercent}% · ${bucket.count} 项`)}</em></span><span class="timing-bar" aria-hidden="true"><i style="width:${bar}%"></i></span><span class="timing-bucket-status">${escapeHtml(timingKindLabel(bucket.confidence))}${bucket.overlapMs ? ` · 重叠 ${escapeHtml(formatTimingDuration(bucket.overlapMs))}` : ""}</span></button>${details}</div>`;
+          const details = groups.length > 0 ? `<div class="timing-detail-list">${groups.slice(0, 8).map((group) => { const ref = group.refs[0] || {}; const failed = group.failedCount ? ` · 失败 ${group.failedCount}` : ""; const incomplete = group.incompleteCount ? ` · 未完成 ${group.incompleteCount}` : ""; return `<button class="timing-detail-row" type="button" data-timing-node-id="${escapeAttr(ref.traceNodeId || "")}" data-timing-event-index="${escapeAttr(ref.eventIndex ?? "")}"><strong>${escapeHtml(group.label)} <small>${group.count} 次</small></strong><span>${escapeHtml(formatTimingDuration(group.coverageMs))} · 平均 ${escapeHtml(formatTimingDuration(group.averageDurationMs))} · 最长 ${escapeHtml(formatTimingDuration(group.maxDurationMs))}${escapeHtml(failed + incomplete)}</span></button>`; }).join("")}${groups.length > 8 ? `<span class="timing-more">还有 ${groups.length - 8} 种工具，点击明细回溯</span>` : ""}</div>` : "";
+          return `<div class="timing-bucket-wrap"><button class="timing-bucket timing-${escapeAttr(bucket.id)}" type="button" data-timing-node-id="${escapeAttr(firstRef.traceNodeId || "")}" data-timing-event-index="${escapeAttr(firstRef.eventIndex ?? "")}" aria-label="${escapeAttr(`${bucket.label}，${formatTimingDuration(bucket.coverageMs)}，${bucket.sharePercent}%`)}"><span class="timing-bucket-main"><strong>${escapeHtml(bucket.label)}</strong><em>${escapeHtml(`${formatTimingDuration(bucket.coverageMs)} · ${bucket.sharePercent}% · ${bucket.count} 次调用`)}</em></span><span class="timing-bar" aria-hidden="true"><i style="width:${bar}%"></i></span><span class="timing-bucket-status">${escapeHtml(timingKindLabel(bucket.confidence))}${bucket.overlapMs ? ` · 重叠 ${escapeHtml(formatTimingDuration(bucket.overlapMs))}` : ""}</span></button>${details}</div>`;
         }).join("") : `<div class="timing-empty"><strong>暂无可解释时间区间</strong><span>会话事件中尚未发现可关联的起止时间。</span></div>`}
       </div>
       ${renderTimingTurns(timing.turns)}
@@ -4341,10 +4343,6 @@ function renderTimingTurns(turns = []) {
 
 function timingKindLabel(kind) {
   return { observed: "实测", mixed: "混合", estimated: "估算", partial: "部分区间", unavailable: "未记录" }[kind] || "未记录";
-}
-
-function timingRefLabel(ref) {
-  return ref.traceNodeId?.split(":").at(-1) || (ref.eventIndex != null ? `原始事件 #${ref.eventIndex}` : "时间区间");
 }
 
 function formatTimingDuration(ms, prefix = "") {

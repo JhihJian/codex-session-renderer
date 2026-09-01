@@ -39,7 +39,7 @@ test("session timing classifies trace nodes and preserves source references", ()
             timestamp: "2026-07-08T10:00:02.000Z",
             completedAt: "2026-07-08T10:00:08.000Z",
             durationEstimated: false,
-            detail: { item: { sourceIndex: 4 } },
+            detail: { item: { sourceIndex: 4, name: "exec_command", callId: "call-1", status: "completed" } },
             children: [],
           },
           {
@@ -65,6 +65,9 @@ test("session timing classifies trace nodes and preserves source references", ()
   assert.equal(timing.session.parallelism.overlapMs, 3_000);
   assert.equal(tools.coverageMs, 6_000);
   assert.equal(tools.nodeRefs[0].eventIndex, 4);
+  assert.equal(tools.groups[0].label, "exec_command");
+  assert.equal(tools.groups[0].count, 1);
+  assert.equal(tools.groups[0].averageDurationMs, 6_000);
   assert.equal(agents.confidence, "estimated");
   assert.equal(timing.turns[0].turnNumber, 1);
 });

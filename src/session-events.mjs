@@ -795,8 +795,10 @@ function limitText(value, max) {
 
 function buildTrace(session, rawEvents, normalizedEvents, turns, hierarchy) {
   const rootStartedAt = turns[0]?.startedAt || session.startedAt || normalizedEvents[0]?.timestamp || null;
-  const rootEndedAt =
-    turns.at(-1)?.completedAt || normalizedEvents.at(-1)?.timestamp || session.updatedAt || session.fileModifiedAt || null;
+  const eventEndCandidates = [turns.at(-1)?.completedAt, normalizedEvents.at(-1)?.timestamp]
+    .filter(Boolean)
+    .sort((left, right) => (toMs(left) ?? 0) - (toMs(right) ?? 0));
+  const rootEndedAt = eventEndCandidates.at(-1) || session.updatedAt || session.fileModifiedAt || null;
   const childById = new Map(hierarchy.children.map((child) => [child.childThreadId, child]));
   const spawnByChildId = findSpawnAgentEvents(normalizedEvents, childById);
   const notificationByChildId = findSubagentNotifications(normalizedEvents, childById);
