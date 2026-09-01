@@ -166,6 +166,14 @@ Raw event 仍可按需查看完整原始 JSON。默认视图、事件预览和�
 
 这些读取方式会把无法解析的非空 JSONL 行转换为 `jsonl_parse_error` 诊断事件，保留逻辑索引、物理行号、错误类别和安全预览。这样 Raw/查询路径可以提示数据质量问题，而不是静默丢失。
 
+## 会话时间投入
+
+完整详情额外返回 `timing` 投影，用于诊断页展示会话墙钟时长、时间区间覆盖、分类投入、并行关系和数据质量。`timing.session.durationMs` 是首个有效时间点到最后有效时间点的墙钟区间；`coverageMs` 使用所有可关联执行区间的并集计算。工具、委派和子代理可能并行执行，因此分类的 `nodeDurationMs` 累加值可以大于 `coverageMs`，页面同时显示 `overlapMs` 和并行峰值。
+
+每个分类保留 `nodeRefs`，包括 `traceNodeId`、轮次索引和原始事件索引，前端可从时间投入条跳转到 Audit 或 Raw。时间区间的 `durationKind` 使用 `observed`、`estimated`、`partial` 和 `unavailable`，会话和分类的 `confidence` 使用 `observed`、`mixed`、`estimated` 和 `unavailable`。缺少开始或结束事件的项目计入质量摘要，并以部分区间或估算状态展示。
+
+`GET /api/query/sessions/:id/view?view=timing` 返回与详情中相同的 `timing` 投影。搜索、类型筛选和事件统计不改变完整会话时间口径。详情读取和文件签名校验仍然是 timing 的版本边界，文件变化时前端清理旧的时间分析结果。
+
 ## 完整详情与诊断预算
 
 详情、compact/view、turns/audit 和 Markdown 导出完整读取当前 JSONL，不按文件字节数或事件数降级。服务端通过同一个协调器在读取前后比较文件签名，保留全局 4 路读取闸门与稳定完整派生的 24 条/48 MiB 版本 LRU；单个结果超过缓存总预算时只是不写入缓存，不能拒绝展示。具体环境变量和默认值见 README 的“完整详情读取与诊断预算”。

@@ -4277,6 +4277,7 @@ function renderStatsInfoView() {
           <div class="stats-view-note">${escapeHtml(filtered ? "当前统计已应用搜索或类型过滤" : "当前统计覆盖完整会话事件流")}</div>
         </div>
       </div>
+      ${renderTimingView(detail.timing)}
       <div class="stats-view-metrics" aria-label="事件统计概要">
         ${renderStatsMetric("事件类型", eventTypeStats.length, `全部 ${totalEventTypeStats.length} 类`)}
         ${renderStatsMetric("约 token", compactNumber(approxTokens), "按事件体积估算")}
@@ -4300,6 +4301,67 @@ function renderStatsInfoView() {
       }
     </div>
   `;
+  bindTimingActions();
+}
+
+function renderTimingView(timing) {
+  if (!timing?.session) return `<section class="timing-empty"><strong>暂无会话时间数据</strong><span>当前会话尚未生成可用的时间区间。</span></section>`;
+  const session = timing.session;
+  const buckets = (timing.buckets || []).filter((bucket) => bucket.coverageMs > 0 || bucket.count > 0);
+  const max = Math.max(1, ...buckets.map((bucket) => bucket.coverageMs || 0));
+  const quality = timing.quality || {};
+  return `
+    <section class="timing-section" aria-labelledby="timingHeading">
+      <div class="timing-heading"><div><p class="eyebrow">时间投入</p><h3 id="timingHeading">会话时间花在哪里</h3></div><span class="timing-confidence">${escapeHtml(timingKindLabel(session.durationKind))}</span></div>
+      <div class="timing-metrics" aria-label="会话时间概览">
+        ${renderStatsMetric("总墙钟时长", formatTimingDuration(session.durationMs), "完整会话口径")}
+        ${renderStatsMetric("可解释执行", formatTimingDuration(session.coverageMs), "时间区间覆盖")}
+        ${renderStatsMetric("时间覆盖率", `${session.coveragePercent || 0}%`, "执行覆盖 / 总时长")}
+        ${renderStatsMetric("并行峰值", `${session.parallelism?.peak || 0} 路`, formatTimingDuration(session.parallelism?.overlapMs, "重叠"))}
+      </div>
+      <p class="timing-note">分类按时间区间覆盖计算。并行执行会产生重叠，分类时长总和可以大于总墙钟时长。</p>
+      <div class="timing-buckets" aria-label="时间投入分类">
+        ${buckets.length ? buckets.map((bucket) => {
+          const refs = bucket.nodeRefs || [];
+          const bar = Math.max(2, Math.round(((bucket.coverageMs || 0) / max) * 100));
+          const details = refs.length > 1 ? `<div class="timing-detail-list">${refs.map((ref, index) => `<button class="timing-detail-row" type="button" data-timing-node-id="${escapeAttr(ref.traceNodeId || "")}" data-timing-event-index="${escapeAttr(ref.eventIndex ?? "")}"><strong>${escapeHtml(`${index + 1}. ${timingRefLabel(ref)}`)}</strong><span>${escapeHtml(formatTimingDuration(ref.durationMs))} · ${escapeHtml(timingKindLabel(ref.durationKind))}</span></button>`).join("")}</div>` : "";
+          return `<div class="timing-bucket-wrap"><button class="timing-bucket timing-${escapeAttr(bucket.id)}" type="button" data-timing-node-id="${escapeAttr(refs[0]?.traceNodeId || "")}" data-timing-event-index="${escapeAttr(refs[0]?.eventIndex ?? "")}" aria-label="${escapeAttr(`${bucket.label}，${formatTimingDuration(bucket.coverageMs)}，${bucket.sharePercent}%`)}"><span class="timing-bucket-main"><strong>${escapeHtml(bucket.label)}</strong><em>${escapeHtml(`${formatTimingDuration(bucket.coverageMs)} · ${bucket.sharePercent}% · ${bucket.count} 项`)}</em></span><span class="timing-bar" aria-hidden="true"><i style="width:${bar}%"></i></span><span class="timing-bucket-status">${escapeHtml(timingKindLabel(bucket.confidence))}${bucket.overlapMs ? ` · 重叠 ${escapeHtml(formatTimingDuration(bucket.overlapMs))}` : ""}</span></button>${details}</div>`;
+        }).join("") : `<div class="timing-empty"><strong>暂无可解释时间区间</strong><span>会话事件中尚未发现可关联的起止时间。</span></div>`}
+      </div>
+      ${renderTimingTurns(timing.turns)}
+      <div class="timing-quality"><strong>时间数据质量</strong><span>估算 ${quality.estimatedCount || 0} 项 · 缺少开始 ${quality.missingStartCount || 0} 项 · 缺少结束 ${quality.missingEndCount || 0} 项 · 未关联 ${quality.unlinkedCount || 0} 项</span></div>
+    </section>
+  `;
+}
+
+function renderTimingTurns(turns = []) {
+  if (!turns.length) return "";
+  return `<div class="timing-turns"><h4>按轮次查看</h4>${turns.map((turn) => `<div class="timing-turn"><div class="timing-turn-head"><strong>第 ${turn.turnNumber} 轮</strong><span>${escapeHtml(formatTimingDuration(turn.durationMs))} · ${escapeHtml(timingKindLabel(turn.confidence))}</span></div><div class="timing-turn-bars">${(turn.buckets || []).map((bucket) => `<span class="timing-turn-bar timing-${escapeAttr(bucket.id)}" style="--bar:${Math.max(3, Math.min(100, bucket.sharePercent || 0))}%" title="${escapeAttr(`${bucket.label} ${formatTimingDuration(bucket.coverageMs)}`)}"><i></i></span>`).join("")}</div></div>`).join("")}</div>`;
+}
+
+function timingKindLabel(kind) {
+  return { observed: "实测", mixed: "混合", estimated: "估算", partial: "部分区间", unavailable: "未记录" }[kind] || "未记录";
+}
+
+function timingRefLabel(ref) {
+  return ref.traceNodeId?.split(":").at(-1) || (ref.eventIndex != null ? `原始事件 #${ref.eventIndex}` : "时间区间");
+}
+
+function formatTimingDuration(ms, prefix = "") {
+  if (ms == null) return "未记录";
+  return `${prefix ? `${prefix} ` : ""}${formatDuration(ms)}`;
+}
+
+function bindTimingActions() {
+  els.statsContent.querySelectorAll("[data-timing-node-id]").forEach((button) => button.addEventListener("click", () => {
+    const nodeId = button.dataset.timingNodeId;
+    const eventIndex = button.dataset.timingEventIndex;
+    if (nodeId) {
+      setViewMode("audit");
+      selectAuditNode(nodeId);
+    } else if (eventIndex !== "") openRawEventFromAudit(Number(eventIndex));
+    else showToast("当前分类没有可跳转的来源");
+  }));
 }
 
 function renderStatsMetric(label, value, hint) {

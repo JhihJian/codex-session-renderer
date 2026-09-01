@@ -3464,6 +3464,45 @@ button.compact-replacement-row:focus-visible {
   line-height: 1.35;
 }
 
+.timing-section { display: grid; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--hair); background: var(--bg-elev); }
+.timing-heading, .timing-turn-head, .timing-quality { display: flex; min-width: 0; align-items: baseline; justify-content: space-between; gap: 10px; }
+.timing-heading h3, .timing-turns h4 { margin: 0; font-size: 14px; }
+.timing-confidence, .timing-bucket-status, .timing-quality span, .timing-note, .timing-turn-head span { color: var(--text-3); font-size: 11px; }
+.timing-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.timing-note { margin: 0; }
+.timing-buckets, .timing-turns { display: grid; gap: 6px; }
+.timing-bucket-wrap { display: grid; gap: 3px; }
+.timing-detail-list { display: grid; gap: 2px; padding-left: 14px; }
+.timing-detail-row { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; border: 0; border-left: 2px solid var(--hair); background: transparent; padding: 4px 8px; text-align: left; }
+.timing-detail-row:hover { border-color: var(--blue); background: var(--blue-soft); }
+.timing-detail-row strong, .timing-detail-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timing-detail-row strong { font-size: 11px; font-weight: 650; }
+.timing-detail-row span { color: var(--text-3); font-family: var(--mono); font-size: 10px; }
+.timing-bucket { display: grid; grid-template-columns: minmax(150px, 1.1fr) minmax(90px, 2fr) minmax(110px, .8fr); align-items: center; gap: 10px; min-width: 0; border: 1px solid var(--hair); border-radius: var(--radius-tool); background: var(--bg-sunken); padding: 8px 10px; text-align: left; }
+.timing-bucket:hover { border-color: var(--blue); background: var(--blue-soft); }
+.timing-bucket-main { display: grid; min-width: 0; gap: 2px; }
+.timing-bucket-main strong, .timing-bucket-main em { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timing-bucket-main strong { font-size: 12px; }
+.timing-bucket-main em { color: var(--text-3); font-family: var(--mono); font-size: 10.5px; font-style: normal; }
+.timing-bar { display: block; height: 7px; overflow: hidden; border-radius: 999px; background: var(--bg-elev); }
+.timing-bar i { display: block; height: 100%; border-radius: inherit; background: var(--blue); }
+.timing-subagent_execution .timing-bar i { background: var(--purple); }
+.timing-delegation .timing-bar i { background: var(--orange); }
+.timing-context_compaction .timing-bar i { background: var(--green); }
+.timing-system_processing .timing-bar i { background: var(--text-3); }
+.timing-unattributed .timing-bar i { background: repeating-linear-gradient(135deg, var(--text-3) 0 4px, transparent 4px 8px); }
+.timing-turns { margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--hair); }
+.timing-turn { display: grid; gap: 5px; }
+.timing-turn-bars { display: flex; gap: 2px; height: 8px; overflow: hidden; border-radius: 999px; background: var(--bg-sunken); }
+.timing-turn-bar { display: block; flex: 0 0 var(--bar); min-width: 3px; background: var(--blue); }
+.timing-turn-bar.timing-subagent_execution { background: var(--purple); }
+.timing-turn-bar.timing-delegation { background: var(--orange); }
+.timing-turn-bar.timing-context_compaction { background: var(--green); }
+.timing-quality { padding-top: 4px; border-top: 1px solid var(--hair); }
+.timing-quality strong { font-size: 11px; }
+.timing-empty { display: grid; gap: 3px; padding: 18px 0; color: var(--text-3); font-size: 11px; }
+.timing-empty strong { color: var(--text-2); font-size: 12px; }
+
 .stats-view-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -7104,9 +7143,18 @@ mark {
     padding: 11px 12px 10px;
   }
 
-  .stats-view-metrics {
+  .stats-view-metrics,
+  .timing-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     padding: 8px;
+  }
+
+  .timing-bucket {
+    grid-template-columns: minmax(130px, 1fr) minmax(80px, 1.4fr);
+  }
+
+  .timing-bucket-status {
+    grid-column: 1 / -1;
   }
 
   .stats-event-table {

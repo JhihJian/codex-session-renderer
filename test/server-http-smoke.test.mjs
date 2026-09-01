@@ -599,11 +599,17 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   assert.equal(detail.response.status, 200);
   assert.equal(detail.body.session.id, sessionId);
   assert.equal(detail.body.session.title, "SQLite 稳定 HTTP smoke 标题");
-  for (const key of ["turns", "events", "stats", "audit", "trace", "compact"]) {
+  for (const key of ["turns", "events", "stats", "audit", "trace", "timing", "compact"]) {
     assert.ok(key in detail.body, `detail includes ${key}`);
   }
   assert.equal(detail.body.events.length, 7);
   assert.equal(detail.body.stats.eventCount, 7);
+  assert.equal(detail.body.timing.version, 1);
+  assert.ok(detail.body.timing.session);
+
+  const timingView = await requestJson(baseUrl, `/api/sources/local/query/sessions/${sessionId}/view?view=timing`);
+  assert.equal(timingView.response.status, 200);
+  assert.equal(timingView.body.timing.version, 1);
 
   const localSourceDetail = await requestJson(baseUrl, `/api/sources/local/sessions/${sessionId}`);
   assert.equal(localSourceDetail.response.status, 200);
@@ -677,7 +683,7 @@ test("server module can be imported and serves core HTTP session APIs", async (t
     assert.equal(detail.body.stats.eventCount, 10_002);
     assert.ok(detail.body.turns.length > 0);
   }
-  for (const view of ["compact", "turns", "trace", "audit"]) {
+  for (const view of ["compact", "turns", "trace", "timing", "audit"]) {
     const externalView = await requestJson(baseUrl, `/api/sources/local/query/sessions/${largeDetailId}/view?view=${view}`);
     assert.equal(externalView.response.status, 200);
     assert.equal(externalView.body.complete, true);

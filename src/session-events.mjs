@@ -826,6 +826,7 @@ function buildTrace(session, rawEvents, normalizedEvents, turns, hierarchy) {
     const turnSummary = summarizeTurnForTrace(turn, hierarchy);
     const turnNode = {
       id: `turn:${turn.id}:${turnIndex}`,
+      index: turnIndex,
       type: "turn",
       label: `第 ${turnIndex + 1} 轮`,
       title: turnSummary.title,
@@ -1188,6 +1189,8 @@ function compactTraceItem(item) {
   return {
     id: item.id,
     type: item.type,
+    sourceIndex: item.sourceIndex ?? null,
+    outputSourceIndex: item.outputSourceIndex ?? null,
     timestamp: item.timestamp,
     completedAt: item.completedAt || null,
     phase: item.phase || null,

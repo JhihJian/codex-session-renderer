@@ -76,7 +76,7 @@ function parseSessionEventQuery(params) {
 
 function parseSessionViewQuery(params) {
   return {
-    view: enumParam(params, "view", ["compact", "turns", "trace", "audit", "detail"], "compact"),
+    view: enumParam(params, "view", ["compact", "turns", "trace", "timing", "audit", "detail"], "compact"),
     maxDepth: intParam(params, "maxDepth", 3, 0, 8),
   };
 }

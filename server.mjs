@@ -43,6 +43,7 @@ import {
 } from "./src/session-events.mjs";
 import { dedupeSessionFileRecords, sessionFileRoots } from "./src/session-catalog.mjs";
 import { normalizeSessionEvent } from "./src/session-normalizer.mjs";
+import { buildSessionTiming } from "./src/session-timing.mjs";
 import { createPiGoalMessageProjector, isLikelyCodexGoalControlText } from "./src/pi-goal-projection.mjs";
 import { promptProjectKey } from "./src/session-prompts.mjs";
 import { createAbortError, createConcurrencyGate, createPromptArchiveCoordinator, createSharedSubscriptionRegistry, fileSignature, isAbortError } from "./src/prompt-archive-coordinator.mjs";
@@ -1031,6 +1032,7 @@ async function getSessionDetail(context, id, options = {}) {
       const turns = buildTurns(rawEvents);
       const sessionForDetail = { ...sessionWithStat, status: deriveSessionStatusFromTurns(turns) };
       const trace = buildTrace(sessionForDetail, rawEvents, analysisEvents, turns, hierarchy);
+      const timing = buildSessionTiming(trace);
       const compact = await buildCompactView(context, { session: sessionForDetail, normalizedEvents: analysisEvents, turns, hierarchy, options: { maxDepth, signal } });
       const audit = buildAuditChain({ turns, evidenceRiskRules });
       return {
@@ -1041,6 +1043,7 @@ async function getSessionDetail(context, id, options = {}) {
         events: publicEvents,
         stats: sessionDetailStats(context, sessionWithStat, { stat, rawEvents, analysisEvents, turns, hierarchy }),
         trace,
+        timing,
         compact,
         audit,
       };
@@ -1081,6 +1084,7 @@ function changingSessionDetail(context, session, stat, readState) {
     events: [],
     stats: sessionDetailStats(context, session, { stat }),
     trace: null,
+    timing: null,
     compact: null,
     audit: null,
   };
@@ -1217,6 +1221,7 @@ async function querySessionView(context, id, params, projectionOptions = {}, opt
   if (query.view === "compact") return { ...base, compact: detail.compact };
   if (query.view === "turns") return { ...base, turns: detail.turns };
   if (query.view === "trace") return { ...base, trace: detail.trace };
+  if (query.view === "timing") return { ...base, timing: detail.timing };
   if (query.view === "audit") return { ...base, audit: detail.audit };
   return { ...base, detail };
 }

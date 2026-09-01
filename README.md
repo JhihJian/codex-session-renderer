@@ -619,7 +619,7 @@ Audit Chain 是只读派生模型，不修改原始会话数据。服务端在�
 - `POST /api/peers/:id/test`：用已保存 token 调用对端只读健康检查；当前表单草稿不会参与测试，不保存配置，不拉取快照。
 - `POST /api/sources/:sourceId/refresh`：拉取远端数据源快照到本机缓存；本机数据源不可拉取。
 - `GET /api/sessions`：读取轻量会话列表，优先来自 SQLite。
-- `GET /api/sessions/:id`：读取单个会话的轻量渲染模型、Trace 和事件摘要。
+- `GET /api/sessions/:id`：读取单个会话的轻量渲染模型、Trace、时间投入和事件摘要。
 - `GET /api/sessions/:id/events/:index`：读取单个完整 JSONL 事件。
 - `GET /api/sessions/:id/markdown`：按需导出完整 Markdown。
 
@@ -792,7 +792,7 @@ GET /api/query/sessions/:id/events?cursor=0&limit=100
 
 - JSONL 中的 reasoning 详细内容通常是加密字段，只能展示摘要或提示。
 - 当前本机样本中的 `reasoning.summary` 为空，真实推理内容在 `encrypted_content` 中，因此页面不会伪造“推理摘要”；默认搜索和轻量预览不会包含 `encrypted_content` 原文。
-- Trace duration 并非所有节点都有明确开始/结束时间；缺失结束时间时会标注为估算。
+- 诊断统计页在事件类型统计前展示会话时间投入：总墙钟时长、可解释执行覆盖率、按工具/子代理/委派/上下文压缩/系统处理分类的覆盖时长、并行峰值、轮次时间条和数据质量。时间分类由服务端 `timing` 投影统一派生，节点耗时累加值与时间区间覆盖分开保存，并通过 `traceNodeId` 或事件索引回到复盘和原始事件；并行区间会标记重叠，估算和部分区间会显示对应状态。Trace duration 仍可能缺少明确开始/结束时间，缺失结束时间时会标注为估算。
 - Codex App 原始 `.map` 未随包发布，因此本项目不会尝试还原官方 TSX 源码。
 - 不同 Codex 版本的事件字段可能变化；原始事件主视图和复核台的来源页保留按需 JSON 诊断入口。
 - HTTP 快照下载要求远端提供 Codex Home 快照包，本项目不会把远端设备暴露成通用文件浏览器。
