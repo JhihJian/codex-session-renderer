@@ -885,8 +885,52 @@ function buildTrace(session, rawEvents, normalizedEvents, turns, hierarchy) {
       completedAt: rootEndedAt,
       durationMs: root.durationMs,
       estimated: true,
+      responses: buildInferredResponseIntervals(turns, session),
     },
   };
+}
+
+function buildInferredResponseIntervals(turns, session) {
+  return turns.flatMap((turn, turnIndex) => {
+    let previousBoundary = turn.startedAt;
+    return turn.items.flatMap((item, itemIndex) => {
+      if (!["reasoning", "assistant-message"].includes(item.type)) {
+        previousBoundary = item.completedAt || item.timestamp || previousBoundary;
+        return [];
+      }
+      const start = previousBoundary;
+      const end = item.timestamp;
+      const startMs = toMs(start);
+      const endMs = toMs(end);
+      previousBoundary = end || previousBoundary;
+      if (startMs == null || endMs == null || endMs <= startMs) return [];
+      const contextUsage = item.type === "assistant-message" ? contextUsageForAssistantMessage(turn.items, itemIndex) : latestContextUsage(turn.items, itemIndex);
+      return [{
+        id: `response:${turnIndex}:${itemIndex}`,
+        turnIndex,
+        startedAt: start,
+        completedAt: end,
+        startMs,
+        endMs,
+        durationMs: endMs - startMs,
+        durationKind: "estimated",
+        model: turn.context?.model || session.model || null,
+        contextUsage,
+        eventIndex: item.sourceIndex ?? null,
+        responseType: item.type,
+      }];
+    });
+  });
+}
+
+function latestContextUsage(items, itemIndex) {
+  for (let index = itemIndex - 1; index >= 0; index -= 1) {
+    if (items[index].type === "token-count") {
+      const usage = contextUsageFromTokenInfo(items[index].info);
+      if (usage) return usage;
+    }
+  }
+  return null;
 }
 
 function isDefaultTraceNodeForPayload(node) {

@@ -4327,7 +4327,7 @@ function renderTimingView(timing) {
           const firstRef = refs[0] || {};
           const bar = Math.max(2, Math.round(((bucket.coverageMs || 0) / max) * 100));
           const details = groups.length > 0 ? renderTimingGroups(groups) : "";
-          return `<div class="timing-bucket-wrap"><button class="timing-bucket timing-${escapeAttr(bucket.id)}" type="button" data-timing-node-id="${escapeAttr(firstRef.traceNodeId || "")}" data-timing-event-index="${escapeAttr(firstRef.eventIndex ?? "")}" aria-label="${escapeAttr(`${bucket.label}，${formatTimingDuration(bucket.coverageMs)}，${bucket.sharePercent}%`)}"><span class="timing-bucket-main"><strong>${escapeHtml(bucket.label)}</strong><em>${escapeHtml(`${formatTimingDuration(bucket.coverageMs)} · ${bucket.sharePercent}% · ${bucket.count} ${bucket.id === "unattributed" ? "个区间" : "次调用"}`)}</em></span><span class="timing-bar" aria-hidden="true"><i style="width:${bar}%"></i></span><span class="timing-bucket-status">${escapeHtml(timingKindLabel(bucket.confidence))}${bucket.overlapMs ? ` · 重叠 ${escapeHtml(formatTimingDuration(bucket.overlapMs))}` : ""}</span></button>${details}</div>`;
+          return `<div class="timing-bucket-wrap"><button class="timing-bucket timing-${escapeAttr(bucket.id)}" type="button" data-timing-node-id="${escapeAttr(firstRef.traceNodeId || "")}" data-timing-event-index="${escapeAttr(firstRef.eventIndex ?? "")}" aria-label="${escapeAttr(`${bucket.label}，${formatTimingDuration(bucket.coverageMs)}，${bucket.sharePercent}%`)}"><span class="timing-bucket-main"><strong>${escapeHtml(bucket.label)}</strong><em>${escapeHtml(`${formatTimingDuration(bucket.coverageMs)} · ${bucket.sharePercent}% · ${bucket.count} ${bucket.id === "unattributed" ? "个区间" : bucket.id === "llm_response" ? "个响应区间" : "次调用"}`)}</em></span><span class="timing-bar" aria-hidden="true"><i style="width:${bar}%"></i></span><span class="timing-bucket-status">${escapeHtml(timingKindLabel(bucket.confidence))}${bucket.overlapMs ? ` · 重叠 ${escapeHtml(formatTimingDuration(bucket.overlapMs))}` : ""}</span></button>${details}</div>`;
         }).join("") : `<div class="timing-empty"><strong>暂无可解释时间区间</strong><span>会话事件中尚未发现可关联的起止时间。</span></div>`}
       </div>
       ${renderTimingTurns(timing.turns)}
@@ -4347,10 +4347,19 @@ function renderTimingGroups(groups) {
     const failed = group.failedCount ? ` · 失败 ${group.failedCount}` : "";
     const incomplete = group.incompleteCount ? ` · 未完成 ${group.incompleteCount}` : "";
     const gap = ref.actionable === false;
-    const value = `${formatTimingDuration(group.coverageMs)} · 平均 ${formatTimingDuration(group.averageDurationMs)} · 最长 ${formatTimingDuration(group.maxDurationMs)}${failed}${incomplete}${gap ? " · 无原始事件" : ""}`;
+    const context = timingContextLabel(ref.contextUsage);
+    const value = `${formatTimingDuration(group.coverageMs)} · 平均 ${formatTimingDuration(group.averageDurationMs)} · 最长 ${formatTimingDuration(group.maxDurationMs)}${context ? ` · ${context}` : ""}${failed}${incomplete}${gap ? " · 无原始事件" : ""}`;
     const content = `<strong>${escapeHtml(group.label)} <small>${group.count} 次</small></strong><span>${escapeHtml(value)}</span>`;
     return gap ? `<div class="timing-detail-row timing-gap-row">${content}</div>` : `<button class="timing-detail-row" type="button" data-timing-node-id="${escapeAttr(ref.traceNodeId || "")}" data-timing-event-index="${escapeAttr(ref.eventIndex ?? "")}">${content}</button>`;
   }).join("")}${groups.length > 8 ? `<span class="timing-more">还有 ${groups.length - 8} 个时间区间</span>` : ""}</div>`;
+}
+
+function timingContextLabel(usage) {
+  if (!usage) return "";
+  const used = usage.used != null ? compactNumber(usage.used) : "?";
+  const limit = usage.limit != null ? compactNumber(usage.limit) : "?";
+  const percent = usage.percent != null ? ` (${usage.percent}%)` : "";
+  return `context ${used} / ${limit}${percent}`;
 }
 
 function timingKindLabel(kind) {

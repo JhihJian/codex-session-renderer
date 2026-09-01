@@ -1,4 +1,5 @@
 const bucketDefinitions = [
+  ["llm_response", "LLM 响应"],
   ["tool_execution", "工具执行"],
   ["subagent_execution", "子代理执行"],
   ["delegation", "委派与等待"],
@@ -37,6 +38,7 @@ function intervalFromNode(node, parentTurnIndex = null) {
 }
 
 function bucketForNode(node) {
+  if (node.type === "llm-response") return "llm_response";
   if (node.type === "tool") return "tool_execution";
   if (node.type === "subagent" || node.type === "lazy-child") return "subagent_execution";
   if (node.type === "handoff") return "delegation";
@@ -53,6 +55,30 @@ function walkTrace(node, result = [], turnIndex = null) {
   if (bucketId) result.push({ ...intervalFromNode(node, currentTurnIndex), bucketId });
   for (const child of node.children || []) walkTrace(child, result, currentTurnIndex);
   return result;
+}
+
+function responseIntervals(trace) {
+  return (trace?.timing?.responses || []).map((response) => ({
+    node: {
+      id: response.id,
+      type: "llm-response",
+      title: response.model || "LLM 响应",
+      timestamp: response.startedAt,
+      completedAt: response.completedAt,
+      durationEstimated: true,
+      status: "inferred",
+      detail: { item: { name: response.model || "未知模型", sourceIndex: response.eventIndex, contextUsage: response.contextUsage, responseType: response.responseType } },
+    },
+    turnIndex: response.turnIndex,
+    bucketId: "llm_response",
+    durationMs: response.durationMs,
+    durationKind: "estimated",
+    startMs: response.startMs,
+    endMs: response.endMs,
+    eventIndex: response.eventIndex,
+    model: response.model,
+    contextUsage: response.contextUsage,
+  }));
 }
 
 function mergeIntervals(intervals) {
@@ -93,6 +119,8 @@ function confidenceFor(intervals) {
   return estimated === 0 ? "observed" : estimated === intervals.length ? "estimated" : "mixed";
 }
 
+// Keep the ref projection flat so the client can render aggregate rows without loading raw events.
+// eslint-disable-next-line complexity
 function nodeRef(item) {
   const detail = item.node.detail?.item || {};
   return {
@@ -102,8 +130,10 @@ function nodeRef(item) {
     outputEventIndex: detail.outputSourceIndex ?? null,
     durationMs: item.durationMs,
     durationKind: item.durationKind,
-    label: detail.name || item.node.title || item.node.type,
-    toolName: detail.name || null,
+    label: item.model || detail.name || item.node.title || item.node.type,
+    toolName: item.model || detail.name || null,
+    model: item.model || null,
+    contextUsage: item.contextUsage || detail.contextUsage || null,
     callId: detail.callId || null,
     status: detail.status || item.node.status || null,
     arguments: detail.arguments || null,
@@ -114,8 +144,10 @@ function buildGroups(intervals) {
   const groups = new Map();
   for (const item of intervals) {
     const ref = nodeRef(item);
-    const key = ref.toolName || ref.label || "未命名节点";
-    const group = groups.get(key) || { key, label: key, intervals: [], refs: [] };
+    const response = item.node.type === "llm-response";
+    const key = response ? item.node.id : ref.toolName || ref.label || "未命名节点";
+    const label = response ? `第 ${(item.turnIndex ?? 0) + 1} 轮 · ${ref.model || "未知模型"}` : key;
+    const group = groups.get(key) || { key, label, intervals: [], refs: [] };
     group.intervals.push(item);
     group.refs.push(ref);
     groups.set(key, group);
@@ -135,7 +167,7 @@ function buildGroups(intervals) {
       incompleteCount: group.intervals.filter((item) => item.durationMs == null).length,
       refs: group.refs,
     };
-  }).sort((left, right) => right.coverageMs - left.coverageMs || right.count - left.count);
+  }).sort((left, right) => right.maxDurationMs - left.maxDurationMs || right.coverageMs - left.coverageMs || right.count - left.count);
 }
 
 function buildBucket(id, label, intervals, totalMs) {
@@ -164,7 +196,7 @@ function buildSessionTiming(trace) {
   const startMs = Date.parse(startedAt || "");
   const endMs = Date.parse(completedAt || "");
   const durationMs = Number.isFinite(startMs) && Number.isFinite(endMs) && endMs >= startMs ? endMs - startMs : null;
-  const intervals = walkTrace(trace?.root);
+  const intervals = [...walkTrace(trace?.root), ...responseIntervals(trace)];
   const completeIntervals = intervals.filter((item) => item.durationMs != null);
   const executionCoverage = coveredMs(completeIntervals.map((item) => ({ startMs: item.startMs, endMs: item.endMs })));
   const parallelism = overlapMs(completeIntervals.map((item) => ({ startMs: item.startMs, endMs: item.endMs })));

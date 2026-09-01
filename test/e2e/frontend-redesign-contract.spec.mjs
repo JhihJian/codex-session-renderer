@@ -32,7 +32,8 @@ test("默认会话路径先给出派生交接结论，诊断保持二级语义",
   await expect(page.locator("#diagnosticContent")).toBeVisible();
   await expect(page.locator("#statsContent")).toBeVisible();
   await expect(page.locator("#statsContent .timing-section")).toContainText("会话时间花在哪里");
-  await expect(page.locator("#statsContent .timing-bucket").first()).toContainText("工具执行");
+  await expect(page.locator("#statsContent .timing-bucket").filter({ hasText: "工具执行" })).toHaveCount(1);
+  await expect(page.locator("#statsContent .timing-bucket").filter({ hasText: "LLM 响应" })).toHaveCount(1);
   await page.locator("#rawViewButton").click();
   await expect(page.locator("#rawContent")).toBeVisible();
   await expect(diagnosticSwitch.locator('[role=tab][aria-selected=true]')).toHaveCount(1);

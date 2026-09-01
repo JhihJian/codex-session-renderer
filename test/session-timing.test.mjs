@@ -72,6 +72,18 @@ test("session timing classifies trace nodes and preserves source references", ()
   assert.equal(timing.turns[0].turnNumber, 1);
 });
 
+test("session timing exposes inferred LLM response intervals with model and context", () => {
+  const timing = buildSessionTiming({
+    timing: { startedAt: "2026-07-08T10:00:00.000Z", completedAt: "2026-07-08T10:01:00.000Z", estimated: true, responses: [{ id: "response:0:1", turnIndex: 0, startedAt: "2026-07-08T10:00:05.000Z", completedAt: "2026-07-08T10:00:35.000Z", startMs: Date.parse("2026-07-08T10:00:05.000Z"), endMs: Date.parse("2026-07-08T10:00:35.000Z"), durationMs: 30_000, model: "gpt-5", contextUsage: { used: 120_000, limit: 258_000, percent: 46 }, eventIndex: 9, responseType: "reasoning" }] },
+    root: { type: "thread", children: [] },
+  });
+  const responses = timing.buckets.find((bucket) => bucket.id === "llm_response");
+  assert.equal(responses.coverageMs, 30_000);
+  assert.equal(responses.groups[0].label, "第 1 轮 · gpt-5");
+  assert.deepEqual(responses.groups[0].refs[0].contextUsage, { used: 120_000, limit: 258_000, percent: 46 });
+  assert.equal(responses.groups[0].refs[0].durationKind, "estimated");
+});
+
 test("session timing reports partial nodes without inventing duration", () => {
   const timing = buildSessionTiming({
     timing: { startedAt: "2026-07-08T10:00:00.000Z", completedAt: "2026-07-08T10:00:05.000Z", estimated: true },
