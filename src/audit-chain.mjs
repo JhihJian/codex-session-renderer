@@ -147,13 +147,15 @@ function buildAuditChain({ turns = [], evidenceRiskRules = [] } = {}) {
 function buildActionNode(turn, turnIndex, item, itemIndex) {
   const command = commandTextForItem(item);
   const riskLevel = riskSignalsForAction(item).reduce((level, signal) => maxRiskLevel(level, signal.level), "none");
+  const batch = item.embeddedSubagents;
+  const taskCount = batch?.results?.length || batch?.requested?.length || 0;
   return auditNode({
     id: auditId("action", turnIndex, itemIndex, item),
     type: "action",
-    title: item.name ? `工具调用 · ${item.name}` : "工具调用",
-    summary: preview(command || item.arguments || item.callId || item.name || ""),
-    body: String(command || item.arguments || item.callId || item.name || "").trim(),
-    status: item.status || "started",
+    title: batch ? `内嵌子代理批次 · ${taskCount} 个任务` : item.name ? `工具调用 · ${item.name}` : "工具调用",
+    summary: batch ? [batch.mode, batch.agentScope ? `范围：${batch.agentScope}` : "", batch.status].filter(Boolean).join(" · ") : preview(command || item.arguments || item.callId || item.name || ""),
+    body: batch ? String(item.arguments || item.callId || item.name || "").trim() : String(command || item.arguments || item.callId || item.name || "").trim(),
+    status: batch?.status || item.status || "started",
     turn,
     turnIndex,
     item,

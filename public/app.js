@@ -5186,6 +5186,9 @@ function renderCompactTurn(turn, context) {
   const compactEvents = compactEventsForTurn(turn)
     .map((event, index) => renderCompactContextEvent(event, context.query, `${path}-compact-${index}`))
     .join("");
+  const embeddedSubagents = (turn.embeddedSubagents || [])
+    .map((batch) => renderCompactEmbeddedSubagents(batch, context.query))
+    .join("");
   const children = (turn.children || [])
     .map((child, index) =>
       renderCompactThread(child, { depth: context.depth + 1, path: `${path}-child-${index}`, query: context.query }),
@@ -5202,9 +5205,34 @@ function renderCompactTurn(turn, context) {
         ${assistant}
       </div>
       ${compactEvents ? `<div class="compact-system-group">${compactEvents}</div>` : ""}
+      ${embeddedSubagents ? `<div class="compact-embedded-subagents">${embeddedSubagents}</div>` : ""}
       ${children ? `<div class="compact-child-group">${children}</div>` : ""}
     </section>
   `;
+}
+
+function renderCompactEmbeddedSubagents(batch, query) {
+  const status = batch.status || "unknown";
+  const tasks = batch.results?.length ? batch.results : batch.requested || [];
+  const meta = [batch.mode, batch.agentScope ? `范围：${batch.agentScope}` : "", `${tasks.length} 个任务`, compactEmbeddedSubagentStatusLabel(status)]
+    .filter(Boolean)
+    .join(" · ");
+  const eventIndex = batch.outputSourceIndex ?? batch.sourceIndex;
+  const rawButton = eventIndex != null
+    ? `<button class="ghost-button small" type="button" data-compact-event-index="${escapeAttr(String(eventIndex))}">查看原始事件</button>`
+    : "";
+  const taskRows = tasks.length
+    ? tasks.map((task) => {
+        const taskStatus = task.status || "pending";
+        const taskMeta = [task.agentSource, task.exitCode != null ? `退出 ${task.exitCode}` : "", task.stopReason].filter(Boolean).join(" · ");
+        return `<li class="compact-embedded-task status-${escapeAttr(taskStatus)}"><span class="compact-embedded-task-status">${escapeHtml(compactEmbeddedSubagentStatusLabel(taskStatus))}</span><span><strong>${highlight(escapeHtml(task.agent || "未指定代理"), query)}</strong>${taskMeta ? `<em>${escapeHtml(taskMeta)}</em>` : ""}${task.summary ? `<small>${renderMarkdownMessage(task.summary, query)}</small>` : ""}</span></li>`;
+      }).join("")
+    : `<li class="compact-embedded-empty">工具结果未提供结构化任务结果。</li>`;
+  return `<section class="compact-embedded-subagent status-${escapeAttr(status)}"><div class="compact-embedded-subagent-head"><span class="compact-subagent-report-icon" aria-hidden="true">A</span><span class="compact-subagent-report-title"><strong>内嵌子代理批次</strong><em>${escapeHtml(meta)}</em></span>${rawButton}</div><ul class="compact-embedded-task-list">${taskRows}</ul></section>`;
+}
+
+function compactEmbeddedSubagentStatusLabel(status) {
+  return ({ succeeded: "成功", failed: "失败", rate_limited: "限流", partial: "部分完成", pending: "等待中", unknown: "结果未知" })[status] || status;
 }
 
 function compactEventsForTurn(turn) {
@@ -6237,7 +6265,7 @@ function auditMinimalTypeForRow(row = {}) {
   if (nodes.some((node) => node.type === "reasoning")) return "reasoning";
   if (row.type === "agent_message") return "agent_message";
   if (row.type === "handoff") return "handoff";
-  if (row.type === "subagent" || row.type === "lazy-child") return "subagent";
+  if (row.type === "subagent" || row.type === "embedded-subagent" || row.type === "lazy-child") return "subagent";
   return "action";
 }
 
@@ -6872,7 +6900,7 @@ function auditTurnStats(turn, executionRows, nodes, unlinkedAuditNodes) {
   const gapCount = nodes.filter(auditNodeIsGap).length + unlinkedAuditNodes.filter((node) => !auditNodeIsGap(node)).length;
   return {
     toolCount: executionRows.filter((row) => row.type === "tool" || row.type === "handoff").length,
-    subagentCount: executionRows.filter((row) => row.type === "subagent").length,
+    subagentCount: executionRows.filter((row) => row.type === "subagent" || row.type === "embedded-subagent").length,
     evidenceCount: nodes.filter((node) => node.type === "evidence").length,
     gapCount,
     highestRisk,
@@ -7945,12 +7973,12 @@ function filterTraceNode(node, query, typeFilter) {
 }
 
 function isDefaultTraceNode(node) {
-  return ["thread", "turn", "tool", "handoff", "subagent", "lazy-child"].includes(node.type);
+  return ["thread", "turn", "tool", "handoff", "subagent", "embedded-subagent", "lazy-child"].includes(node.type);
 }
 
 function traceNodeMatchesType(node, typeFilter) {
   if (typeFilter === "message") return node.type === "message";
-  if (typeFilter === "tool") return node.type === "tool" || node.type === "handoff" || node.type === "subagent";
+  if (typeFilter === "tool") return node.type === "tool" || node.type === "handoff" || node.type === "subagent" || node.type === "embedded-subagent";
   if (typeFilter === "output") return Boolean(node.detail?.item?.output);
   if (typeFilter === "reasoning") return node.type === "reasoning";
   if (typeFilter === "system") return node.type === "event" || node.type === "metric" || node.type === "turn" || node.type === "thread";
@@ -10339,6 +10367,7 @@ function traceTypeLabel(type) {
   if (type === "tool") return "工具";
   if (type === "handoff") return "委派";
   if (type === "subagent") return "子代理";
+  if (type === "embedded-subagent") return "内嵌子代理批次";
   if (type === "lazy-child") return "子会话";
   if (type === "message") return "消息";
   if (type === "reasoning") return "推理";

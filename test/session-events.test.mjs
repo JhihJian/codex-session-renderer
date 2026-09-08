@@ -15,6 +15,7 @@ import {
   summarizeEventPreview,
 } from "../src/session-events.mjs";
 import { readJsonlWithDiagnostics } from "../src/jsonl-reader.mjs";
+import { normalizeSessionEvent } from "../src/session-normalizer.mjs";
 import { readSpecialSessionFixture, specialFixturesDir } from "./helpers/special-fixtures.mjs";
 
 test("buildTurns keeps visible behavior while deduplicating response echoes", () => {
@@ -657,4 +658,22 @@ test("special fixture redacts image data and encrypted reasoning in compact turn
   assert.equal(compact[0].items[1].encrypted, true);
   assert.equal(text.includes("data:image/png;base64,YWJj"), false);
   assert.equal(text.includes("SECRET_ENCRYPTED_BLOB"), false);
+});
+
+test("Pi 内嵌 subagent 显示为批次而不是子会话", () => {
+  const events = [
+    { type: "message", timestamp: "2026-07-10T04:52:06.061Z", message: { role: "user", content: [{ type: "text", text: "审阅" }] } },
+    { type: "message", timestamp: "2026-07-10T04:52:08.142Z", message: { role: "assistant", content: [{ type: "toolCall", id: "call-subagent", name: "subagent", arguments: { mode: "parallel", agentScope: "both", tasks: [{ agent: "reviewer", task: "审阅" }, { agent: "tester", task: "测试" }] } }] } },
+    { type: "message", timestamp: "2026-07-10T04:52:09.000Z", message: { role: "toolResult", toolCallId: "call-subagent", toolName: "subagent", content: [{ type: "text", text: "Parallel: 1/2 succeeded" }], details: { results: [{ agent: "reviewer", exitCode: 0, stopReason: "stop", messages: [{ role: "assistant", content: [{ type: "text", text: "完成" }] }] }, { agent: "tester", exitCode: 0, stopReason: "error", errorMessage: "429 status code" }] } } },
+  ];
+  const turns = buildTurns(events);
+  const item = turns[0].items.find((entry) => entry.callId === "call-subagent");
+  const trace = buildTrace({ id: "pi-test", title: "Pi" }, events, events.map(normalizeSessionEvent), turns, { children: [] });
+  const compact = compactTurnForView(turns[0], 0, []);
+
+  assert.equal(item.embeddedSubagents.status, "partial");
+  assert.deepEqual(item.embeddedSubagents.results.map((task) => task.status), ["succeeded", "rate_limited"]);
+  assert.equal(trace.root.children[0].children[0].type, "embedded-subagent");
+  assert.equal(trace.root.children[0].children[0].threadId, undefined);
+  assert.equal(compact.embeddedSubagents[0].outputSourceIndex, 2);
 });

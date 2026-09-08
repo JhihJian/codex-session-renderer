@@ -142,7 +142,7 @@
   }
 
   function auditTraceNodeIsExecution(node) {
-    return ["tool", "handoff", "subagent", "lazy-child"].includes(node?.type);
+    return ["tool", "handoff", "subagent", "embedded-subagent", "lazy-child"].includes(node?.type);
   }
 
   function auditExecutionRowFromTraceNode(node, depth = 0) {
@@ -173,18 +173,21 @@
     const resolvedHelpers = auditViewModelHelpers(helpers);
     const source = item || {};
     const itemIndex = source.itemIndex ?? 0;
+    const embeddedSubagents = source.embeddedSubagents || null;
     const isHandoff = ["spawn_agent", "wait_agent", "handoff"].includes(source.name);
+    const isEmbeddedSubagent = Boolean(embeddedSubagents);
+    const taskCount = embeddedSubagents?.results?.length || embeddedSubagents?.requested?.length || 0;
     return {
       id: `item:${turnIndex}:${itemIndex}:${source.id || source.type}`,
       traceNodeId: `item:${turnIndex}:${itemIndex}:${source.id || source.type}`,
       itemRef: resolvedHelpers.itemRef(source),
       itemIndex,
-      type: isHandoff ? "handoff" : "tool",
-      icon: isHandoff ? "handoff" : "tool",
-      label: isHandoff ? "委派" : "工具调用",
-      title: source.name || source.callId || "未知工具",
-      subtitle: [source.status, resolvedHelpers.formatDate(source.timestamp)].filter(Boolean).join(" · "),
-      status: source.status || "",
+      type: isEmbeddedSubagent ? "embedded-subagent" : isHandoff ? "handoff" : "tool",
+      icon: isEmbeddedSubagent ? "agent" : isHandoff ? "handoff" : "tool",
+      label: isEmbeddedSubagent ? "内嵌子代理批次" : isHandoff ? "委派" : "工具调用",
+      title: isEmbeddedSubagent ? `${embeddedSubagents.mode || "single"} · ${taskCount} 个任务` : source.name || source.callId || "未知工具",
+      subtitle: [embeddedSubagents?.agentScope ? `范围：${embeddedSubagents.agentScope}` : "", embeddedSubagents?.status || source.status, resolvedHelpers.formatDate(source.timestamp)].filter(Boolean).join(" · "),
+      status: embeddedSubagents?.status || source.status || "",
       timestamp: source.timestamp || null,
       completedAt: source.completedAt || null,
       durationMs: resolvedHelpers.durationBetween(source.timestamp, source.completedAt),

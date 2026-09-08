@@ -124,7 +124,7 @@ npm run harness:defects -- replay --fixture examples/harness-fixtures/pi-json-ex
 - 会话元数据：`%USERPROFILE%\.codex\state_5.sqlite`，用于读取标题、工作目录、模型、推理强度和归档状态。
 - 正文事件流：`%USERPROFILE%\.codex\sessions\**\*.jsonl`
 - 轻量索引回退：`%USERPROFILE%\.codex\session_index.jsonl`
-- Pi Agent 会话：默认自动检测 `%USERPROFILE%\.pi\agent\sessions\**\*.jsonl`；存在时在数据源下拉框显示为 `Pi Agent Sessions`，事件结构会适配 `session`、`session_info`、`model_change`、`message.content`、`toolCall` 和 `toolResult`。
+- Pi Agent 会话：默认自动检测 `%USERPROFILE%\.pi\agent\sessions\**\*.jsonl`；存在时在数据源下拉框显示为 `Pi Agent Sessions`，事件结构会适配 `session`、`session_info`、`model_change`、`message.content`、`toolCall` 和 `toolResult`。Pi 的内嵌 `subagent` 调用会展示为会话内执行批次，按结构化结果标识成功、失败、限流或部分完成，并保留原始事件跳转；它不等同于、也不会伪装成可打开的独立子会话。
 - 远端数据源：通过页面或环境变量配置后，拉取到本机快照缓存目录；正文渲染只读取发布后的本地快照，不直接绑定实时远端请求，也不会修改远端；历史分类仅按需访问远端索引，不取历史正文。
 - 参考实现：Codex App 的打包前端位于 `resources\app.asar`，本项目只参考模块边界和事件分组思路，不复制原始专有源码。
 

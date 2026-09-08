@@ -21,6 +21,7 @@ import {
 import { coalesceNormalizedEvents, normalizeSessionEvent, safeStringifyRedacted } from "./session-normalizer.mjs";
 import { cleanUserMessageText, isUsefulUserMessageText } from "./user-message-cleanup.mjs";
 import { classifyPiGoalUserMessages } from "./pi-goal-projection.mjs";
+import { piEmbeddedSubagentCall, piEmbeddedSubagentResult } from "./embedded-subagents.mjs";
 import {
   mergeToolOutput,
   toolArgumentsFromPayload,
@@ -94,6 +95,7 @@ function compactItemForClient(item, turnIndex, itemIndex, options = {}) {
     if (item.reasoning.encrypted) base.encrypted = true;
   }
   if (item.compact) base.compact = item.compact;
+  if (item.embeddedSubagents) base.embeddedSubagents = item.embeddedSubagents;
   if (item.attachments?.length) base.attachments = item.attachments;
   const info = compactTraceInfo(item.info);
   if (info) base.info = info;
@@ -152,6 +154,9 @@ function compactTurnForView(turn, turnIndex, children, context = {}) {
     .filter((item) => item.type === "context-compact")
     .map((item) => compactContextEventForView(item, { turnLookup, turns: context.turns }))
     .filter(Boolean);
+  const embeddedSubagents = turn.items
+    .map((item, itemIndex) => (item.embeddedSubagents ? compactEmbeddedSubagentsForView(item, turnIndex, itemIndex) : null))
+    .filter(Boolean);
   return {
     id: turn.id,
     turnNumber: turnIndex + 1,
@@ -162,7 +167,27 @@ function compactTurnForView(turn, turnIndex, children, context = {}) {
     assistantMessages,
     assistantMessage: assistant,
     compactEvents,
+    embeddedSubagents,
     children,
+  };
+}
+
+function compactEmbeddedSubagentsForView(item, turnIndex, itemIndex) {
+  const batch = item.embeddedSubagents;
+  return {
+    id: item.id,
+    callId: item.callId || null,
+    turnIndex,
+    itemIndex,
+    sourceIndex: item.sourceIndex ?? null,
+    outputSourceIndex: item.outputSourceIndex ?? null,
+    timestamp: item.timestamp || null,
+    completedAt: item.completedAt || null,
+    mode: batch.mode || "single",
+    agentScope: batch.agentScope || null,
+    status: batch.status || "unknown",
+    requested: batch.requested || [],
+    results: batch.results || [],
   };
 }
 
@@ -980,7 +1005,7 @@ function latestContextUsage(items, itemIndex) {
 }
 
 function isDefaultTraceNodeForPayload(node) {
-  return ["tool", "handoff", "subagent", "lazy-child"].includes(node.type);
+  return ["tool", "handoff", "subagent", "embedded-subagent", "lazy-child"].includes(node.type);
 }
 
 function assistantPhaseLabel(phase) {
@@ -1033,6 +1058,19 @@ function traceNodeFromItem(item, turnIndex, itemIndex) {
     };
   }
   if (item.type === "tool-call") {
+    if (item.embeddedSubagents) {
+      const batch = item.embeddedSubagents;
+      const count = batch.results?.length || batch.requested?.length || 0;
+      return {
+        ...base,
+        type: "embedded-subagent",
+        icon: "agent",
+        status: batch.status || item.status || null,
+        label: "内嵌子代理批次",
+        title: `${batch.mode || "single"} · ${count} 个任务`,
+        subtitle: [batch.agentScope ? `范围：${batch.agentScope}` : "", batch.status, formatIsoForTrace(item.timestamp)].filter(Boolean).join(" · "),
+      };
+    }
     const isHandoff = ["spawn_agent", "wait_agent", "handoff"].includes(item.name);
     return {
       ...base,
@@ -1300,6 +1338,7 @@ function compactTraceItem(item) {
     output: output.text,
     outputLength: output.originalLength || null,
     truncated: text.truncated || args.truncated || output.truncated,
+    embeddedSubagents: item.embeddedSubagents || null,
     info: compactTraceInfo(item.info),
     tokenUsage: item.tokenUsage || null,
   };
@@ -1774,6 +1813,7 @@ function registerEmbeddedToolCall(turn, activeCall, event, toolCall, sourceIndex
     arguments: toolCall.arguments ?? null,
     output: null,
   };
+  if (item.name === "subagent") item.embeddedSubagents = piEmbeddedSubagentCall(item.arguments);
   activeCall.set(callId, item);
   turn.items.push(item);
 }
@@ -1788,6 +1828,7 @@ function registerToolOutput(turn, activeCall, event, sourceIndex) {
     target.status = payload.status || (payload.success === false ? "failed" : "completed");
     target.completedAt = event.timestamp;
     target.outputSourceIndex = sourceIndex;
+    if (target.embeddedSubagents) target.embeddedSubagents = piEmbeddedSubagentResult(target.embeddedSubagents, event.raw);
     return;
   }
 

@@ -3136,6 +3136,54 @@ button.compact-replacement-row:focus-visible {
   --report-soft: var(--orange-soft);
 }
 
+.compact-embedded-subagents {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--hair);
+  padding-top: 9px;
+}
+
+.compact-embedded-subagent {
+  --report-accent: var(--teal);
+  --report-soft: var(--teal-soft);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--report-accent) 30%, var(--hair));
+  border-radius: var(--radius-tool);
+  background: color-mix(in srgb, var(--report-soft) 34%, var(--bg-elev));
+}
+
+.compact-embedded-subagent.status-succeeded { --report-accent: var(--green); --report-soft: var(--green-soft); }
+.compact-embedded-subagent.status-failed { --report-accent: var(--red); --report-soft: var(--red-soft); }
+.compact-embedded-subagent.status-rate_limited,
+.compact-embedded-subagent.status-partial { --report-accent: var(--orange); --report-soft: var(--orange-soft); }
+
+.compact-embedded-subagent-head {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 9px;
+}
+
+.compact-embedded-task-list { display: grid; gap: 1px; margin: 0; padding: 0; list-style: none; }
+
+.compact-embedded-task,
+.compact-embedded-empty {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px;
+  padding: 8px 9px;
+  border-top: 1px solid color-mix(in srgb, var(--report-accent) 16%, var(--hair));
+  font-size: 12px;
+}
+
+.compact-embedded-task-status { color: var(--report-accent); font-weight: 760; }
+.compact-embedded-task strong,
+.compact-embedded-task em,
+.compact-embedded-task small { display: block; min-width: 0; overflow-wrap: anywhere; }
+.compact-embedded-task em { margin-top: 2px; color: var(--text-3); font-size: 11px; font-style: normal; }
+.compact-embedded-task small { margin-top: 5px; color: var(--text-2); }
+
 .compact-subagent-report-head {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr) auto;
