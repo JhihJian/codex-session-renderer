@@ -176,7 +176,7 @@ Raw event 仍可按需查看完整原始 JSON。默认视图、事件预览和�
 
 ## 完整详情与诊断预算
 
-详情、compact/view、turns/audit 和 Markdown 导出完整读取当前 JSONL，不按文件字节数或事件数降级。服务端通过同一个协调器在读取前后比较文件签名，保留全局 4 路读取闸门与稳定完整派生的 24 条/48 MiB 版本 LRU；单个结果超过缓存总预算时只是不写入缓存，不能拒绝展示。具体环境变量和默认值见 README 的“完整详情读取与诊断预算”。
+详情、compact/view、turns/trace 和 Markdown 导出完整读取当前 JSONL，不按文件字节数或事件数降级。服务端通过同一个协调器在读取前后比较文件签名，保留全局 4 路读取闸门与稳定完整派生的 24 条/48 MiB 版本 LRU；单个结果超过缓存总预算时只是不写入缓存，不能拒绝展示。具体环境变量和默认值见 README 的“完整详情读取与诊断预算”。
 
 文件在读取或派生期间变化、读取失败和取消都不会产生缓存条目，也不会把已读旧内容当作当前详情。文件变化时详情和外部 view 返回 `complete: false` 及 `readState.code = session_file_changed`，Markdown 返回 `409`；这不是大小或事件数能力降级。原始事件分页始终是独立诊断入口，使用同一并发闸门，但只受 `CODEX_SESSION_DIAGNOSTIC_MAX_FILE_BYTES` 单次字节预算、页大小和 `CODEX_SESSION_DIAGNOSTIC_MAX_EVENT_SCAN` 扫描预算约束；预算到达会返回诊断状态或 `413/session_event_scan_limited`，不会影响完整详情。单条事件读取也支持 `AbortSignal`、快照校验和这些诊断预算。
 

@@ -73,9 +73,6 @@ export default defineConfig([
     name: "project/browser-test-bridge",
     files: [
       "public/app-format.js",
-      "public/audit-view-model.js",
-      "public/evidence-risk-rules.js",
-      "public/execution-grouping.js",
       "public/tool-summary.js",
     ],
     languageOptions: {

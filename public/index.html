@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div class="app-shell" id="appShell" data-left="open" data-right="open" data-panel="thread">
+    <div class="app-shell" id="appShell" data-left="open" data-panel="thread">
       <header class="topbar">
         <div class="topbar-left">
           <button class="icon-button" id="toggleLeft" type="button" title="隐藏会话列表" aria-label="隐藏会话列表" aria-controls="sessionsPanel" aria-expanded="true">☰</button>
@@ -23,7 +23,7 @@
         <nav class="mobile-tabs" role="tablist" aria-label="移动端工作台面板">
           <button class="mobile-tab" id="mobileSessionsTab" data-panel-target="sessions" type="button" role="tab" aria-controls="sessionsPanel" aria-selected="false">会话</button>
           <button class="mobile-tab" id="mobileThreadTab" data-panel-target="thread" type="button" role="tab" aria-controls="threadPanel" aria-selected="true">内容</button>
-          <button class="mobile-tab" id="mobileInspectorTab" data-panel-target="inspector" type="button" role="tab" aria-controls="inspectorPanel" aria-selected="false">复核</button>
+
         </nav>
 
         <div class="topbar-actions">
@@ -32,7 +32,7 @@
           <button class="ghost-button" id="copyMarkdownButton" type="button" disabled>复制 Markdown</button>
           <button class="primary-button" id="downloadMarkdownButton" type="button" disabled>下载 Markdown</button>
           <button class="icon-button" id="settingsButton" type="button" title="展示规则设置" aria-label="展示规则设置">⚙</button>
-          <button class="icon-button" id="toggleRight" type="button" title="隐藏复核台" aria-label="隐藏复核台" aria-controls="inspectorPanel" aria-expanded="true">◫</button>
+
         </div>
       </header>
 
@@ -114,7 +114,7 @@
           <div class="thread-controls">
             <div class="view-switch" role="tablist" aria-label="视图切换">
               <button class="view-tab active" id="compactViewButton" type="button" role="tab" aria-selected="true" aria-controls="compactContent" data-view-mode="compact" title="会话：先查看可交接结论和阅读正文" aria-label="会话：先查看可交接结论和阅读正文">会话</button>
-              <button class="view-tab" id="auditViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="auditContent" data-view-mode="audit" title="复盘：按轮次核对目标、证据和风险" aria-label="复盘：按轮次核对目标、证据和风险">复盘</button>
+              <button class="view-tab" id="traceViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="traceContent" data-view-mode="trace" title="执行过程：查看工具、子代理和时间关系" aria-label="执行过程：查看工具、子代理和时间关系">执行过程</button>
               <button class="view-tab" id="diagnosticViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="diagnosticContent" data-view-mode="diagnostic" title="诊断：查看会话构成或按需读取原始事件" aria-label="诊断：查看会话构成或按需读取原始事件">诊断</button>
             </div>
             <div class="diagnostic-switch" id="diagnosticSwitch" role="tablist" aria-label="诊断视图">
@@ -147,7 +147,7 @@
         <section class="thread-content" id="threadContent" tabindex="-1" hidden></section>
         <section class="compact-content" id="compactContent" role="tabpanel" aria-labelledby="compactViewButton" tabindex="-1"></section>
         <section class="terminal-content" id="terminalContent" tabindex="-1" hidden></section>
-        <section class="audit-content" id="auditContent" role="tabpanel" aria-labelledby="auditViewButton" tabindex="-1" hidden></section>
+
         <section class="diagnostic-content" id="diagnosticContent" role="tabpanel" aria-labelledby="diagnosticViewButton" tabindex="-1" hidden>
           <section class="stats-content" id="statsContent" role="tabpanel" aria-labelledby="statsViewButton" tabindex="-1" hidden></section>
           <section class="raw-content" id="rawContent" role="tabpanel" aria-labelledby="rawViewButton" tabindex="-1" hidden></section>
@@ -155,55 +155,6 @@
         <section class="trace-content" id="traceContent" tabindex="-1" hidden></section>
       </main>
 
-      <div
-        class="inspector-resizer"
-        id="inspectorResizer"
-        role="separator"
-        aria-label="调整复核台宽度"
-        aria-controls="inspectorPanel"
-        aria-orientation="vertical"
-        aria-valuemin="310"
-        aria-valuemax="680"
-        aria-valuenow="388"
-        tabindex="0"
-      ></div>
-
-      <aside class="inspector panel" id="inspectorPanel" aria-label="复核台">
-        <div class="panel-header">
-          <div>
-            <p class="eyebrow">复核台</p>
-            <h2>复核对象</h2>
-          </div>
-          <button class="ghost-button small" id="copyRawButton" type="button" disabled>复制会话引用</button>
-        </div>
-
-        <section
-          class="review-context"
-          id="sessionDetails"
-          tabindex="0"
-          aria-label="当前复核对象，可使用方向键或 Page Up/Page Down 滚动"
-        ></section>
-
-        <div class="review-tabs" id="reviewTabs" role="tablist" aria-label="复核模式">
-          <button class="review-tab active" id="reviewTabSummary" type="button" role="tab" aria-selected="true" aria-controls="reviewPanelSummary" data-review-tab="summary">摘要</button>
-          <button class="review-tab" id="reviewTabEvidence" type="button" role="tab" aria-selected="false" aria-controls="reviewPanelEvidence" tabindex="-1" data-review-tab="evidence">证据</button>
-          <button class="review-tab" id="reviewTabRelations" type="button" role="tab" aria-selected="false" aria-controls="reviewPanelRelations" tabindex="-1" data-review-tab="relations">关系</button>
-          <button class="review-tab" id="reviewTabSource" type="button" role="tab" aria-selected="false" aria-controls="reviewPanelSource" tabindex="-1" data-review-tab="source">来源</button>
-        </div>
-
-        <section class="review-body" id="selectionDetails"></section>
-
-        <div class="review-actionbar" id="inspectorActions"></div>
-
-        <div class="review-hidden" hidden>
-          <span id="keyEventsTitle">复核台</span>
-          <span id="eventCount">0</span>
-          <div id="rawEventList"></div>
-          <button id="showMoreEventsButton" type="button"></button>
-          <span id="selectedEventLabel">未选择</span>
-          <pre id="rawPreview"></pre>
-        </div>
-      </aside>
 
       <footer class="statusbar" id="statusbar" aria-label="工作台状态">
         <span id="statusSource">数据源：读取中</span>
@@ -274,12 +225,7 @@
           <button class="settings-tab active" id="settingsTabSummary" type="button" role="tab" aria-selected="true" aria-controls="settingsSectionSummary" data-settings-view="summary">
             <span>摘要规则</span>
           </button>
-          <button class="settings-tab" id="settingsTabExecution" type="button" role="tab" aria-selected="false" aria-controls="settingsSectionExecution" data-settings-view="execution">
-            <span>执行聚合</span>
-          </button>
-          <button class="settings-tab" id="settingsTabEvidence" type="button" role="tab" aria-selected="false" aria-controls="settingsSectionEvidence" data-settings-view="evidence">
-            <span>证据风险</span>
-          </button>
+
           <button class="settings-tab" id="settingsTabStructured" type="button" role="tab" aria-selected="false" aria-controls="settingsSectionStructured" data-settings-view="structured">
             <span>结构化展示</span>
           </button>
@@ -308,7 +254,7 @@
           <section class="settings-section" id="settingsSectionStructured" role="tabpanel" aria-labelledby="settingsTabStructured" data-settings-panel="structured" hidden>
             <div class="section-title-row">
               <h3>命令输出结构化展示</h3>
-              <span class="muted">复核台自动识别</span>
+              <span class="muted">会话阅读自动识别</span>
             </div>
             <div class="command-capability-list" aria-label="命令输出结构化展示能力">
               <div class="command-capability-row">
@@ -330,43 +276,7 @@
             <div class="rule-empty compact">命中这些模式时，摘要页和证据卡会使用结构化视图；未命中时仍按普通摘要或原始文本展示。自定义摘要规则影响标题和短摘要，不改变这里的输出解析。</div>
           </section>
 
-          <section class="settings-section" id="settingsSectionExecution" role="tabpanel" aria-labelledby="settingsTabExecution" data-settings-panel="execution" hidden>
-            <div class="section-title-row">
-              <h3>执行聚合规则</h3>
-              <span class="muted">连续命中才会折叠成组</span>
-            </div>
-            <div class="summary-rule-list" id="executionGroupRuleList"></div>
-            <div class="settings-actions">
-              <button class="ghost-button" id="addExecutionGroupRuleButton" type="button">新增聚合规则</button>
-              <button class="ghost-button" id="resetExecutionGroupRulesButton" type="button">清空自定义</button>
-            </div>
-            <div class="settings-section-reference">
-              <div class="section-title-row">
-                <h3>内置聚合规则</h3>
-                <span class="muted">只读参考</span>
-              </div>
-              <div class="default-rule-list" id="defaultExecutionGroupRuleList"></div>
-            </div>
-          </section>
 
-          <section class="settings-section" id="settingsSectionEvidence" role="tabpanel" aria-labelledby="settingsTabEvidence" data-settings-panel="evidence" hidden>
-            <div class="section-title-row">
-              <h3>证据风险规则</h3>
-              <span class="muted">影响服务端审计风险节点</span>
-            </div>
-            <div class="summary-rule-list" id="evidenceRiskRuleList"></div>
-            <div class="settings-actions">
-              <button class="ghost-button" id="addEvidenceRiskRuleButton" type="button">新增风险规则</button>
-              <button class="ghost-button" id="resetEvidenceRiskRulesButton" type="button">恢复内置规则</button>
-            </div>
-            <div class="settings-section-reference">
-              <div class="section-title-row">
-                <h3>内置证据风险规则</h3>
-                <span class="muted">参考；上方保存后覆盖同名内置规则</span>
-              </div>
-              <div class="default-rule-list" id="defaultEvidenceRiskRuleList"></div>
-            </div>
-          </section>
         </div>
 
         <div class="settings-footer">
@@ -380,9 +290,7 @@
     <script src="./vendor/markdown-it.min.js" defer></script>
     <script src="./app-format.js" defer></script>
     <script src="./tool-summary.js" defer></script>
-    <script src="./execution-grouping.js" defer></script>
-    <script src="./audit-view-model.js" defer></script>
-    <script src="./evidence-risk-rules.js" defer></script>
+
     <script src="./evidence-id.js" defer></script>
     <script src="./raw-event-cache.js" defer></script>
     <script src="./app.js" defer></script>

@@ -6,7 +6,7 @@
   },
   "public/app.js": {
     "complexity": {
-      "count": 51
+      "count": 25
     },
     "max-lines": {
       "count": 1
@@ -14,38 +14,11 @@
     "max-lines-per-function": {
       "count": 2
     },
-    "max-params": {
-      "count": 1
-    },
     "max-statements": {
-      "count": 6
+      "count": 5
     },
     "no-unused-vars": {
-      "count": 21
-    }
-  },
-  "public/audit-view-model.js": {
-    "complexity": {
-      "count": 1
-    },
-    "max-lines-per-function": {
-      "count": 1
-    }
-  },
-  "public/evidence-risk-rules.js": {
-    "complexity": {
-      "count": 2
-    },
-    "max-lines-per-function": {
-      "count": 1
-    }
-  },
-  "public/execution-grouping.js": {
-    "complexity": {
-      "count": 2
-    },
-    "max-lines-per-function": {
-      "count": 1
+      "count": 20
     }
   },
   "public/tool-summary.js": {
@@ -81,20 +54,6 @@
       "count": 1
     }
   },
-  "src/audit-chain.mjs": {
-    "complexity": {
-      "count": 3
-    },
-    "max-lines": {
-      "count": 1
-    },
-    "max-lines-per-function": {
-      "count": 1
-    },
-    "max-statements": {
-      "count": 1
-    }
-  },
   "src/data-sources.mjs": {
     "complexity": {
       "count": 1
@@ -108,11 +67,6 @@
       "count": 4
     }
   },
-  "src/evidence-risk-rules.mjs": {
-    "complexity": {
-      "count": 4
-    }
-  },
   "src/jsonl-reader.mjs": {
     "complexity": {
       "count": 1
@@ -120,7 +74,7 @@
   },
   "src/session-events.mjs": {
     "complexity": {
-      "count": 9
+      "count": 11
     },
     "max-lines": {
       "count": 1
@@ -168,23 +122,7 @@
       "count": 1
     }
   },
-  "test/audit-chain.test.mjs": {
-    "max-lines": {
-      "count": 1
-    }
-  },
   "test/data-sources.test.mjs": {
-    "max-statements": {
-      "count": 1
-    }
-  },
-  "test/server-http-smoke.test.mjs": {
-    "max-lines": {
-      "count": 1
-    },
-    "max-lines-per-function": {
-      "count": 1
-    },
     "max-statements": {
       "count": 1
     }
@@ -194,8 +132,8 @@
       "count": 1
     }
   },
-  "test/ui-copy.test.mjs": {
-    "max-statements": {
+  "src/embedded-subagents.mjs": {
+    "complexity": {
       "count": 1
     }
   }

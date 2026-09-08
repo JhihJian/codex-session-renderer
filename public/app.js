@@ -45,24 +45,18 @@ const state = {
   selectedItemRef: null,
   selectedEventIndex: null,
   selectedTraceNodeId: null,
-  selectedAuditNodeId: null,
-  selectedAuditTurnKey: null,
   selectedTerminalBlockId: null,
   expandedTraceNodeIds: new Set(),
-  expandedAuditTurnKeys: new Set(),
   rawEventCache: createRawEventCache(rawEventCacheLimits),
   rawDiagnostic: null,
   viewMode: "compact",
   diagnosticMode: "stats",
-  auditMinimalMode: false,
+
   sessionTimeFilter: "realtime",
   visibleEvents: 40,
   visibleThreadItems: 140,
 
-  reviewTab: "summary",
   summaryRules: [],
-  executionGroupRules: [],
-  evidenceRiskRules: [],
   settingsView: "summary",
   settingsInitialSnapshot: "",
   settingsValidationErrors: [],
@@ -78,14 +72,7 @@ const state = {
   peerSaving: false,
   peerTesting: false,
   peerDeleting: false,
-  expandedAuditGroupIds: new Set(),
-  inspectorWidth: 360,
-  resizingInspector: false,
-  inspectorResizerFocusPending: false,
-  desktopToggleFocusPending: false,
-  narrowInspectorActive: false,
-  narrowInspectorUserOpened: false,
-  desktopRightState: "open",
+
   sidebarMode: "sessions",
   promptArchive: [],
   promptArchiveProjects: [],
@@ -136,21 +123,13 @@ let sessionAbortController = null;
 let markdownAbortController = null;
 let rawDiagnosticAbortController = null;
 let rawEventAbortController = null;
-let reviewSourceRequestSeq = 0;
+
 let alternateLocalSourceAbortController = null;
 let sessionSearchTimer = null;
 const markdownCacheLimit = 700;
 const remoteIndexPageCacheLimit = 6;
 const remoteIndexPageLimit = 100;
-const inspectorWidthStorageKey = "codexSessionRenderer.inspectorWidth.v1";
-const inspectorSideDockMedia = "(min-width: 1281px)";
-const inspectorWidthDefaults = {
-  min: 310,
-  max: 680,
-  step: 24,
-  contentMin: 360,
-};
-const visibleViewModes = new Set(["compact", "audit", "diagnostic"]);
+const visibleViewModes = new Set(["compact", "trace", "diagnostic"]);
 const markdownRenderer = window.markdownit?.({
   html: false,
   linkify: true,
@@ -183,7 +162,7 @@ const clientErrorMessages = new Map([
   ["Forbidden", "禁止访问该资源"],
   ["Internal Server Error", "服务内部错误"],
   ["Internal server error", "服务内部错误"],
-  ["Invalid evidenceRiskRules parameter", "evidenceRiskRules 参数无效"],
+
   ["Invalid JSON body", "请求体不是有效 JSON"],
   ["Method Not Allowed", "请求方法不允许"],
   ["Method not allowed", "请求方法不允许"],
@@ -213,7 +192,7 @@ const els = {
   healthStatus: document.getElementById("healthStatus"),
   sessionsPanel: document.getElementById("sessionsPanel"),
   threadPanel: document.getElementById("threadPanel"),
-  inspectorPanel: document.getElementById("inspectorPanel"),
+
   sessionCount: document.getElementById("sessionCount"),
   sessionList: document.getElementById("sessionList"),
   sessionSearch: document.getElementById("sessionSearch"),
@@ -241,24 +220,14 @@ const els = {
   threadContent: document.getElementById("threadContent"),
   compactContent: document.getElementById("compactContent"),
   terminalContent: document.getElementById("terminalContent"),
-  auditContent: document.getElementById("auditContent"),
+
   statsContent: document.getElementById("statsContent"),
   diagnosticContent: document.getElementById("diagnosticContent"),
   traceContent: document.getElementById("traceContent"),
   rawContent: document.getElementById("rawContent"),
-  sessionDetails: document.getElementById("sessionDetails"),
-  selectionDetails: document.getElementById("selectionDetails"),
-  rawEventList: document.getElementById("rawEventList"),
-  rawPreview: document.getElementById("rawPreview"),
-  inspectorActions: document.getElementById("inspectorActions"),
-  reviewTabs: document.getElementById("reviewTabs"),
-  inspectorResizer: document.getElementById("inspectorResizer"),
-  eventCount: document.getElementById("eventCount"),
-  keyEventsTitle: document.getElementById("keyEventsTitle"),
-  selectedEventLabel: document.getElementById("selectedEventLabel"),
-  showMoreEventsButton: document.getElementById("showMoreEventsButton"),
+
   toast: document.getElementById("toast"),
-  copyRawButton: document.getElementById("copyRawButton"),
+
   refreshButton: document.getElementById("refreshButton"),
   refreshRemoteButton: document.getElementById("refreshRemoteButton"),
   sourceSelect: document.getElementById("sourceSelect"),
@@ -272,16 +241,10 @@ const els = {
   settingsTabs: document.getElementById("settingsTabs"),
   summaryRuleList: document.getElementById("summaryRuleList"),
   defaultSummaryRuleList: document.getElementById("defaultSummaryRuleList"),
-  executionGroupRuleList: document.getElementById("executionGroupRuleList"),
-  defaultExecutionGroupRuleList: document.getElementById("defaultExecutionGroupRuleList"),
-  evidenceRiskRuleList: document.getElementById("evidenceRiskRuleList"),
-  defaultEvidenceRiskRuleList: document.getElementById("defaultEvidenceRiskRuleList"),
+
   addSummaryRuleButton: document.getElementById("addSummaryRuleButton"),
   resetSummaryRulesButton: document.getElementById("resetSummaryRulesButton"),
-  addExecutionGroupRuleButton: document.getElementById("addExecutionGroupRuleButton"),
-  resetExecutionGroupRulesButton: document.getElementById("resetExecutionGroupRulesButton"),
-  addEvidenceRiskRuleButton: document.getElementById("addEvidenceRiskRuleButton"),
-  resetEvidenceRiskRulesButton: document.getElementById("resetEvidenceRiskRulesButton"),
+
   saveSettingsButton: document.getElementById("saveSettingsButton"),
   cancelSettingsButton: document.getElementById("cancelSettingsButton"),
   settingsStatus: document.getElementById("settingsStatus"),
@@ -309,14 +272,13 @@ const els = {
   copyMarkdownButton: document.getElementById("copyMarkdownButton"),
   downloadMarkdownButton: document.getElementById("downloadMarkdownButton"),
   compactViewButton: document.getElementById("compactViewButton"),
-  auditViewButton: document.getElementById("auditViewButton"),
+  traceViewButton: document.getElementById("traceViewButton"),
   statsViewButton: document.getElementById("statsViewButton"),
   rawViewButton: document.getElementById("rawViewButton"),
   diagnosticViewButton: document.getElementById("diagnosticViewButton"),
   diagnosticSwitch: document.getElementById("diagnosticSwitch"),
   viewSwitch: document.querySelector(".view-switch"),
   toggleLeft: document.getElementById("toggleLeft"),
-  toggleRight: document.getElementById("toggleRight"),
 };
 
 const standardItemTypeOptions = [
@@ -332,43 +294,8 @@ const standardItemTypeOptions = [
 
 const rawItemTypeOptions = standardItemTypeOptions.map(([value, label]) => [value, value === "all" ? "全部事件" : label]);
 
-const auditItemTypeOptions = [
-  ["all", "全部节点"],
-  ["intent", "意图"],
-  ["reasoning", "推理"],
-  ["action", "行动"],
-  ["evidence", "证据"],
-  ["verification", "验证"],
-  ["risk", "风险"],
-  ["final", "最终回复"],
-];
-
-const standardToAuditType = {
-  all: "all",
-  message: "intent",
-  tool: "action",
-  output: "evidence",
-  reasoning: "reasoning",
-  compact: "evidence",
-  system: "verification",
-  error: "risk",
-};
-
-const auditToStandardType = {
-  all: "all",
-  intent: "message",
-  reasoning: "reasoning",
-  action: "tool",
-  evidence: "output",
-  verification: "system",
-  risk: "error",
-  final: "message",
-};
-
 const settingsViewOptions = [
   { id: "summary", label: "摘要规则" },
-  { id: "execution", label: "执行聚合" },
-  { id: "evidence", label: "证据风险" },
   { id: "structured", label: "结构化展示" },
 ];
 const settingsViewIds = new Set(settingsViewOptions.map((view) => view.id));
@@ -377,15 +304,16 @@ init();
 
 function init() {
   state.summaryRules = window.ToolSummary?.loadCustomRules?.() || [];
-  state.executionGroupRules = window.ExecutionGrouping?.loadCustomRules?.() || [];
-  state.evidenceRiskRules = window.EvidenceRiskRules?.loadCustomRules?.() || [];
-  loadInspectorWidth();
   bindEvents();
-  syncResponsiveInspectorLayout();
   syncPanelToggleLabels();
   syncMobilePanelNavigation();
-  applyInspectorWidth(state.inspectorWidth);
   loadHealthAndSources();
+}
+
+function handleDialogEscapeKey(event) {
+  if (event.key !== "Escape") return;
+  const dialogs = [...document.querySelectorAll("dialog[open]")];
+  dialogs.at(-1)?.close();
 }
 
 function bindEvents() {
@@ -397,7 +325,7 @@ function bindEvents() {
     void refreshCurrentSessionList({ announce: true });
   });
   document.addEventListener("click", (event) => {
-    void handleMarkdownCodeCopy(event).catch(reportReviewActionFailure);
+    void handleMarkdownCodeCopy(event).catch((error) => console.warn("复制代码失败", error));
   });
   document.addEventListener("keydown", handleDialogEscapeKey);
   els.refreshRemoteButton.addEventListener("click", refreshSelectedSource);
@@ -425,31 +353,7 @@ function bindEvents() {
     state.settingsView = "summary";
     renderSettingsDialog();
   });
-  els.addExecutionGroupRuleButton?.addEventListener("click", () => {
-    clearSettingsValidationState();
-    state.executionGroupRules.push(newExecutionGroupRule());
-    state.settingsView = "execution";
-    renderSettingsDialog();
-  });
-  els.resetExecutionGroupRulesButton?.addEventListener("click", () => {
-    clearSettingsValidationState();
-    state.executionGroupRules = [];
-    state.settingsView = "execution";
-    renderSettingsDialog();
-  });
-  els.addEvidenceRiskRuleButton?.addEventListener("click", () => {
-    clearSettingsValidationState();
-    ensureEvidenceRiskEditorRules();
-    state.evidenceRiskRules.unshift(newEvidenceRiskRule());
-    state.settingsView = "evidence";
-    renderSettingsDialog();
-  });
-  els.resetEvidenceRiskRulesButton?.addEventListener("click", () => {
-    clearSettingsValidationState();
-    state.evidenceRiskRules = [];
-    state.settingsView = "evidence";
-    renderSettingsDialog();
-  });
+
   els.closePeerDialogButton.addEventListener("click", requestClosePeerDialog);
   els.peerDialog.addEventListener("cancel", (event) => {
     event.preventDefault();
@@ -511,25 +415,18 @@ function bindEvents() {
   });
   els.importantOnly.addEventListener("change", renderMainContent);
   els.compactViewButton.addEventListener("click", () => setViewMode("compact"));
-  els.auditViewButton.addEventListener("click", () => setViewMode("audit"));
+  els.traceViewButton.addEventListener("click", () => setViewMode("trace"));
   els.diagnosticViewButton.addEventListener("click", () => setViewMode("diagnostic"));
   els.statsViewButton.addEventListener("click", () => setDiagnosticMode("stats"));
   els.rawViewButton.addEventListener("click", () => setDiagnosticMode("raw"));
-  els.reviewTabs?.querySelectorAll("[data-review-tab]").forEach((button) => {
-    button.addEventListener("click", () => {
-      setReviewTab(button.dataset.reviewTab || "summary");
-    });
-  });
+
   bindRovingTablist(els.sessionTimeFilter, "[data-session-time]", (button) => selectSessionTimeFilter(button.dataset.sessionTime || "realtime"));
   bindRovingTablist(document.querySelector(".sidebar-mode-switch"), "[data-sidebar-mode]", (button) => selectSidebarMode(button.dataset.sidebarMode || "sessions"));
   bindRovingTablist(els.viewSwitch, "[data-view-mode]", (button) => setViewMode(button.dataset.viewMode || "compact"));
   bindRovingTablist(els.diagnosticSwitch, "[data-diagnostic-mode]", (button) => setDiagnosticMode(button.dataset.diagnosticMode || "stats"));
-  bindRovingTablist(els.reviewTabs, "[data-review-tab]", (button) => setReviewTab(button.dataset.reviewTab || "summary"));
+
   bindRovingTablist(els.settingsTabs, "[data-settings-view]", (button) => selectSettingsView(button.dataset.settingsView || "summary"));
-  els.showMoreEventsButton.addEventListener("click", renderInspector);
-  els.copyRawButton.addEventListener("click", () => {
-    void copyReviewReference().catch(reportReviewActionFailure);
-  });
+
   els.copyMarkdownButton.addEventListener("click", copyMarkdown);
   els.downloadMarkdownButton.addEventListener("click", downloadMarkdown);
   els.toggleLeft.addEventListener("click", () => {
@@ -537,22 +434,7 @@ function bindEvents() {
     els.appShell.dataset.left = next;
     syncPanelToggleLabels();
   });
-  els.toggleRight.addEventListener("click", (event) => {
-    if (desktopPromptArchiveInspectorHidden()) return;
-    const next = els.appShell.dataset.right === "open" ? "closed" : "open";
-    els.appShell.dataset.right = next;
-    if (narrowDesktopInspectorLayoutActive()) state.narrowInspectorUserOpened = next === "open";
-    else state.desktopRightState = next;
-    syncPanelToggleLabels();
-    if (event.detail === 0 && narrowDesktopInspectorLayoutActive() && next === "open") {
-      queueMicrotask(() => els.selectionDetails?.focus({ preventScroll: true }));
-    }
-  });
-  bindInspectorResize();
-  bindDesktopToggleFocusTracking();
   window.addEventListener("resize", () => {
-    syncResponsiveInspectorLayout();
-    applyInspectorWidth(state.inspectorWidth);
     syncMobilePanelNavigation();
     syncPanelToggleLabels();
   });
@@ -611,8 +493,7 @@ function cancelRawDiagnosticRequest({ clear = false } = {}) {
   }
 }
 
-function cancelRawEventRequest({ invalidateReviewSource = true } = {}) {
-  if (invalidateReviewSource) reviewSourceRequestSeq += 1;
+function cancelRawEventRequest() {
   rawEventAbortController?.abort();
   rawEventAbortController = null;
 }
@@ -623,130 +504,53 @@ function clearRawEventCache() {
 
 function syncPanelToggleLabels() {
   const mobile = mobilePanelLayoutActive();
-  moveFocusFromHiddenDesktopToggles();
   const leftOpen = els.appShell.dataset.left !== "closed";
-  const rightOpen = els.appShell.dataset.right !== "closed";
-  const archiveHidesInspector = desktopPromptArchiveInspectorHidden();
   const leftLabel = leftOpen ? "隐藏会话列表" : "显示会话列表";
-  const rightLabel = archiveHidesInspector ? "任务归档中复核台不可用" : rightOpen ? "隐藏复核台" : "显示复核台";
-  [els.toggleLeft, els.toggleRight].forEach((button) => {
-    button.hidden = mobile;
-    button.tabIndex = mobile ? -1 : 0;
-  });
+  els.toggleLeft.hidden = mobile;
+  els.toggleLeft.tabIndex = mobile ? -1 : 0;
   els.toggleLeft.title = leftLabel;
   els.toggleLeft.setAttribute("aria-label", leftLabel);
   els.toggleLeft.setAttribute("aria-expanded", !mobile && leftOpen ? "true" : "false");
-  els.toggleRight.title = rightLabel;
-  els.toggleRight.setAttribute("aria-label", rightLabel);
-  els.toggleRight.setAttribute("aria-expanded", !mobile && !archiveHidesInspector && rightOpen ? "true" : "false");
-  els.toggleRight.disabled = mobile || archiveHidesInspector;
-  els.toggleRight.setAttribute("aria-disabled", mobile || archiveHidesInspector ? "true" : "false");
   syncPanelVisibilityState();
-  syncInspectorResizerState();
-}
-
-function moveFocusFromHiddenDesktopToggles() {
-  if (!mobilePanelLayoutActive()) return;
-  if (![els.toggleLeft, els.toggleRight].includes(document.activeElement) && !state.desktopToggleFocusPending) return;
-  state.desktopToggleFocusPending = false;
-  mobilePanelTab(els.appShell.dataset.panel || "thread")?.focus({ preventScroll: true });
-}
-
-function bindDesktopToggleFocusTracking() {
-  [els.toggleLeft, els.toggleRight].forEach((button) => {
-    button.addEventListener("focus", () => { state.desktopToggleFocusPending = true; });
-    button.addEventListener("blur", () => {
-      queueMicrotask(() => {
-        if (document.activeElement !== document.body) state.desktopToggleFocusPending = false;
-      });
-    });
-  });
-}
-
-function syncPanelVisibilityState() {
-  const mobile = mobilePanelLayoutActive();
-  const activePanel = els.appShell.dataset.panel || "thread";
-  const inspectorOpen = mobile ? activePanel === "inspector" : !desktopPromptArchiveInspectorHidden() && els.appShell.dataset.right !== "closed";
-  const panels = [
-    [els.sessionsPanel, mobile ? activePanel === "sessions" : els.appShell.dataset.left !== "closed", mobile ? mobilePanelTab("sessions") : els.toggleLeft],
-    [els.threadPanel, mobile ? activePanel === "thread" : true, mobile ? mobilePanelTab("thread") : null],
-    [els.inspectorPanel, inspectorOpen, mobile ? mobilePanelTab("inspector") : els.toggleRight],
-  ];
-  panels.forEach(([panel, open, fallback]) => {
-    moveFocusBeforeHidingPanel(panel, fallback, open);
-    setPanelInteractivity(panel, open);
-  });
-  const rightOpen = panels[2][1];
-  if (!rightOpen && document.activeElement === els.inspectorResizer) {
-    els.toggleRight.focus({ preventScroll: true });
-  }
 }
 
 function mobilePanelLayoutActive() {
   return window.matchMedia("(width <= 820px)").matches;
 }
 
-function narrowDesktopInspectorLayoutActive() {
-  return window.matchMedia("(width > 820px) and (max-width: 1280px)").matches;
-}
-
-function syncResponsiveInspectorLayout() {
-  if (mobilePanelLayoutActive()) return;
-  if (narrowDesktopInspectorLayoutActive()) {
-    if (!state.narrowInspectorActive) {
-      state.desktopRightState = els.appShell.dataset.right || "open";
-      state.narrowInspectorActive = true;
-      if (!state.narrowInspectorUserOpened) els.appShell.dataset.right = "closed";
-    }
-    return;
-  }
-  if (state.narrowInspectorActive) {
-    els.appShell.dataset.right = state.desktopRightState;
-    state.narrowInspectorActive = false;
-    state.narrowInspectorUserOpened = false;
-  }
-}
-
-function desktopPromptArchiveInspectorHidden() {
-  return !mobilePanelLayoutActive() && state.sidebarMode === "prompts";
-}
-
 function mobilePanelTab(panel) {
-  return document.querySelector(`[data-panel-target="${cssEscape(panel)}"]`);
+  return document.querySelector('[data-panel-target="' + panel + '"]');
 }
 
 function setMobilePanel(panel, { userInitiated = false } = {}) {
-  const next = ["sessions", "thread", "inspector"].includes(panel) ? panel : "thread";
-  const changed = els.appShell.dataset.panel !== next;
-  if (userInitiated && changed) state.mobilePanelNavigationVersion += 1;
-  if (mobilePanelLayoutActive() && changed && next !== "inspector") cancelRawEventRequest();
+  const next = panel === "sessions" ? "sessions" : "thread";
+  if (userInitiated) state.mobilePanelNavigationVersion += 1;
   els.appShell.dataset.panel = next;
-  if (changed) cancelRemoteRefreshForNavigation();
   syncMobilePanelNavigation();
 }
 
 function syncMobilePanelNavigation() {
-  const activePanel = els.appShell?.dataset.panel || "thread";
   const mobile = mobilePanelLayoutActive();
+  const activePanel = els.appShell.dataset.panel || "thread";
   document.querySelectorAll("[data-panel-target]").forEach((button) => {
-    const active = button.dataset.panelTarget === activePanel;
+    const active = mobile && button.dataset.panelTarget === activePanel;
     button.setAttribute("aria-selected", active ? "true" : "false");
     button.tabIndex = active ? 0 : -1;
   });
-  [
-    [els.sessionsPanel, "mobileSessionsTab"],
-    [els.threadPanel, "mobileThreadTab"],
-    [els.inspectorPanel, "mobileInspectorTab"],
-  ].forEach(([panel, tabId]) => {
-    if (mobile) {
-      panel.setAttribute("role", "tabpanel");
-      panel.setAttribute("aria-labelledby", tabId);
-    } else {
-      panel.removeAttribute("role");
-      panel.removeAttribute("aria-labelledby");
-    }
-  });
   syncPanelVisibilityState();
+}
+
+function syncPanelVisibilityState() {
+  const mobile = mobilePanelLayoutActive();
+  const activePanel = els.appShell.dataset.panel || "thread";
+  const panels = [
+    [els.sessionsPanel, mobile ? activePanel === "sessions" : els.appShell.dataset.left !== "closed", mobile ? mobilePanelTab("sessions") : els.toggleLeft],
+    [els.threadPanel, mobile ? activePanel === "thread" : true, mobile ? mobilePanelTab("thread") : null],
+  ];
+  panels.forEach(([panel, open, fallback]) => {
+    moveFocusBeforeHidingPanel(panel, fallback, open);
+    setPanelInteractivity(panel, open);
+  });
 }
 
 function moveFocusBeforeHidingPanel(panel, fallback, open) {
@@ -756,165 +560,9 @@ function moveFocusBeforeHidingPanel(panel, fallback, open) {
 
 function setPanelInteractivity(panel, open) {
   if (!panel) return;
+  panel.hidden = !open;
   panel.inert = !open;
-  if (open) {
-    panel.removeAttribute("aria-hidden");
-  } else {
-    panel.setAttribute("aria-hidden", "true");
-  }
-}
-
-function handleDialogEscapeKey(event) {
-  if (event.key !== "Escape") return;
-  if (els.settingsDialog?.open) {
-    event.preventDefault();
-    requestCloseSettingsDialog();
-    return;
-  }
-  if (els.peerDialog?.open) {
-    event.preventDefault();
-    requestClosePeerDialog();
-  }
-}
-
-function bindInspectorResize() {
-  if (!els.inspectorResizer) return;
-  els.inspectorResizer.addEventListener("focus", () => { state.inspectorResizerFocusPending = true; });
-  els.inspectorResizer.addEventListener("blur", () => {
-    queueMicrotask(() => {
-      if (document.activeElement !== document.body) state.inspectorResizerFocusPending = false;
-    });
-  });
-  els.inspectorResizer.addEventListener("pointerdown", (event) => {
-    if (!inspectorResizeEnabled()) return;
-    event.preventDefault();
-    state.resizingInspector = true;
-    els.appShell.classList.add("resizing-inspector");
-    els.inspectorResizer.setPointerCapture?.(event.pointerId);
-    applyInspectorWidth(widthFromPointer(event.clientX));
-  });
-  els.inspectorResizer.addEventListener("pointermove", (event) => {
-    if (!state.resizingInspector) return;
-    event.preventDefault();
-    applyInspectorWidth(widthFromPointer(event.clientX));
-  });
-  els.inspectorResizer.addEventListener("pointerup", (event) => finishInspectorResize(event));
-  els.inspectorResizer.addEventListener("pointercancel", (event) => finishInspectorResize(event));
-  window.addEventListener("pointermove", (event) => {
-    if (!state.resizingInspector) return;
-    event.preventDefault();
-    applyInspectorWidth(widthFromPointer(event.clientX));
-  });
-  window.addEventListener("pointerup", (event) => finishInspectorResize(event));
-  window.addEventListener("pointercancel", (event) => finishInspectorResize(event));
-  els.inspectorResizer.addEventListener("keydown", (event) => {
-    if (!inspectorResizeEnabled()) return;
-    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-    event.preventDefault();
-    const bounds = inspectorWidthBounds();
-    if (!bounds) return;
-    let next = state.inspectorWidth;
-    if (event.key === "ArrowLeft") next += inspectorWidthDefaults.step;
-    if (event.key === "ArrowRight") next -= inspectorWidthDefaults.step;
-    if (event.key === "Home") next = bounds.min;
-    if (event.key === "End") next = bounds.max;
-    applyInspectorWidth(next, { persist: true });
-  });
-}
-
-function finishInspectorResize(event) {
-  if (!state.resizingInspector) return;
-  state.resizingInspector = false;
-  els.appShell.classList.remove("resizing-inspector");
-  try {
-    if (els.inspectorResizer?.hasPointerCapture?.(event.pointerId)) els.inspectorResizer.releasePointerCapture(event.pointerId);
-  } catch {
-    // Pointer capture can already be released by the browser.
-  }
-  saveInspectorWidth(state.inspectorWidth);
-}
-
-function loadInspectorWidth(storage = globalThis.localStorage) {
-  const saved = Number(storage?.getItem(inspectorWidthStorageKey));
-  state.inspectorWidth = Number.isFinite(saved) && saved > 0 ? saved : state.inspectorWidth;
-}
-
-function saveInspectorWidth(width, storage = globalThis.localStorage) {
-  if (!storage) return;
-  try {
-    storage.setItem(inspectorWidthStorageKey, String(Math.round(width)));
-  } catch {
-    // Ignore private-mode or quota failures; resizing still works for this page session.
-  }
-}
-
-function applyInspectorWidth(width, options = {}) {
-  const bounds = inspectorWidthBounds();
-  const fallback = Number.isFinite(Number(width)) ? Number(width) : state.inspectorWidth;
-  const next = bounds ? clamp(fallback, bounds.min, bounds.max) : Math.max(inspectorWidthDefaults.min, fallback);
-  state.inspectorWidth = Math.round(next);
-  els.appShell.style.setProperty("--inspector-width", `${state.inspectorWidth}px`);
-  if (els.inspectorResizer) {
-    const resizeEnabled = inspectorResizeEnabled();
-    const moveFocusedResizer = resizerNeedsFocusMigration(resizeEnabled);
-    const min = bounds?.min ?? inspectorWidthDefaults.min;
-    const max = bounds?.max ?? inspectorWidthDefaults.max;
-    els.inspectorResizer.setAttribute("aria-valuemin", String(min));
-    els.inspectorResizer.setAttribute("aria-valuemax", String(max));
-    els.inspectorResizer.setAttribute("aria-valuenow", String(state.inspectorWidth));
-    els.inspectorResizer.setAttribute("aria-disabled", resizeEnabled ? "false" : "true");
-    els.inspectorResizer.tabIndex = resizeEnabled ? 0 : -1;
-    if (resizeEnabled) {
-      els.inspectorResizer.removeAttribute("aria-hidden");
-    } else {
-      els.inspectorResizer.setAttribute("aria-hidden", "true");
-    }
-    if (moveFocusedResizer) {
-      state.inspectorResizerFocusPending = false;
-      focusResizerFallback();
-    }
-  }
-  if (options.persist) saveInspectorWidth(state.inspectorWidth);
-}
-
-function resizerNeedsFocusMigration(resizeEnabled) {
-  return !resizeEnabled && (document.activeElement === els.inspectorResizer || state.inspectorResizerFocusPending);
-}
-
-function focusResizerFallback() {
-  const fallback = mobilePanelLayoutActive()
-    ? mobilePanelTab(els.appShell?.dataset.panel || "thread") || mobilePanelTab("inspector")
-    : els.toggleRight;
-  if (!fallback || fallback.hidden || fallback.disabled || fallback.inert || fallback.getAttribute("aria-hidden") === "true") return;
-  fallback.focus({ preventScroll: true });
-}
-
-function widthFromPointer(clientX) {
-  const rect = els.appShell.getBoundingClientRect();
-  return rect.right - Number(clientX || 0);
-}
-
-function inspectorWidthBounds() {
-  if (!els.appShell || !inspectorResizeEnabled()) return null;
-  const shellWidth = els.appShell.getBoundingClientRect().width || window.innerWidth || 0;
-  const leftMin = els.appShell.dataset.left === "closed" ? 0 : 286;
-  const max = Math.min(inspectorWidthDefaults.max, Math.max(inspectorWidthDefaults.min, shellWidth - leftMin - inspectorWidthDefaults.contentMin));
-  return {
-    min: inspectorWidthDefaults.min,
-    max,
-  };
-}
-
-function inspectorResizeEnabled() {
-  return Boolean(!desktopPromptArchiveInspectorHidden() && els.appShell?.dataset.right !== "closed" && window.matchMedia(inspectorSideDockMedia).matches);
-}
-
-function syncInspectorResizerState() {
-  applyInspectorWidth(state.inspectorWidth);
-}
-
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, Number(value) || min));
+  panel.setAttribute("aria-hidden", open ? "false" : "true");
 }
 
 async function loadHealthAndSources({ announce = false } = {}) {
@@ -1472,12 +1120,8 @@ async function selectSession(id, { announce = true, focusMobilePanel = true, imm
   state.selectedItemRef = null;
   state.selectedEventIndex = null;
   state.selectedTraceNodeId = null;
-  state.selectedAuditNodeId = null;
-  state.selectedAuditTurnKey = null;
   state.selectedTerminalBlockId = null;
   state.expandedTraceNodeIds = new Set();
-  state.expandedAuditTurnKeys = new Set();
-  state.expandedAuditGroupIds = new Set();
   clearRawEventCache();
   state.visibleEvents = 40;
   state.visibleThreadItems = 140;
@@ -1558,12 +1202,8 @@ function clearSelectedSession() {
   state.selectedItemRef = null;
   state.selectedEventIndex = null;
   state.selectedTraceNodeId = null;
-  state.selectedAuditNodeId = null;
-  state.selectedAuditTurnKey = null;
   state.selectedTerminalBlockId = null;
   state.expandedTraceNodeIds = new Set();
-  state.expandedAuditTurnKeys = new Set();
-  state.expandedAuditGroupIds = new Set();
   clearRawEventCache();
   syncExportButtons();
 }
@@ -2100,10 +1740,7 @@ function openSettingsDialog() {
   state.settingsDialogOpener = opener && opener !== document.body ? opener : els.settingsButton;
   clearSettingsValidationState();
   state.summaryRules = window.ToolSummary?.loadCustomRules?.() || [];
-  state.executionGroupRules = window.ExecutionGrouping?.loadCustomRules?.() || [];
-  state.evidenceRiskRules = window.EvidenceRiskRules?.loadCustomRules?.() || [];
   normalizeSettingsView();
-  ensureEvidenceRiskEditorRules();
   state.settingsInitialSnapshot = settingsSnapshot();
   renderSettingsDialog();
   els.settingsDialog?.showModal();
@@ -2163,29 +1800,11 @@ function renderSettingsDialog() {
 }
 
 function settingsSnapshot() {
-  return JSON.stringify({
-    summaryRules: state.summaryRules || [],
-    executionGroupRules: state.executionGroupRules || [],
-    evidenceRiskRules: settingsEvidenceRiskSnapshotRules(),
-  });
+  return JSON.stringify({ summaryRules: state.summaryRules || [] });
 }
 
 function settingsDirty() {
   return Boolean(state.settingsInitialSnapshot && settingsSnapshot() !== state.settingsInitialSnapshot);
-}
-
-function settingsEvidenceRiskSnapshotRules() {
-  const rules = Array.isArray(state.evidenceRiskRules) ? state.evidenceRiskRules : [];
-  if (window.EvidenceRiskRules?.customRulesFromMerged) {
-    return window.EvidenceRiskRules.customRulesFromMerged(rules);
-  }
-  const defaults = window.EvidenceRiskRules?.normalizeRules?.(window.EvidenceRiskRules?.defaultRules?.() || []) || [];
-  if (!defaults.length) return rules;
-  const defaultById = new Map(defaults.map((rule) => [String(rule?.id || ""), rule]));
-  return rules.filter((rule) => {
-    const defaultRule = defaultById.get(String(rule?.id || ""));
-    return !defaultRule || stableSettingsJson(rule) !== stableSettingsJson(defaultRule);
-  });
 }
 
 function stableSettingsJson(value) {
@@ -2208,13 +1827,8 @@ function restoreSettingsInitialSnapshot() {
   try {
     const snapshot = JSON.parse(state.settingsInitialSnapshot);
     state.summaryRules = Array.isArray(snapshot.summaryRules) ? snapshot.summaryRules : [];
-    state.executionGroupRules = Array.isArray(snapshot.executionGroupRules) ? snapshot.executionGroupRules : [];
-    state.evidenceRiskRules = Array.isArray(snapshot.evidenceRiskRules) ? snapshot.evidenceRiskRules : [];
   } catch {
     state.summaryRules = window.ToolSummary?.loadCustomRules?.() || [];
-    state.executionGroupRules = window.ExecutionGrouping?.loadCustomRules?.() || [];
-    state.evidenceRiskRules = window.EvidenceRiskRules?.loadCustomRules?.() || [];
-    ensureEvidenceRiskEditorRules();
   }
 }
 
@@ -2242,10 +1856,9 @@ function syncSettingsDirtyState() {
     delete els.settingsStatus.dataset.status;
     els.settingsStatus.removeAttribute("role");
     els.settingsStatus.removeAttribute("aria-live");
-    const evidenceCount = window.EvidenceRiskRules?.activeRules?.(state.evidenceRiskRules)?.length || 0;
     const currentView = settingsViewOptions.find((view) => view.id === state.settingsView);
     const dirtyLabel = dirty ? "有未保存更改" : "没有未保存更改";
-    els.settingsStatus.textContent = `${dirtyLabel} · ${currentView?.label || "展示规则"} · 摘要自定义 ${state.summaryRules.length} 条；执行聚合自定义 ${state.executionGroupRules.length} 条；证据生效 ${evidenceCount} 条；配置保存在当前浏览器本地。`;
+    els.settingsStatus.textContent = `${dirtyLabel} · ${currentView?.label || "展示规则"} · 摘要自定义 ${state.summaryRules.length} 条；配置保存在当前浏览器本地。`;
   }
 }
 
@@ -2267,11 +1880,7 @@ function renderSettingsOverview() {
 function settingsOverviewItems() {
   const summaryDefaultCount = window.ToolSummary?.defaultRules?.()?.length || 0;
   const summaryActiveCount = window.ToolSummary?.activeRules?.(state.summaryRules)?.length || summaryDefaultCount;
-  const executionDefaultCount = window.ExecutionGrouping?.defaultRules?.()?.length || 0;
-  const executionActiveCount = window.ExecutionGrouping?.activeRules?.(state.executionGroupRules)?.length || executionDefaultCount;
-  const evidenceDefaultCount = window.EvidenceRiskRules?.defaultRules?.()?.length || 0;
-  const evidenceActiveCount = window.EvidenceRiskRules?.activeRules?.(state.evidenceRiskRules)?.length || evidenceDefaultCount;
-  const evidenceLocalCount = window.EvidenceRiskRules?.customRulesFromMerged?.(state.evidenceRiskRules)?.length ?? state.evidenceRiskRules.length;
+
   return [
     {
       id: "summary",
@@ -2279,18 +1888,7 @@ function settingsOverviewItems() {
       value: `${summaryActiveCount}`,
       detail: `${state.summaryRules.length} 条自定义 · ${summaryDefaultCount} 条内置`,
     },
-    {
-      id: "execution",
-      label: "执行聚合",
-      value: `${executionActiveCount}`,
-      detail: `${state.executionGroupRules.length} 条自定义 · ${executionDefaultCount} 条内置`,
-    },
-    {
-      id: "evidence",
-      label: "证据风险",
-      value: `${evidenceActiveCount}`,
-      detail: `${evidenceLocalCount} 条本地覆盖 · ${evidenceDefaultCount} 条内置`,
-    },
+
     {
       id: "structured",
       label: "结构化展示",
@@ -2320,12 +1918,7 @@ function renderActiveSettingsPanel() {
   if (state.settingsView === "summary") {
     renderSummaryRuleList();
     renderDefaultSummaryRuleList();
-  } else if (state.settingsView === "execution") {
-    renderExecutionGroupRuleList();
-    renderDefaultExecutionGroupRuleList();
-  } else if (state.settingsView === "evidence") {
-    renderEvidenceRiskRuleList();
-    renderDefaultEvidenceRiskRuleList();
+
   }
 }
 
@@ -2369,8 +1962,7 @@ function renderSettingsFieldError(view, index, field) {
 function validateSettingsRulesForSave() {
   return [
     ...(window.ToolSummary?.validateRulesForSave?.(state.summaryRules) || []).map((error) => ({ ...error, view: "summary" })),
-    ...(window.ExecutionGrouping?.validateRulesForSave?.(state.executionGroupRules) || []).map((error) => ({ ...error, view: "execution" })),
-    ...(window.EvidenceRiskRules?.validateRulesForSave?.(state.evidenceRiskRules) || []).map((error) => ({ ...error, view: "evidence" })),
+
   ];
 }
 
@@ -2392,8 +1984,7 @@ function settingsInputForError(error) {
   if (!error) return null;
   const selectors = {
     summary: `[data-rule-field="${error.field}"][data-rule-index="${error.index}"]`,
-    execution: `[data-group-rule-field="${error.field}"][data-group-rule-index="${error.index}"]`,
-    evidence: `[data-evidence-rule-field="${error.field}"][data-evidence-rule-index="${error.index}"]`,
+
   };
   const selector = selectors[error.view];
   return selector ? els.settingsForm?.querySelector(selector) : null;
@@ -2475,210 +2066,6 @@ function renderDefaultSummaryRuleList() {
     .join("");
 }
 
-function renderExecutionGroupRuleList() {
-  if (!els.executionGroupRuleList) return;
-  if (!state.executionGroupRules.length) {
-    els.executionGroupRuleList.innerHTML = `<div class="rule-empty">暂无自定义执行聚合规则。审计链会先使用自定义规则，再回退到内置规则。</div>`;
-    return;
-  }
-  els.executionGroupRuleList.innerHTML = state.executionGroupRules.map((rule, index) => renderExecutionGroupRuleEditor(rule, index)).join("");
-  els.executionGroupRuleList.querySelectorAll("[data-group-rule-field]").forEach((input) => {
-    input.addEventListener("input", () => updateExecutionGroupRuleFromInput(input));
-    input.addEventListener("change", () => updateExecutionGroupRuleFromInput(input));
-  });
-  els.executionGroupRuleList.querySelectorAll("[data-delete-group-rule]").forEach((button) => {
-    button.addEventListener("click", () => {
-      clearSettingsValidationState();
-      state.executionGroupRules.splice(Number(button.dataset.deleteGroupRule), 1);
-      renderSettingsDialog();
-    });
-  });
-}
-
-function renderExecutionGroupRuleEditor(rule, index) {
-  const enabled = rule.enabled !== false;
-  return `
-    <article class="summary-rule-card">
-      <div class="summary-rule-head">
-        <label class="toggle-control">
-          <input type="checkbox" ${enabled ? "checked" : ""} data-group-rule-field="enabled" data-group-rule-index="${escapeAttr(String(index))}" />
-          <span>启用</span>
-        </label>
-        <button class="ghost-button small danger" type="button" data-delete-group-rule="${escapeAttr(String(index))}">删除</button>
-      </div>
-      <div class="summary-rule-grid">
-        <label>
-          <span class="field-label">名称</span>
-          <input class="text-input" type="text" value="${escapeAttr(rule.label || "")}" data-group-rule-field="label" data-group-rule-index="${escapeAttr(String(index))}" placeholder="收集文件与目录信息" ${settingsFieldAttrs("execution", index, "label")} />
-          ${renderSettingsFieldError("execution", index, "label")}
-        </label>
-        <label>
-          <span class="field-label">工具</span>
-          <input class="text-input" type="text" value="${escapeAttr(rule.tool || "")}" data-group-rule-field="tool" data-group-rule-index="${escapeAttr(String(index))}" placeholder="exec_command 或 *" ${settingsFieldAttrs("execution", index, "tool")} />
-          ${renderSettingsFieldError("execution", index, "tool")}
-        </label>
-        <label>
-          <span class="field-label">组标题模板</span>
-          <input class="text-input" type="text" value="${escapeAttr(rule.title || "")}" data-group-rule-field="title" data-group-rule-index="${escapeAttr(String(index))}" placeholder="执行组 · 收集信息" />
-        </label>
-        <label>
-          <span class="field-label">最少连续节点</span>
-          <input class="text-input" type="number" min="2" max="30" step="1" value="${escapeAttr(String(rule.minItems || 2))}" data-group-rule-field="minItems" data-group-rule-index="${escapeAttr(String(index))}" />
-        </label>
-        <label class="summary-rule-grid-wide">
-          <span class="field-label">组摘要模板</span>
-          <input class="text-input" type="text" value="${escapeAttr(rule.summary || "")}" data-group-rule-field="summary" data-group-rule-index="${escapeAttr(String(index))}" placeholder="{count} 个执行节点 · {titles}" />
-        </label>
-      </div>
-      <label>
-        <span class="field-label">匹配正则</span>
-        <textarea class="text-input rule-pattern-input" data-group-rule-field="pattern" data-group-rule-index="${escapeAttr(String(index))}" spellcheck="false" placeholder="读取文件内容|列出目录" ${settingsFieldAttrs("execution", index, "pattern")}>${escapeHtml(rule.pattern || "")}</textarea>
-        ${renderSettingsFieldError("execution", index, "pattern")}
-      </label>
-    </article>
-  `;
-}
-
-function renderDefaultExecutionGroupRuleList() {
-  if (!els.defaultExecutionGroupRuleList) return;
-  const rules = window.ExecutionGrouping?.defaultRules?.() || [];
-  els.defaultExecutionGroupRuleList.innerHTML = rules
-    .map(
-      (rule) => `
-        <div class="default-rule-row">
-          <strong>${escapeHtml(rule.title || rule.label)}</strong>
-          <span>${escapeHtml([rule.tool || "*", `${rule.minItems || 2}+ 连续`, rule.label].filter(Boolean).join(" · "))}</span>
-          <code>${escapeHtml(rule.pattern || "")}</code>
-        </div>
-      `,
-    )
-    .join("");
-}
-
-function renderEvidenceRiskRuleList() {
-  if (!els.evidenceRiskRuleList) return;
-  ensureEvidenceRiskEditorRules();
-  if (!state.evidenceRiskRules.length) {
-    els.evidenceRiskRuleList.innerHTML = `<div class="rule-empty">暂无证据风险规则。审计链会回退到内置规则。</div>`;
-    return;
-  }
-  const defaultIds = new Set(window.EvidenceRiskRules?.defaultRuleIds?.() || []);
-  els.evidenceRiskRuleList.innerHTML = state.evidenceRiskRules.map((rule, index) => renderEvidenceRiskRuleEditor(rule, index, defaultIds.has(rule.id))).join("");
-  els.evidenceRiskRuleList.querySelectorAll("[data-evidence-rule-field]").forEach((input) => {
-    input.addEventListener("input", () => updateEvidenceRiskRuleFromInput(input));
-    input.addEventListener("change", () => updateEvidenceRiskRuleFromInput(input));
-  });
-  els.evidenceRiskRuleList.querySelectorAll("[data-delete-evidence-rule]").forEach((button) => {
-    button.addEventListener("click", () => {
-      clearSettingsValidationState();
-      state.evidenceRiskRules.splice(Number(button.dataset.deleteEvidenceRule), 1);
-      renderSettingsDialog();
-    });
-  });
-}
-
-function renderEvidenceRiskRuleEditor(rule, index, isDefaultRule) {
-  const enabled = rule.enabled !== false;
-  const fieldText = Array.isArray(rule.textFields) ? rule.textFields.join(",") : rule.textFields || "";
-  return `
-    <article class="summary-rule-card">
-      <div class="summary-rule-head">
-        <label class="toggle-control">
-          <input type="checkbox" ${enabled ? "checked" : ""} data-evidence-rule-field="enabled" data-evidence-rule-index="${escapeAttr(String(index))}" />
-          <span>${isDefaultRule ? "启用内置规则" : "启用自定义规则"}</span>
-        </label>
-        ${isDefaultRule ? `<span class="muted">内置规则的本地覆盖</span>` : `<button class="ghost-button small danger" type="button" data-delete-evidence-rule="${escapeAttr(String(index))}">删除</button>`}
-      </div>
-      <div class="summary-rule-grid">
-        <label>
-          <span class="field-label">名称</span>
-          <input class="text-input" type="text" value="${escapeAttr(rule.label || "")}" data-evidence-rule-field="label" data-evidence-rule-index="${escapeAttr(String(index))}" placeholder="工具输出风险词" ${settingsFieldAttrs("evidence", index, "label")} />
-          ${renderSettingsFieldError("evidence", index, "label")}
-        </label>
-        <label>
-          <span class="field-label">类型</span>
-          <select class="text-input" data-evidence-rule-field="kind" data-evidence-rule-index="${escapeAttr(String(index))}">
-            <option value="risk-text" ${rule.kind === "risk-text" ? "selected" : ""}>风险词</option>
-            <option value="large-payload" ${rule.kind === "large-payload" ? "selected" : ""}>大型输出</option>
-          </select>
-        </label>
-        <label>
-          <span class="field-label">工具</span>
-          <input class="text-input" type="text" value="${escapeAttr(rule.tool || "*")}" data-evidence-rule-field="tool" data-evidence-rule-index="${escapeAttr(String(index))}" placeholder="exec_command 或 *" ${settingsFieldAttrs("evidence", index, "tool")} />
-          ${renderSettingsFieldError("evidence", index, "tool")}
-        </label>
-        <label>
-          <span class="field-label">Tag</span>
-          <input class="text-input" type="text" value="${escapeAttr(rule.tag || "")}" data-evidence-rule-field="tag" data-evidence-rule-index="${escapeAttr(String(index))}" placeholder="error-output" />
-        </label>
-        <label>
-          <span class="field-label">风险等级</span>
-          <select class="text-input" data-evidence-rule-field="level" data-evidence-rule-index="${escapeAttr(String(index))}">
-            ${renderRiskLevelOptions(rule.level || "medium")}
-          </select>
-        </label>
-        <label>
-          <span class="field-label">状态失败等级</span>
-          <select class="text-input" data-evidence-rule-field="failedLevel" data-evidence-rule-index="${escapeAttr(String(index))}">
-            ${renderRiskLevelOptions(rule.failedLevel || rule.level || "medium")}
-          </select>
-        </label>
-        <label>
-          <span class="field-label">字段</span>
-          <input class="text-input" type="text" value="${escapeAttr(fieldText)}" data-evidence-rule-field="textFields" data-evidence-rule-index="${escapeAttr(String(index))}" placeholder="status,output,payloadPreview" ${settingsFieldAttrs("evidence", index, "textFields")} />
-          ${renderSettingsFieldError("evidence", index, "textFields")}
-        </label>
-        <label>
-          <span class="field-label">大型输出阈值</span>
-          <input class="text-input" type="number" min="1" step="1" value="${escapeAttr(String(rule.maxLength ?? 100000))}" data-evidence-rule-field="maxLength" data-evidence-rule-index="${escapeAttr(String(index))}" ${settingsFieldAttrs("evidence", index, "maxLength")} />
-          ${renderSettingsFieldError("evidence", index, "maxLength")}
-        </label>
-        <label class="summary-rule-grid-wide">
-          <span class="field-label">提示文案</span>
-          <input class="text-input" type="text" value="${escapeAttr(rule.summary || "")}" data-evidence-rule-field="summary" data-evidence-rule-index="${escapeAttr(String(index))}" placeholder="工具输出或状态包含风险词。" />
-        </label>
-      </div>
-      <label>
-        <span class="field-label">风险词正则</span>
-        <textarea class="text-input rule-pattern-input" data-evidence-rule-field="riskPattern" data-evidence-rule-index="${escapeAttr(String(index))}" spellcheck="false" ${settingsFieldAttrs("evidence", index, "riskPattern")}>${escapeHtml(rule.riskPattern || "")}</textarea>
-        ${renderSettingsFieldError("evidence", index, "riskPattern")}
-      </label>
-      <label>
-        <span class="field-label">非零失败正则</span>
-        <textarea class="text-input rule-pattern-input" data-evidence-rule-field="nonZeroFailurePattern" data-evidence-rule-index="${escapeAttr(String(index))}" spellcheck="false" ${settingsFieldAttrs("evidence", index, "nonZeroFailurePattern")}>${escapeHtml(rule.nonZeroFailurePattern || "")}</textarea>
-        ${renderSettingsFieldError("evidence", index, "nonZeroFailurePattern")}
-      </label>
-      <label>
-        <span class="field-label">忽略输出正文的命令正则</span>
-        <textarea class="text-input rule-pattern-input" data-evidence-rule-field="ignoredCommandPattern" data-evidence-rule-index="${escapeAttr(String(index))}" spellcheck="false" placeholder="读取文件或搜索文本命令" ${settingsFieldAttrs("evidence", index, "ignoredCommandPattern")}>${escapeHtml(rule.ignoredCommandPattern || "")}</textarea>
-        ${renderSettingsFieldError("evidence", index, "ignoredCommandPattern")}
-      </label>
-    </article>
-  `;
-}
-
-function renderRiskLevelOptions(selected) {
-  return ["low", "medium", "high"]
-    .map((level) => `<option value="${level}" ${selected === level ? "selected" : ""}>${escapeHtml(auditRiskLabel(level))}</option>`)
-    .join("");
-}
-
-function renderDefaultEvidenceRiskRuleList() {
-  if (!els.defaultEvidenceRiskRuleList) return;
-  const rules = window.EvidenceRiskRules?.defaultRules?.() || [];
-  els.defaultEvidenceRiskRuleList.innerHTML = rules
-    .map(
-      (rule) => `
-        <div class="default-rule-row">
-          <strong>${escapeHtml(rule.label || rule.id)}</strong>
-          <span>${escapeHtml([rule.kind, rule.tool || "*", rule.tag].filter(Boolean).join(" · "))}</span>
-          <code>${escapeHtml(rule.kind === "large-payload" ? `maxLength>${rule.maxLength}` : rule.riskPattern || "")}</code>
-        </div>
-      `,
-    )
-    .join("");
-}
-
 function updateSummaryRuleFromInput(input) {
   clearSettingsValidationFeedback();
   const index = Number(input.dataset.ruleIndex);
@@ -2687,47 +2074,6 @@ function updateSummaryRuleFromInput(input) {
   if (!rule || !field) return;
   rule[field] = field === "enabled" ? input.checked : input.value;
   syncSettingsDirtyState();
-}
-
-function updateExecutionGroupRuleFromInput(input) {
-  clearSettingsValidationFeedback();
-  const index = Number(input.dataset.groupRuleIndex);
-  const field = input.dataset.groupRuleField;
-  const rule = state.executionGroupRules[index];
-  if (!rule || !field) return;
-  if (field === "enabled") {
-    rule[field] = input.checked;
-  } else if (field === "minItems") {
-    rule[field] = input.valueAsNumber || Number(input.value) || 2;
-  } else {
-    rule[field] = input.value;
-  }
-  syncSettingsDirtyState();
-}
-
-function updateEvidenceRiskRuleFromInput(input) {
-  clearSettingsValidationFeedback();
-  const index = Number(input.dataset.evidenceRuleIndex);
-  const field = input.dataset.evidenceRuleField;
-  const rule = state.evidenceRiskRules[index];
-  if (!rule || !field) return;
-  if (field === "enabled") {
-    rule[field] = input.checked;
-  } else if (field === "maxLength") {
-    rule[field] = input.value;
-  } else if (field === "textFields") {
-    rule[field] = input.value
-      .split(",")
-      .map((part) => part.trim())
-      .filter(Boolean);
-  } else {
-    rule[field] = input.value;
-  }
-  syncSettingsDirtyState();
-}
-
-function ensureEvidenceRiskEditorRules() {
-  state.evidenceRiskRules = window.EvidenceRiskRules?.mergedRules?.(state.evidenceRiskRules) || state.evidenceRiskRules || [];
 }
 
 async function saveSettingsFromForm(event) {
@@ -2747,12 +2093,8 @@ async function saveSettingsFromForm(event) {
   }
   clearSettingsValidationState();
   let normalized;
-  let normalizedGroupRules;
-  let normalizedEvidenceRiskRules;
   try {
     normalized = window.ToolSummary?.saveCustomRules?.(state.summaryRules) || [];
-    normalizedGroupRules = window.ExecutionGrouping?.saveCustomRules?.(state.executionGroupRules) || [];
-    normalizedEvidenceRiskRules = window.EvidenceRiskRules?.saveCustomRules?.(state.evidenceRiskRules) || [];
   } catch (error) {
     const message = `保存展示规则失败：${errorTextFromError(error)}`;
     state.settingsFeedbackMessage = message;
@@ -2763,9 +2105,6 @@ async function saveSettingsFromForm(event) {
   }
 
   state.summaryRules = normalized;
-  state.executionGroupRules = normalizedGroupRules;
-  state.evidenceRiskRules = normalizedEvidenceRiskRules;
-  ensureEvidenceRiskEditorRules();
   state.settingsInitialSnapshot = settingsSnapshot();
   renderSettingsDialog();
   try {
@@ -2773,7 +2112,6 @@ async function saveSettingsFromForm(event) {
       await reloadSelectedSessionDetail();
     } else {
       renderMainContent();
-      renderInspector();
     }
   } catch (error) {
     const message = `展示规则已保存，但当前会话重新读取失败：${errorTextFromError(error)}`;
@@ -2796,38 +2134,6 @@ function newSummaryRule() {
     pattern: "",
     title: "",
     summary: "{cmd}",
-  };
-}
-
-function newExecutionGroupRule() {
-  return {
-    id: `custom-group-${Date.now()}`,
-    label: "自定义执行组",
-    enabled: true,
-    tool: "exec_command",
-    minItems: 2,
-    pattern: "",
-    title: "执行组 · {label}",
-    summary: "{count} 个执行节点 · {titles}",
-  };
-}
-
-function newEvidenceRiskRule() {
-  return {
-    id: `custom-evidence-risk-${Date.now()}`,
-    label: "自定义证据风险",
-    enabled: true,
-    kind: "risk-text",
-    tool: "*",
-    level: "medium",
-    failedLevel: "high",
-    tag: "error-output",
-    textFields: ["status", "output", "payloadPreview"],
-    maxLength: 100000,
-    riskPattern: "\\b(error|failed|failure|exception|stderr)\\b|失败|错误",
-    nonZeroFailurePattern: "\\bfail(?:ed|ures?)?\\s*[:=]?\\s*[1-9]\\d*\\b|\\berrors?\\s*[:=]?\\s*[1-9]\\d*\\b",
-    ignoredCommandPattern: "",
-    summary: "工具输出或状态包含风险词。",
   };
 }
 
@@ -3002,7 +2308,6 @@ function sourceNavigationContext() {
     sidebarMode: state.sidebarMode,
     sessionTimeFilter: state.sessionTimeFilter,
     viewMode: state.viewMode,
-    reviewTab: state.reviewTab,
     selectedSessionKey: state.selectedSessionKey || "",
     panel: els.appShell?.dataset.panel || "thread",
   });
@@ -3056,7 +2361,6 @@ function renderAll() {
   renderThreadHeader();
   renderStats();
   renderMainContent();
-  renderInspector();
   renderStatusbar();
   syncExportButtons();
 }
@@ -3073,7 +2377,6 @@ function setViewMode(mode) {
   syncViewControls();
   renderStats();
   renderMainContent();
-  if (changed) renderInspector();
 }
 
 function normalizeViewMode(mode) {
@@ -3086,56 +2389,46 @@ function normalizeViewMode(mode) {
     state.diagnosticMode = "stats";
     return "diagnostic";
   }
-  if (mode === "trace" || mode === "terminal") return "audit";
+  if (mode === "terminal") return "trace";
   return "compact";
 }
 
 function setDiagnosticMode(mode) {
   const nextMode = mode === "raw" ? "raw" : "stats";
   const wasRaw = state.viewMode === "diagnostic" && state.diagnosticMode === "raw";
-  const changed = state.viewMode !== "diagnostic" || state.diagnosticMode !== nextMode;
   if (wasRaw && nextMode !== "raw") {
     cancelRawDiagnosticRequest();
     cancelRawEventRequest();
   }
   state.diagnosticMode = nextMode;
   state.viewMode = "diagnostic";
-  if (changed) cancelRemoteRefreshForNavigation();
+  cancelRemoteRefreshForNavigation();
   syncViewControls();
   renderStats();
   renderMainContent();
-  if (changed) renderInspector();
 }
 
 function syncViewControls() {
   state.viewMode = normalizeViewMode(state.viewMode);
   const diagnosticVisible = state.viewMode === "diagnostic";
   if (!diagnosticVisible && els.diagnosticSwitch?.contains(document.activeElement)) {
-    const activePrimaryView = [els.compactViewButton, els.auditViewButton, els.diagnosticViewButton]
-      .find((button) => button?.dataset.viewMode === state.viewMode);
-    activePrimaryView?.focus({ preventScroll: true });
+    [els.compactViewButton, els.traceViewButton, els.diagnosticViewButton]
+      .find((button) => button?.dataset.viewMode === state.viewMode)
+      ?.focus({ preventScroll: true });
   }
   if (els.diagnosticSwitch) {
     els.diagnosticSwitch.hidden = !diagnosticVisible;
     els.diagnosticSwitch.inert = !diagnosticVisible;
-    if (diagnosticVisible) els.diagnosticSwitch.removeAttribute("aria-hidden");
-    else els.diagnosticSwitch.setAttribute("aria-hidden", "true");
+    els.diagnosticSwitch.setAttribute("aria-hidden", diagnosticVisible ? "false" : "true");
   }
   syncItemTypeFilterOptions();
-  [
-    [els.compactViewButton, "compact"],
-    [els.auditViewButton, "audit"],
-    [els.diagnosticViewButton, "diagnostic"],
-  ].forEach(([button, mode]) => {
+  [[els.compactViewButton, "compact"], [els.traceViewButton, "trace"], [els.diagnosticViewButton, "diagnostic"]].forEach(([button, mode]) => {
     const active = state.viewMode === mode;
     button.classList.toggle("active", active);
     button.setAttribute("aria-selected", active ? "true" : "false");
     button.tabIndex = active ? 0 : -1;
   });
-  [
-    [els.statsViewButton, "stats"],
-    [els.rawViewButton, "raw"],
-  ].forEach(([button, mode]) => {
+  [[els.statsViewButton, "stats"], [els.rawViewButton, "raw"]].forEach(([button, mode]) => {
     const active = state.viewMode === "diagnostic" && state.diagnosticMode === mode;
     button.classList.toggle("active", active);
     button.setAttribute("aria-selected", active ? "true" : "false");
@@ -3144,49 +2437,28 @@ function syncViewControls() {
   els.threadContent.hidden = true;
   els.compactContent.hidden = state.viewMode !== "compact";
   els.terminalContent.hidden = true;
-  els.auditContent.hidden = state.viewMode !== "audit";
+  els.traceContent.hidden = state.viewMode !== "trace";
   els.diagnosticContent.hidden = state.viewMode !== "diagnostic";
   els.statsContent.hidden = state.viewMode !== "diagnostic" || state.diagnosticMode !== "stats";
-  els.traceContent.hidden = true;
   els.rawContent.hidden = state.viewMode !== "diagnostic" || state.diagnosticMode !== "raw";
-  if (els.importantOnlyLabel) {
-    els.importantOnlyLabel.textContent = "复核优先";
-  }
-  if (els.keyEventsTitle) {
-    els.keyEventsTitle.textContent = "复核台";
-  }
-  if (els.importantOnlyControl) {
-    els.importantOnlyControl.title = "仅在主内容区突出重要或复核优先内容";
-  }
+  if (els.importantOnlyLabel) els.importantOnlyLabel.textContent = "重要事件";
+  if (els.importantOnlyControl) els.importantOnlyControl.title = "仅在主内容区突出重要事件";
 }
 
 function syncItemTypeFilterOptions() {
-  // Legacy view state `state.viewMode === "stats"` now maps to diagnosticMode.
-  const mode = state.viewMode === "audit" ? "audit" : state.viewMode === "diagnostic" ? "raw" : "standard";
+  const mode = state.viewMode === "diagnostic" ? "raw" : "standard";
   const previousMode = els.itemTypeFilter.dataset.optionMode || "standard";
-  const options = mode === "audit" ? auditItemTypeOptions : mode === "raw" ? rawItemTypeOptions : standardItemTypeOptions;
-  const currentFirstLabel = els.itemTypeFilter.options?.[0]?.textContent || "";
-  if (previousMode === mode && currentFirstLabel === options[0]?.[1]) return;
+  const options = mode === "raw" ? rawItemTypeOptions : standardItemTypeOptions;
+  if (previousMode === mode && els.itemTypeFilter.options?.[0]?.textContent === options[0]?.[1]) return;
   const previous = els.itemTypeFilter.value || "all";
-  let mapped = previous;
-  if (mode === "audit") {
-    mapped = standardToAuditType[previous] || "all";
-  } else if (previousMode === "audit") {
-    mapped = auditToStandardType[previous] || "all";
-  }
-  els.itemTypeFilter.innerHTML = options
-    .map(([value, label]) => `<option value="${escapeAttr(value)}">${escapeHtml(label)}</option>`)
-    .join("");
-  els.itemTypeFilter.value = options.some(([value]) => value === mapped) ? mapped : "all";
+  els.itemTypeFilter.innerHTML = options.map(([value, label]) => `<option value="${escapeAttr(value)}">${escapeHtml(label)}</option>`).join("");
+  els.itemTypeFilter.value = options.some(([value]) => value === previous) ? previous : "all";
   els.itemTypeFilter.dataset.optionMode = mode;
 }
 
 function primeTraceExpansion(detail) {
   const root = detail?.trace?.root;
   state.expandedTraceNodeIds = new Set(root ? [root.id] : []);
-  const firstTurn = detail?.turns?.[0];
-  state.expandedAuditTurnKeys = new Set(firstTurn ? [auditTurnKey(firstTurn, 0)] : []);
-  state.expandedAuditGroupIds = new Set();
 }
 
 function renderPromptArchiveSidebar() {
@@ -3762,15 +3034,6 @@ function syncExportButtons() {
   els.downloadMarkdownButton.title = downloadLabel;
   els.copyMarkdownButton.setAttribute("aria-label", copyLabel);
   els.downloadMarkdownButton.setAttribute("aria-label", downloadLabel);
-  syncReviewMarkdownActionButtons(reason);
-}
-
-function syncReviewMarkdownActionButtons(reason = markdownExportBlockedReason()) {
-  const disabled = Boolean(reason);
-  els.inspectorActions?.querySelectorAll('[data-review-action-type="copy-markdown"]').forEach((button) => {
-    button.disabled = disabled;
-    button.title = disabled ? reason : "复制完整会话 Markdown";
-  });
 }
 
 function selectedSessionDisplayTitle() {
@@ -3806,7 +3069,7 @@ function renderSessionPlaceholder(title, subtitle) {
   if ((state.sessionLoadError || state.detail?.readState?.state === "changing") && state.selectedSessionId) actions.push('<button class="ghost-button" type="button" data-session-placeholder-action="retry-detail">重新读取会话</button>');
   const action = actions.length ? `<div class="empty-state-actions">${actions.join("")}</div>` : "";
   const html = emptyState(title, subtitle, action);
-  [els.threadContent, els.compactContent, els.terminalContent, els.auditContent, els.statsContent, els.traceContent, els.rawContent]
+  [els.threadContent, els.compactContent, els.terminalContent, els.statsContent, els.traceContent, els.rawContent]
     .filter(Boolean)
     .forEach((container) => {
       container.innerHTML = html;
@@ -3950,23 +3213,8 @@ function sessionEvidenceId(session) {
   return buildEvidenceId({ ...evidenceScopeForSession(session), threadPath: "root", entity: "session" });
 }
 
-function auditTurnEvidenceId(turn) {
-  return buildEvidenceId({ ...evidenceScopeForSession(), threadPath: "root", turnNumber: turn.turnNumber, entity: "turn" });
-}
-
 function rawEventEvidenceId(event) {
   return buildEvidenceId({ ...evidenceScopeForSession(), threadPath: "root", eventIndex: event.index, entity: "event" });
-}
-
-function auditNodeEvidenceId(node) {
-  return buildEvidenceId({
-    ...evidenceScopeForSession(),
-    threadPath: node.traceNodeId || "root",
-    turnNumber: node.turnNumber,
-    eventIndex: node.eventIndex ?? node.sourceIndex,
-    nodeId: node.id,
-    entity: "audit-node",
-  });
 }
 
 function traceNodeEvidenceId(node) {
@@ -4075,31 +3323,25 @@ function renderSessionHandoff() {
     <div class="handoff-head"><span>交接摘要</span><em>基于当前会话派生数据</em></div>
     <div class="handoff-grid">${facts.map((fact, index) => renderHandoffFact(fact, index + 1)).join("")}</div>
   `;
-  els.sessionHandoff.querySelectorAll("[data-handoff-kind]").forEach((button) => {
-    button.addEventListener("click", () => openHandoffFact(button.dataset.handoffKind, button.dataset.handoffNodeId || ""));
+  els.sessionHandoff.querySelectorAll("[data-handoff-target]").forEach((button) => {
+    button.addEventListener("click", () => openHandoffFact(button.dataset.handoffTarget));
   });
 }
 
 function sessionHandoffFacts(detail) {
-  const nodes = (detail.audit || buildAuditFallback(detail) || { nodes: [] }).nodes || [];
-  const intent = nodes.find((node) => node.type === "intent");
-  const final = [...nodes].reverse().find((node) => node.type === "final");
-  const verification = nodes.filter((node) => node.type === "verification");
-  const risks = nodes.filter((node) => node.type === "risk" || (node.riskLevel && node.riskLevel !== "none"));
+  const turns = detail.turns || [];
+  const items = turns.flatMap((turn) => turn.items || []);
+  const firstUser = items.find((item) => item.type === "user-message" && String(item.text || "").trim());
+  const lastAssistant = [...items].reverse().find((item) => item.type === "assistant-message" && String(item.text || "").trim());
+  const tools = items.filter((item) => item.type === "tool-call");
   return [
-    handoffFact("目标", handoffNodeText(intent, "未检测到明确目标"), intent, "intent"),
-    handoffFact("当前状态", handoffSessionStatus(detail), null, "status"),
-    handoffFact("结果", handoffNodeText(final, "尚无最终回复，可能仍待继续"), final, "final"),
-    handoffFact("验证", handoffVerificationText(verification), verification[0], "verification"),
-    handoffFact("风险 / 缺口", handoffRiskText(risks), risks[0], "risk"),
-    handoffFact("改动范围", handoffChangeText(nodes), null, "changes"),
-    handoffFact("子代理", handoffChildText(detail), null, "children"),
+    handoffFact("目标", firstLine(firstUser?.text || "未记录用户目标", 180), "compact"),
+    handoffFact("当前状态", handoffSessionStatus(detail), "compact"),
+    handoffFact("最新回复", firstLine(lastAssistant?.text || "尚无助手回复", 180), "compact"),
+    handoffFact("执行", tools.length ? String(tools.length) + " 次工具调用" : "没有工具调用", "trace"),
+    handoffFact("轮次", String(turns.length) + " 轮对话", "compact"),
+    handoffFact("子代理", handoffChildText(detail), "trace"),
   ];
-}
-
-
-function handoffNodeText(node, fallback) {
-  return auditNodeFullBody(node) || node?.summary || fallback;
 }
 
 function handoffSessionStatus(detail) {
@@ -4107,58 +3349,29 @@ function handoffSessionStatus(detail) {
   return sessionStatusLabel(latestTurn.status || detail.session?.status) || "状态未记录";
 }
 
-function handoffVerificationText(nodes) {
-  return nodes.length ? `已检测到 ${nodes.length} 项验证` : "未检测到验证证据";
-}
-
-function handoffRiskText(nodes) {
-  return nodes.length ? `${auditRiskLabel(highestRiskLevel(nodes))} · ${nodes.length} 项待复核` : "未检测到风险或缺口";
-}
-
-function handoffChangeText(nodes) {
-  const files = nodes.flatMap((node) => readableAuditNode(node)?.changeSet?.files || []);
-  const count = new Set(files.map((file) => file.path).filter(Boolean)).size;
-  return count ? `${count} 个文件` : "未从现有派生数据检测到文件改动";
-}
-
 function handoffChildText(detail) {
   const count = detail.trace?.hierarchy?.children?.length || 0;
-  return count ? `${count} 个子代理` : "未检测到子代理";
+  return count ? String(count) + " 个子代理" : "没有子代理";
 }
 
-function handoffFact(label, value, node, kind) {
-  return { label, value: firstLine(value, 180), nodeId: node?.id || "", kind };
+function handoffFact(label, value, target) {
+  return { label, value: firstLine(value, 180), target };
 }
 
 function renderHandoffFact(fact, index) {
-  const target = fact.nodeId ? ` data-handoff-node-id="${escapeAttr(fact.nodeId)}"` : "";
-  const accessibleSummary = `${fact.label}：${fact.value}`;
-  return `<button class="handoff-fact kind-${escapeAttr(fact.kind)}" type="button" data-handoff-kind="${escapeAttr(fact.kind)}"${target} title="${escapeAttr(accessibleSummary)}" aria-label="${escapeAttr(accessibleSummary)}">
+  const accessibleSummary = fact.label + "：" + fact.value;
+  return `<button class="handoff-fact kind-${escapeAttr(fact.target)}" type="button" data-handoff-target="${escapeAttr(fact.target)}" title="${escapeAttr(accessibleSummary)}" aria-label="${escapeAttr(accessibleSummary)}">
     <span class="handoff-index" aria-hidden="true">${index}</span>
     <span class="handoff-copy"><strong>${escapeHtml(fact.label)}</strong><em>${escapeHtml(fact.value)}</em></span>
   </button>`;
 }
 
-function openHandoffFact(kind, nodeId) {
-  const node = nodeId ? findAuditNode(nodeId) : null;
-  if (node) {
-    setViewMode("audit");
-    selectAuditNode(node.id);
-    return;
-  }
-  if (kind === "intent" || kind === "status") {
-    if (state.viewMode !== "compact") setViewMode("compact");
-    const targetId = els.compactContent?.querySelector("[data-compact-nav-target]")?.dataset.compactNavTarget;
-    if (targetId) scrollToCompactTarget(targetId);
-    return;
-  }
-  if (kind === "children") {
-    setViewMode("audit");
-    return;
-  }
-  showToast("当前会话没有可跳转的对应证据");
+function openHandoffFact(target) {
+  if (target === "trace") return setViewMode("trace");
+  if (state.viewMode !== "compact") setViewMode("compact");
+  const targetId = els.compactContent?.querySelector("[data-compact-nav-target]")?.dataset.compactNavTarget;
+  if (targetId) scrollToCompactTarget(targetId);
 }
-
 function buildEventTypeStats(detail) {
   const groups = new Map();
   for (const event of detail?.events || []) {
@@ -4382,9 +3595,9 @@ function bindTimingActions() {
     const nodeId = button.dataset.timingNodeId;
     const eventIndex = button.dataset.timingEventIndex;
     if (nodeId) {
-      setViewMode("audit");
-      selectAuditNode(nodeId);
-    } else if (eventIndex !== "") openRawEventFromAudit(Number(eventIndex));
+      setViewMode("trace");
+      selectTraceNode(nodeId);
+    } else if (eventIndex !== "") openRawEvent(Number(eventIndex));
     else showToast("当前分类没有可跳转的来源");
   }));
 }
@@ -4517,10 +3730,9 @@ function renderMainContent() {
   if (state.sidebarMode === "prompts") {
     els.promptArchiveContent.hidden = false;
     renderPromptArchive();
-    [els.threadContent, els.compactContent, els.terminalContent, els.auditContent, els.diagnosticContent, els.statsContent, els.traceContent, els.rawContent].forEach((container) => {
-      if (container) container.hidden = true;
-    });
-    renderInspector();
+    [els.threadContent, els.compactContent, els.terminalContent, els.diagnosticContent, els.statsContent, els.traceContent, els.rawContent]
+      .filter(Boolean)
+      .forEach((container) => { container.hidden = true; });
     return;
   }
   els.promptArchiveContent.hidden = true;
@@ -4528,18 +3740,16 @@ function renderMainContent() {
   const placeholder = sessionPlaceholderState();
   if (placeholder) {
     renderSessionPlaceholder(placeholder.title, placeholder.subtitle);
-    renderInspector();
     return;
   }
   if (state.viewMode === "diagnostic") {
     if (state.diagnosticMode === "raw") renderRawView();
     else renderStatsInfoView();
-  } else if (state.viewMode === "audit") {
-    renderAudit();
+  } else if (state.viewMode === "trace") {
+    renderTrace();
   } else {
     renderCompact();
   }
-  renderInspector();
 }
 
 function renderThread() {
@@ -4626,7 +3836,7 @@ function renderCompact() {
       event.stopPropagation();
       const index = Number(button.dataset.compactEventIndex);
       if (!Number.isFinite(index)) return;
-      await openRawEventFromAudit(index);
+      await openRawEvent(index);
     });
   });
   els.compactContent.querySelectorAll("[data-compact-ref-event-index]").forEach((button) => {
@@ -5186,9 +4396,7 @@ function renderCompactTurn(turn, context) {
   const compactEvents = compactEventsForTurn(turn)
     .map((event, index) => renderCompactContextEvent(event, context.query, `${path}-compact-${index}`))
     .join("");
-  const embeddedSubagents = (turn.embeddedSubagents || [])
-    .map((batch) => renderCompactEmbeddedSubagents(batch, context.query))
-    .join("");
+  const embeddedSubagents = renderCompactEmbeddedSubagents(turn.embeddedSubagents || [], context.query);
   const children = (turn.children || [])
     .map((child, index) =>
       renderCompactThread(child, { depth: context.depth + 1, path: `${path}-child-${index}`, query: context.query }),
@@ -5211,28 +4419,69 @@ function renderCompactTurn(turn, context) {
   `;
 }
 
-function renderCompactEmbeddedSubagents(batch, query) {
+function renderCompactEmbeddedSubagents(batches, query) {
+  if (!batches.length) return "";
+  const summary = compactEmbeddedSubagentGroupSummary(batches);
+  return `<section class="compact-embedded-subagent-group" aria-label="子代理执行，${escapeAttr(summary)}"><header class="compact-embedded-group-head"><span><strong>子代理执行</strong><em>${escapeHtml(summary)}</em></span></header><ol class="compact-embedded-run-list">${batches.map((batch, index) => renderCompactEmbeddedRun(batch, index, query)).join("")}</ol></section>`;
+}
+
+function renderCompactEmbeddedRun(batch, index, query) {
   const status = batch.status || "unknown";
-  const tasks = batch.results?.length ? batch.results : batch.requested || [];
-  const meta = [batch.mode, batch.agentScope ? `范围：${batch.agentScope}` : "", `${tasks.length} 个任务`, compactEmbeddedSubagentStatusLabel(status)]
-    .filter(Boolean)
-    .join(" · ");
   const eventIndex = batch.outputSourceIndex ?? batch.sourceIndex;
   const rawButton = eventIndex != null
-    ? `<button class="ghost-button small" type="button" data-compact-event-index="${escapeAttr(String(eventIndex))}">查看原始事件</button>`
+    ? `<button class="ghost-button small compact-embedded-raw" type="button" data-compact-event-index="${escapeAttr(String(eventIndex))}" aria-label="查看第 ${index + 1} 次子代理调用的原始结果事件">原始记录</button>`
     : "";
-  const taskRows = tasks.length
-    ? tasks.map((task) => {
-        const taskStatus = task.status || "pending";
-        const taskMeta = [task.agentSource, task.exitCode != null ? `退出 ${task.exitCode}` : "", task.stopReason].filter(Boolean).join(" · ");
-        return `<li class="compact-embedded-task status-${escapeAttr(taskStatus)}"><span class="compact-embedded-task-status">${escapeHtml(compactEmbeddedSubagentStatusLabel(taskStatus))}</span><span><strong>${highlight(escapeHtml(task.agent || "未指定代理"), query)}</strong>${taskMeta ? `<em>${escapeHtml(taskMeta)}</em>` : ""}${task.summary ? `<small>${renderMarkdownMessage(task.summary, query)}</small>` : ""}</span></li>`;
-      }).join("")
-    : `<li class="compact-embedded-empty">工具结果未提供结构化任务结果。</li>`;
-  return `<section class="compact-embedded-subagent status-${escapeAttr(status)}"><div class="compact-embedded-subagent-head"><span class="compact-subagent-report-icon" aria-hidden="true">A</span><span class="compact-subagent-report-title"><strong>内嵌子代理批次</strong><em>${escapeHtml(meta)}</em></span>${rawButton}</div><ul class="compact-embedded-task-list">${taskRows}</ul></section>`;
+  const taskRows = compactEmbeddedTaskViews(batch).map((task) => renderCompactEmbeddedTask(task, batch, index, query)).join("");
+  return `<li class="compact-embedded-run status-${escapeAttr(status)}"><div class="compact-embedded-run-head"><span class="compact-embedded-run-index">调用 ${index + 1}</span><span class="compact-embedded-status">${escapeHtml(compactEmbeddedSubagentStatusLabel(status))}</span>${rawButton}</div><div class="compact-embedded-task-list">${taskRows || `<div class="compact-embedded-empty">未记录可展示任务。</div>`}</div></li>`;
+}
+
+function renderCompactEmbeddedTask(task, batch, runIndex, query) {
+  const status = task.status || batch.status || "unknown";
+  const meta = [task.agentSource, task.exitCode != null ? `退出 ${task.exitCode}` : "", task.stopReason].filter(Boolean).join(" · ");
+  const taskTitle = compactEmbeddedTaskTitle(task.task);
+  const preview = compactEmbeddedPreview(task.summary);
+  const reportId = `embedded-report-${batch.turnIndex}-${batch.itemIndex}-${task.index}`;
+  const report = task.summary
+    ? `<div class="compact-embedded-report-preview">${highlight(escapeHtml(preview), query)}</div><details class="compact-embedded-report"><summary aria-controls="${escapeAttr(reportId)}">查看完整回报</summary><div id="${escapeAttr(reportId)}">${renderMarkdownMessage(task.summary, query)}</div></details>`
+    : "";
+  return `<article class="compact-embedded-task status-${escapeAttr(status)}"><span class="compact-embedded-task-status">${escapeHtml(compactEmbeddedSubagentStatusLabel(status))}</span><div class="compact-embedded-task-body"><div class="compact-embedded-task-main"><strong>${highlight(escapeHtml(task.agent || "未指定代理"), query)}</strong>${taskTitle ? `<span>${highlight(escapeHtml(taskTitle), query)}</span>` : ""}</div>${meta ? `<em>${escapeHtml(meta)}</em>` : ""}${report}</div></article>`;
+}
+
+function compactEmbeddedTaskViews(batch) {
+  const requested = Array.isArray(batch.requested) ? batch.requested : [];
+  const results = Array.isArray(batch.results) ? batch.results : [];
+  const resultsByIndex = new Map(results.map((result) => [result.index, result]));
+  const indexes = new Set([...requested.map((task) => task.index), ...results.map((task) => task.index)]);
+  return [...indexes].sort((left, right) => left - right).map((index) => {
+    const request = requested.find((task) => task.index === index) || {};
+    const result = resultsByIndex.get(index) || {};
+    return { ...request, ...result, index, agent: result.agent || request.agent || "未指定代理", task: request.task || null };
+  });
+}
+
+function compactEmbeddedSubagentGroupSummary(batches) {
+  const counts = new Map();
+  for (const batch of batches) counts.set(batch.status || "unknown", (counts.get(batch.status || "unknown") || 0) + 1);
+  const outcomes = [...counts.entries()].map(([status, count]) => `${count} ${compactEmbeddedSubagentStatusLabel(status)}`);
+  return [`${batches.length} 次调用`, ...outcomes].join(" · ");
+}
+
+function compactEmbeddedTaskTitle(value) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  return text.length > 108 ? `${text.slice(0, 108)}...` : text;
+}
+
+function compactEmbeddedPreview(value) {
+  const text = String(value || "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/^[#>*`-]+\s*/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.length > 220 ? `${text.slice(0, 220)}...` : text;
 }
 
 function compactEmbeddedSubagentStatusLabel(status) {
-  return ({ succeeded: "成功", failed: "失败", rate_limited: "限流", partial: "部分完成", pending: "等待中", unknown: "结果未知" })[status] || status;
+  return ({ succeeded: "成功", failed: "失败", invalid_request: "请求无效", rate_limited: "限流", partial: "部分完成", pending: "等待中", unknown: "结果未知" })[status] || status;
 }
 
 function compactEventsForTurn(turn) {
@@ -5761,11 +5010,8 @@ function selectTerminalBlock(id) {
   if (!block) return;
   state.selectedTerminalBlockId = id;
   state.selectedTraceNodeId = null;
-  state.selectedAuditNodeId = null;
-  state.selectedAuditTurnKey = null;
   state.selectedEventIndex = null;
   state.selectedItemRef = block.itemRef || null;
-  renderInspector();
   els.terminalContent.querySelectorAll(".terminal-block.selected").forEach((row) => row.classList.remove("selected"));
   const active = els.terminalContent.querySelector(`[data-terminal-block-id="${cssEscape(id)}"]`);
   active?.classList.add("selected");
@@ -5781,1750 +5027,6 @@ function jumpTerminalRole(role) {
   const next = candidates[(currentIndex + 1) % candidates.length];
   next.scrollIntoView({ behavior: preferredScrollBehavior(), block: "center" });
   selectTerminalBlock(next.dataset.terminalBlockId);
-}
-
-function renderAudit() {
-  const detail = state.detail;
-  if (!detail) {
-    els.auditContent.innerHTML = emptyState("选择一个会话", "审计链视图按轮次聚合目标、执行链、证据、验证、风险和最终回复。");
-    return;
-  }
-  const model = buildAuditTurnModel(detail);
-  const nodes = model.auditNodes;
-  if (nodes.length === 0 && model.turns.length === 0) {
-    els.auditContent.innerHTML = emptyState("当前没有可展示审计链节点", "审计链依赖用户消息、工具调用、工具输出、验证动作和最终回复。");
-    return;
-  }
-  const query = els.itemSearch.value.trim().toLowerCase();
-  const typeFilter = els.itemTypeFilter.value;
-  const filters = { query, typeFilter };
-  const filteredTurns = model.turns.map((turn) => filterAuditTurnModel(turn, filters)).filter(Boolean);
-  const filteredUnplaced = model.unplacedAuditNodes.filter((node) => auditNodeMatches(node, query, typeFilter));
-  const filteredCounts = auditNodeCounts(nodes.filter((node) => auditNodeMatches(node, query, typeFilter)));
-  const counts = model.counts;
-  model.filteredTurnCount = filteredTurns.length;
-  const hasVisibleContent = filteredTurns.length > 0 || filteredUnplaced.length > 0;
-  if (!hasVisibleContent) {
-    els.auditContent.innerHTML = `
-      <div class="audit-shell">
-        ${renderAuditHead(model, counts, filteredCounts, { query, typeFilter })}
-        ${emptyState("没有匹配的轮次审计单元", "调整内容搜索或类型过滤；审计链会保留轮次上下文，不显示孤立风险列表。")}
-      </div>
-    `;
-    bindAuditInteractions();
-    return;
-  }
-  els.auditContent.innerHTML = `
-    <div class="audit-shell">
-      ${renderAuditHead(model, counts, filteredCounts, { query, typeFilter })}
-      ${
-        state.auditMinimalMode
-          ? renderAuditMinimalTimeline(filteredTurns, filteredUnplaced, { query, typeFilter, filtersActive: auditFiltersActive(filters) })
-          : `<div class="audit-turn-list" role="list">
-              ${filteredTurns.map((turn) => renderAuditTurn(turn, { query, filtersActive: auditFiltersActive(filters) })).join("")}
-              ${filteredUnplaced.length ? renderAuditUnplacedSection(filteredUnplaced, query) : ""}
-            </div>`
-      }
-    </div>
-  `;
-  bindAuditInteractions();
-}
-
-function renderAuditHead(model, counts, filteredCounts, filters = {}) {
-  const filtered = Boolean(filters.query || (filters.typeFilter && filters.typeFilter !== "all"));
-  const metrics = [
-    ["turn", "轮次", model.turns.length, model.filteredTurnCount ?? 0],
-    ["intent", "意图", counts.intent || 0, filteredCounts.intent || 0],
-    ["reasoning", "推理", counts.reasoning || 0, filteredCounts.reasoning || 0],
-    ["action", "行动", counts.action || 0, filteredCounts.action || 0],
-    ["evidence", "证据", counts.evidence || 0, filteredCounts.evidence || 0],
-    ["verification", "验证", counts.verification || 0, filteredCounts.verification || 0],
-    ["risk", "风险信号", counts.risk || 0, filteredCounts.risk || 0],
-    ["final", "最终回复", counts.final || 0, filteredCounts.final || 0],
-  ];
-  return `
-    <div class="audit-head">
-      <div>
-        <p class="eyebrow">轮次审计链</p>
-        <h3 class="markdown-inline-title">${renderMarkdownTitle(model.detail.session?.title || "当前会话")}</h3>
-        <div class="audit-head-note">
-          ${model.hasTraceRoot ? "以 trace.root 投影执行链" : "缺少 trace.root，按轮次项目提供有限执行复核"}
-          ${model.unplacedAuditNodes.length ? ` · ${model.unplacedAuditNodes.length} 个节点未关联` : ""}
-        </div>
-      </div>
-      <div class="audit-head-tools">
-        <button class="ghost-button small audit-minimal-toggle${state.auditMinimalMode ? " active" : ""}" type="button" data-audit-minimal-toggle aria-pressed="${state.auditMinimalMode ? "true" : "false"}" title="${state.auditMinimalMode ? "关闭极简时间线" : "开启极简时间线"}">
-          ${state.auditMinimalMode ? "标准模式" : "极简模式"}
-        </button>
-        <div class="audit-summary" aria-label="审计链概览">
-          ${metrics
-            .map(
-              ([type, label, total, active]) => `
-                <div class="audit-summary-item type-${escapeAttr(type)}" title="${escapeAttr(filtered ? `显示 ${active} / 全部 ${total}` : `全部 ${total}`)}">
-                  <span>${escapeHtml(label)}</span>
-                  <strong>${escapeHtml(filtered ? `显示 ${active} / 全部 ${total}` : String(total))}</strong>
-                </div>
-              `,
-            )
-            .join("")}
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function renderAuditMinimalTimeline(turns, unplacedNodes, context = {}) {
-  const turnHtml = (turns || []).map((turn) => renderAuditMinimalTurn(turn, context)).filter(Boolean).join("");
-  const unplacedHtml = unplacedNodes?.length ? renderAuditMinimalUnplaced(unplacedNodes, context) : "";
-  return `
-    <div class="audit-minimal-shell">
-      ${renderAuditMinimalLegend()}
-      <div class="audit-minimal-list" role="list" aria-label="审计链极简纵向上下文占用条">
-        ${turnHtml || (!unplacedHtml ? `<div class="audit-section-empty">当前筛选下没有可展示的操作条。</div>` : "")}
-        ${unplacedHtml}
-      </div>
-    </div>
-  `;
-}
-
-function renderAuditMinimalTurn(turn, context = {}) {
-  const entries = auditMinimalLayoutEntries(auditMinimalEntriesForTurn(turn, context));
-  if (!entries.length) return "";
-  const totalTokens = entries.reduce((sum, entry) => sum + entry.tokenAmount, 0);
-  const usageLabel = auditMinimalTurnUsageLabel(entries);
-  const trackHeight = auditMinimalTrackHeight(entries);
-  return `
-    <section class="audit-minimal-turn" role="listitem" style="--track-height:${escapeAttr(String(trackHeight))}px">
-      <div class="audit-minimal-turn-head">
-        <strong>第 ${escapeHtml(String(turn.turnNumber))} 轮</strong>
-        <span>${escapeHtml(`${entries.length} 操作 · 约 ${compactNumber(totalTokens)} tok`)}</span>
-        <em>${escapeHtml(usageLabel)}</em>
-      </div>
-      <div class="audit-minimal-column">
-        <div class="audit-minimal-axis" aria-hidden="true">
-          <span>100%</span>
-          <span>50%</span>
-          <span>0%</span>
-        </div>
-        <div class="audit-minimal-track" aria-label="${escapeAttr(`第 ${turn.turnNumber} 轮上下文占用条`)}">
-          ${entries.map((entry) => renderAuditMinimalEntry(entry)).join("")}
-        </div>
-      </div>
-      ${renderAuditMinimalSidePanel({ turn, entries, totalTokens, usageLabel, context })}
-    </section>
-  `;
-}
-
-function renderAuditMinimalUnplaced(nodes, context = {}) {
-  const entries = auditMinimalLayoutEntries((nodes || [])
-    .map((node) => auditMinimalEntryFromNode(node, null))
-    .sort((left, right) => left.sort - right.sort));
-  const trackHeight = auditMinimalTrackHeight(entries);
-  return `
-    <section class="audit-minimal-turn unplaced" role="listitem" style="--track-height:${escapeAttr(String(trackHeight))}px">
-      <div class="audit-minimal-turn-head">
-        <strong>未定位</strong>
-        <span>${escapeHtml(`${entries.length} 操作`)}</span>
-        <em>无轮次上下文</em>
-      </div>
-      <div class="audit-minimal-column">
-        <div class="audit-minimal-axis" aria-hidden="true">
-          <span>100%</span>
-          <span>50%</span>
-          <span>0%</span>
-        </div>
-        <div class="audit-minimal-track" aria-label="未定位操作占用条">
-          ${entries.map((entry) => renderAuditMinimalEntry(entry)).join("")}
-        </div>
-      </div>
-      ${renderAuditMinimalSidePanel({ turn: null, entries, totalTokens: entries.reduce((sum, entry) => sum + entry.tokenAmount, 0), usageLabel: "无轮次上下文", context, unplaced: true })}
-    </section>
-  `;
-}
-
-function renderAuditMinimalSidePanel({ turn, entries = [], totalTokens = 0, usageLabel = "", context = {}, unplaced = false } = {}) {
-  const selectedEntry = auditMinimalSelectedEntry(entries);
-  if (selectedEntry) return renderAuditMinimalEntryDetail(selectedEntry, { turn, usageLabel, context, unplaced });
-  return renderAuditMinimalTurnSummary({ turn, entries, totalTokens, usageLabel, context, unplaced });
-}
-
-function auditMinimalSelectedEntry(entries = []) {
-  return entries.find(auditMinimalEntryIsSelected) || null;
-}
-
-function auditMinimalEntryIsSelected(entry) {
-  if (!entry) return false;
-  if (entry.kind === "node") return state.selectedAuditNodeId === entry.id;
-  if (entry.row && auditExecutionRowIsSelected(entry.row)) return true;
-  if (entry.row?.auditNodes?.some((node) => node.id === state.selectedAuditNodeId)) return true;
-  return false;
-}
-
-function renderAuditMinimalTurnSummary({ turn, entries = [], totalTokens = 0, usageLabel = "", unplaced = false } = {}) {
-  const stats = turn?.stats || {};
-  const riskNodes = turn?.auditNodes?.filter((node) => node.type === "risk" || (node.riskLevel && node.riskLevel !== "none")) || [];
-  const gapCount = Number(stats.gapCount) || riskNodes.filter(auditNodeIsGap).length;
-  const subagentCount = Number(stats.subagentCount) || entries.filter((entry) => entry.type === "subagent" || entry.type === "lazy-child").length;
-  const verification = stats.verificationStatus || (unplaced ? "未定位" : "未验证");
-  const riskLabel = stats.riskLabel || (riskNodes.length ? `${auditRiskLabel(highestRiskLevel(riskNodes))} · ${riskNodes.length}` : "无风险信号");
-  const signals = [
-    riskNodes.length ? { label: riskLabel, type: "risk" } : null,
-    gapCount ? { label: `缺口 ${gapCount}`, type: "gap" } : null,
-    verification && verification !== "已验证" ? { label: verification, type: "verification" } : null,
-    subagentCount ? { label: `子代理 ${subagentCount}`, type: "subagent" } : null,
-  ].filter(Boolean);
-  return `
-    <aside class="audit-minimal-side" aria-label="${escapeAttr(unplaced ? "未定位操作摘要" : `第 ${turn?.turnNumber ?? ""} 轮摘要`)}">
-      <div class="audit-minimal-side-head">
-        <strong>${escapeHtml(unplaced ? "未定位摘要" : "轮次摘要")}</strong>
-        <span>${escapeHtml(usageLabel || "上下文未记录")}</span>
-      </div>
-      <div class="audit-minimal-kpis" aria-label="轮次极简指标">
-        ${renderAuditMinimalKpi("操作", entries.length)}
-        ${renderAuditMinimalKpi("约 token", `${compactNumber(totalTokens)} tok`)}
-        ${renderAuditMinimalKpi("风险", riskLabel)}
-        ${renderAuditMinimalKpi("验证", verification)}
-      </div>
-      ${renderAuditMinimalTypeDistribution(entries)}
-      ${
-        signals.length
-          ? `<div class="audit-minimal-signals">${signals
-              .slice(0, 5)
-              .map((signal) => `<span class="type-${escapeAttr(signal.type)}">${escapeHtml(signal.label)}</span>`)
-              .join("")}</div>`
-          : `<div class="audit-minimal-muted">没有优先风险或缺口信号。</div>`
-      }
-    </aside>
-  `;
-}
-
-function renderAuditMinimalKpi(label, value) {
-  return `
-    <span class="audit-minimal-kpi">
-      <em>${escapeHtml(label)}</em>
-      <strong>${escapeHtml(String(value ?? "未记录"))}</strong>
-    </span>
-  `;
-}
-
-function renderAuditMinimalTypeDistribution(entries = []) {
-  const totals = auditMinimalTypeTokenTotals(entries);
-  if (!totals.length) return "";
-  const total = totals.reduce((sum, entry) => sum + entry.tokens, 0) || 1;
-  const shown = totals.slice(0, 6);
-  return `
-    <div class="audit-minimal-distribution" aria-label="操作类型 token 分布">
-      <div class="audit-minimal-type-bar" aria-hidden="true">
-        ${shown
-          .map((entry) => `<span class="type-${escapeAttr(entry.type)}" style="--share:${escapeAttr(String(Math.max(2, Math.round((entry.tokens / total) * 100))))}"></span>`)
-          .join("")}
-      </div>
-      <div class="audit-minimal-type-list">
-        ${shown
-          .map(
-            (entry) => `
-              <span class="type-${escapeAttr(entry.type)}">
-                <i aria-hidden="true"></i>
-                <strong>${escapeHtml(auditMinimalTypeLabel(entry.type))}</strong>
-                <em>${escapeHtml(`${entry.count} 次 · ${compactNumber(entry.tokens)} tok`)}</em>
-              </span>
-            `,
-          )
-          .join("")}
-      </div>
-    </div>
-  `;
-}
-
-function auditMinimalTypeTokenTotals(entries = []) {
-  const totals = new Map();
-  for (const entry of entries) {
-    const type = entry.type || "action";
-    const current = totals.get(type) || { type, count: 0, tokens: 0 };
-    current.count += 1;
-    current.tokens += Math.max(1, Number(entry.tokenAmount) || 1);
-    totals.set(type, current);
-  }
-  return [...totals.values()].sort((left, right) => right.tokens - left.tokens || right.count - left.count || auditMinimalTypeLabel(left.type).localeCompare(auditMinimalTypeLabel(right.type)));
-}
-
-function renderAuditMinimalEntryDetail(entry, { turn, unplaced = false } = {}) {
-  const detail = auditMinimalEntryDetail(entry, turn);
-  const rows = [
-    ["类型", auditMinimalTypeLabel(entry.type)],
-    ["约 token", `${compactNumber(entry.tokenAmount || 0)} tok`],
-    ["上下文", detail.usageLabel],
-    ["状态", detail.status || "未记录"],
-    ["来源", detail.source || (unplaced ? "未定位" : turn ? `第 ${turn.turnNumber} 轮` : "未记录")],
-  ];
-  return `
-    <aside class="audit-minimal-side selected type-${escapeAttr(entry.type)}" aria-label="选中操作详情">
-      <div class="audit-minimal-side-head">
-        <strong>选中操作</strong>
-        <span>${escapeHtml(detail.kindLabel)}</span>
-      </div>
-      <div class="audit-minimal-detail-title">
-        <i aria-hidden="true"></i>
-        <strong>${escapeHtml(firstLine(detail.title || detail.kindLabel, 90))}</strong>
-      </div>
-      ${detail.summary ? `<p class="audit-minimal-detail-summary">${escapeHtml(firstLine(detail.summary, 180))}</p>` : ""}
-      <div class="audit-minimal-detail-rows">
-        ${rows
-          .map(
-            ([label, value]) => `
-              <span>
-                <em>${escapeHtml(label)}</em>
-                <strong>${escapeHtml(value || "未记录")}</strong>
-              </span>
-            `,
-          )
-          .join("")}
-      </div>
-      ${detail.badges.length ? `<div class="audit-minimal-signals">${detail.badges.slice(0, 5).map((badge) => `<span>${escapeHtml(badge)}</span>`).join("")}</div>` : ""}
-    </aside>
-  `;
-}
-
-function auditMinimalEntryDetail(entry, turn) {
-  const percent = contextUsagePercent(entry.contextUsage);
-  const usageLabel = Number.isFinite(percent) ? `上下文 ${percent}%` : "上下文占用未记录";
-  if (entry.kind === "node") {
-    const node = entry.node || findAuditNode(entry.id);
-    const item = node?.itemRef ? findItemByRef(node.itemRef) : null;
-    const readable = node ? readableAuditNode(node, item) : {};
-    return {
-      kindLabel: "审计节点",
-      title: readable.title || node?.title || auditMinimalTypeLabel(entry.type),
-      summary: readable.summary || node?.summary || "",
-      status: node?.status || "",
-      source: auditEventIndexLabel(node) || (node?.turnNumber ? `第 ${node.turnNumber} 轮` : ""),
-      usageLabel,
-      badges: [node?.riskLevel && node.riskLevel !== "none" ? auditRiskLabel(node.riskLevel) : "", node?.toolName ? `工具 ${node.toolName}` : ""].filter(Boolean),
-    };
-  }
-  const row = entry.row || findAuditExecutionRow(entry.id);
-  const readable = row ? readableExecutionRow(row) : {};
-  const riskLevel = highestRiskLevel(row?.auditNodes || []);
-  return {
-    kindLabel: "执行节点",
-    title: readable.title || row?.title || row?.label || auditMinimalTypeLabel(entry.type),
-    summary: readable.summary || row?.subtitle || "",
-    status: row?.status || "",
-    source: [row?.itemRef ? "关联项" : "", row?.traceNodeId ? "执行链" : "", turn?.turnNumber ? `第 ${turn.turnNumber} 轮` : ""].filter(Boolean).join(" · "),
-    usageLabel,
-    badges: [
-      riskLevel !== "none" ? auditRiskLabel(riskLevel) : "",
-      row?.auditNodes?.some((node) => node.type === "verification") ? "包含验证" : "",
-      row?.auditNodes?.length ? `${row.auditNodes.length} 个审计节点` : "",
-    ].filter(Boolean),
-  };
-}
-
-function auditMinimalEntriesForTurn(turn, context = {}) {
-  const filtersActive = Boolean(context.filtersActive);
-  const typeFilter = context.typeFilter || "all";
-  const query = context.query || "";
-  const nodes = filtersActive ? turn.auditNodes.filter((node) => auditNodeMatches(node, query, typeFilter)) : turn.auditNodes;
-  const rows = filtersActive ? turn.visibleExecutionRows || [] : turn.executionRows || turn.visibleExecutionRows || [];
-  const rowNodeIds = new Set(rows.flatMap((row) => (row.auditNodes || []).map((node) => node.id)));
-  const entries = rows.map((row, index) => auditMinimalEntryFromRow(row, turn, index));
-  const unmountedNodes = nodes.filter((node) => !rowNodeIds.has(node.id));
-  entries.push(...unmountedNodes.map((node, index) => auditMinimalEntryFromNode(node, turn, rows.length + index)));
-  if (!entries.length) entries.push(...nodes.map((node, index) => auditMinimalEntryFromNode(node, turn, index)));
-  return entries.sort((left, right) => left.sort - right.sort || left.order - right.order || left.label.localeCompare(right.label));
-}
-
-function auditMinimalEntryFromNode(node, turn, order = 0) {
-  const usage = auditMinimalContextUsageForNode(node, turn);
-  const item = node?.itemRef ? findItemByRef(node.itemRef) : null;
-  const tokenAmount = auditMinimalTokenAmountForNode(node, item, usage);
-  return {
-    kind: "node",
-    id: node.id,
-    type: node.type || "node",
-    label: auditTypeLabel(node.type),
-    sort: auditMinimalSortValue(node),
-    order,
-    node,
-    contextUsage: usage,
-    tokenAmount,
-    tokenEstimated: true,
-  };
-}
-
-function auditMinimalEntryFromRow(row, turn, order = 0) {
-  const usage = auditMinimalContextUsageForRow(row, turn);
-  const type = auditMinimalTypeForRow(row);
-  const tokenAmount = auditMinimalTokenAmountForRow(row, usage);
-  return {
-    kind: "row",
-    id: row.id,
-    type,
-    label: auditMinimalLabelForRow(row, type),
-    sort: auditMinimalSortValue(row),
-    order,
-    row,
-    contextUsage: usage,
-    tokenAmount,
-    tokenEstimated: true,
-  };
-}
-
-function renderAuditMinimalEntry(entry) {
-  const selected = auditMinimalEntryIsSelected(entry);
-  const percent = contextUsagePercent(entry.contextUsage);
-  const usageLabel = Number.isFinite(percent) ? `上下文 ${percent}%` : "上下文占用未记录";
-  const tokenLabel = `约 ${compactNumber(entry.tokenAmount || 0)} tok`;
-  const dataAttr =
-    entry.kind === "node"
-      ? `data-audit-node-id="${escapeAttr(entry.id)}"`
-      : `data-audit-exec-node-id="${escapeAttr(entry.id)}"`;
-  return `
-    <button class="audit-minimal-entry type-${escapeAttr(entry.type)}${selected ? " selected" : ""}${Number.isFinite(percent) ? "" : " usage-unknown"}" type="button" ${dataAttr} style="--segment-height:${escapeAttr(String(entry.segmentHeight || 1))}" title="${escapeAttr(`${entry.label} · ${tokenLabel} · ${usageLabel}`)}" aria-label="${escapeAttr(`${entry.label}，${tokenLabel}，${usageLabel}`)}"></button>
-  `;
-}
-
-function renderAuditMinimalLegend() {
-  const types = ["intent", "reasoning", "agent_message", "action", "handoff", "subagent", "evidence", "verification", "risk", "final"];
-  return `
-    <div class="audit-minimal-legend" aria-label="极简审计链颜色图例">
-      ${types
-        .map(
-          (type) => `
-            <span class="audit-minimal-legend-item type-${escapeAttr(type)}">
-              <i aria-hidden="true"></i>${escapeHtml(auditMinimalShortLabel(type, auditMinimalTypeLabel(type)))}
-            </span>
-          `,
-        )
-        .join("")}
-    </div>
-  `;
-}
-
-function auditMinimalLayoutEntries(entries = []) {
-  const ordered = (entries || []).map((entry, index) => ({ ...entry, order: entry.order ?? index }));
-  const withDeltas = auditMinimalApplyContextDeltas(ordered);
-  const shares = auditMinimalSegmentHeightShares(withDeltas);
-  return withDeltas.map((entry, index) => ({ ...entry, segmentHeight: shares[index] || 1 }));
-}
-
-function auditMinimalTrackHeight(entries = []) {
-  const count = entries.length || 1;
-  return Math.max(360, Math.min(2200, count * 10));
-}
-
-function auditMinimalApplyContextDeltas(entries) {
-  let previousUsed = null;
-  return entries.map((entry) => {
-    const used = auditMinimalContextUsedTokens(entry.contextUsage);
-    if (Number.isFinite(used) && Number.isFinite(previousUsed) && used > previousUsed) {
-      const delta = Math.round(used - previousUsed);
-      previousUsed = used;
-      return { ...entry, tokenAmount: Math.max(1, delta), tokenEstimated: false };
-    }
-    if (Number.isFinite(used)) previousUsed = used;
-    return { ...entry, tokenAmount: Math.max(1, Math.round(entry.tokenAmount || 1)) };
-  });
-}
-
-function auditMinimalSegmentHeightShares(entries) {
-  const count = entries.length;
-  if (!count) return [];
-  const raw = entries.map((entry) => Math.max(1, Number(entry.tokenAmount) || 1));
-  const total = raw.reduce((sum, value) => sum + value, 0) || count;
-  const base = raw.map((value) => (value / total) * 100);
-  let minShare = Math.min(5, Math.max(0.7, 28 / count));
-  if (minShare * count > 92) minShare = 92 / count;
-  const fixed = base.map((share) => (share < minShare ? minShare : 0));
-  const fixedTotal = fixed.reduce((sum, value) => sum + value, 0);
-  const flexibleTotal = base.reduce((sum, share, index) => sum + (fixed[index] ? 0 : share), 0);
-  const remaining = Math.max(0, 100 - fixedTotal);
-  return base.map((share, index) => {
-    if (fixed[index]) return roundSegmentShare(fixed[index]);
-    if (!flexibleTotal) return roundSegmentShare(remaining / count);
-    return roundSegmentShare((share / flexibleTotal) * remaining);
-  });
-}
-
-function roundSegmentShare(value) {
-  return Math.max(0.2, Math.round(value * 10) / 10);
-}
-
-function auditMinimalTurnUsageLabel(entries = []) {
-  const percents = entries.map((entry) => contextUsagePercent(entry.contextUsage)).filter(Number.isFinite);
-  if (!percents.length) return "上下文未记录";
-  return `最高 ${Math.max(...percents)}%`;
-}
-
-function auditMinimalTypeForRow(row = {}) {
-  const nodes = row.auditNodes || [];
-  if (nodes.some((node) => node.type === "risk" || (node.riskLevel && node.riskLevel !== "none"))) return "risk";
-  if (nodes.some((node) => node.type === "verification")) return "verification";
-  if (nodes.some((node) => node.type === "evidence")) return "evidence";
-  if (nodes.some((node) => node.type === "final")) return "final";
-  if (nodes.some((node) => node.type === "reasoning")) return "reasoning";
-  if (row.type === "agent_message") return "agent_message";
-  if (row.type === "handoff") return "handoff";
-  if (row.type === "subagent" || row.type === "embedded-subagent" || row.type === "lazy-child") return "subagent";
-  return "action";
-}
-
-function auditMinimalLabelForRow(row, type) {
-  if (type === "agent_message") return "助手消息";
-  if (type === "handoff") return "委派";
-  if (type === "subagent") return "子代理";
-  return auditMinimalTypeLabel(type);
-}
-
-function auditMinimalTypeLabel(type) {
-  if (type === "agent_message") return "助手";
-  if (type === "handoff") return "委派";
-  if (type === "subagent" || type === "lazy-child") return "子代理";
-  if (type === "tool") return "行动";
-  return auditTypeLabel(type);
-}
-
-function auditMinimalShortLabel(type, label) {
-  const labels = {
-    intent: "意",
-    reasoning: "推",
-    action: "行",
-    tool: "行",
-    evidence: "证",
-    verification: "验",
-    risk: "险",
-    final: "终",
-    agent_message: "助",
-    handoff: "委",
-    subagent: "代",
-    "lazy-child": "代",
-  };
-  return labels[type] || String(label || type || "事").slice(0, 1);
-}
-
-function auditMinimalTokenAmountForNode(node, item, usage) {
-  const explicit = auditMinimalNumericTokenValue(node);
-  if (Number.isFinite(explicit)) return Math.max(1, Math.round(explicit));
-  const used = auditMinimalContextUsedTokens(usage);
-  const body = auditNodeFullBody(node, readableAuditNode(node, item), item);
-  const text = [
-    body,
-    node?.summary,
-    node?.title,
-    node?.argumentsPreview,
-    node?.outputPreview,
-    item?.text,
-    item?.arguments,
-    item?.output,
-    item?.payloadPreview,
-  ]
-    .filter(Boolean)
-    .join("\n");
-  return Math.max(1, approxTokensFromValue(text) || Math.round((Number.isFinite(used) ? used : 0) * 0.01) || auditMinimalTokenFallbackForType(node?.type));
-}
-
-function auditMinimalTokenAmountForRow(row, usage) {
-  const explicit = auditMinimalNumericTokenValue(row);
-  if (Number.isFinite(explicit)) return Math.max(1, Math.round(explicit));
-  const item = row?.itemRef ? findItemByRef(row.itemRef) : null;
-  const readable = readableExecutionRow(row);
-  const used = auditMinimalContextUsedTokens(usage);
-  const text = [
-    readable.body,
-    readable.summary,
-    readable.title,
-    row?.title,
-    row?.subtitle,
-    item?.text,
-    item?.arguments,
-    item?.output,
-    item?.payloadPreview,
-    ...(row?.auditNodes || []).map((node) => auditNodeFullBody(node) || node.summary || node.title || ""),
-  ]
-    .filter(Boolean)
-    .join("\n");
-  return Math.max(1, approxTokensFromValue(text) || Math.round((Number.isFinite(used) ? used : 0) * 0.01) || auditMinimalTokenFallbackForType(row?.type));
-}
-
-function auditMinimalNumericTokenValue(source = {}) {
-  const candidates = [
-    source.tokens,
-    source.tokenCount,
-    source.token_count,
-    source.usage?.total_tokens,
-    source.usage?.totalTokens,
-    source.total_token_usage?.total_tokens,
-    source.totalTokenUsage?.totalTokens,
-  ];
-  for (const value of candidates) {
-    const number = Number(value);
-    if (Number.isFinite(number)) return number;
-  }
-  return null;
-}
-
-function auditMinimalContextUsedTokens(usage) {
-  const used = Number(usage?.used ?? usage?.usedTokens ?? usage?.context_used ?? usage?.contextUsed);
-  if (Number.isFinite(used)) return used;
-  const percent = contextUsagePercent(usage);
-  const limit = Number(usage?.limit ?? usage?.context_window ?? usage?.contextWindow);
-  if (Number.isFinite(percent) && Number.isFinite(limit) && limit > 0) return Math.round((percent / 100) * limit);
-  return null;
-}
-
-function auditMinimalTokenFallbackForType(type) {
-  if (type === "agent_message" || type === "final") return 120;
-  if (type === "tool" || type === "action" || type === "handoff") return 80;
-  if (type === "subagent" || type === "lazy-child") return 70;
-  if (type === "reasoning") return 60;
-  return 24;
-}
-
-function auditMinimalContextUsageForNode(node, turn) {
-  const rows = turn?.executionRows || turn?.visibleExecutionRows || [];
-  const row =
-    rows.find((candidate) => (candidate.auditNodes || []).some((auditNode) => auditNode.id === node.id)) ||
-    rows.find((candidate) => node.traceNodeId && candidate.traceNodeId === node.traceNodeId) ||
-    rows.find((candidate) => node.itemRef && candidate.itemRef === node.itemRef);
-  return (
-    auditMinimalContextUsageForRow(row, turn) ||
-    auditMinimalContextUsageForItem(node?.itemRef ? findItemByRef(node.itemRef) : null) ||
-    auditMinimalTurnContextUsage(turn, node)
-  );
-}
-
-function auditMinimalContextUsageForRow(row, turn) {
-  if (!row) return null;
-  if (row.contextUsage) return row.contextUsage;
-  const rowById = new Map((turn?.executionRows || turn?.visibleExecutionRows || []).map((candidate) => [candidate.id, candidate]));
-  const parent = row.parentRowId ? rowById.get(row.parentRowId) : null;
-  if (parent?.contextUsage) return parent.contextUsage;
-  const agentItem = row.agentMessageItemRef ? findItemByRef(row.agentMessageItemRef) : null;
-  const item = row.itemRef ? findItemByRef(row.itemRef) : null;
-  return auditMinimalContextUsageForItem(agentItem) || auditMinimalContextUsageForItem(item) || auditMinimalTurnContextUsage(turn, row);
-}
-
-function auditMinimalContextUsageForItem(item) {
-  if (!item) return null;
-  if (item.contextUsage) return item.contextUsage;
-  if (item.type === "token-count") return tokenItemContextUsage(item);
-  return null;
-}
-
-function auditMinimalTurnContextUsage(turn, anchor = {}) {
-  const items = turn?.turn?.items || turn?.items || [];
-  const tokenItems = items
-    .map((item, index) => ({ item, index, usage: tokenItemContextUsage(item) }))
-    .filter((entry) => entry.usage);
-  if (!tokenItems.length) return null;
-  const anchorIndex = Number.isInteger(anchor.itemIndex) ? anchor.itemIndex : window.AuditViewModel?.itemIndexFromItemRef?.(anchor.itemRef);
-  if (Number.isInteger(anchorIndex)) {
-    return tokenItems.find((entry) => entry.index >= anchorIndex)?.usage || [...tokenItems].reverse().find((entry) => entry.index <= anchorIndex)?.usage || tokenItems.at(-1)?.usage || null;
-  }
-  return tokenItems.at(-1)?.usage || null;
-}
-
-function tokenItemContextUsage(item) {
-  return item?.info?.context_usage || item?.info?.contextUsage || item?.contextUsage || null;
-}
-
-function auditMinimalSortValue(source = {}) {
-  const direct = Number(source.eventIndex ?? source.sourceIndex ?? source.itemIndex);
-  if (Number.isFinite(direct)) return direct;
-  const time = dateMs(source.timestamp);
-  if (time != null) return 1_000_000_000 + time;
-  return Number.MAX_SAFE_INTEGER;
-}
-
-function renderAuditTurn(turn, context = {}) {
-  const expanded = context.filtersActive || state.expandedAuditTurnKeys.has(turn.key);
-  const selected = state.selectedAuditTurnKey === turn.key ? " selected" : "";
-  const stats = turn.stats;
-  const verificationClass = auditVerificationClass(stats.verificationStatus);
-  const riskClass = stats.highestRisk === "none" ? "none" : stats.highestRisk;
-  const meta = [turn.turn?.status, formatDate(turn.turn?.startedAt), turn.turn?.cwd ? shortPath(turn.turn.cwd) : ""]
-    .filter(Boolean)
-    .join(" · ");
-  return `
-    <article class="audit-turn${selected}${expanded ? " expanded" : ""}" role="listitem" data-audit-turn-root="${escapeAttr(turn.key)}" data-evidence-id="${escapeAttr(auditTurnEvidenceId(turn))}">
-      <div class="audit-turn-header">
-        <button class="audit-turn-toggle" type="button" data-audit-turn-toggle="${escapeAttr(turn.key)}" title="${expanded ? "收起轮次" : "展开轮次"}">
-          ${expanded ? "⌄" : "›"}
-        </button>
-        <button class="audit-turn-summary-button" type="button" data-audit-turn-key="${escapeAttr(turn.key)}">
-          <span class="audit-turn-main">
-            <span class="audit-turn-title">
-              <strong>第 ${escapeHtml(String(turn.turnNumber))} 轮</strong>
-              <span>${highlight(escapeHtml(turn.intentSummary), context.query)}</span>
-            </span>
-            <span class="audit-turn-result">${highlight(escapeHtml(turn.finalSummary), context.query)}</span>
-            <span class="audit-turn-meta">${escapeHtml(meta || "无时间元数据")}</span>
-          </span>
-          <span class="audit-turn-state">
-            <span class="audit-state-pill ${escapeAttr(verificationClass)}">${escapeHtml(stats.verificationStatus)}</span>
-            <span class="audit-state-pill risk-${escapeAttr(riskClass)}">${escapeHtml(stats.riskLabel)}</span>
-          </span>
-          <span class="audit-turn-metrics" aria-label="轮次审计指标">
-            ${renderAuditTurnMetric("工具", stats.toolCount)}
-            ${renderAuditTurnMetric("子代理", stats.subagentCount)}
-            ${renderAuditTurnMetric("证据", stats.evidenceCount)}
-            ${renderAuditTurnMetric("缺口", stats.gapCount)}
-          </span>
-        </button>
-      </div>
-      ${
-        expanded
-          ? `<div class="audit-turn-expanded">
-              ${renderAuditExecutionSection(turn, context)}
-              ${turn.visibleUnlinkedAuditNodes.length ? renderAuditUnlinkedSection(turn.visibleUnlinkedAuditNodes, context.query) : ""}
-            </div>`
-          : ""
-      }
-    </article>
-  `;
-}
-
-function renderAuditTurnMetric(label, value) {
-  return `<span><strong>${escapeHtml(String(value ?? 0))}</strong><em>${escapeHtml(label)}</em></span>`;
-}
-
-function renderAuditExecutionSection(turn, context = {}) {
-  const rows = turn.visibleExecutionRows;
-  const entries = auditGroupedExecutionEntries(rows);
-  const groupCount = entries.filter((entry) => entry.kind === "group").length;
-  const emptyText = auditExecutionEmptyText(turn, context);
-  const countLabel = rows.length
-    ? [`${rows.length} 个执行节点`, groupCount ? `${groupCount} 个执行组` : ""].filter(Boolean).join(" · ")
-    : emptyText;
-  return `
-    <section class="audit-turn-section execution">
-      <div class="audit-section-title">
-        <strong>执行链</strong>
-        <span>${escapeHtml(countLabel)}</span>
-      </div>
-      ${
-        rows.length
-          ? `<div class="audit-execution-list">${entries.map((entry) => renderAuditExecutionEntry(entry, context)).join("")}</div>`
-          : `<div class="audit-section-empty">${escapeHtml(emptyText)}</div>`
-      }
-    </section>
-  `;
-}
-
-function renderAuditUnlinkedSection(nodes, query) {
-  return `
-    <section class="audit-turn-section unlinked">
-      <div class="audit-section-title">
-        <strong>未关联 / 原始事件复核</strong>
-        <span>${escapeHtml(`${nodes.length} 个节点无法可靠挂载到执行链`)}</span>
-      </div>
-      <div class="audit-evidence-list">${nodes.map((node) => renderAuditEvidenceNode(node, query)).join("")}</div>
-    </section>
-  `;
-}
-
-function renderAuditUnplacedSection(nodes, query) {
-  return `
-    <section class="audit-global-unlinked">
-      ${renderAuditUnlinkedSection(nodes, query)}
-    </section>
-  `;
-}
-
-function renderAuditExecutionRow(row, query) {
-  const selected = auditExecutionRowIsSelected(row) ? " selected" : "";
-  const depth = Math.min(row.depth || 0, 5);
-  const duration = row.durationMs == null ? "" : `${formatDuration(row.durationMs)}${row.durationEstimated ? " est" : ""}`;
-  const meta = [traceTypeLabel(row.type), row.status, duration, formatDate(row.timestamp)].filter(Boolean).join(" · ");
-  const riskLevel = highestRiskLevel(row.auditNodes || []);
-  const statusNodes = auditExecutionStatusNodes(row.auditNodes || []);
-  const childGroups = auditExecutionChildGroups(statusNodes);
-  const rowReadable = readableExecutionRow(row);
-  const subSummary = statusNodes
-    .filter((node) => node.type !== "action")
-    .slice(0, 2)
-    .map((node) => {
-      const readable = readableAuditNode(node);
-      return `${auditTypeLabel(node.type)}: ${readable.summary || readable.title || ""}`;
-    })
-    .filter(Boolean)
-    .join("；");
-  return `
-    <div class="audit-exec-row type-${escapeAttr(row.type)} risk-${escapeAttr(riskLevel)}${selected}" role="button" tabindex="0" data-audit-exec-node-id="${escapeAttr(row.id)}" style="--depth:${depth}">
-      <span class="audit-exec-indent" aria-hidden="true"></span>
-      <span class="trace-icon ${escapeAttr(row.icon || row.type)}">${traceIcon(row)}</span>
-      <span class="audit-exec-main">
-        <span class="audit-exec-title">
-          <strong>${highlight(escapeHtml(rowReadable.title || row.title || row.label || row.id), query)}</strong>
-          ${renderContextUsageBadge(row.contextUsage)}
-          <em>${escapeHtml(meta)}</em>
-        </span>
-        ${
-          rowReadable.summary || subSummary
-            ? `<span class="audit-exec-sub">${highlight(escapeHtml(firstLine([rowReadable.summary, subSummary].filter(Boolean).join("；"), 220)), query)}</span>`
-            : ""
-        }
-        ${renderChangeSetSummary(rowReadable.changeSet, { query, compact: true })}
-        ${statusNodes.length ? `<span class="audit-exec-badges">${statusNodes.slice(0, 6).map((node) => renderAuditNodeChip(node, query)).join("")}</span>` : ""}
-        ${childGroups.length ? `<div class="audit-exec-nested">${childGroups.map((group) => renderAuditExecutionChildGroup(group, query)).join("")}</div>` : ""}
-      </span>
-    </div>
-  `;
-}
-
-function renderAuditExecutionEntry(entry, context = {}) {
-  if (entry.kind === "group") return renderAuditExecutionGroup(entry, context);
-  return renderAuditExecutionRow(entry.row, context.query);
-}
-
-function renderChangeSetSummary(changeSet, options = {}) {
-  const files = (changeSet?.files || []).filter((file) => file?.path);
-  if (!files.length) return "";
-  const compact = Boolean(options.compact);
-  const maxFiles = options.maxFiles ?? (compact ? 3 : 7);
-  const shown = files.slice(0, maxFiles);
-  const more = files.length - shown.length;
-  const additions = Number(changeSet.additions) || 0;
-  const deletions = Number(changeSet.deletions) || 0;
-  const hasLineStats = Boolean(additions || deletions);
-  const stat = hasLineStats ? `+${additions} -${deletions}` : "文件列表";
-  return `
-    <div class="tool-diff-summary ${compact ? "compact" : "expanded"}">
-      <div class="tool-diff-head">
-        <span>${escapeHtml(`${files.length} 个文件`)}</span>
-        ${hasLineStats ? `<strong><span class="tool-diff-add">+${escapeHtml(String(additions))}</span> <span class="tool-diff-del">-${escapeHtml(String(deletions))}</span></strong>` : ""}
-        <em>${escapeHtml(stat)}</em>
-      </div>
-      <div class="tool-diff-files">
-        ${shown.map((file) => renderChangeSetFile(file, changeSet, options.query)).join("")}
-        ${more > 0 ? `<div class="tool-diff-more">还有 ${escapeHtml(String(more))} 个文件</div>` : ""}
-      </div>
-    </div>
-  `;
-}
-
-function renderChangeSetFile(file, changeSet, query) {
-  const additions = Number(file.additions) || 0;
-  const deletions = Number(file.deletions) || 0;
-  const maxChanges = Math.max(1, ...(changeSet?.files || []).map((entry) => Number(entry.changeCount) || Number(entry.additions) + Number(entry.deletions) || 0));
-  const addWidth = Math.round((additions / maxChanges) * 100);
-  const delWidth = Math.round((deletions / maxChanges) * 100);
-  const status = changeStatusLabel(file.status);
-  const path = displayChangeFilePath(file);
-  return `
-    <div class="tool-diff-file status-${escapeAttr(file.status || "modified")}" style="--add:${addWidth};--del:${delWidth}">
-      <span class="tool-diff-status">${escapeHtml(status)}</span>
-      <span class="tool-diff-path">${highlight(escapeHtml(path), query)}</span>
-      <span class="tool-diff-counts">
-        ${additions ? `<span class="tool-diff-add">+${escapeHtml(String(additions))}</span>` : ""}
-        ${deletions ? `<span class="tool-diff-del">-${escapeHtml(String(deletions))}</span>` : ""}
-      </span>
-      <span class="tool-diff-bars" aria-hidden="true"><i class="add"></i><i class="del"></i></span>
-    </div>
-  `;
-}
-
-function changeStatusLabel(status) {
-  if (status === "added") return "A";
-  if (status === "deleted") return "D";
-  if (status === "renamed") return "R";
-  return "M";
-}
-
-function displayChangeFilePath(file) {
-  if (!file) return "";
-  return file.oldPath && file.oldPath !== file.path ? `${file.oldPath} -> ${file.path}` : file.path || "";
-}
-
-function renderAuditExecutionGroup(group, context = {}) {
-  const expanded = context.filtersActive || auditExecutionGroupContainsSelection(group) || state.expandedAuditGroupIds.has(group.id);
-  const selected = auditExecutionGroupContainsSelection(group) ? " selected" : "";
-  const riskLevel = highestRiskLevel(group.rows.flatMap((row) => row.auditNodes || []));
-  const depth = Math.min(group.depth || 0, 5);
-  const childIds = group.childIds.join(" ");
-  return `
-    <div class="audit-exec-group risk-${escapeAttr(riskLevel)}${selected}" style="--depth:${depth}" data-audit-exec-group-child-ids="${escapeAttr(childIds)}">
-      <button class="audit-exec-group-head" type="button" data-audit-exec-group-id="${escapeAttr(group.id)}" title="${escapeAttr(expanded ? "收起执行组" : "展开执行组")}">
-        <span class="audit-exec-indent" aria-hidden="true"></span>
-        <span class="audit-exec-group-expander">${expanded ? "⌄" : "›"}</span>
-        <span class="trace-icon tool">#</span>
-        <span class="audit-exec-main">
-          <span class="audit-exec-title">
-            <strong>${highlight(escapeHtml(group.title), context.query)}</strong>
-            <em>${escapeHtml([group.ruleLabel, `${group.count} 个节点`].filter(Boolean).join(" · "))}</em>
-          </span>
-          <span class="audit-exec-sub">${highlight(escapeHtml(group.summary), context.query)}</span>
-        </span>
-      </button>
-      ${
-        expanded
-          ? `<div class="audit-exec-group-children">${group.rows
-              .map((row) => renderAuditExecutionRow({ ...row, depth: Math.min((row.depth || 0) + 1, 6) }, context.query))
-              .join("")}</div>`
-          : ""
-      }
-    </div>
-  `;
-}
-
-function renderAuditExecutionChildGroup(group, query) {
-  const shown = group.nodes.slice(0, 3);
-  const more = group.nodes.length - shown.length;
-  return `
-    <div class="audit-exec-child-group type-${escapeAttr(group.key)}">
-      <span class="audit-exec-child-label">
-        <strong>${escapeHtml(group.label)}</strong>
-        <em>${escapeHtml(String(group.nodes.length))}</em>
-      </span>
-      <span class="audit-exec-child-nodes">
-        ${shown.map((node) => renderAuditMiniNode(node, query)).join("")}
-        ${more > 0 ? `<span class="audit-more-node">+${escapeHtml(String(more))}</span>` : ""}
-      </span>
-    </div>
-  `;
-}
-
-function renderAuditMiniNode(node, query) {
-  const selected = state.selectedAuditNodeId === node.id ? " selected" : "";
-  const readable = readableAuditNode(node);
-  const title = node.type === "risk" ? auditRiskLabel(node.riskLevel || "none") : readable.title || auditTypeLabel(node.type);
-  const summary = firstLine(readable.summary || "", 150);
-  return `
-    <button class="audit-mini-node type-${escapeAttr(node.type)} risk-${escapeAttr(node.riskLevel || "none")}${selected}" type="button" data-audit-node-id="${escapeAttr(node.id)}" title="${escapeAttr(summary || title)}">
-      <strong>${highlight(escapeHtml(firstLine(title, 42)), query)}</strong>
-      ${summary ? `<span>${highlight(escapeHtml(summary), query)}</span>` : ""}
-    </button>
-  `;
-}
-
-function renderAuditNodeChip(node, query) {
-  const selected = state.selectedAuditNodeId === node.id ? " selected" : "";
-  const readable = readableAuditNode(node);
-  const label = node.type === "risk" ? auditRiskLabel(node.riskLevel || "none") : readable.title || auditTypeLabel(node.type);
-  return `
-    <button class="audit-node-chip type-${escapeAttr(node.type)} risk-${escapeAttr(node.riskLevel || "none")}${selected}" type="button" data-audit-node-id="${escapeAttr(node.id)}" title="${escapeAttr(node.title || label)}">
-      <span>${escapeHtml(auditNodeGlyph(node.type))}</span>
-      ${highlight(escapeHtml(firstLine(label, 28)), query)}
-    </button>
-  `;
-}
-
-function renderAuditEvidenceNode(node, query) {
-  const selected = state.selectedAuditNodeId === node.id ? " selected" : "";
-  const readable = readableAuditNode(node);
-  const meta = [
-    auditTypeLabel(node.type),
-    node.status || "未记录",
-    auditRiskMetaLabel(node.riskLevel),
-    node.turnNumber ? `第 ${node.turnNumber} 轮` : "",
-    auditEventIndexLabel(node),
-    auditRelatedLabel(node),
-    formatDate(node.timestamp),
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  const tags = (node.tags || []).slice(0, 4);
-  return `
-    <button class="audit-evidence-node type-${escapeAttr(node.type)} risk-${escapeAttr(node.riskLevel || "none")}${selected}" type="button" data-audit-node-id="${escapeAttr(node.id)}">
-      <span class="audit-evidence-kind">${escapeHtml(auditNodeGlyph(node.type))}</span>
-      <span class="audit-evidence-main">
-        <span class="audit-evidence-title">
-          <strong>${highlight(escapeHtml(readable.title || auditTypeLabel(node.type)), query)}</strong>
-          ${node.riskLevel && node.riskLevel !== "none" ? `<em>${escapeHtml(auditRiskLabel(node.riskLevel))}</em>` : ""}
-        </span>
-        <span class="audit-evidence-summary">${highlight(escapeHtml(readable.summary || ""), query)}</span>
-        <span class="audit-evidence-tags">
-          ${tags.map((tag) => `<span>${highlight(escapeHtml(tag), query)}</span>`).join("")}
-        </span>
-      </span>
-      <span class="audit-evidence-meta">${escapeHtml(meta)}</span>
-    </button>
-  `;
-}
-
-function buildAuditTurnModel(detail) {
-  const audit = detail.audit || buildAuditFallback(detail);
-  const auditNodes = audit.nodes || [];
-  const turnModels = (detail.turns || []).map((turn, index) => buildAuditTurnProjection(detail, turn, index, auditNodes));
-  const knownTurnIndexes = new Set(turnModels.map((turn) => turn.turnIndex));
-  const unplacedAuditNodes = auditNodes.filter((node) => !knownTurnIndexes.has(auditNodeTurnIndex(node)));
-  const model = {
-    detail,
-    audit,
-    auditNodes,
-    counts: audit.counts || auditNodeCounts(auditNodes),
-    turns: turnModels,
-    unplacedAuditNodes,
-    hasTraceRoot: Boolean(detail.trace?.root),
-    filteredTurnCount: turnModels.length,
-  };
-  return model;
-}
-
-function buildAuditTurnProjection(detail, turn, turnIndex, auditNodes) {
-  const key = auditTurnKey(turn, turnIndex);
-  const turnNumber = turn.turnNumber ?? turnIndex + 1;
-  const turnAuditNodes = auditNodes.filter((node) => auditNodeTurnIndex(node) === turnIndex);
-  const executionRows = buildAuditExecutionRows(detail, turn, turnIndex);
-  const rowByTraceId = new Map(executionRows.filter((row) => row.traceNodeId).map((row) => [row.traceNodeId, row]));
-  const rowByItemRef = new Map(executionRows.filter((row) => row.itemRef).map((row) => [row.itemRef, row]));
-  const linkedNodeIds = new Set();
-  const unlinkedAuditNodes = [];
-
-  for (const node of turnAuditNodes) {
-    const row = (node.traceNodeId && rowByTraceId.get(node.traceNodeId)) || (node.itemRef && rowByItemRef.get(node.itemRef));
-    if (row && auditNodeCanAttachToExecution(node)) {
-      row.auditNodes.push(node);
-      linkedNodeIds.add(node.id);
-    } else if (auditNodeNeedsExecutionMount(node)) {
-      unlinkedAuditNodes.push(node);
-    }
-  }
-
-  const intentSummary = auditTurnIntentSummary(turn, turnAuditNodes);
-  const finalSummary = auditTurnFinalSummary(turn, turnAuditNodes);
-  const stats = auditTurnStats(turn, executionRows, turnAuditNodes, unlinkedAuditNodes);
-
-  return {
-    key,
-    turn,
-    turnIndex,
-    turnNumber,
-    intentSummary,
-    finalSummary,
-    auditNodes: turnAuditNodes,
-    unlinkedAuditNodes,
-    executionRows,
-    linkedNodeIds,
-    stats,
-    visibleExecutionRows: executionRows,
-    visibleUnlinkedAuditNodes: unlinkedAuditNodes,
-  };
-}
-
-function buildAuditExecutionRows(detail, turn, turnIndex) {
-  const rows = [];
-  const seen = new Set();
-  const traceTurn = traceTurnNodeForIndex(detail.trace?.root, turnIndex);
-  if (traceTurn) {
-    for (const row of window.AuditViewModel.flattenAuditExecutionRows(traceTurn.children || [], 0)) {
-      const key = row.traceNodeId || row.itemRef || row.id;
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      rows.push(row);
-    }
-  }
-  if (!rows.length) {
-    for (const item of turn.items || []) {
-      if (item.type !== "tool-call") continue;
-      const row = auditExecutionRowFromItem(item, turnIndex);
-      const key = row.traceNodeId || row.itemRef || row.id;
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      rows.push(row);
-    }
-  }
-  return attachAuditRowsToAgentMessages(rows, turn, turnIndex);
-}
-
-function auditExecutionRowFromItem(item, turnIndex) {
-  return window.AuditViewModel.auditExecutionRowFromItem(item, turnIndex, { itemRef, formatDate, durationBetween });
-}
-
-function attachAuditRowsToAgentMessages(rows, turn, turnIndex) {
-  return window.AuditViewModel.attachAuditRowsToAgentMessages(rows, turn, turnIndex, { itemRef, firstLine });
-}
-
-function traceTurnNodeForIndex(root, turnIndex) {
-  if (!root) return null;
-  const turns = (root.children || []).filter((node) => node.type === "turn");
-  return turns[turnIndex] || null;
-}
-
-function itemRefFromTraceNode(node) {
-  return window.AuditViewModel.itemRefFromTraceNode(node);
-}
-
-function auditTurnKey(turn, index) {
-  return `turn:${turn?.id || index}:${index}`;
-}
-
-function auditNodeTurnIndex(node) {
-  if (Number.isInteger(node?.turnIndex)) return node.turnIndex;
-  if (Number.isInteger(node?.turnNumber)) return node.turnNumber - 1;
-  return null;
-}
-
-function auditNodeCanAttachToExecution(node) {
-  return ["reasoning", "action", "evidence", "verification", "risk", "final"].includes(node?.type);
-}
-
-function auditNodeNeedsExecutionMount(node) {
-  if (!auditNodeCanAttachToExecution(node)) return false;
-  if (node.type === "reasoning" || node.type === "final") return false;
-  return Boolean(node.traceNodeId || node.itemRef || node.toolName || node.callId || node.type === "action");
-}
-
-function auditTurnIntentSummary(turn, nodes) {
-  const intent = nodes.find((node) => node.type === "intent" && node.summary);
-  if (intent) return firstLine(intent.summary, 180);
-  const user = (turn.items || []).find((item) => item.type === "user-message" && String(item.text || "").trim());
-  return user ? firstLine(user.text, 180) : "无明确用户意图";
-}
-
-function auditTurnFinalSummary(turn, nodes) {
-  const final = [...nodes].reverse().find((node) => node.type === "final" && node.summary);
-  if (final) return firstLine(final.summary, 190);
-  const assistant = [...(turn.items || [])].reverse().find((item) => item.type === "assistant-message" && String(item.text || "").trim());
-  return assistant ? firstLine(assistant.text, 190) : "尚无最终回复";
-}
-
-function auditTurnIntentBody(turn) {
-  const intent = turn.auditNodes.find((node) => node.type === "intent" && (node.body || node.summary));
-  if (intent) return auditNodeFullBody(intent) || intent.summary;
-  const user = (turn.turn?.items || []).find((item) => item.type === "user-message" && String(item.text || "").trim());
-  return user ? String(user.text || "").trim() : turn.intentSummary || "无明确用户意图";
-}
-
-function auditTurnFinalBody(turn) {
-  const final = [...turn.auditNodes].reverse().find((node) => node.type === "final" && (node.body || node.summary));
-  if (final) return auditNodeFullBody(final) || final.summary;
-  const assistant = [...(turn.turn?.items || [])].reverse().find((item) => item.type === "assistant-message" && String(item.text || "").trim());
-  return assistant ? String(assistant.text || "").trim() : turn.finalSummary || "尚无最终回复";
-}
-
-function auditTurnStats(turn, executionRows, nodes, unlinkedAuditNodes) {
-  const highestRisk = highestRiskLevel(nodes);
-  const riskCount = nodes.filter((node) => node.type === "risk" || (node.riskLevel && node.riskLevel !== "none")).length;
-  const verificationNodes = nodes.filter((node) => node.type === "verification");
-  const gapCount = nodes.filter(auditNodeIsGap).length + unlinkedAuditNodes.filter((node) => !auditNodeIsGap(node)).length;
-  return {
-    toolCount: executionRows.filter((row) => row.type === "tool" || row.type === "handoff").length,
-    subagentCount: executionRows.filter((row) => row.type === "subagent" || row.type === "embedded-subagent").length,
-    evidenceCount: nodes.filter((node) => node.type === "evidence").length,
-    gapCount,
-    highestRisk,
-    riskCount,
-    riskLabel: riskCount ? `${auditRiskLabel(highestRisk)} · ${riskCount}` : "无风险信号",
-    verificationStatus: auditVerificationStatus(verificationNodes, nodes),
-  };
-}
-
-function auditNodeIsGap(node) {
-  const tags = node.tags || [];
-  return tags.includes("missing-output") || tags.includes("missing-verification");
-}
-
-function auditVerificationStatus(verificationNodes, nodes) {
-  if (!verificationNodes.length) {
-    return nodes.some((node) => (node.tags || []).includes("missing-verification")) ? "缺少验证" : "未验证";
-  }
-  if (verificationNodes.some((node) => node.status === "failed" || (node.riskLevel && node.riskLevel !== "none"))) return "验证不足";
-  return "已验证";
-}
-
-function auditVerificationClass(status) {
-  if (status === "已验证") return "verified";
-  if (status === "验证不足" || status === "缺少验证") return "failed";
-  return "none";
-}
-
-function highestRiskLevel(nodes) {
-  return (nodes || []).reduce((level, node) => maxAuditRisk(level, node.riskLevel || (node.type === "risk" ? "low" : "none")), "none");
-}
-
-function maxAuditRisk(left, right) {
-  const rank = { none: 0, low: 1, medium: 2, high: 3 };
-  return (rank[right] || 0) > (rank[left] || 0) ? right : left;
-}
-
-function auditExecutionStatusNodes(nodes) {
-  const order = { action: 0, evidence: 1, verification: 2, risk: 3 };
-  return [...(nodes || [])].sort((left, right) => (order[left.type] ?? 9) - (order[right.type] ?? 9));
-}
-
-function auditExecutionChildGroups(nodes) {
-  const specs = [
-    ["action", "行动"],
-    ["evidence", "输出证据"],
-    ["verification", "验证"],
-    ["risk", "风险"],
-  ];
-  return specs
-    .map(([key, label]) => ({
-      key,
-      label,
-      nodes: (nodes || []).filter((node) => node.type === key),
-    }))
-    .filter((group) => group.nodes.length > 0);
-}
-
-function auditExecutionEmptyText(turn, context = {}) {
-  if (context.filtersActive && turn.executionRows.length) return "当前搜索或类型过滤没有匹配执行节点";
-  return "此轮次没有工具、handoff、子代理调用或助手消息";
-}
-
-function auditFiltersActive(filters = {}) {
-  return Boolean(filters.query || (filters.typeFilter && filters.typeFilter !== "all"));
-}
-
-function filterAuditTurnModel(turn, filters = {}) {
-  if (!auditFiltersActive(filters)) return turn;
-  const query = filters.query || "";
-  const typeFilter = filters.typeFilter || "all";
-  const matchingRows = turn.executionRows.filter((row) => auditExecutionRowMatches(row, query, typeFilter));
-  const matchingNodes = turn.auditNodes.filter((node) => auditNodeMatches(node, query, typeFilter));
-  const matchingUnlinked = turn.unlinkedAuditNodes.filter((node) => auditNodeMatches(node, query, typeFilter));
-  const rowContextIds = new Set(matchingRows.map((row) => row.id));
-  const rowById = new Map(turn.executionRows.map((row) => [row.id, row]));
-  for (const row of matchingRows) {
-    addAuditExecutionAncestors(row, rowById, rowContextIds);
-    addAuditExecutionDescendants(row, rowById, rowContextIds);
-  }
-  for (const node of [...matchingNodes, ...matchingUnlinked]) {
-    const row = turn.executionRows.find((candidate) => candidate.auditNodes.some((auditNode) => auditNode.id === node.id));
-    if (row) {
-      rowContextIds.add(row.id);
-      addAuditExecutionAncestors(row, rowById, rowContextIds);
-      addAuditExecutionDescendants(row, rowById, rowContextIds);
-    }
-  }
-  const visibleExecutionRows = turn.executionRows.filter((row) => rowContextIds.has(row.id));
-  const summaryMatches = auditTurnSearchText(turn).includes(query) && auditTurnMatchesType(turn, typeFilter);
-  if (!summaryMatches && !visibleExecutionRows.length && !matchingNodes.length && !matchingUnlinked.length) return null;
-  return {
-    ...turn,
-    visibleExecutionRows: summaryMatches && typeFilter === "all" ? turn.executionRows : visibleExecutionRows,
-    visibleUnlinkedAuditNodes: matchingUnlinked,
-  };
-}
-
-function auditExecutionRowMatches(row, query, typeFilter) {
-  const haystack = auditExecutionSearchText(row);
-  const queryMatches = !query || haystack.includes(query);
-  const typeMatches =
-    typeFilter === "all" ||
-    (typeFilter === "action" && (row.type === "tool" || row.type === "handoff")) ||
-    row.auditNodes.some((node) => auditNodeMatches(node, "", typeFilter));
-  return queryMatches && typeMatches;
-}
-
-function addAuditExecutionAncestors(row, rowById, ids) {
-  let current = row;
-  while (current?.parentRowId) {
-    const parent = rowById.get(current.parentRowId);
-    if (!parent || ids.has(parent.id)) break;
-    ids.add(parent.id);
-    current = parent;
-  }
-}
-
-function addAuditExecutionDescendants(row, rowById, ids) {
-  for (const childId of row.childRowIds || []) {
-    const child = rowById.get(childId);
-    if (!child || ids.has(child.id)) continue;
-    ids.add(child.id);
-    addAuditExecutionDescendants(child, rowById, ids);
-  }
-}
-
-function auditExecutionSearchText(row) {
-  const readable = readableExecutionRow(row);
-  return [
-    row.id,
-    row.traceNodeId,
-    row.itemRef,
-    row.type,
-    row.label,
-    row.title,
-    row.subtitle,
-    contextUsageLabel(row.contextUsage),
-    readable.title,
-    readable.summary,
-    readable.command,
-    row.status,
-    ...(row.auditNodes || []).map(auditNodeSearchText),
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-}
-
-function auditGroupedExecutionEntries(rows) {
-  const preparedRows = (rows || []).map((row) => ({ ...row, readable: readableExecutionRow(row) }));
-  if (!window.ExecutionGrouping) return preparedRows.map((row) => ({ kind: "row", id: row.id, row }));
-  return window.ExecutionGrouping.groupExecutionRows(preparedRows, { customRules: state.executionGroupRules });
-}
-
-function auditExecutionGroupContainsSelection(group) {
-  return (group?.rows || []).some((row) => auditExecutionRowIsSelected(row));
-}
-
-function auditExecutionRowIsSelected(row) {
-  if (!row) return false;
-  if (row.traceNodeId && state.selectedTraceNodeId === row.traceNodeId) return true;
-  if (!row.traceNodeId && row.itemRef && state.selectedItemRef === row.itemRef) return true;
-  if (row.itemRef && state.selectedItemRef === row.itemRef) return true;
-  return false;
-}
-
-function auditTurnMatchesType(turn, typeFilter) {
-  if (typeFilter === "all") return true;
-  if (typeFilter === "action") return turn.executionRows.length > 0;
-  return turn.auditNodes.some((node) => node.type === typeFilter);
-}
-
-function auditTurnSearchText(turn) {
-  return [
-    turn.key,
-    turn.turnNumber,
-    turn.intentSummary,
-    turn.finalSummary,
-    turn.turn?.status,
-    turn.turn?.cwd,
-    turn.stats?.verificationStatus,
-    turn.stats?.riskLabel,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-}
-
-function bindAuditInteractions() {
-  els.auditContent.querySelector("[data-audit-minimal-toggle]")?.addEventListener("click", () => {
-    state.auditMinimalMode = !state.auditMinimalMode;
-    renderAudit();
-  });
-  els.auditContent.querySelectorAll("[data-audit-turn-toggle]").forEach((button) => {
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      toggleAuditTurn(button.dataset.auditTurnToggle);
-    });
-  });
-  els.auditContent.querySelectorAll("[data-audit-turn-key]").forEach((button) => {
-    button.addEventListener("click", () => selectAuditTurn(button.dataset.auditTurnKey));
-  });
-  els.auditContent.querySelectorAll("[data-audit-exec-node-id]").forEach((row) => {
-    row.addEventListener("click", (event) => {
-      if (event.target.closest("[data-audit-node-id]")) return;
-      selectAuditExecutionNode(row.dataset.auditExecNodeId);
-    });
-    row.addEventListener("keydown", (event) => {
-      if (event.target.closest("[data-audit-node-id]")) return;
-      if (event.key !== "Enter" && event.key !== " ") return;
-      event.preventDefault();
-      selectAuditExecutionNode(row.dataset.auditExecNodeId);
-    });
-  });
-  els.auditContent.querySelectorAll("[data-audit-exec-group-id]").forEach((button) => {
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      toggleAuditExecutionGroup(button.dataset.auditExecGroupId);
-    });
-  });
-  els.auditContent.querySelectorAll("[data-audit-node-id]").forEach((button) => {
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      selectAuditNode(button.dataset.auditNodeId);
-    });
-    button.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter" && event.key !== " ") return;
-      event.preventDefault();
-      event.stopPropagation();
-      selectAuditNode(button.dataset.auditNodeId);
-    });
-  });
-}
-
-function toggleAuditTurn(key) {
-  if (!key) return;
-  if (state.expandedAuditTurnKeys.has(key)) {
-    state.expandedAuditTurnKeys.delete(key);
-  } else {
-    state.expandedAuditTurnKeys.add(key);
-  }
-  renderAudit();
-}
-
-function toggleAuditExecutionGroup(id) {
-  if (!id) return;
-  if (state.expandedAuditGroupIds.has(id)) {
-    state.expandedAuditGroupIds.delete(id);
-  } else {
-    state.expandedAuditGroupIds.add(id);
-  }
-  renderAudit();
-}
-
-function selectAuditTurn(key) {
-  const turn = findAuditTurn(key);
-  if (!turn) return;
-  state.selectedAuditTurnKey = key;
-  state.selectedTraceNodeId = null;
-  state.selectedAuditNodeId = null;
-  state.selectedItemRef = null;
-  state.selectedEventIndex = null;
-  state.selectedTerminalBlockId = null;
-  renderInspector();
-  refreshAuditSelectionSurface();
-}
-
-function selectAuditExecutionNode(id) {
-  const row = findAuditExecutionRow(id);
-  if (!row) return;
-  state.selectedAuditTurnKey = null;
-  if (row.traceNodeId && findTraceNode(state.detail?.trace?.root, row.traceNodeId)) {
-    selectTraceNode(row.traceNodeId);
-  } else if (row.itemRef) {
-    selectItemRef(row.itemRef);
-  }
-  markAuditSelection();
-}
-
-function findAuditTurn(key) {
-  return buildAuditTurnModel(state.detail).turns.find((turn) => turn.key === key) || null;
-}
-
-function findAuditExecutionRow(id) {
-  for (const turn of buildAuditTurnModel(state.detail).turns) {
-    const row = turn.executionRows.find((candidate) => candidate.id === id);
-    if (row) return row;
-  }
-  return null;
-}
-
-function auditTurnDebugPreview(turn) {
-  return {
-    turn: {
-      key: turn.key,
-      turnNumber: turn.turnNumber,
-      status: turn.turn?.status || null,
-      startedAt: turn.turn?.startedAt || null,
-      completedAt: turn.turn?.completedAt || null,
-      cwd: turn.turn?.cwd || null,
-    },
-    intentSummary: turn.intentSummary,
-    finalSummary: turn.finalSummary,
-    stats: turn.stats,
-    executionRows: turn.executionRows.map((row) => ({
-      id: row.id,
-      traceNodeId: row.traceNodeId,
-      itemRef: row.itemRef,
-      type: row.type,
-      title: row.title,
-      status: row.status,
-      auditNodeIds: row.auditNodes.map((node) => node.id),
-    })),
-    auditNodes: turn.auditNodes.map((node) => ({
-      id: node.id,
-      type: node.type,
-      title: node.title,
-      status: node.status,
-      riskLevel: node.riskLevel,
-      traceNodeId: node.traceNodeId,
-      itemRef: node.itemRef,
-    })),
-    unlinkedAuditNodeIds: turn.unlinkedAuditNodes.map((node) => node.id),
-  };
-}
-
-function markAuditSelection() {
-  if (!els.auditContent) return;
-  els.auditContent.querySelectorAll(".audit-turn.selected").forEach((row) => row.classList.remove("selected"));
-  els.auditContent.querySelectorAll(".audit-exec-group.selected").forEach((row) => row.classList.remove("selected"));
-  els.auditContent.querySelectorAll(".audit-exec-row.selected").forEach((row) => row.classList.remove("selected"));
-  els.auditContent.querySelectorAll(".audit-evidence-node.selected, .audit-node-chip.selected").forEach((row) => row.classList.remove("selected"));
-  els.auditContent.querySelectorAll(".audit-minimal-entry.selected").forEach((row) => row.classList.remove("selected"));
-  if (state.selectedAuditTurnKey) {
-    els.auditContent.querySelector(`[data-audit-turn-root="${cssEscape(state.selectedAuditTurnKey)}"]`)?.classList.add("selected");
-  }
-  if (state.selectedTraceNodeId) {
-    els.auditContent.querySelector(`[data-audit-exec-node-id="${cssEscape(state.selectedTraceNodeId)}"]`)?.classList.add("selected");
-    markAuditGroupForExecutionRow(state.selectedTraceNodeId);
-  }
-  if (state.selectedItemRef) {
-    const row = findAuditExecutionRowByItemRef(state.selectedItemRef);
-    if (row) {
-      els.auditContent.querySelector(`[data-audit-exec-node-id="${cssEscape(row.id)}"]`)?.classList.add("selected");
-      markAuditGroupForExecutionRow(row.id);
-    }
-  }
-  if (state.selectedAuditNodeId) {
-    els.auditContent.querySelectorAll(`[data-audit-node-id="${cssEscape(state.selectedAuditNodeId)}"]`).forEach((row) => row.classList.add("selected"));
-  }
-}
-
-function markAuditGroupForExecutionRow(id) {
-  if (!id) return;
-  els.auditContent
-    .querySelectorAll(`[data-audit-exec-group-child-ids~="${cssEscape(id)}"]`)
-    .forEach((row) => row.classList.add("selected"));
-}
-
-function findAuditExecutionRowByItemRef(ref) {
-  for (const turn of buildAuditTurnModel(state.detail).turns) {
-    const row = turn.executionRows.find((candidate) => candidate.itemRef === ref);
-    if (row) return row;
-  }
-  return null;
-}
-
-function selectAuditNode(id) {
-  const node = findAuditNode(id);
-  if (!node) return;
-  state.selectedAuditNodeId = id;
-  state.selectedAuditTurnKey = null;
-  state.selectedTraceNodeId = null;
-  state.selectedTerminalBlockId = null;
-  state.selectedItemRef = null;
-  state.selectedEventIndex = node.eventIndex ?? node.sourceIndex ?? null;
-  renderInspector();
-  refreshAuditSelectionSurface();
-}
-
-function refreshAuditSelectionSurface() {
-  if (state.viewMode === "audit" && state.auditMinimalMode) {
-    renderAudit();
-    return;
-  }
-  markAuditSelection();
-}
-
-function renderAuditActions(node) {
-  const actions = [];
-  if (node.eventIndex != null || node.sourceIndex != null) actions.push(`<button class="ghost-button small" type="button" data-open-audit-raw>打开原始事件</button>`);
-  if (node.itemRef) actions.push(`<button class="ghost-button small" type="button" data-open-audit-item>查看关联项</button>`);
-  if (node.traceNodeId) actions.push(`<button class="ghost-button small" type="button" data-open-audit-trace>查看执行节点</button>`);
-  if (node.relatedNodeId) actions.push(`<button class="ghost-button small" type="button" data-open-audit-related>定位关联节点</button>`);
-  els.inspectorActions.innerHTML = actions.join("");
-  els.inspectorActions.querySelector("[data-open-audit-raw]")?.addEventListener("click", () => {
-    const index = node.eventIndex ?? node.sourceIndex;
-    if (index == null) return;
-    openRawEventFromAudit(index);
-  });
-  els.inspectorActions.querySelector("[data-open-audit-item]")?.addEventListener("click", () => {
-    if (!node.itemRef) return;
-    locateItemRef(node.itemRef);
-  });
-  els.inspectorActions.querySelector("[data-open-audit-trace]")?.addEventListener("click", () => {
-    locateTraceNode(node.traceNodeId);
-  });
-  els.inspectorActions.querySelector("[data-open-audit-related]")?.addEventListener("click", () => {
-    locateRelatedAuditNode(node);
-  });
-}
-
-function auditNodeMatches(node, query, typeFilter) {
-  if (query && !auditNodeSearchText(node).includes(query)) return false;
-  if (typeFilter === "all") return true;
-  return node.type === typeFilter;
-}
-
-function auditNodeSearchText(node) {
-  const readable = readableAuditNode(node);
-  return [
-    node.id,
-    node.type,
-    node.title,
-    node.summary,
-    readable.title,
-    readable.summary,
-    readable.command,
-    node.status,
-    node.riskLevel,
-    node.turnNumber,
-    node.eventIndex,
-    node.sourceIndex,
-    node.itemRef,
-    node.traceNodeId,
-    node.toolName,
-    node.callId,
-    node.relatedType,
-    node.relatedNodeId,
-    ...(node.tags || []),
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-}
-
-function auditNodeCounts(nodes) {
-  return nodes.reduce(
-    (counts, node) => {
-      if (node.type in counts) counts[node.type] += 1;
-      counts.total += 1;
-      return counts;
-    },
-    { intent: 0, reasoning: 0, action: 0, evidence: 0, verification: 0, risk: 0, final: 0, total: 0 },
-  );
-}
-
-function findAuditNode(id) {
-  return (state.detail?.audit?.nodes || buildAuditFallback(state.detail)?.nodes || []).find((node) => node.id === id) || null;
-}
-
-function auditNodeDebugPreview(node) {
-  const item = node.itemRef ? findItemByRef(node.itemRef) : null;
-  return {
-    ...node,
-    summary: truncateText(node.summary, 4000),
-    argumentsPreview: truncateText(node.argumentsPreview, 4000),
-    outputPreview: truncateText(node.outputPreview, 8000),
-    item: item ? itemDebugPreview(item) : null,
-  };
-}
-
-function auditEventIndexLabel(node) {
-  if (node.eventIndex == null && node.sourceIndex == null) return "";
-  const parts = [];
-  if (node.eventIndex != null) parts.push(`事件 ${node.eventIndex}`);
-  if (node.sourceIndex != null && node.sourceIndex !== node.eventIndex) parts.push(`来源 ${node.sourceIndex}`);
-  return parts.join(" / ");
-}
-
-function auditRelatedLabel(node) {
-  if (!node.relatedNodeId) return "";
-  const type = node.relatedType ? auditTypeLabel(node.relatedType) : "节点";
-  const tool = node.toolName ? ` · ${node.toolName}` : "";
-  return `关联 ${type} ${node.relatedNodeId}${tool}`;
-}
-
-function locateRelatedAuditNode(node) {
-  if (!node?.relatedNodeId) return;
-  const target = findAuditNode(node.relatedNodeId);
-  if (!target) {
-    showToast("未找到关联审计链节点");
-    return;
-  }
-  if (state.viewMode !== "audit") {
-    state.viewMode = "audit";
-    cancelRemoteRefreshForNavigation();
-    syncItemTypeFilterOptions();
-  }
-  renderMainContent();
-  selectAuditNode(target.id);
-  window.setTimeout(() => {
-    const active = els.auditContent.querySelector(`[data-audit-node-id="${cssEscape(target.id)}"]`);
-    if (active) {
-      active.scrollIntoView({ behavior: preferredScrollBehavior(), block: "center" });
-    } else {
-      showToast("关联节点已在右侧显示；当前搜索或过滤隐藏了它");
-    }
-  }, 0);
-}
-
-function locateItemRef(ref) {
-  if (!ref) return;
-  const item = findItemByRef(ref);
-  if (!item) {
-    showToast("未找到关联项");
-    return;
-  }
-  selectItemRef(ref);
-  showToast("已在右侧显示关联项");
-}
-
-function locateTraceNode(id) {
-  if (!id) return;
-  const target = findTraceNode(state.detail?.trace?.root, id);
-  if (!target) {
-    showToast("未找到执行节点");
-    return;
-  }
-  expandTraceAncestors(id);
-  selectTraceNode(id);
-  showToast("已在右侧显示执行节点");
-}
-
-function expandTraceAncestors(id, node = state.detail?.trace?.root, parents = []) {
-  if (!node) return false;
-  if (node.id === id) {
-    for (const parentId of parents) state.expandedTraceNodeIds.add(parentId);
-    return true;
-  }
-  for (const child of node.children || []) {
-    if (expandTraceAncestors(id, child, [...parents, node.id])) return true;
-  }
-  return false;
-}
-
-function buildAuditFallback(detail) {
-  const nodes = [];
-  for (const turn of detail?.turns || []) {
-    for (const item of turn.items || []) {
-      const ref = itemRef(item);
-      if (item.type === "user-message") {
-        nodes.push(fallbackAuditNode("intent", item, ref, "用户意图", item.text));
-      } else if (item.type === "reasoning") {
-        nodes.push(fallbackAuditNode("reasoning", item, ref, "推理摘要", item.text || (item.encrypted ? "推理内容已加密存储。" : "")));
-      } else if (item.type === "tool-call") {
-        nodes.push(fallbackAuditNode("action", item, ref, item.name ? `工具调用 · ${item.name}` : "工具调用", item.arguments || item.name));
-        if (item.output) nodes.push(fallbackAuditNode("evidence", item, ref, item.name ? `工具输出 · ${item.name}` : "工具输出", item.output, item.outputSourceIndex ?? item.sourceIndex));
-      } else if (item.type === "assistant-message") {
-        nodes.push(fallbackAuditNode(item.phase === "final" ? "final" : "reasoning", item, ref, item.phase === "final" ? "助手最终回复" : "助手消息", item.text));
-      }
-    }
-  }
-  return { nodes, counts: auditNodeCounts(nodes) };
-}
-
-function fallbackAuditNode(type, item, ref, title, summary, eventIndex = item.sourceIndex) {
-  return {
-    id: `audit:fallback:${type}:${ref}:${eventIndex ?? "x"}`,
-    type,
-    title,
-    summary: firstLine(summary || "", 360),
-    status: item.status || item.phase || "observed",
-    timestamp: item.timestamp,
-    turnIndex: item.turnIndex,
-    turnNumber: (item.turnIndex ?? 0) + 1,
-    eventIndex: eventIndex ?? null,
-    sourceIndex: item.sourceIndex ?? null,
-    itemRef: ref,
-    traceNodeId: item.type === "tool-call" ? `item:${item.turnIndex}:${item.itemIndex}:${item.id || item.type}` : null,
-    riskLevel: "none",
-    tags: [type, item.name].filter(Boolean),
-    toolName: item.name || null,
-    callId: item.callId || null,
-    truncated: Boolean(item.truncated),
-  };
-}
-
-function auditTypeLabel(type) {
-  if (type === "intent") return "意图";
-  if (type === "reasoning") return "推理";
-  if (type === "action") return "行动";
-  if (type === "evidence") return "证据";
-  if (type === "verification") return "验证";
-  if (type === "risk") return "风险";
-  if (type === "final") return "最终";
-  return type || "节点";
-}
-
-function auditNodeGlyph(type) {
-  if (type === "intent") return "I";
-  if (type === "reasoning") return "R";
-  if (type === "action") return ">";
-  if (type === "evidence") return "$";
-  if (type === "verification") return "V";
-  if (type === "risk") return "!";
-  if (type === "final") return "F";
-  return "•";
-}
-
-function auditRiskLabel(level) {
-  if (level === "high") return "高风险";
-  if (level === "medium") return "中风险";
-  if (level === "low") return "低风险";
-  return "未标记风险";
-}
-
-function auditRiskMetaLabel(level) {
-  return level && level !== "none" ? auditRiskLabel(level) : "";
-}
-
-function auditNodeLabel(node) {
-  return `${auditTypeLabel(node.type)} · ${node.title || node.id}`;
 }
 
 function renderRawView() {
@@ -7615,7 +5117,7 @@ function rawDiagnosticResultsMarkup({ diagnostic, currentPage, events, selected 
       ${header}
       <div class="raw-view-layout">
         <div class="raw-view-list">
-          ${events.length ? events.map((event) => renderRawViewEventRow(event)).join("") : `<div class="inspector-empty">当前页没有匹配的事件摘要。</div>`}
+          ${events.length ? events.map((event) => renderRawViewEventRow(event)).join("") : `<div class="raw-empty">当前页没有匹配的事件摘要。</div>`}
           <div class="raw-diagnostic-pagination">
             <button class="ghost-button small" type="button" data-previous-raw-page ${canLoadPrevious ? "" : "disabled"}>上一页</button>
             <button class="ghost-button small" type="button" data-next-raw-page ${canLoadNext ? "" : "disabled"}>${diagnostic.loading ? "读取中" : currentPage.hasMore ? "下一页" : "已到达边界"}</button>
@@ -7642,8 +5144,7 @@ function bindRawDiagnosticActions() {
     state.rawDiagnostic.pageIndex -= 1;
     state.selectedEventIndex = null;
     renderRawView();
-    renderInspector();
-  });
+    });
   els.rawContent.querySelector("[data-next-raw-page]")?.addEventListener("click", () => void loadRawDiagnosticPage());
 }
 
@@ -7664,8 +5165,7 @@ async function loadRawDiagnosticPage({ restart = false, cursor = null } = {}) {
     if (rawDiagnosticStillSelected(request)) {
       request.diagnostic.loading = false;
       renderRawView();
-      renderInspector();
-    }
+        }
   }
 }
 
@@ -7723,7 +5223,6 @@ function showCachedNextRawDiagnosticPage() {
   diagnostic.pageIndex += 1;
   state.selectedEventIndex = null;
   renderRawView();
-  renderInspector();
   return true;
 }
 
@@ -7825,7 +5324,6 @@ function resetRawDiagnosticForSnapshotChange({ sourceId, sessionId, snapshot, di
   resetRawDiagnosticPages(diagnostic, { clearSelection: true });
   diagnostic.error = "会话文件或诊断快照已变化，已清空过期摘要、选择和完整事件缓存，请重新开始读取。";
   renderRawView();
-  renderInspector();
   return true;
 }
 
@@ -7898,7 +5396,7 @@ function renderRawEventInsight(event, query = "") {
   `;
 }
 
-async function openRawEventFromAudit(index) {
+async function openRawEvent(index) {
   const changed = state.viewMode !== "diagnostic" || state.diagnosticMode !== "raw";
   state.viewMode = "diagnostic";
   state.diagnosticMode = "raw";
@@ -7908,21 +5406,19 @@ async function openRawEventFromAudit(index) {
   renderStats();
   await loadRawDiagnosticPage({ restart: true, cursor: index });
   await selectRawViewEvent(index);
-  const active = els.rawContent.querySelector(`[data-raw-event-index="${index}"]`);
-  active?.scrollIntoView({ behavior: preferredScrollBehavior(), block: "center" });
+  els.rawContent.querySelector('[data-raw-event-index="' + index + '"]')?.scrollIntoView({ behavior: preferredScrollBehavior(), block: "center" });
 }
 
 async function selectRawViewEvent(index) {
   await selectRawEvent(index, { rerender: false });
   renderRawView();
-  renderInspector();
 }
 
 
 function renderTrace() {
   const detail = state.detail;
   if (!detail?.trace?.root) {
-    els.traceContent.innerHTML = emptyState("没有执行链路数据", "当前会话没有可审计执行树。");
+    els.traceContent.innerHTML = emptyState("没有执行链路数据", "当前会话没有可展示的执行树。");
     return;
   }
   const query = els.itemSearch.value.trim().toLowerCase();
@@ -7937,7 +5433,7 @@ function renderTrace() {
     <div class="trace-shell">
       <div class="trace-head">
         <div>
-          <p class="eyebrow">审计链路</p>
+          <p class="eyebrow">执行过程</p>
           <h3 class="markdown-inline-title">${renderMarkdownTitle(detail.session.title || "未命名会话")}</h3>
         </div>
         <div class="trace-legend">
@@ -8144,73 +5640,14 @@ function renderTruncationNotice(item, visibleFields = null) {
   if (!item.truncated) return "";
   const fields = item.truncatedFields?.filter((field) => !visibleFields || visibleFields.includes(field)) || [];
   if (!fields.length) return "";
-  return `<div class="truncation-notice">已截断 ${escapeHtml(fields.join(", "))}，完整内容可在右侧调试 JSON 中按需查看。</div>`;
+  return `<div class="truncation-notice">已截断 ${escapeHtml(fields.join(", "))}，完整内容可在原始事件视图中按需查看。</div>`;
 }
 
-function renderDetails() {
-  renderInspector();
-}
-
-function renderInspector() {
-  const context = buildReviewContext();
-  renderReviewHeader(context);
-  renderReviewTabs();
-  els.selectionDetails.innerHTML = renderReviewPanels(context);
-  els.selectionDetails.tabIndex = 0;
-  els.selectionDetails.setAttribute("aria-label", "复核内容，可使用方向键或 Page Up/Page Down 滚动");
-  els.inspectorActions.innerHTML = renderReviewActions(context);
-  bindReviewBodyActions(context);
-  bindReviewActions(context);
-  if (els.eventCount) els.eventCount.textContent = String(context.metrics?.events ?? 0);
-  if (els.selectedEventLabel) els.selectedEventLabel.textContent = context.title || "未选择";
-  if (els.rawPreview) els.rawPreview.textContent = context.debugData ? JSON.stringify(context.debugData, null, 2) : "";
-  if (els.copyRawButton) {
-    const label = context.kind === "session" ? "复制会话引用" : "复制对象引用";
-    els.copyRawButton.textContent = label;
-    els.copyRawButton.title = `${label}（复制当前复核上下文）`;
-    els.copyRawButton.setAttribute("aria-label", label);
-  }
-  els.copyRawButton.disabled = !state.detail || context.kind === "prompt_archive";
-}
-
-function renderKeyEventGroups(events) {
-  if (events.length === 0) return `<div class="inspector-empty">没有匹配的关键事件。</div>`;
-  const groups = groupEventsByTurn(events);
-  return groups
-    .map(
-      (group) => `
-        <div class="timeline-group">
-          <div class="timeline-group-title">${escapeHtml(group.label)}</div>
-          <div class="timeline-group-events">
-            ${group.events
-              .map((event) => {
-      const active = event.index === state.selectedEventIndex ? " active" : "";
-      return `
-                  <button class="raw-event${active}" type="button" data-event-index="${event.index}">
-          <span class="raw-event-title">${escapeHtml("事件 " + event.index + " " + humanEventTitle(event))}</span>
-          <span class="session-date">${escapeHtml(formatDate(event.timestamp) || event.kind)}</span>
-          <span class="raw-event-preview">${escapeHtml(event.preview || formatDate(event.timestamp) || "")}</span>
-        </button>
-      `;
-              })
-              .join("")}
-          </div>
-        </div>
-      `,
-    )
-    .join("");
-}
-
-async function selectRawEvent(index, { rerender = true } = {}) {
+async function selectRawEvent(index) {
   state.selectedTraceNodeId = null;
   state.selectedItemRef = null;
   state.selectedTerminalBlockId = null;
-  state.selectedAuditNodeId = null;
-  state.selectedAuditTurnKey = null;
   state.selectedEventIndex = index;
-  const event = eventByIndex(index);
-  if (!event) return;
-  if (rerender) renderInspector();
 }
 
 async function loadRawEvent(index, { cancelPrevious = true } = {}) {
@@ -8263,1569 +5700,17 @@ function rawEventStillInDiagnosticPages(diagnostic, index, snapshot) {
 }
 
 function selectTraceNode(id) {
+  if (!findTraceNode(state.detail?.trace?.root, id)) return;
   state.selectedTraceNodeId = id;
-  const node = findTraceNode(state.detail?.trace?.root, id);
-  if (!node) return;
   state.selectedEventIndex = null;
   state.selectedItemRef = null;
-  state.selectedTerminalBlockId = null;
-  state.selectedAuditNodeId = null;
-  state.selectedAuditTurnKey = null;
-  renderInspector();
-  els.traceContent.querySelectorAll(".trace-row.selected").forEach((row) => row.classList.remove("selected"));
-  const active = els.traceContent.querySelector(`[data-trace-node-id="${cssEscape(id)}"]`);
-  active?.classList.add("selected");
-  refreshAuditSelectionSurface();
-}
-
-function renderTraceActions(node) {
-  if (node.type === "subagent" && node.threadId) {
-    els.inspectorActions.innerHTML = `
-      <button class="ghost-button small" type="button" data-open-trace-thread="${escapeAttr(node.threadId)}">打开子代理会话</button>
-    `;
-    els.inspectorActions.querySelector("[data-open-trace-thread]").addEventListener("click", (event) => {
-      selectSession(event.currentTarget.dataset.openTraceThread);
-    });
-    return;
-  }
-  els.inspectorActions.innerHTML = "";
+  renderTrace();
 }
 
 function selectItemRef(ref) {
-  if (!ref) return;
+  if (!findItemByRef(ref)) return;
   state.selectedItemRef = ref;
   state.selectedTraceNodeId = null;
-  state.selectedAuditNodeId = null;
-  state.selectedAuditTurnKey = null;
-  state.selectedEventIndex = null;
-  state.selectedTerminalBlockId = null;
-  const item = findItemByRef(ref);
-  if (!item) return;
-  renderInspector();
-  if (state.viewMode === "audit") {
-    renderAudit();
-  }
-}
-
-function renderSelectionDetails() {
-  renderInspector();
-}
-
-function renderAuditSelection(node) {
-  const relatedMeta = [
-    node.relatedType ? auditTypeLabel(node.relatedType) : "",
-    node.relatedNodeId || "",
-    node.toolName ? `工具 ${node.toolName}` : "",
-    auditEventIndexLabel(node),
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  const rows = [
-    ["节点类型", auditTypeLabel(node.type)],
-    ["状态", node.status || "未记录"],
-    ["风险信号", auditRiskLabel(node.riskLevel || "none")],
-    ["轮次", node.turnNumber ? String(node.turnNumber) : "未记录"],
-    ["时间", formatDate(node.timestamp) || "未记录"],
-    ["关联项引用", node.itemRef || "未记录"],
-    ["事件索引", auditEventIndexLabel(node) || "未记录"],
-  ];
-  if (node.traceNodeId) rows.push(["执行节点", node.traceNodeId]);
-  if (node.relatedNodeId) rows.push(["关联来源", relatedMeta || node.relatedNodeId]);
-  if (node.toolName) rows.push(["工具", node.toolName]);
-  if (node.callId) rows.push(["调用 ID", node.callId]);
-  if (node.tags?.length) rows.push(["标签", node.tags.join(", ")]);
-  const body = [node.summary, node.outputPreview, node.argumentsPreview].filter(Boolean).join("\n\n");
-  return renderSelectionCard({
-    eyebrow: "审计链节点",
-    title: node.title || auditTypeLabel(node.type),
-    meta: [auditTypeLabel(node.type), auditRiskLabel(node.riskLevel || "none")].filter(Boolean).join(" · "),
-    rows,
-    body: body ? firstLine(body, 1100) : "",
-    actions: auditSelectionActions(node),
-  });
-}
-
-function renderAuditTurnSelection(turn) {
-  const rows = [
-    ["轮次", String(turn.turnNumber)],
-    ["验证状态", turn.stats.verificationStatus],
-    ["最高风险", turn.stats.riskLabel],
-    ["工具调用", String(turn.stats.toolCount)],
-    ["子代理", String(turn.stats.subagentCount)],
-    ["证据", String(turn.stats.evidenceCount)],
-    ["缺口", String(turn.stats.gapCount)],
-  ];
-  const body = [`目标：${turn.intentSummary}`, `结果：${turn.finalSummary}`].join("\n");
-  return renderSelectionCard({
-    eyebrow: "轮次审计摘要",
-    title: `第 ${turn.turnNumber} 轮`,
-    meta: [turn.stats.verificationStatus, turn.stats.riskLabel].filter(Boolean).join(" · "),
-    rows,
-    body,
-    actions: auditTurnSelectionActions(turn),
-  });
-}
-
-function renderTraceSelection(node) {
-  const detail = node.detail || {};
-  const item = detail.item || {};
-  const thread = detail.thread || detail.edge?.thread || {};
-  const rows = [
-    ["类型", traceTypeLabel(node.type)],
-    ["状态", node.status || "未记录"],
-    ["时间", [formatDate(node.timestamp), formatDate(node.completedAt)].filter(Boolean).join(" - ") || "未记录"],
-    ["耗时", node.durationMs == null ? "未记录" : `${formatDuration(node.durationMs)}${node.durationEstimated ? " 估算" : ""}`],
-  ];
-  if (item.name) rows.push(["工具", item.name]);
-  if (thread.id || node.threadId) rows.push(["线程", thread.agentNickname || thread.title || node.threadId || thread.id]);
-  const body = item.output || item.arguments || item.text || node.subtitle || detail.note || "";
-  const actions = traceSelectionActions(node, body);
-  return renderSelectionCard({
-    eyebrow: "执行节点",
-    title: node.title || node.label || node.id,
-    meta: [node.label, node.subtitle].filter(Boolean).join(" · "),
-    rows,
-    body: body ? firstLine(body, 700) : "",
-    actions,
-  });
-}
-
-function renderItemSelection(item) {
-  const rows = [
-    ["类型", itemTitle(item)],
-    ["轮次", item.turnIndex == null ? "未记录" : String(item.turnIndex + 1)],
-    ["时间", formatDate(item.timestamp) || "未记录"],
-    ["状态", [item.phase, item.status].filter(Boolean).join(" / ") || "未记录"],
-  ];
-  if (item.name) rows.push(["工具", item.name]);
-  if (item.callId) rows.push(["调用 ID", item.callId]);
-  const body = item.text || item.output || item.arguments || item.payloadPreview || "";
-  const actions = itemSelectionActions(item);
-  return renderSelectionCard({
-    eyebrow: "关联项",
-    title: itemTitle(item),
-    meta: item.name || item.responseType || item.eventType || "",
-    rows,
-    body: body ? firstLine(body, 900) : "",
-    actions,
-  });
-}
-
-function renderEventSelection(event) {
-  const rows = [
-    ["事件", `事件 ${event.index}`],
-    ["分类", event.kind || "未记录"],
-    ["时间", formatDate(event.timestamp) || "未记录"],
-    ["原始内容", event.payloadSize ? formatBytes(event.payloadSize) : "未记录"],
-  ];
-  return renderSelectionCard({
-    eyebrow: "关键事件",
-    title: humanEventTitle(event),
-    meta: [event.type, event.payloadType, event.role].filter(Boolean).join(" · "),
-    rows,
-    body: event.preview || "",
-    actions: [
-      { label: "复制摘要", copy: event.preview || humanEventTitle(event), toast: "已复制事件摘要" },
-      { label: "复制 JSON", action: "copy-debug" },
-    ],
-  });
-}
-
-function renderSelectionCard({ eyebrow, title, meta, rows, body, actions }) {
-  return `
-    <div class="section-title-row">
-      <h3>选中内容</h3>
-      <span class="muted">${escapeHtml(eyebrow)}</span>
-    </div>
-    <div class="selection-card">
-      <div class="selection-head">
-        <strong>${escapeHtml(title || "未命名")}</strong>
-        ${meta ? `<span>${escapeHtml(meta)}</span>` : ""}
-      </div>
-      <div class="details-grid selection-rows">
-        ${rows.map(([key, value]) => `<div class="detail-row"><strong>${escapeHtml(key)}</strong><span>${escapeHtml(value)}</span></div>`).join("")}
-      </div>
-      ${body ? `<pre class="selection-preview">${escapeHtml(body)}</pre>` : ""}
-      ${
-        actions?.length
-          ? `<div class="selection-actions">${actions
-              .map((action, index) => `<button class="ghost-button small" type="button" data-selection-action="${index}">${escapeHtml(action.label)}</button>`)
-              .join("")}</div>`
-          : ""
-      }
-    </div>
-  `;
-}
-
-function bindSelectionActions() {
-  const actions = currentSelectionActions();
-  els.selectionDetails.querySelectorAll("[data-selection-action]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      try {
-        const action = actions[Number(button.dataset.selectionAction)];
-        if (!action) return;
-        if (action.action === "copy-debug") {
-          await copySelectedRawEvent();
-          return;
-        }
-        if (action.action === "open-thread" && action.threadId) {
-          selectSession(action.threadId);
-          return;
-        }
-        if (action.action === "open-raw-event") {
-          await openRawEventFromAudit(action.index);
-          return;
-        }
-        if (action.action === "open-item-ref") {
-          locateItemRef(action.ref);
-          return;
-        }
-        if (action.action === "open-trace-node") {
-          locateTraceNode(action.id);
-          return;
-        }
-        if (action.action === "open-audit-node") {
-          locateRelatedAuditNode(action.node);
-          return;
-        }
-        if (action.copy != null) await copyInspectorText(action.copy, action.toast || "已复制", { sensitive: action.sensitive !== false });
-      } catch (error) {
-        reportReviewActionFailure(error);
-      }
-    });
-  });
-}
-
-function currentSelectionActions() {
-  if (state.selectedTraceNodeId) {
-    const node = findTraceNode(state.detail?.trace?.root, state.selectedTraceNodeId);
-    if (!node) return [];
-    const detail = node.detail || {};
-    const item = detail.item || {};
-    const body = item.output || item.arguments || item.text || node.subtitle || detail.note || "";
-    return traceSelectionActions(node, body);
-  }
-  if (state.selectedAuditNodeId) {
-    const node = findAuditNode(state.selectedAuditNodeId);
-    return node ? auditSelectionActions(node) : [];
-  }
-  if (state.selectedAuditTurnKey) {
-    const turn = findAuditTurn(state.selectedAuditTurnKey);
-    return turn ? auditTurnSelectionActions(turn) : [];
-  }
-  if (state.selectedItemRef) {
-    const item = findItemByRef(state.selectedItemRef);
-    return item ? itemSelectionActions(item) : [];
-  }
-  if (state.selectedEventIndex != null) {
-    const event = state.detail?.events.find((candidate) => candidate.index === state.selectedEventIndex);
-    return event
-      ? [
-          { label: "复制摘要", copy: event.preview || humanEventTitle(event), toast: "已复制事件摘要" },
-          { label: "复制 JSON", action: "copy-debug" },
-        ]
-      : [];
-  }
-  return [];
-}
-
-function auditSelectionActions(node) {
-  const readable = readableAuditNode(node);
-  const actions = [
-    { label: "复制摘要", copy: readable.summary || node.summary || node.title || node.id, toast: "已复制审计摘要" },
-    { label: "复制 JSON", action: "copy-debug" },
-  ];
-  if (node.eventIndex != null || node.sourceIndex != null) {
-    actions.unshift({ label: "跳到原始事件", action: "open-raw-event", index: node.eventIndex ?? node.sourceIndex });
-    actions.push({ label: "复制事件索引", copy: String(node.eventIndex ?? node.sourceIndex), toast: "已复制事件索引", sensitive: false });
-  }
-  if (node.itemRef) actions.unshift({ label: "查看关联项", action: "open-item-ref", ref: node.itemRef });
-  if (node.traceNodeId) actions.push({ label: "查看执行节点", action: "open-trace-node", id: node.traceNodeId });
-  if (node.relatedNodeId) actions.unshift({ label: "定位关联节点", action: "open-audit-node", node });
-  return actions;
-}
-
-function auditTurnSelectionActions(turn) {
-  return [
-    { label: "复制摘要", copy: `第 ${turn.turnNumber} 轮\n目标：${turn.intentSummary}\n结果：${turn.finalSummary}`, toast: "已复制轮次审计摘要" },
-    { label: "复制 JSON", action: "copy-debug" },
-  ];
-}
-
-function traceSelectionActions(node, body = "") {
-  const readable = node.detail?.item ? readableToolItem(node.detail.item) : null;
-  const actions = [{ label: "复制 JSON", action: "copy-debug" }];
-  if (readable?.summary || body) actions.unshift({ label: "复制摘要", copy: readable?.summary || body, toast: "已复制节点摘要" });
-  if (node.type === "subagent" && node.threadId) actions.unshift({ label: "打开子会话", action: "open-thread", threadId: node.threadId });
-  return actions;
-}
-
-function itemSelectionActions(item) {
-  const actions = [{ label: "复制 JSON", action: "copy-debug" }];
-  const readable = readableToolItem(item);
-  const body = readable.summary || item.text || item.output || item.arguments || item.payloadPreview || "";
-  if (body) actions.unshift({ label: "复制内容", copy: body, toast: "已复制内容" });
-  if (item.sourceIndex != null || item.outputSourceIndex != null) {
-    actions.push({ label: "跳到原始事件", action: "open-raw-event", index: item.sourceIndex ?? item.outputSourceIndex });
-  }
-  return actions;
-}
-
-function buildReviewContext() {
-  if (state.sidebarMode === "prompts") {
-    return reviewContextBase({
-      kind: "prompt_archive",
-      kindLabel: "任务归档",
-      title: "任务归档未打开会话",
-      summary: "当前正在浏览任务归档。打开原会话后，复核台会恢复为该会话的摘要、证据、关系和来源。",
-      metrics: { events: 0, evidence: 0, relations: 0 },
-    });
-  }
-  if (!state.detail) {
-    if (state.sessionLoading) {
-      return reviewContextBase({
-        kind: "loading",
-        kindLabel: "读取中",
-        title: "正在读取目标会话",
-        summary: `${selectedSessionDisplayTitle()} · 正在解析会话正文、事件和审计链。`,
-        badges: [selectedSource()?.label || "当前数据源"],
-        metrics: { events: 0, evidence: 0, relations: 0 },
-      });
-    }
-    if (state.sessionLoadError) {
-      return reviewContextBase({
-        kind: "error",
-        kindLabel: "读取失败",
-        title: "无法读取目标会话",
-        riskLevel: "medium",
-        summary: `${selectedSessionDisplayTitle()} · ${state.sessionLoadError}`,
-        badges: [selectedSource()?.label || "当前数据源"],
-        metrics: { events: 0, evidence: 0, relations: 0 },
-      });
-    }
-    return reviewContextBase({
-      kind: "empty",
-      kindLabel: "未选择",
-      title: "选择一个会话",
-      summary: "左侧选择会话后，复核台会显示当前对象的摘要、证据、关系和来源。",
-    });
-  }
-  if (state.detail.readState?.state === "changing") {
-    const readState = state.detail.readState || {};
-    return reviewContextBase({
-      kind: "changing",
-      kindLabel: "文件变化",
-      title: "会话文件正在变化",
-      summary: "读取期间文件发生变化，未展示可能过期的正文、审计链或风险结论。请重新读取会话。",
-      badges: [readState.code || "session_file_changed"],
-      metrics: { events: 0, evidence: 0, relations: 0 },
-    });
-  }
-  if (state.selectedTraceNodeId) {
-    const node = findTraceNode(state.detail.trace?.root, state.selectedTraceNodeId);
-    if (node) return buildTraceReviewContext(node);
-  }
-  if (state.selectedAuditNodeId) {
-    const node = findAuditNode(state.selectedAuditNodeId);
-    if (node) return buildAuditNodeReviewContext(node);
-  }
-  if (state.selectedAuditTurnKey) {
-    const turn = findAuditTurn(state.selectedAuditTurnKey);
-    if (turn) return buildAuditTurnReviewContext(turn);
-  }
-  if (state.selectedItemRef) {
-    const item = findItemByRef(state.selectedItemRef);
-    if (item) return buildItemReviewContext(item);
-  }
-  if (state.selectedEventIndex != null) {
-    const event = eventByIndex(state.selectedEventIndex);
-    if (event) return buildRawEventReviewContext(event);
-  }
-  return buildSessionBriefReviewContext(state.detail);
-}
-
-function reviewContextBase(overrides = {}) {
-  return {
-    kind: "object",
-    kindLabel: "对象",
-    title: "未命名对象",
-    riskLevel: "none",
-    badges: [],
-    summary: "",
-    rows: [],
-    metrics: {},
-    evidence: [],
-    relations: [],
-    sources: [],
-    actions: [],
-    debugData: null,
-    ...overrides,
-  };
-}
-
-function buildSessionBriefReviewContext(detail) {
-  const session = detail.session || {};
-  const stats = detail.stats || {};
-  const audit = detail.audit || buildAuditFallback(detail) || { nodes: [] };
-  const nodes = audit.nodes || [];
-  const risks = nodes.filter((node) => node.type === "risk" || (node.riskLevel && node.riskLevel !== "none"));
-  const verification = nodes.filter((node) => node.type === "verification");
-  const finalNode = [...nodes].reverse().find((node) => node.type === "final");
-  const childThreads = detail.trace?.hierarchy?.children || [];
-  const tokenUsage = latestTokenUsage(detail.turns || []);
-  const startedAt = session.startedAt || detail.turns?.[0]?.startedAt || stats.timing?.startedAt;
-  const endedAt = session.updatedAt || session.fileModifiedAt || detail.turns?.at(-1)?.completedAt || stats.timing?.completedAt;
-  const duration = durationBetween(startedAt, endedAt);
-  const metrics = {
-    events: stats.eventCount ?? detail.events?.length ?? 0,
-    evidence: verification.length,
-    relations: risks.length + childThreads.length,
-    risks: risks.length,
-    turns: stats.turnCount ?? detail.turns?.length ?? 0,
-    tools: countItems("tool-call"),
-    tokens: tokenUsage ? compactNumber(tokenUsage.total_tokens || tokenUsage.totalTokens || 0) : "未记录",
-  };
-  const evidence = [
-    ...verification.slice(0, 8).map(reviewEvidenceFromAuditNode),
-    ...risks.slice(0, 8).map(reviewEvidenceFromAuditNode),
-  ];
-  if (!evidence.length) {
-    evidence.push({
-      kind: "概览",
-      title: "没有优先风险或缺口",
-      meta: "会话概览",
-      body: "从审计链视图选择轮次、执行节点或证据节点后，复核台会切换到对象级复核。",
-    });
-  }
-  return reviewContextBase({
-    kind: "session",
-    evidenceId: sessionEvidenceId(session),
-    kindLabel: "会话概览",
-    title: session.title || "未命名会话",
-    riskLevel: highestRiskLevel(risks),
-    badges: [session.dataSourceKind === "remote" ? "远端快照" : "本机只读", `${metrics.turns} 轮次`, `${metrics.events} 事件`],
-    summary: auditNodeFullBody(finalNode) || finalNode?.summary || "当前会话的默认复核入口。选择审计链节点、工具调用、原始事件或子代理后，右侧会切换到对象级复核。",
-    rows: [
-      ["数据源", session.sourceLabel || selectedSource()?.label || "本机 Codex Home"],
-      ["模型", [session.model, session.reasoningEffort].filter(Boolean).join(" / ") || "未记录"],
-      ["工作目录", session.cwd || "无项目"],
-      ["时间范围", [formatDate(startedAt), formatDate(endedAt)].filter(Boolean).join(" - ") || "未记录"],
-      ["持续时间", duration == null ? "未记录" : formatDuration(duration)],
-      ["上下文占用", metrics.tokens],
-      ["数据文件", session.relativePath || "未记录"],
-    ],
-    metrics,
-    evidence,
-    relations: [
-      ...risks.slice(0, 8).map((node) => reviewRelationFromAuditNode(node, "优先复核")),
-      ...childThreads.slice(0, 8).map((child) => ({
-        kind: "子代理",
-        title: child.thread?.agentNickname || child.childThreadId,
-        meta: child.thread?.title || child.thread?.agentRole || "",
-        action: "open-thread",
-        threadId: child.childThreadId,
-      })),
-    ],
-    sources: [
-      { label: "会话详情（技术）", value: session.id || "未记录", data: { session, stats } },
-      { label: "数据文件", value: stats.dataPath || session.relativePath || "未记录", data: stats.dataPath || session.relativePath || "" },
-    ],
-    actions: [
-      { label: "复制会话引用", action: "copy-reference" },
-      { label: "复制 Markdown", action: "copy-markdown" },
-      { label: "复制会话 ID", copy: session.id || "", toast: "已复制会话 ID", sensitive: false },
-      { label: "复制证据包", action: "copy-evidence" },
-    ],
-    debugData: { session, stats, metrics, auditCounts: audit.counts || auditNodeCounts(nodes) },
-  });
-}
-
-function buildAuditNodeReviewContext(node) {
-  const item = node.itemRef ? findItemByRef(node.itemRef) : null;
-  const related = node.relatedNodeId ? findAuditNode(node.relatedNodeId) : null;
-  const traceNode = node.traceNodeId ? findTraceNode(state.detail?.trace?.root, node.traceNodeId) : null;
-  const event = eventByIndex(node.eventIndex ?? node.sourceIndex);
-  const readable = readableAuditNode(node, item);
-  const body = auditNodeFullBody(node, readable, item);
-  const evidence = [reviewEvidenceFromAuditNode(node)];
-  if (item) evidence.push(reviewEvidenceFromItem(item, "关联项"));
-  if (event) evidence.push(reviewEvidenceFromEvent(event, "来源事件"));
-  const relations = [
-    related ? reviewRelationFromAuditNode(related, "关联节点") : null,
-    traceNode ? reviewRelationFromTraceNode(traceNode, "执行节点") : null,
-    item ? reviewRelationFromItem(item, "关联项") : null,
-    event ? reviewRelationFromEvent(event, "原始事件") : null,
-  ].filter(Boolean);
-  return reviewContextBase({
-    kind: "audit_node",
-    evidenceId: auditNodeEvidenceId(node),
-    kindLabel: "审计链节点",
-    title: readable.title || node.title || auditTypeLabel(node.type),
-    riskLevel: node.riskLevel || "none",
-    badges: [auditTypeLabel(node.type), node.turnNumber ? `第 ${node.turnNumber} 轮` : "未定位轮次", auditEventIndexLabel(node)].filter(Boolean),
-    summary: body || "该审计链节点没有摘要正文。",
-    changeSet: readable.changeSet,
-    rows: [
-      ["节点类型", auditTypeLabel(node.type)],
-      ["状态", node.status || "未记录"],
-      ["风险信号", auditRiskLabel(node.riskLevel || "none")],
-      ["轮次", node.turnNumber ? String(node.turnNumber) : "未记录"],
-      ["时间", formatDate(node.timestamp) || "未记录"],
-      ["关联项引用", node.itemRef || "未记录"],
-      ["事件索引", auditEventIndexLabel(node) || "未记录"],
-      ["工具", node.toolName || "未记录"],
-    ],
-    metrics: { events: Number(node.eventIndex != null || node.sourceIndex != null), evidence: evidence.length, relations: relations.length },
-    evidence,
-    relations,
-    sources: buildSourceRefs({ eventIndex: node.eventIndex ?? node.sourceIndex, item, node, traceNode }),
-    actions: auditSelectionActions(node),
-    debugData: auditNodeDebugPreview(node),
-  });
-}
-
-function buildAuditTurnReviewContext(turn) {
-  const riskNodes = turn.auditNodes.filter((node) => node.type === "risk" || (node.riskLevel && node.riskLevel !== "none"));
-  const evidenceNodes = turn.auditNodes.filter((node) => ["evidence", "verification", "risk"].includes(node.type));
-  const relations = [
-    ...turn.executionRows.slice(0, 12).map((row) => {
-      const readable = readableExecutionRow(row);
-      return {
-        kind: "执行",
-        title: readable.title || row.title || row.id,
-        meta: [readable.summary, row.type, row.status].filter(Boolean).join(" · "),
-        action: row.traceNodeId ? "open-trace-node" : row.itemRef ? "open-item-ref" : "",
-        id: row.traceNodeId,
-        ref: row.itemRef,
-      };
-    }),
-    ...turn.unlinkedAuditNodes.slice(0, 6).map((node) => reviewRelationFromAuditNode(node, "未关联")),
-  ];
-  return reviewContextBase({
-    kind: "audit_turn",
-    evidenceId: auditTurnEvidenceId(turn),
-    kindLabel: "轮次审计",
-    title: `第 ${turn.turnNumber} 轮`,
-    riskLevel: highestRiskLevel(riskNodes),
-    badges: [turn.stats.verificationStatus, turn.stats.riskLabel, `${turn.auditNodes.length} 个审计节点`].filter(Boolean),
-    summary: [`目标：${auditTurnIntentBody(turn)}`, `结果：${auditTurnFinalBody(turn)}`].join("\n"),
-    rows: [
-      ["轮次", String(turn.turnNumber)],
-      ["验证状态", turn.stats.verificationStatus],
-      ["最高风险", turn.stats.riskLabel],
-      ["工具调用", String(turn.stats.toolCount)],
-      ["子代理", String(turn.stats.subagentCount)],
-      ["证据", String(turn.stats.evidenceCount)],
-      ["缺口", String(turn.stats.gapCount)],
-    ],
-    metrics: {
-      events: turn.auditNodes.filter((node) => node.eventIndex != null || node.sourceIndex != null).length,
-      evidence: evidenceNodes.length,
-      relations: relations.length,
-    },
-    evidence: evidenceNodes.length
-      ? evidenceNodes.slice(0, 14).map(reviewEvidenceFromAuditNode)
-      : [{ kind: "轮次", title: "没有独立证据节点", meta: "审计链", body: "展开审计链视图可以查看本轮次的执行链。" }],
-    relations,
-    sources: [{ label: "轮次复核模型", value: turn.key, data: auditTurnDebugPreview(turn) }],
-    actions: auditTurnSelectionActions(turn),
-    debugData: auditTurnDebugPreview(turn),
-  });
-}
-
-function buildTraceReviewContext(node) {
-  const detail = node.detail || {};
-  const item = fullItemForTraceNode(node) || detail.item || null;
-  const thread = detail.thread || detail.edge?.thread || {};
-  const readable = item ? readableToolItem(item) : null;
-  const itemRefValue = itemRefFromTraceNode(node) || (item ? itemRef(item) : null);
-  const linkedAuditNodes = auditNodesForItemRef(itemRefValue);
-  const body = bestAuditBodyForItem(linkedAuditNodes) || readable?.body || readable?.summary || item?.text || item?.output || item?.arguments || node.subtitle || detail.note || "";
-  const childRelations = (node.children || []).slice(0, 10).map((child) => reviewRelationFromTraceNode(child, "下游"));
-  return reviewContextBase({
-    kind: "trace_node",
-    evidenceId: traceNodeEvidenceId(node),
-    kindLabel: "执行节点",
-    title: readable?.title || node.title || node.label || node.id,
-    riskLevel: traceRiskLevel(node, item),
-    badges: [traceTypeLabel(node.type), node.status, item?.sourceIndex != null ? `事件 ${item.sourceIndex}` : ""].filter(Boolean),
-    summary: body || node.subtitle || "该执行节点没有可显示的正文摘要。",
-    changeSet: readable?.changeSet,
-    rows: [
-      ["类型", traceTypeLabel(node.type)],
-      ["状态", node.status || "未记录"],
-      ["时间", [formatDate(node.timestamp), formatDate(node.completedAt)].filter(Boolean).join(" - ") || "未记录"],
-      ["耗时", node.durationMs == null ? "未记录" : `${formatDuration(node.durationMs)}${node.durationEstimated ? " 估算" : ""}`],
-      ["工具", item?.name || "未记录"],
-      ["线程", thread.agentNickname || thread.title || node.threadId || thread.id || "未记录"],
-    ],
-    metrics: { events: item?.sourceIndex != null ? 1 : 0, evidence: item ? 1 : 0, relations: childRelations.length },
-    evidence: item ? [reviewEvidenceFromItem(item, "节点明细")] : [{ kind: "执行", title: node.label || node.id, meta: node.status || "", body: node.subtitle || "" }],
-    relations: [
-      itemRefValue ? { kind: "关联项", title: itemTitle(item), meta: itemRefValue, action: "open-item-ref", ref: itemRefValue } : null,
-      node.type === "subagent" && node.threadId ? { kind: "子会话", title: thread.agentNickname || node.threadId, meta: thread.title || "", action: "open-thread", threadId: node.threadId } : null,
-      ...childRelations,
-    ].filter(Boolean),
-    sources: buildSourceRefs({ eventIndex: item?.sourceIndex ?? item?.outputSourceIndex, item, traceNode: node }),
-    actions: traceSelectionActions(node, body),
-    debugData: traceNodePreview(node),
-  });
-}
-
-function buildItemReviewContext(item) {
-  const ref = itemRef(item);
-  const event = eventByIndex(item.sourceIndex ?? item.outputSourceIndex);
-  const linkedAuditNodes = auditNodesForItemRef(ref);
-  const readable = readableToolItem(item);
-  const body = bestAuditBodyForItem(linkedAuditNodes) || readable.body || readable.summary || item.text || item.output || item.arguments || item.payloadPreview || "";
-  return reviewContextBase({
-    kind: "item",
-    evidenceId: itemEvidenceId(item),
-    kindLabel: itemTitle(item),
-    title: readable.title || itemTitle(item),
-    riskLevel: itemRiskLevel(item, linkedAuditNodes),
-    badges: [item.turnIndex == null ? "未定位轮次" : `第 ${item.turnIndex + 1} 轮`, item.name, item.sourceIndex != null ? `事件 ${item.sourceIndex}` : ""].filter(Boolean),
-    summary: body || "该关联项没有正文摘要。",
-    changeSet: readable.changeSet,
-    rows: [
-      ["类型", itemTitle(item)],
-      ["轮次", item.turnIndex == null ? "未记录" : String(item.turnIndex + 1)],
-      ["时间", formatDate(item.timestamp) || "未记录"],
-      ["状态", [item.phase, item.status].filter(Boolean).join(" / ") || "未记录"],
-      ["工具", item.name || "未记录"],
-      ["调用 ID", item.callId || "未记录"],
-      ["事件索引", item.sourceIndex != null ? `事件 ${item.sourceIndex}` : "未记录"],
-    ],
-    metrics: { events: item.sourceIndex != null || item.outputSourceIndex != null ? 1 : 0, evidence: linkedAuditNodes.length || (body ? 1 : 0), relations: linkedAuditNodes.length },
-    evidence: [reviewEvidenceFromItem(item, "关联项"), ...linkedAuditNodes.slice(0, 8).map(reviewEvidenceFromAuditNode)],
-    relations: [...linkedAuditNodes.slice(0, 10).map((node) => reviewRelationFromAuditNode(node, "审计链")), event ? reviewRelationFromEvent(event, "原始事件") : null].filter(Boolean),
-    sources: buildSourceRefs({ eventIndex: item.sourceIndex ?? item.outputSourceIndex, item }),
-    actions: itemSelectionActions(item),
-    debugData: itemDebugPreview(item),
-  });
-}
-
-function buildRawEventReviewContext(event) {
-  const linkedItems = itemsForEventIndex(event.index);
-  const linkedAuditNodes = auditNodesForEventIndex(event.index);
-  const readable = readableRawEvent(event);
-  const compactEvidence = compactReplacementReviewEvidence(event);
-  const rows = [
-    ["事件", `事件 ${event.index}`],
-    ["分类", event.kind || "未记录"],
-    ["类型", [event.type, event.payloadType, event.role].filter(Boolean).join(" / ") || "未记录"],
-    ["时间", formatDate(event.timestamp) || "未记录"],
-    ["原始内容", event.payloadSize ? formatBytes(event.payloadSize) : "未记录"],
-    ...compactReviewRows(event),
-  ];
-  const summary = isCompactEvent(event) ? readable.body || readable.summary || event.preview : readable.summary || event.preview || "原始事件没有预览正文。";
-  return reviewContextBase({
-    kind: "raw_event",
-    evidenceId: rawEventEvidenceId(event),
-    kindLabel: "原始事件",
-    title: `事件 ${event.index} ${readable.title || humanEventTitle(event)}`,
-    riskLevel: rawEventRiskLevel(event, linkedAuditNodes),
-    badges: [event.kind || event.type || "事件", formatDate(event.timestamp) || "", event.payloadSize ? formatBytes(event.payloadSize) : ""].filter(Boolean),
-    summary,
-    changeSet: readable.changeSet,
-    rows,
-    metrics: { events: 1, evidence: linkedAuditNodes.length + compactEvidence.length, relations: linkedItems.length + linkedAuditNodes.length },
-    evidence: [reviewEvidenceFromEvent(event, "事件预览"), ...compactEvidence, ...linkedAuditNodes.slice(0, 8).map(reviewEvidenceFromAuditNode)],
-    relations: [...linkedItems.slice(0, 10).map((item) => reviewRelationFromItem(item, "关联项")), ...linkedAuditNodes.slice(0, 10).map((node) => reviewRelationFromAuditNode(node, "审计链"))],
-    sources: [{ label: "完整原始事件", value: `事件 ${event.index}`, eventIndex: event.index, data: event, lazy: true }],
-    actions: rawEventSelectionActions(event),
-    debugData: event,
-  });
-}
-
-function compactReviewRows(event) {
-  const compact = event?.compact;
-  if (!compact) return [];
-  return [
-    ["压缩阶段", compact.phase || "未记录"],
-    ["窗口", compact.windowNumber == null ? "未记录" : String(compact.windowNumber)],
-    ["替换历史", compact.replacementHistoryCount == null ? "未记录" : String(compact.replacementHistoryCount)],
-    ["当前窗口", compact.windowId || "未记录"],
-    ["上一窗口", compact.previousWindowId || "未记录"],
-  ];
-}
-
-function compactReplacementReviewEvidence(event) {
-  const compact = event?.compact;
-  const preview = Array.isArray(compact?.replacementHistoryPreview) ? compact.replacementHistoryPreview : [];
-  if (!preview.length) return [];
-  const total = compact.replacementHistoryCount ?? preview.length;
-  const more = Math.max(0, total - preview.length);
-  return [
-    {
-      kind: "上下文压缩",
-      title: `被替换的对话 (${preview.length}${more ? ` / ${total}` : ""})`,
-      meta: [compact.windowNumber != null ? `窗口 ${compact.windowNumber}` : "", more ? `还有 ${more} 条在原始 JSON` : ""].filter(Boolean).join(" · "),
-      body: preview.map(compactReplacementReviewLine).join("\n"),
-      action: "open-raw-event",
-      index: event.index,
-      actionLabel: "打开原始事件",
-    },
-  ];
-}
-
-function compactReplacementReviewLine(entry = {}) {
-  const meta = [
-    entry.textLength != null ? `${compactNumber(entry.textLength)} 字符` : "",
-    entry.turnId ? `轮次 ID ${compactReplacementShortId(entry.turnId)}` : "",
-    entry.type,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  return `替换记录 ${entry.index ?? ""} ${compactReplacementRoleLabel(entry.role)}${meta ? ` · ${meta}` : ""}\n${entry.preview || "[无文本内容]"}`;
-}
-
-function syncReviewPanelHeading() {
-  const header = els.inspectorActions?.closest(".inspector")?.querySelector(".panel-header");
-  const eyebrow = header?.querySelector(".eyebrow");
-  const heading = header?.querySelector("h2");
-  if (eyebrow) eyebrow.textContent = "复核台";
-  if (heading) heading.textContent = "复核对象";
-}
-
-function renderReviewHeader(context) {
-  syncReviewPanelHeading();
-  if (!state.detail) {
-    els.sessionDetails.innerHTML = `
-      <div class="review-object-head empty risk-${escapeAttr(context.riskLevel || "none")}" data-evidence-id="${escapeAttr(reviewContextEvidenceId(context))}">
-        <span class="review-kind">${escapeHtml(context.kindLabel || "未选择")}</span>
-        <strong>${escapeHtml(context.title || "选择一个会话")}</strong>
-        <p>${escapeHtml(context.summary || "复核台会显示当前对象的摘要、证据、关系和来源。")}</p>
-      </div>
-    `;
-    return;
-  }
-  els.sessionDetails.innerHTML = `
-    <div class="review-object-head risk-${escapeAttr(context.riskLevel || "none")}" data-evidence-id="${escapeAttr(reviewContextEvidenceId(context))}">
-      <div class="review-object-topline">
-        <span class="review-kind">${escapeHtml(context.kindLabel || "对象")}</span>
-        <span class="review-risk">${escapeHtml(auditRiskLabel(context.riskLevel || "none"))}</span>
-      </div>
-      <strong class="review-object-title markdown-inline-title">${renderMarkdownTitle(context.title || "未命名对象")}</strong>
-      <div class="review-object-meta">
-        ${(context.badges || []).map((badge) => `<span>${escapeHtml(badge)}</span>`).join("")}
-      </div>
-    </div>
-  `;
-}
-
-function reviewContextEvidenceId(context) {
-  return context.evidenceId || buildEvidenceId({ ...evidenceScopeForSession(), entity: context.kind || "object" });
-}
-
-function renderReviewTabs() {
-  const allowed = new Set(["summary", "evidence", "relations", "source"]);
-  if (!allowed.has(state.reviewTab)) state.reviewTab = "summary";
-  els.reviewTabs?.querySelectorAll("[data-review-tab]").forEach((button) => {
-    const active = button.dataset.reviewTab === state.reviewTab;
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-selected", active ? "true" : "false");
-    button.tabIndex = active ? 0 : -1;
-  });
-}
-
-function setReviewTab(tab) {
-  const next = tab || "summary";
-  const changed = state.reviewTab !== next;
-  if (changed && state.reviewTab === "source") cancelRawEventRequest();
-  state.reviewTab = next;
-  if (changed) cancelRemoteRefreshForNavigation();
-  renderInspector();
-}
-
-function renderReviewPanels(context) {
-  const tabs = ["summary", "evidence", "relations", "source"];
-  return tabs
-    .map((tab) => {
-      const active = tab === state.reviewTab;
-      return `<section class="review-tab-panel" id="reviewPanel${tab[0].toUpperCase()}${tab.slice(1)}" role="tabpanel" aria-labelledby="reviewTab${tab[0].toUpperCase()}${tab.slice(1)}"${active ? "" : " hidden"}>${renderReviewBody(context, tab)}</section>`;
-    })
-    .join("");
-}
-
-function renderReviewBody(context, tab = state.reviewTab) {
-  if (context.kind === "prompt_archive") return renderReviewEmpty(context.title, context.summary);
-  if (!state.detail) return renderReviewEmpty(context.title || "未选择会话", context.summary || "左侧选择会话后，复核台会显示会话概览。");
-  if (tab === "evidence") return renderReviewEvidence(context);
-  if (tab === "relations") return renderReviewRelations(context);
-  if (tab === "source") return renderReviewSource(context);
-  return renderReviewSummary(context);
-}
-
-function renderReviewSummary(context) {
-  const metrics = context.metrics || {};
-  const patchModel = reviewPatchSummaryModel(context.summary, context.changeSet);
-  const commandModel = patchModel ? null : reviewCommandOutputModel(context);
-  return `
-    <div class="review-section review-summary-section">
-      <div class="section-title-row">
-        <h3>摘要</h3>
-        <span class="muted">${escapeHtml(context.kindLabel || "对象")}</span>
-      </div>
-      ${renderReviewSummaryText(context.summary || "没有摘要。", { patchModel, commandModel })}
-      ${patchModel || commandModel ? "" : renderChangeSetSummary(context.changeSet, { maxFiles: 9 })}
-      <div class="review-metric-grid">
-        ${renderReviewMetric("证据", metrics.evidence ?? 0)}
-        ${renderReviewMetric("关系", metrics.relations ?? 0)}
-        ${renderReviewMetric("事件", metrics.events ?? 0)}
-        ${renderReviewMetric("风险", metrics.risks ?? riskMetricValue(context.riskLevel))}
-      </div>
-    </div>
-  `;
-}
-
-function renderReviewSummaryText(summary, options = {}) {
-  if (options.patchModel) return renderReviewPatchSummaryText(options.patchModel);
-  if (options.commandModel) return renderReviewCommandOutputText(options.commandModel);
-  const model = reviewSummaryTextModel(summary);
-  return `
-    <div class="review-summary-text ${model.items.length ? "has-items" : ""}">
-      <p class="review-summary-lead">${escapeHtml(model.lead)}</p>
-      ${
-        model.items.length
-          ? `<div class="review-summary-items">
-              ${model.items
-                .map(
-                  (item) => `
-                    <div class="review-summary-item">
-                      ${item.label ? `<span>${escapeHtml(item.label)}</span>` : ""}
-                      <strong>${escapeHtml(item.text)}</strong>
-                    </div>
-                  `,
-                )
-                .join("")}
-            </div>`
-          : ""
-      }
-    </div>
-  `;
-}
-
-function reviewPatchSummaryModel(summary, changeSet) {
-  return window.ToolSummary?.patchBodyModel?.(summary, changeSet) || null;
-}
-
-function renderReviewPatchSummaryText(model) {
-  const stat = model.additions || model.deletions ? `+${model.additions || 0} -${model.deletions || 0}` : "无行级统计";
-  return `
-    <div class="review-summary-text has-items review-patch-summary">
-      <p class="review-summary-lead review-patch-lead">
-        <span class="review-patch-command">${escapeHtml(model.command || "apply_patch")}</span>
-        <span>${escapeHtml(`${model.fileCount || model.files.length} 个文件 · ${stat}`)}</span>
-      </p>
-      <div class="review-patch-files">
-        ${model.files.map((file) => renderReviewPatchFile(file)).join("")}
-      </div>
-    </div>
-  `;
-}
-
-function renderReviewPatchFile(file) {
-  const additions = Number(file.additions) || 0;
-  const deletions = Number(file.deletions) || 0;
-  const stat = additions || deletions ? `+${additions} -${deletions}` : "文件状态";
-  const lines = file.lines?.length ? file.lines : [{ kind: "context", marker: " ", text: "该文件只有状态记录，没有行级 patch 正文。" }];
-  return `
-    <section class="review-patch-file status-${escapeAttr(file.status || "modified")}">
-      <div class="review-patch-file-head">
-        <span class="tool-diff-status">${escapeHtml(changeStatusLabel(file.status))}</span>
-        <strong title="${escapeAttr(displayChangeFilePath(file))}">${escapeHtml(displayChangeFilePath(file))}</strong>
-        <em>${
-          additions || deletions
-            ? `<span class="tool-diff-add">+${escapeHtml(String(additions))}</span> <span class="tool-diff-del">-${escapeHtml(String(deletions))}</span>`
-            : escapeHtml(stat)
-        }</em>
-      </div>
-      <div class="review-patch-lines">
-        ${lines.map((line) => renderReviewPatchLine(line)).join("")}
-      </div>
-    </section>
-  `;
-}
-
-function renderReviewPatchLine(line) {
-  const kind = line.kind || "context";
-  return `
-    <div class="review-patch-line kind-${escapeAttr(kind)}">
-      <span>${escapeHtml(line.marker || "")}</span>
-      <code>${escapeHtml(line.text || "")}</code>
-    </div>
-  `;
-}
-
-function reviewCommandOutputModel(context) {
-  return reviewCommandOutputModelFromPieces(context.summary, reviewCommandPiecesFromContext(context));
-}
-
-function reviewCommandOutputModelFromPieces(body, pieces = {}) {
-  return window.ToolSummary?.commandOutputModel?.(body, pieces) || null;
-}
-
-function reviewCommandPiecesFromContext(context = {}) {
-  const data = context.debugData || {};
-  const item = data.item || data.detail?.item || (["tool-call", "tool-output"].includes(data.type) ? data : null);
-  const output = firstReviewValue(data.outputBody, item?.output, data.outputPreview, data.type === "evidence" ? data.body : "");
-  const args = firstReviewValue(data.argumentsBody, item?.arguments, data.argumentsPreview, data.arguments);
-  return {
-    title: context.title || data.title || item?.title || "",
-    toolName: firstReviewValue(data.toolName, item?.name, data.name),
-    command: firstReviewValue(data.command, item?.command),
-    arguments: args,
-    output,
-    status: firstReviewValue(data.status, item?.status),
-  };
-}
-
-function firstReviewValue(...values) {
-  for (const value of values) {
-    if (String(value ?? "").trim()) return String(value).trim();
-  }
-  return "";
-}
-
-function renderReviewCommandOutputText(model, options = {}) {
-  const compact = options.compact ? " compact" : "";
-  return `
-    <div class="review-summary-text has-items review-command-output category-${escapeAttr(model.category || "command")} status-${escapeAttr(model.status || "info")}${compact}">
-      <p class="review-summary-lead review-command-lead">
-        <span class="review-command-name">${escapeHtml(model.command || model.title || "exec_command")}</span>
-        <span class="review-command-status">${escapeHtml(commandOutputStatusLabel(model.status))}</span>
-        <span>${escapeHtml(model.summary || model.title || "命令输出")}</span>
-      </p>
-      ${renderReviewCommandMetrics(model.metrics || [])}
-      <div class="review-command-sections">
-        ${(model.sections || []).map(renderReviewCommandSection).join("")}
-      </div>
-    </div>
-  `;
-}
-
-function renderReviewCommandMetrics(metrics) {
-  if (!metrics.length) return "";
-  return `
-    <div class="review-command-metrics">
-      ${metrics
-        .map(
-          (metric) => `
-            <div class="review-command-metric tone-${escapeAttr(metric.tone || "info")}">
-              <span>${escapeHtml(metric.label || "")}</span>
-              <strong title="${escapeAttr(metric.value || "")}">${escapeHtml(metric.value || "")}</strong>
-            </div>
-          `,
-        )
-        .join("")}
-    </div>
-  `;
-}
-
-function renderReviewCommandSection(section) {
-  return `
-    <section class="review-command-section">
-      <div class="review-command-section-head">
-        <strong>${escapeHtml(section.title || "输出")}</strong>
-        ${section.meta ? `<span>${escapeHtml(section.meta)}</span>` : ""}
-      </div>
-      ${
-        section.items?.length
-          ? `<div class="review-command-items">${section.items.map(renderReviewCommandItem).join("")}</div>`
-          : `<div class="review-command-lines">${(section.lines || []).map(renderReviewCommandLine).join("")}</div>`
-      }
-    </section>
-  `;
-}
-
-function renderReviewCommandItem(item) {
-  const label = item.label || item.status || item.kind || "";
-  return `
-    <div class="review-command-item tone-${escapeAttr(item.tone || "info")} kind-${escapeAttr(item.kind || "item")}">
-      <span>${escapeHtml(label)}</span>
-      <code title="${escapeAttr(item.path || "")}">${escapeHtml(item.path || "")}</code>
-      ${item.meta ? `<em>${escapeHtml(item.meta)}</em>` : ""}
-      ${item.text ? `<p>${escapeHtml(item.text)}</p>` : ""}
-    </div>
-  `;
-}
-
-function renderReviewCommandLine(line) {
-  return `
-    <div class="review-command-line kind-${escapeAttr(line.kind || "muted")}">
-      <span>${escapeHtml(commandOutputLineMarker(line.kind))}</span>
-      <code>${escapeHtml(line.text || "")}</code>
-    </div>
-  `;
-}
-
-function commandOutputStatusLabel(status) {
-  if (status === "passed") return "通过";
-  if (status === "failed") return "失败";
-  if (status === "changed") return "有变更";
-  if (status === "found") return "有命中";
-  if (status === "empty") return "空结果";
-  return "输出";
-}
-
-function commandOutputLineMarker(kind) {
-  if (kind === "error") return "!";
-  if (kind === "success") return "✓";
-  return "·";
-}
-
-function reviewSummaryTextModel(summary) {
-  const raw = String(summary || "").trim() || "没有摘要。";
-  const lines = raw
-    .split(/\r?\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (lines.length <= 1) {
-    const parts = splitSummaryClauses(raw);
-    return {
-      lead: parts.shift() || raw,
-      items: parts.map(summaryClauseItem),
-    };
-  }
-  return {
-    lead: lines.shift() || raw,
-    items: lines.map(summaryClauseItem),
-  };
-}
-
-function splitSummaryClauses(text) {
-  const normalized = String(text || "").replace(/\s+/g, " ").trim();
-  if (!normalized) return [];
-  if (normalized.length <= 110) return [normalized];
-  const parts = normalized
-    .split(/(?:；|;|\s·\s)/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-  return parts.length > 1 ? parts : [normalized];
-}
-
-function summaryClauseItem(text) {
-  const value = String(text || "").trim();
-  const match = value.match(/^([^：:]{1,10})[：:]\s*(.+)$/);
-  if (!match) return { label: "", text: value };
-  return { label: match[1], text: match[2] };
-}
-
-function renderReviewEvidence(context) {
-  const evidence = context.evidence || [];
-  if (!evidence.length) return renderReviewEmpty("没有证据", "当前对象没有可投影的证据。可以切到来源页查看原始结构。");
-  return `
-    <div class="review-section">
-      <div class="section-title-row">
-        <h3>证据</h3>
-        <span class="count-pill">${escapeHtml(String(evidence.length))}</span>
-      </div>
-      <div class="review-card-list">
-        ${evidence.map((item, index) => renderReviewEvidenceCard(item, index)).join("")}
-      </div>
-    </div>
-  `;
-}
-
-function renderReviewRelations(context) {
-  const relations = context.relations || [];
-  if (!relations.length) return renderReviewEmpty("没有关系", "当前对象没有可跳转的上游或下游对象。");
-  return `
-    <div class="review-section">
-      <div class="section-title-row">
-        <h3>关系</h3>
-        <span class="count-pill">${escapeHtml(String(relations.length))}</span>
-      </div>
-      <div class="review-card-list">
-        ${relations.map((relation, index) => renderReviewRelationCard(relation, index)).join("")}
-      </div>
-    </div>
-  `;
-}
-
-function renderReviewSource(context) {
-  const sources = context.sources || [];
-  const debug = context.debugData ?? context;
-  return `
-    <div class="review-section">
-      <div class="section-title-row">
-        <h3>来源</h3>
-        <span class="muted">按需原始事件</span>
-      </div>
-      ${sources.length ? `<div class="review-source-list">${sources.map((source, index) => renderReviewSourceCard(source, index)).join("")}</div>` : ""}
-      <div class="review-source-preview">
-        <div class="raw-preview-title">
-          <strong>${escapeHtml(context.title || "调试结构")}</strong>
-          <span>${escapeHtml(context.kindLabel || "JSON")}</span>
-        </div>
-        <pre class="raw-preview" data-review-source-preview>${escapeHtml(JSON.stringify(debug, null, 2))}</pre>
-      </div>
-    </div>
-  `;
-}
-
-function renderReviewActions(context) {
-  const actions = normalizeReviewActions(context);
-  return actions
-    .map((action, index) => {
-      const disabledReason = reviewActionDisabledReason(action);
-      const title = disabledReason || action.title || action.label || "";
-      return `<button class="ghost-button small" type="button" data-review-action="${index}" data-review-action-type="${escapeAttr(action.action || "")}" title="${escapeAttr(title)}" ${disabledReason ? "disabled" : ""}>${escapeHtml(action.label)}</button>`;
-    })
-    .join("");
-}
-
-function normalizeReviewActions(context) {
-  if (!state.detail || context.kind === "prompt_archive") return [];
-  const referenceLabel = context.kind === "session" ? "复制会话引用" : "复制对象引用";
-  const actions = [...(context.actions || [])];
-  actions.forEach((action) => {
-    if (action.action === "copy-reference" && action.label === "复制引用") action.label = referenceLabel;
-  });
-  if (!actions.some((action) => action.action === "copy-reference")) actions.unshift({ label: referenceLabel, action: "copy-reference" });
-  if (!actions.some((action) => action.action === "copy-evidence")) actions.push({ label: "复制证据包", action: "copy-evidence" });
-  return dedupeActions(actions);
-}
-
-function renderReviewMetric(label, value) {
-  return `
-    <div class="review-metric">
-      <strong>${escapeHtml(String(value ?? 0))}</strong>
-      <span>${escapeHtml(label)}</span>
-    </div>
-  `;
-}
-
-function renderReviewRows(rows) {
-  if (!rows.length) return "";
-  return `
-    <div class="details-grid review-detail-grid">
-      ${rows.map(([key, value]) => `<div class="detail-row"><strong>${escapeHtml(key)}</strong><span>${renderDetailValue(key, value)}</span></div>`).join("")}
-    </div>
-  `;
-}
-
-function renderReviewEvidenceCard(item, index) {
-  return `
-    <article class="review-card risk-${escapeAttr(item.riskLevel || "none")}">
-      <div class="review-card-head">
-        <span>${escapeHtml(item.kind || "证据")}</span>
-        <strong>${escapeHtml(item.title || "未命名证据")}</strong>
-      </div>
-      ${item.meta ? `<div class="review-card-meta">${escapeHtml(item.meta)}</div>` : ""}
-      ${renderChangeSetSummary(item.changeSet, { maxFiles: 7 })}
-      ${item.commandModel ? renderReviewCommandOutputText(item.commandModel, { compact: true }) : item.body ? `<pre class="review-card-body">${escapeHtml(firstLine(item.body, 1000))}</pre>` : ""}
-      ${item.action ? `<button class="ghost-button small" type="button" data-review-evidence-action="${index}">${escapeHtml(item.actionLabel || "打开")}</button>` : ""}
-    </article>
-  `;
-}
-
-function renderReviewRelationCard(relation, index) {
-  return `
-    <button class="review-relation" type="button" data-review-relation="${index}" ${relation.action ? "" : "disabled"}>
-      <span>${escapeHtml(relation.kind || "关系")}</span>
-      <strong>${escapeHtml(relation.title || "未命名对象")}</strong>
-      <em>${escapeHtml(relation.meta || "")}</em>
-    </button>
-  `;
-}
-
-function renderReviewSourceCard(source, index) {
-  const button = source.eventIndex != null || source.lazy ? `<button class="ghost-button small" type="button" data-review-source="${index}">读取完整来源</button>` : "";
-  return `
-    <div class="review-source-card">
-      <div>
-        <strong>${escapeHtml(source.label || "来源")}</strong>
-        <span>${escapeHtml(source.value || "未记录")}</span>
-      </div>
-      ${button}
-    </div>
-  `;
-}
-
-function renderReviewEmpty(title, subtitle) {
-  return `
-    <div class="review-section">
-      <div class="selection-empty">
-        <strong>${escapeHtml(title)}</strong>
-        <span>${escapeHtml(subtitle)}</span>
-      </div>
-    </div>
-  `;
-}
-
-function bindReviewBodyActions(context) {
-  const relations = context.relations || [];
-  const evidence = context.evidence || [];
-  const sources = context.sources || [];
-  els.selectionDetails.querySelectorAll("[data-review-relation]").forEach((button) => {
-    button.addEventListener("click", () => {
-      void runReviewAction(relations[Number(button.dataset.reviewRelation)]).catch(reportReviewActionFailure);
-    });
-  });
-  els.selectionDetails.querySelectorAll("[data-review-evidence-action]").forEach((button) => {
-    button.addEventListener("click", () => {
-      void runReviewAction(evidence[Number(button.dataset.reviewEvidenceAction)]).catch(reportReviewActionFailure);
-    });
-  });
-  els.selectionDetails.querySelectorAll("[data-review-source]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const source = sources[Number(button.dataset.reviewSource)];
-      if (source) void loadReviewSource(source).catch(reportReviewActionFailure);
-    });
-  });
-}
-
-function bindReviewActions(context) {
-  const actions = normalizeReviewActions(context);
-  els.inspectorActions.querySelectorAll("[data-review-action]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const action = actions[Number(button.dataset.reviewAction)];
-      void runReviewAction(action, context).catch(reportReviewActionFailure);
-    });
-  });
-}
-
-async function runReviewAction(action, context = buildReviewContext()) {
-  if (!action) return;
-  const disabledReason = reviewActionDisabledReason(action);
-  if (disabledReason) {
-    showToast(disabledReason);
-    syncExportButtons();
-    renderInspector();
-    return;
-  }
-  if (action.action === "copy-reference") return copyReviewReference(context);
-  if (action.action === "copy-evidence") return copyReviewEvidence(context);
-  if (action.action === "copy-debug") return copySelectedRawEvent();
-  if (action.action === "copy-markdown") return copyMarkdown();
-  if (action.action === "open-thread" && action.threadId) return selectSession(action.threadId);
-  if (action.action === "open-raw-event") return openRawEventFromAudit(action.index);
-  if (action.action === "open-item-ref") return locateItemRef(action.ref);
-  if (action.action === "open-trace-node") return locateTraceNode(action.id);
-  if (action.action === "open-audit-node") return locateAuditNode(action.id || action.node?.relatedNodeId);
-  if (action.action === "switch-review-tab") {
-    setReviewTab(action.tab || "summary");
-    return;
-  }
-  if (action.copy != null) return copyInspectorText(action.copy, action.toast || "已复制", { sensitive: action.sensitive !== false });
-}
-
-function reviewActionDisabledReason(action) {
-  if (!action) return "";
-  if (action.disabledReason) return action.disabledReason;
-  if (action.disabled) return action.title || "当前操作不可用";
-  if (action.action === "copy-markdown") return markdownExportBlockedReason();
-  return "";
-}
-
-async function loadReviewSource(source) {
-  const preview = els.selectionDetails.querySelector("[data-review-source-preview]");
-  if (!preview) return;
-  if (source.eventIndex == null) {
-    preview.textContent = JSON.stringify(source.data ?? source.value ?? null, null, 2);
-    return;
-  }
-  cancelRawEventRequest();
-  const request = createReviewSourceRequest(source.eventIndex);
-  preview.textContent = JSON.stringify(source.data || {}, null, 2) + "\n\n正在按需读取完整原始事件...";
-  try {
-    const raw = await loadRawEvent(source.eventIndex, { cancelPrevious: false });
-    if (!raw || !reviewSourceRequestIsCurrent(request)) return;
-    preview.textContent = JSON.stringify(raw, null, 2);
-  } catch (error) {
-    if (isAbortError(error) || !reviewSourceRequestIsCurrent(request)) return;
-    preview.textContent = JSON.stringify(source.data || {}, null, 2) + `\n\n读取完整事件失败：${error.message}`;
-  }
-}
-
-function createReviewSourceRequest(eventIndex) {
-  return {
-    eventIndex,
-    requestSeq: ++reviewSourceRequestSeq,
-    sourceId: state.selectedSourceId,
-    sessionKey: state.selectedSessionKey,
-    viewMode: state.viewMode,
-    reviewTab: state.reviewTab,
-    selectionKey: reviewSelectionKey(),
-  };
-}
-
-function reviewSourceRequestIsCurrent(request) {
-  return request.requestSeq === reviewSourceRequestSeq
-    && request.sourceId === state.selectedSourceId
-    && request.sessionKey === state.selectedSessionKey
-    && request.viewMode === state.viewMode
-    && request.reviewTab === state.reviewTab
-    && request.reviewTab === "source"
-    && request.selectionKey === reviewSelectionKey();
-}
-
-function reviewSelectionKey() {
-  return JSON.stringify({
-    eventIndex: state.selectedEventIndex,
-    traceNodeId: state.selectedTraceNodeId,
-    auditNodeId: state.selectedAuditNodeId,
-    auditTurnKey: state.selectedAuditTurnKey,
-    itemRef: state.selectedItemRef,
-  });
-}
-
-function reportReviewActionFailure(error) {
-  if (isAbortError(error)) return;
-  console.warn("复核台操作失败", error);
-  showToast(`操作失败：${errorTextFromError(error)}`);
-}
-
-function reviewEvidenceFromAuditNode(node) {
-  const readable = readableAuditNode(node);
-  const item = node.itemRef ? findItemByRef(node.itemRef) : null;
-  const body = auditNodeFullBody(node, readable, item) || [node.summary, node.outputPreview, node.argumentsPreview].filter(Boolean).join("\n\n");
-  return {
-    kind: auditTypeLabel(node.type),
-    title: readable.title || node.title || auditTypeLabel(node.type),
-    meta: [node.turnNumber ? `第 ${node.turnNumber} 轮` : "", node.toolName, auditEventIndexLabel(node), auditRiskMetaLabel(node.riskLevel)].filter(Boolean).join(" · "),
-    body,
-    changeSet: readable.changeSet,
-    commandModel: reviewCommandOutputModelFromPieces(body, {
-      title: readable.title || node.title || "",
-      toolName: node.toolName,
-      arguments: node.argumentsBody || node.argumentsPreview || item?.arguments || "",
-      output: node.outputBody || item?.output || node.outputPreview || (node.type === "evidence" ? node.body : ""),
-      status: node.status,
-    }),
-    riskLevel: node.riskLevel || "none",
-    action: "open-audit-node",
-    id: node.id,
-    actionLabel: "定位节点",
-  };
-}
-
-function reviewEvidenceFromItem(item, kind = "关联项") {
-  const ref = itemRef(item);
-  const readable = readableToolItem(item);
-  const linkedAuditNodes = auditNodesForItemRef(ref);
-  const body = bestAuditBodyForItem(linkedAuditNodes) || readable.body || readable.summary || item.text || item.output || item.arguments || item.payloadPreview || "";
-  return {
-    kind,
-    title: readable.title || itemTitle(item),
-    meta: [item.turnIndex == null ? "" : `第 ${item.turnIndex + 1} 轮`, item.name, item.sourceIndex != null ? `事件 ${item.sourceIndex}` : ""].filter(Boolean).join(" · "),
-    body,
-    changeSet: readable.changeSet,
-    commandModel: reviewCommandOutputModelFromPieces(body, {
-      title: readable.title || itemTitle(item),
-      toolName: item.name,
-      arguments: item.arguments,
-      output: item.output,
-      status: item.status || item.phase,
-    }),
-    riskLevel: itemRiskLevel(item, linkedAuditNodes),
-    action: "open-item-ref",
-    ref,
-    actionLabel: "查看关联项",
-  };
-}
-
-function reviewEvidenceFromEvent(event, kind = "原始事件") {
-  const readable = readableRawEvent(event);
-  return {
-    kind,
-    title: `事件 ${event.index} ${readable.title || humanEventTitle(event)}`,
-    meta: [event.kind || event.type, formatDate(event.timestamp)].filter(Boolean).join(" · "),
-    body: readable.summary || event.preview || "",
-    changeSet: readable.changeSet,
-    riskLevel: rawEventRiskLevel(event, auditNodesForEventIndex(event.index)),
-    action: "open-raw-event",
-    index: event.index,
-    actionLabel: "打开原始事件",
-  };
-}
-
-function reviewRelationFromAuditNode(node, kind = "审计链") {
-  const readable = readableAuditNode(node);
-  return {
-    kind,
-    title: readable.title || node.title || auditTypeLabel(node.type),
-    meta: [readable.summary, auditTypeLabel(node.type), auditRiskMetaLabel(node.riskLevel), node.turnNumber ? `第 ${node.turnNumber} 轮` : ""].filter(Boolean).join(" · "),
-    action: "open-audit-node",
-    id: node.id,
-  };
-}
-
-function reviewRelationFromTraceNode(node, kind = "执行") {
-  const readable = node.detail?.item ? readableToolItem(node.detail.item) : null;
-  return {
-    kind,
-    title: readable?.title || node.title || node.label || node.id,
-    meta: [readable?.summary, traceTypeLabel(node.type), node.status].filter(Boolean).join(" · "),
-    action: "open-trace-node",
-    id: node.id,
-  };
-}
-
-function reviewRelationFromItem(item, kind = "关联项") {
-  const readable = readableToolItem(item);
-  return {
-    kind,
-    title: readable.title || itemTitle(item),
-    meta: [readable.summary, item.turnIndex == null ? "" : `第 ${item.turnIndex + 1} 轮`, item.name].filter(Boolean).join(" · "),
-    action: "open-item-ref",
-    ref: itemRef(item),
-  };
-}
-
-function reviewRelationFromEvent(event, kind = "原始事件") {
-  const readable = readableRawEvent(event);
-  return {
-    kind,
-    title: `事件 ${event.index} ${readable.title || humanEventTitle(event)}`,
-    meta: [readable.summary, event.kind || event.type, formatDate(event.timestamp)].filter(Boolean).join(" · "),
-    action: "open-raw-event",
-    index: event.index,
-  };
-}
-
-function buildSourceRefs({ eventIndex, item, node, traceNode } = {}) {
-  const sources = [];
-  if (eventIndex != null) {
-    const event = eventByIndex(eventIndex);
-    sources.push({ label: "原始事件", value: `事件 ${eventIndex}`, eventIndex, data: event, lazy: true });
-  }
-  if (item) sources.push({ label: "关联项模型", value: itemRef(item), data: itemDebugPreview(item) });
-  if (node) sources.push({ label: "审计链节点", value: node.id, data: auditNodeDebugPreview(node) });
-  if (traceNode) sources.push({ label: "执行节点模型", value: traceNode.id, data: traceNodePreview(traceNode) });
-  return sources;
-}
-
-function rawEventSelectionActions(event) {
-  return [
-    { label: "读取完整原始事件", action: "switch-review-tab", tab: "source" },
-    { label: "复制摘要", copy: event.preview || humanEventTitle(event), toast: "已复制事件摘要" },
-    { label: "复制 JSON", action: "copy-debug" },
-  ];
-}
-
-function dedupeActions(actions) {
-  const seen = new Set();
-  const result = [];
-  for (const action of actions.filter(Boolean)) {
-    const key = [action.label, action.action, action.index, action.ref, action.id, action.threadId].join("|");
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(action);
-  }
-  return result;
-}
-
-function eventByIndex(index) {
-  if (index == null) return null;
-  return state.detail?.events?.find((event) => event.index === index) || state.rawDiagnostic?.pages.flatMap((page) => page.events || []).find((event) => event.index === index) || null;
-}
-
-function itemsForEventIndex(index) {
-  if (index == null) return [];
-  return (state.detail?.turns || []).flatMap((turn) => turn.items || []).filter((item) => item.sourceIndex === index || item.outputSourceIndex === index);
-}
-
-function auditNodesForEventIndex(index) {
-  if (index == null) return [];
-  return (state.detail?.audit?.nodes || buildAuditFallback(state.detail)?.nodes || []).filter((node) => node.eventIndex === index || node.sourceIndex === index);
-}
-
-function auditNodesForItemRef(ref) {
-  if (!ref) return [];
-  return (state.detail?.audit?.nodes || buildAuditFallback(state.detail)?.nodes || []).filter((node) => node.itemRef === ref);
-}
-
-function auditNodeFullBody(node, readable = null, item = null) {
-  if (!node) return "";
-  const direct = [node.body, node.outputBody, node.argumentsBody].find((value) => String(value || "").trim());
-  if (direct) return String(direct).trim();
-  const fallback = [readable?.body, readable?.summary, item?.text, item?.output, item?.arguments, node.summary, node.outputPreview, node.argumentsPreview].find((value) =>
-    String(value || "").trim(),
-  );
-  return fallback ? String(fallback).trim() : "";
-}
-
-function bestAuditBodyForItem(nodes = []) {
-  for (const type of ["evidence", "verification", "final", "intent", "reasoning", "action"]) {
-    const node = nodes.find((candidate) => candidate.type === type && auditNodeFullBody(candidate));
-    const body = auditNodeFullBody(node);
-    if (body) return body;
-  }
-  return auditNodeFullBody(nodes.find((node) => auditNodeFullBody(node))) || "";
-}
-
-function fullItemForTraceNode(node) {
-  const ref = itemRefFromTraceNode(node);
-  return ref ? findItemByRef(ref) : null;
-}
-
-function itemRiskLevel(item, auditNodes = []) {
-  const level = highestRiskLevel(auditNodes);
-  if (level !== "none") return level;
-  const text = [item.status, item.phase, item.text, item.output, item.payloadPreview].filter(Boolean).join("\n");
-  return /error|failed|失败|错误/i.test(text) ? "medium" : "none";
-}
-
-function traceRiskLevel(node, item) {
-  if (item) return itemRiskLevel(item, auditNodesForItemRef(itemRef(item)));
-  return /error|failed|失败|错误/i.test([node.status, node.label, node.subtitle].filter(Boolean).join(" ")) ? "medium" : "none";
-}
-
-function rawEventRiskLevel(event, auditNodes = []) {
-  const level = highestRiskLevel(auditNodes);
-  if (level !== "none") return level;
-  return /error|failed|失败|错误/i.test(JSON.stringify(event)) ? "medium" : "none";
-}
-
-function riskMetricValue(level) {
-  return level && level !== "none" ? auditRiskLabel(level) : "0";
-}
-
-function locateAuditNode(id) {
-  if (!id) return;
-  const target = findAuditNode(id);
-  if (!target) {
-    showToast("未找到审计链节点");
-    return;
-  }
-  if (state.viewMode !== "audit") {
-    state.viewMode = "audit";
-    cancelRemoteRefreshForNavigation();
-  }
-  renderMainContent();
-  selectAuditNode(target.id);
-}
-
-function reviewReference(context = buildReviewContext()) {
-  const session = state.detail?.session || {};
-  const parts = [context.kindLabel || context.kind || "对象", context.title || "未命名对象"];
-  if (context.badges?.length) parts.push(context.badges.join(" · "));
-  if (session.id) parts.push(`会话：${session.id}`);
-  return parts.filter(Boolean).join("\n");
-}
-
-async function copyReviewReference(context = buildReviewContext()) {
-  if (!state.detail) return;
-  await copyWithToast(reviewReference(context), context.kind === "session" ? "已复制会话引用" : "已复制对象引用");
-}
-
-function sensitiveCopyToast(prefix) {
-  return `${prefix}；可能包含会话正文、路径、命令参数、命令输出或原始内容，请谨慎分享`;
-}
-
-async function copyReviewEvidence(context = buildReviewContext()) {
-  if (!state.detail) return;
-  const pack = {
-    reference: reviewReference(context),
-    summary: context.summary,
-    evidence: context.evidence,
-    relations: context.relations,
-    sources: (context.sources || []).map((source) => ({ label: source.label, value: source.value, eventIndex: source.eventIndex ?? null })),
-  };
-  await copyWithToast(JSON.stringify(pack, null, 2), sensitiveCopyToast("已复制证据包"));
 }
 
 function toggleTraceNode(id) {
@@ -9835,91 +5720,6 @@ function toggleTraceNode(id) {
     state.expandedTraceNodeIds.add(id);
   }
   renderTrace();
-}
-
-async function copySelectedRawEvent() {
-  if (!state.detail) return;
-  if (state.selectedTraceNodeId) {
-    const node = findTraceNode(state.detail.trace?.root, state.selectedTraceNodeId);
-    if (!node) return;
-    await copyWithToast(JSON.stringify(traceNodePreview(node), null, 2), sensitiveCopyToast("已复制执行节点"));
-    return;
-  }
-  if (state.selectedAuditNodeId) {
-    const node = findAuditNode(state.selectedAuditNodeId);
-    if (!node) return;
-    await copyWithToast(JSON.stringify(auditNodeDebugPreview(node), null, 2), sensitiveCopyToast("已复制审计链节点"));
-    return;
-  }
-  if (state.selectedAuditTurnKey) {
-    const turn = findAuditTurn(state.selectedAuditTurnKey);
-    if (!turn) return;
-    await copyWithToast(JSON.stringify(auditTurnDebugPreview(turn), null, 2), sensitiveCopyToast("已复制轮次审计摘要"));
-    return;
-  }
-  if (state.selectedItemRef) {
-    const item = findItemByRef(state.selectedItemRef);
-    if (!item) return;
-    await copyWithToast(JSON.stringify(itemDebugPreview(item), null, 2), sensitiveCopyToast("已复制关联项 JSON"));
-    return;
-  }
-  if (state.selectedEventIndex == null) return;
-  const copyContext = createRawEventCopyContext(state.selectedEventIndex);
-  try {
-    const event = await loadRawEvent(copyContext.eventIndex);
-    if (!event || !rawEventCopyContextIsCurrent(copyContext)) return;
-    await copyWithToastWhileCurrent(
-      JSON.stringify(event, null, 2),
-      sensitiveCopyToast("已复制原始事件调试 JSON"),
-      () => rawEventCopyContextIsCurrent(copyContext),
-    );
-  } catch (error) {
-    if (isAbortError(error)) return;
-    if (isRawDiagnosticSnapshotInvalidated(error) && rawEventCopySnapshotWasInvalidated(copyContext)) {
-      showToast("复制失败：会话文件或诊断快照已变化，请重新开始读取。");
-      return;
-    }
-    if (rawEventCopyContextIsCurrent(copyContext)) showToast(`复制失败：${errorTextFromError(error)}`);
-  }
-}
-
-function createRawEventCopyContext(eventIndex) {
-  const detail = state.detail;
-  const sourceId = detail?.session?.sourceId || state.selectedSourceId;
-  return {
-    eventIndex,
-    sourceId,
-    sessionKey: state.selectedSessionKey,
-    diagnostic: state.rawDiagnostic,
-    snapshot: rawDiagnosticSnapshotForEvent(eventIndex),
-    viewMode: state.viewMode,
-    reviewTab: state.reviewTab,
-    selectionKey: reviewSelectionKey(),
-  };
-}
-
-function rawEventCopyContextIsCurrent(context) {
-  if (
-    context.sourceId !== state.selectedSourceId
-    || context.sessionKey !== state.selectedSessionKey
-    || context.eventIndex !== state.selectedEventIndex
-    || context.viewMode !== state.viewMode
-    || context.reviewTab !== state.reviewTab
-    || context.selectionKey !== reviewSelectionKey()
-  ) return false;
-  if (!context.snapshot) return true;
-  return state.rawDiagnostic === context.diagnostic && state.rawDiagnostic?.snapshot === context.snapshot;
-}
-
-function rawEventCopySnapshotWasInvalidated(context) {
-  return Boolean(
-    context.snapshot
-    && state.selectedSourceId === context.sourceId
-    && state.selectedSessionKey === context.sessionKey
-    && state.rawDiagnostic === context.diagnostic
-    && !state.rawDiagnostic?.snapshot
-    && state.rawDiagnostic?.error,
-  );
 }
 
 async function copyMarkdown() {
@@ -10060,6 +5860,10 @@ function traceNodePreview(node) {
   };
 }
 
+function sensitiveCopyToast(prefix) {
+  return `${prefix}；可能包含会话正文、路径、命令参数、命令输出或原始内容，请谨慎分享`;
+}
+
 function compactTraceItem(item) {
   if (!item) return item;
   return {
@@ -10118,13 +5922,6 @@ function readableToolItem(item) {
   return window.ToolSummary.summarizeToolItem(item, summaryRuleOptions());
 }
 
-function readableAuditNode(node, item = node?.itemRef ? findItemByRef(node.itemRef) : null) {
-  if (!node || !window.ToolSummary) {
-    return { matched: false, title: node?.title || "", summary: node?.summary || "", body: node?.summary || "", command: "" };
-  }
-  return window.ToolSummary.summarizeAuditNode(node, item, summaryRuleOptions());
-}
-
 function readableRawEvent(event) {
   if (isCompactEvent(event)) return readableCompactEvent(event);
   if (!event || !window.ToolSummary) {
@@ -10152,23 +5949,6 @@ function readableCompactEvent(event) {
     body: summary,
     command: "",
   };
-}
-
-function readableExecutionRow(row) {
-  const action = (row.auditNodes || []).find((node) => node.type === "action");
-  if (action) return readableAuditNode(action);
-  const item = row.itemRef ? findItemByRef(row.itemRef) : null;
-  if (row.type === "agent_message" || item?.type === "assistant-message") {
-    return {
-      matched: true,
-      title: row.title || itemTitle(item),
-      summary: firstLine(item?.text || row.subtitle || "", 220),
-      body: item?.text || row.subtitle || "",
-      command: "",
-    };
-  }
-  if (item) return readableToolItem(item);
-  return { matched: false, title: row.title || row.label || row.id, summary: row.subtitle || "", body: row.subtitle || "", command: "" };
 }
 
 function itemTitle(item) {
@@ -10224,28 +6004,6 @@ function itemIcon(item) {
   return "i";
 }
 
-function buildKeyInspectorEvents(detail) {
-  const byIndex = new Map((detail.events || []).map((event) => [event.index, event]));
-  const selected = new Map();
-
-  for (const turn of detail.turns || []) {
-    const items = turn.items || [];
-    const user = items.find((item) => item.type === "user-message" && isUsefulInspectorText(item.text));
-    const finalAssistant = [...items].reverse().find((item) => item.type === "assistant-message" && isUsefulInspectorText(item.text));
-    const token = [...items].reverse().find((item) => item.type === "token-count");
-    for (const item of [user, finalAssistant, token, ...items.filter(isHighValueInspectorItem)]) {
-      const event = eventForItem(item, byIndex);
-      if (event) selected.set(event.index, event);
-    }
-  }
-
-  for (const event of detail.events || []) {
-    if (isHighValueRawEvent(event)) selected.set(event.index, event);
-  }
-
-  return [...selected.values()].sort((left, right) => left.index - right.index);
-}
-
 function eventForItem(item, byIndex) {
   if (!item) return null;
   const direct = byIndex.get(item.sourceIndex);
@@ -10260,33 +6018,14 @@ function eventForItem(item, byIndex) {
   return null;
 }
 
-function isHighValueInspectorItem(item) {
-  if (!item) return false;
-  if (item.type === "context-compact") return true;
-  if (item.status && /error|fail|failed|失败|错误/i.test(item.status)) return true;
-  if (item.type !== "tool-call") {
-    return /error|fail|failed|失败|错误/i.test([item.eventType, item.responseType, item.phase, item.status].filter(Boolean).join(" "));
-  }
-  if (/spawn_agent|wait_agent|handoff/i.test(item.name || "")) return true;
-  return false;
-}
-
-function isHighValueRawEvent(event) {
-  const label = `${event.kind || ""}\n${event.title || ""}\n${event.payloadType || ""}`;
-  if (isCompactEvent(event)) return true;
-  if (/error|fail|failed|失败|错误/i.test(label)) return true;
-  if (/spawn_agent|wait_agent|subagent/i.test(label)) return true;
-  return false;
-}
-
 function samePreview(preview, text) {
-  const left = normalizeInspectorText(preview).slice(0, 80);
-  const right = normalizeInspectorText(text).slice(0, 80);
+  const left = normalizeDisplayText(preview).slice(0, 80);
+  const right = normalizeDisplayText(text).slice(0, 80);
   return Boolean(left && right && (left.includes(right) || right.includes(left)));
 }
 
-function isUsefulInspectorText(text) {
-  const normalized = normalizeInspectorText(text);
+function isUsefulDisplayText(text) {
+  const normalized = normalizeDisplayText(text);
   if (!normalized) return false;
   if (/AGENTS\.md instructions/i.test(normalized)) return false;
   if (/<INSTRUCTIONS>/i.test(normalized)) return false;
@@ -10296,7 +6035,7 @@ function isUsefulInspectorText(text) {
   return true;
 }
 
-function normalizeInspectorText(value) {
+function normalizeDisplayText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
 
@@ -10375,23 +6114,6 @@ function traceTypeLabel(type) {
   return type || "节点";
 }
 
-function emptyInspectorSection(title, subtitle) {
-  return `
-    <div class="section-title-row">
-      <h3>${escapeHtml(title)}</h3>
-    </div>
-    <div class="selection-empty">${escapeHtml(subtitle)}</div>
-  `;
-}
-
-async function copyInspectorText(text, message, { sensitive = true } = {}) {
-  if (!text) {
-    showToast("没有可复制内容");
-    return;
-  }
-  await copyWithToast(String(text), sensitive ? sensitiveCopyToast(message) : message);
-}
-
 async function handleMarkdownCodeCopy(event) {
   const button = event.target.closest("[data-markdown-code-copy]");
   if (!button) return;
@@ -10468,8 +6190,6 @@ function sessionListServerType() {
 
 function sourceSessionUrl(id, sourceId = state.selectedSourceId) {
   const params = new URLSearchParams();
-  const evidenceRiskRules = window.EvidenceRiskRules?.serializeForQuery?.(state.evidenceRiskRules);
-  if (evidenceRiskRules) params.set("evidenceRiskRules", evidenceRiskRules);
   const query = params.toString();
   return `/api/sources/${encodeURIComponent(sourceId)}/sessions/${encodeURIComponent(id)}${query ? `?${query}` : ""}`;
 }

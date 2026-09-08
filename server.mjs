@@ -4,14 +4,10 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildAuditChain } from "./src/audit-chain.mjs";
 import { assertSecureListenConfig, createAccessControl, requireAuthorizedRequest } from "./src/access-control.mjs";
 import { createDataSourceRegistry, sanitizeErrorMessage } from "./src/data-sources.mjs";
-import { evidenceRiskRulesFingerprint, normalizeEvidenceRiskRules, validateEvidenceRiskRules } from "./src/evidence-risk-rules.mjs";
 import { sendError, sendJson, sendText, serveStaticFile } from "./src/http-response.mjs";
 import { createRendererConfigStore } from "./src/renderer-config.mjs";
-import { createHarnessDefectRegistryReader } from "./src/harness-defect-registry.mjs";
-import { createReviewContextRegistryReader } from "./src/review-context-registry.mjs";
 import { createSnapshotRootCommitCoordinator } from "./src/snapshot-root-commit-coordinator.mjs";
 import { createDeadlineSignal, fetchWithDeadline, isAbortError as isRemoteAbortError, readLimitedResponseText } from "./src/remote-http.mjs";
 import { createSessionDetailCoordinator } from "./src/session-detail-coordinator.mjs";
@@ -102,12 +98,6 @@ let dataSources = createDataSourceRegistry({
   snapshotCommitCoordinator,
 });
 const sourceContexts = new Map();
-const harnessRegistry = createHarnessDefectRegistryReader({
-  rootDir: process.env.HARNESS_DEFECT_LAB_ROOT || path.join(process.cwd(), ".harness-defects"),
-});
-const reviewContextRegistry = createReviewContextRegistryReader({
-  rootDir: process.env.HARNESS_DEFECT_LAB_ROOT || path.join(process.cwd(), ".harness-defects"),
-});
 
 function readPositiveEnv(name, fallback, maximum) {
   const value = Number(process.env[name]);
@@ -1066,9 +1056,7 @@ async function getSessionDetail(context, id, options = {}) {
   const session = await getSessionById(context, id, { signal: options.signal });
   if (!session || !await sessionFileExists(context, session, options)) return null;
   const maxDepth = options.maxDepth ?? 3;
-  const evidenceRiskRules = normalizeEvidenceRiskRules(options.evidenceRiskRules);
-  const evidenceRiskRulesKey = evidenceRiskRulesFingerprint(evidenceRiskRules);
-  const cacheKey = `detail:${context.source.id}:${id}:maxDepth=${maxDepth}:evidenceRiskRules=${evidenceRiskRulesKey}`;
+  const cacheKey = `detail:${context.source.id}:${id}:maxDepth=${maxDepth}`;
   const result = await context.sessionDetailCoordinator.read(session, {
     cacheKey,
     signal: options.signal,
@@ -1102,7 +1090,6 @@ async function getSessionDetail(context, id, options = {}) {
       const trace = buildTrace(sessionForDetail, rawEvents, analysisEvents, turns, hierarchy);
       const timing = buildSessionTiming(trace);
       const compact = await buildCompactView(context, { session: sessionForDetail, normalizedEvents: analysisEvents, turns, hierarchy, options: { maxDepth, signal } });
-      const audit = buildAuditChain({ turns, evidenceRiskRules });
       return {
         complete: true,
         readState: { state: "ready", code: "session_read_complete" },
@@ -1113,7 +1100,6 @@ async function getSessionDetail(context, id, options = {}) {
         trace,
         timing,
         compact,
-        audit,
       };
     },
   });
@@ -1154,7 +1140,6 @@ function changingSessionDetail(context, session, stat, readState) {
     trace: null,
     timing: null,
     compact: null,
-    audit: null,
   };
 }
 
@@ -1276,7 +1261,7 @@ async function querySessionEvents(context, id, params, projectionOptions = {}, o
 
 async function querySessionView(context, id, params, projectionOptions = {}, options = {}) {
   const query = parseSessionViewQuery(params);
-  const detail = await getSessionDetail(context, id, { maxDepth: query.maxDepth, evidenceRiskRules: parseEvidenceRiskRulesParam(params), signal: options.signal });
+  const detail = await getSessionDetail(context, id, { maxDepth: query.maxDepth, signal: options.signal });
   if (!detail) return null;
   const base = {
     session: projectSessionForApi(detail.session, {}, projectionOptions),
@@ -1290,7 +1275,6 @@ async function querySessionView(context, id, params, projectionOptions = {}, opt
   if (query.view === "turns") return { ...base, turns: detail.turns };
   if (query.view === "trace") return { ...base, trace: detail.trace };
   if (query.view === "timing") return { ...base, timing: detail.timing };
-  if (query.view === "audit") return { ...base, audit: detail.audit };
   return { ...base, detail };
 }
 
@@ -1330,20 +1314,6 @@ async function getSessionEvent(context, id, index, options = {}) {
   return projectEventForApi(event, index, { includePayload: true, includeRaw: true });
 }
 
-function parseEvidenceRiskRulesParam(params) {
-  const text = params.get("evidenceRiskRules");
-  if (!text) return [];
-  try {
-    const rules = JSON.parse(text);
-    const errors = validateEvidenceRiskRules(rules);
-    if (errors.length) throw new Error(errors[0].message);
-    return rules;
-  } catch {
-    const error = new Error("Invalid evidenceRiskRules parameter");
-    error.status = 400;
-    throw error;
-  }
-}
 
 function createRemoteServiceError(code, message, status = 502, cause = null) {
   const error = new Error(sanitizeRemoteMessage(message));
@@ -1762,10 +1732,7 @@ function requestAbortSubscription(req, res) {
 function isReadOnlyApiPath(pathname) {
   return (
     pathname === "/api/health" ||
-    pathname === "/api/harness" ||
-    pathname.startsWith("/api/harness/") ||
-    pathname === "/api/review-contexts" ||
-    pathname.startsWith("/api/review-contexts/") ||
+
     pathname === "/api/sources" ||
     pathname === "/api/sessions" ||
     pathname.startsWith("/api/sessions/") ||
@@ -1777,17 +1744,6 @@ function isReadOnlyApiPath(pathname) {
   );
 }
 
-function filterHarnessOverview(overview, searchParams) {
-  if (overview.state !== "ready") return overview;
-  const query = String(searchParams.get("q") || "").trim().toLocaleLowerCase();
-  const status = String(searchParams.get("status") || "all");
-  const matches = (value) => !query || JSON.stringify(value).toLocaleLowerCase().includes(query);
-  return {
-    ...overview,
-    candidates: overview.candidates.filter((item) => (status === "all" || item.status === status) && matches(item)),
-    defects: overview.defects.filter((item) => (status === "all" || item.status === status) && matches(item)),
-  };
-}
 
 async function route(req, res) {
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
@@ -1808,28 +1764,7 @@ async function route(req, res) {
         time: new Date().toISOString(),
       });
     }
-    if (pathname === "/api/harness") {
-      return sendJson(res, 200, filterHarnessOverview(await harnessRegistry.readOverview(), url.searchParams));
-    }
-    if (pathname === "/api/review-contexts") return sendJson(res, 200, await reviewContextRegistry.readOverview());
-    const reviewContextMatch = pathname.match(/^\/api\/review-contexts\/([^/]+)$/);
-    if (reviewContextMatch) {
-      const result = await reviewContextRegistry.readContext(decodeURIComponent(reviewContextMatch[1]), url.searchParams.get("revision"));
-      if (!result) return sendError(res, 404, "Not found");
-      return sendJson(res, 200, result);
-    }
-    const harnessCandidateMatch = pathname.match(/^\/api\/harness\/candidates\/([^/]+)$/);
-    if (harnessCandidateMatch) {
-      const result = await harnessRegistry.readCandidate(decodeURIComponent(harnessCandidateMatch[1]), url.searchParams.get("revision"));
-      if (!result) return sendError(res, 404, "Not found");
-      return sendJson(res, 200, result);
-    }
-    const harnessDefectMatch = pathname.match(/^\/api\/harness\/defects\/([^/]+)$/);
-    if (harnessDefectMatch) {
-      const result = await harnessRegistry.readDefect(decodeURIComponent(harnessDefectMatch[1]), url.searchParams.get("revision"));
-      if (!result) return sendError(res, 404, "Not found");
-      return sendJson(res, 200, result);
-    }
+
     if (pathname === "/api/sources") {
       return sendJson(res, 200, { sources: dataSources.listSources() });
     }
@@ -1963,10 +1898,7 @@ async function route(req, res) {
     if (sourceSessionMatch) {
       const context = getSourceContext(decodeURIComponent(sourceSessionMatch[1]));
       if (!context) return sendError(res, 404, "Data source not found");
-      const detail = await getSessionDetail(context, decodeURIComponent(sourceSessionMatch[2]), {
-        evidenceRiskRules: parseEvidenceRiskRulesParam(url.searchParams),
-        signal: requestSubscription.signal,
-      });
+      const detail = await getSessionDetail(context, decodeURIComponent(sourceSessionMatch[2]), { signal: requestSubscription.signal });
       if (!detail) return sendError(res, 404, "Session not found");
       return sendJson(res, 200, detail);
     }
@@ -2034,10 +1966,7 @@ async function route(req, res) {
     if (sessionMatch) {
       const context = resolveRequestSource(url);
       if (!context) return sendError(res, 404, "Data source not found");
-      const detail = await getSessionDetail(context, decodeURIComponent(sessionMatch[1]), {
-        evidenceRiskRules: parseEvidenceRiskRulesParam(url.searchParams),
-        signal: requestSubscription.signal,
-      });
+      const detail = await getSessionDetail(context, decodeURIComponent(sessionMatch[1]), { signal: requestSubscription.signal });
       if (!detail) return sendError(res, 404, "Session not found");
       return sendJson(res, 200, detail);
     }

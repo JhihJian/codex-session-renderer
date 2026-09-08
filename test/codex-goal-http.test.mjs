@@ -92,7 +92,7 @@ test("HTTP surfaces project a verified Codex goal while raw diagnostics retain t
   assert.equal(detail.body.session.title, objective);
   assert.equal(detail.body.turns[0].items.filter((item) => item.type === "user-message").length, 1);
   assert.equal(detail.body.turns[0].items.find((item) => item.type === "user-message").text, objective);
-  assert.equal(JSON.stringify(detail.body.audit).includes("Tokens remaining: unbounded"), false);
+  assert.equal(JSON.stringify(detail.body.turns).includes("Tokens remaining: unbounded"), false);
 
   const [archive, semanticSearch, controlSearch] = await Promise.all([
     json(`/api/sources/local/prompts?scope=all&q=${encodeURIComponent(objective)}`),

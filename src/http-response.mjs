@@ -36,7 +36,7 @@ const publicErrorMessages = new Map([
   ["Event not found", "事件不存在"],
   ["Forbidden", "禁止访问该资源"],
   ["Internal server error", "服务内部错误"],
-  ["Invalid evidenceRiskRules parameter", "evidenceRiskRules 参数无效"],
+
   ["Invalid JSON body", "请求体不是有效 JSON"],
   ["Method not allowed", "请求方法不允许"],
   ["Not found", "未找到资源"],
