@@ -3,7 +3,7 @@ const summaryLimit = 600;
 function piEmbeddedSubagentCall(argumentsValue) {
   const argumentsObject = parseObject(argumentsValue);
   if (!argumentsObject) return null;
-  const requested = Array.isArray(argumentsObject.tasks)
+  const requested = Array.isArray(argumentsObject.tasks) && argumentsObject.tasks.length
     ? argumentsObject.tasks.map((task, index) => requestedTask(task, index)).filter(Boolean)
     : [requestedTask(argumentsObject, 0)].filter(Boolean);
   if (!requested.length && !stringValue(argumentsObject.mode)) return null;

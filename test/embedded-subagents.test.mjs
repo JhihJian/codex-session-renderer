@@ -21,6 +21,11 @@ test("Pi 内嵌 subagent 缺少结构化结果时保留未知状态", () => {
   assert.deepEqual(result.results, []);
 });
 
+test("Pi 单代理调用在携带空 tasks 数组时回退顶层任务", () => {
+  const batch = piEmbeddedSubagentCall(JSON.stringify({ agent: "reviewer", task: "审阅", tasks: [] }));
+  assert.deepEqual(batch.requested, [{ index: 0, agent: "reviewer", task: "审阅" }]);
+});
+
 test("Pi 内嵌 subagent 以非零退出码标识失败", () => {
   const batch = piEmbeddedSubagentCall(JSON.stringify({ agent: "reviewer", task: "审阅" }));
   const result = piEmbeddedSubagentResult(batch, { message: { details: { results: [{ agent: "reviewer", agentSource: "unknown", exitCode: 1 }] } } });
