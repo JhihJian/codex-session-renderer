@@ -10,11 +10,31 @@ function piEmbeddedSubagentCall(argumentsValue) {
   return { source: "pi-agent", mode: stringValue(argumentsObject.mode) || "single", agentScope: stringValue(argumentsObject.agentScope), requested, results: [], status: "pending" };
 }
 
-function piEmbeddedSubagentResult(batch, rawEvent) {
+function piEmbeddedSubagentResult(batch, rawEvent, output = "") {
   if (!batch || batch.source !== "pi-agent") return batch || null;
   const details = rawEvent?.message?.details ?? rawEvent?.payload?.message?.details;
-  const results = (Array.isArray(details?.results) ? details.results : []).map((result, index) => resultProjection(result, index)).filter(Boolean);
+  const rawResults = Array.isArray(details?.results) ? details.results : [];
+  const results = rawResults.length
+    ? rawResults.map((result, index) => resultProjection(result, index)).filter(Boolean)
+    : resultlessFailure(batch, rawEvent, output);
   return { ...batch, mode: stringValue(details?.mode) || batch.mode, agentScope: stringValue(details?.agentScope) || batch.agentScope, results, status: batchStatus(results) };
+}
+
+function resultlessFailure(batch, rawEvent, output) {
+  const text = String(output || "").trim();
+  const isInvalidRequest = /^Invalid parameters\./i.test(text);
+  const isError = rawEvent?.message?.isError === true;
+  if (!isInvalidRequest && !isError) return [];
+  return [{
+    index: 0,
+    agent: batch.requested?.[0]?.agent || "未指定代理",
+    agentSource: null,
+    status: isInvalidRequest ? "invalid_request" : "failed",
+    exitCode: null,
+    stopReason: null,
+    summary: truncate(text, summaryLimit),
+    summaryLength: text.length,
+  }];
 }
 
 function requestedTask(value, index) {

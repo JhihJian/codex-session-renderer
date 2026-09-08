@@ -1828,7 +1828,7 @@ function registerToolOutput(turn, activeCall, event, sourceIndex) {
     target.status = payload.status || (payload.success === false ? "failed" : "completed");
     target.completedAt = event.timestamp;
     target.outputSourceIndex = sourceIndex;
-    if (target.embeddedSubagents) target.embeddedSubagents = piEmbeddedSubagentResult(target.embeddedSubagents, event.raw);
+    if (target.embeddedSubagents) target.embeddedSubagents = piEmbeddedSubagentResult(target.embeddedSubagents, event.raw, output);
     return;
   }
 

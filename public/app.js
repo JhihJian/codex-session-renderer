@@ -3350,8 +3350,11 @@ function handoffSessionStatus(detail) {
 }
 
 function handoffChildText(detail) {
-  const count = detail.trace?.hierarchy?.children?.length || 0;
-  return count ? String(count) + " 个子代理" : "没有子代理";
+  const childCount = detail.trace?.hierarchy?.children?.length || 0;
+  const embeddedCount = (detail.turns || []).flatMap((turn) => turn.items || []).filter((item) => item.embeddedSubagents).length;
+  const parts = [childCount ? `${childCount} 个子会话` : "无独立子会话"];
+  if (embeddedCount) parts.push(`${embeddedCount} 次内嵌调用`);
+  return parts.join(" · ");
 }
 
 function handoffFact(label, value, target) {
@@ -4431,20 +4434,21 @@ function renderCompactEmbeddedRun(batch, index, query) {
   const rawButton = eventIndex != null
     ? `<button class="ghost-button small compact-embedded-raw" type="button" data-compact-event-index="${escapeAttr(String(eventIndex))}" aria-label="查看第 ${index + 1} 次子代理调用的原始结果事件">原始记录</button>`
     : "";
-  const taskRows = compactEmbeddedTaskViews(batch).map((task) => renderCompactEmbeddedTask(task, batch, index, query)).join("");
+  const tasks = compactEmbeddedTaskViews(batch);
+  const taskRows = tasks.map((task) => renderCompactEmbeddedTask(task, batch, index, query, tasks.length > 1)).join("");
   return `<li class="compact-embedded-run status-${escapeAttr(status)}"><div class="compact-embedded-run-head"><span class="compact-embedded-run-index">调用 ${index + 1}</span><span class="compact-embedded-status">${escapeHtml(compactEmbeddedSubagentStatusLabel(status))}</span>${rawButton}</div><div class="compact-embedded-task-list">${taskRows || `<div class="compact-embedded-empty">未记录可展示任务。</div>`}</div></li>`;
 }
 
-function renderCompactEmbeddedTask(task, batch, runIndex, query) {
+function renderCompactEmbeddedTask(task, batch, runIndex, query, showTaskStatus) {
   const status = task.status || batch.status || "unknown";
-  const meta = [task.agentSource, task.exitCode != null ? `退出 ${task.exitCode}` : "", task.stopReason].filter(Boolean).join(" · ");
+  const meta = task.exitCode != null && task.exitCode !== 0 ? `退出 ${task.exitCode}` : "";
   const taskTitle = compactEmbeddedTaskTitle(task.task);
   const preview = compactEmbeddedPreview(task.summary);
   const reportId = `embedded-report-${batch.turnIndex}-${batch.itemIndex}-${task.index}`;
   const report = task.summary
     ? `<div class="compact-embedded-report-preview">${highlight(escapeHtml(preview), query)}</div><details class="compact-embedded-report"><summary aria-controls="${escapeAttr(reportId)}">查看完整回报</summary><div id="${escapeAttr(reportId)}">${renderMarkdownMessage(task.summary, query)}</div></details>`
     : "";
-  return `<article class="compact-embedded-task status-${escapeAttr(status)}"><span class="compact-embedded-task-status">${escapeHtml(compactEmbeddedSubagentStatusLabel(status))}</span><div class="compact-embedded-task-body"><div class="compact-embedded-task-main"><strong>${highlight(escapeHtml(task.agent || "未指定代理"), query)}</strong>${taskTitle ? `<span>${highlight(escapeHtml(taskTitle), query)}</span>` : ""}</div>${meta ? `<em>${escapeHtml(meta)}</em>` : ""}${report}</div></article>`;
+  return `<article class="compact-embedded-task${showTaskStatus ? "" : " single-task"} status-${escapeAttr(status)}">${showTaskStatus ? `<span class="compact-embedded-task-status">${escapeHtml(compactEmbeddedSubagentStatusLabel(status))}</span>` : ""}<div class="compact-embedded-task-body"><div class="compact-embedded-task-main"><strong>${highlight(escapeHtml(task.agent || "未指定代理"), query)}</strong>${taskTitle ? `<span>${highlight(escapeHtml(taskTitle), query)}</span>` : ""}</div>${meta ? `<em>${escapeHtml(meta)}</em>` : ""}${report}</div></article>`;
 }
 
 function compactEmbeddedTaskViews(batch) {
@@ -4468,7 +4472,7 @@ function compactEmbeddedSubagentGroupSummary(batches) {
 
 function compactEmbeddedTaskTitle(value) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
-  return text.length > 108 ? `${text.slice(0, 108)}...` : text;
+  return text.length > 78 ? `${text.slice(0, 78)}...` : text;
 }
 
 function compactEmbeddedPreview(value) {

@@ -26,6 +26,13 @@ test("Pi 单代理调用在携带空 tasks 数组时回退顶层任务", () => {
   assert.deepEqual(batch.requested, [{ index: 0, agent: "reviewer", task: "审阅" }]);
 });
 
+test("Pi 参数校验失败在没有 results 时显示为请求无效", () => {
+  const batch = piEmbeddedSubagentCall(JSON.stringify({ agent: "reviewer", task: "审阅" }));
+  const result = piEmbeddedSubagentResult(batch, { message: { details: { results: [] } } }, "Invalid parameters. Provide exactly one mode.");
+  assert.equal(result.status, "invalid_request");
+  assert.equal(result.results[0].status, "invalid_request");
+});
+
 test("Pi 内嵌 subagent 以非零退出码标识失败", () => {
   const batch = piEmbeddedSubagentCall(JSON.stringify({ agent: "reviewer", task: "审阅" }));
   const result = piEmbeddedSubagentResult(batch, { message: { details: { results: [{ agent: "reviewer", agentSource: "unknown", exitCode: 1 }] } } });
