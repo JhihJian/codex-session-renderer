@@ -20,6 +20,7 @@ function normalizeSessionEvent(rawEvent, index = null) {
   const textParts = extractTextParts(payload, raw);
   const attachments = extractAttachments(payload, raw);
   const reasoning = extractReasoning(payload, raw, semanticKind);
+  const tokenUsage = extractTokenUsage(payload, raw);
   const compact = extractCompact(payload, raw, kind);
   const toolCalls = extractEmbeddedToolCalls(payload, raw);
   const toolName = semanticKind === "tool_call" || semanticKind === "tool_result" ? toolNameFromPayload(payload) : null;
@@ -56,6 +57,7 @@ function normalizeSessionEvent(rawEvent, index = null) {
     toolCalls,
     attachments,
     reasoning,
+    tokenUsage,
     compact,
     encrypted: Boolean(reasoning?.encrypted),
     payloadSize: safeJsonLength(raw.payload ?? null),
@@ -63,6 +65,33 @@ function normalizeSessionEvent(rawEvent, index = null) {
   };
   normalized.searchText = buildSearchText(normalized);
   return normalized;
+}
+
+function extractTokenUsage(payload, raw) {
+  const sources = [
+    payload?.last_token_usage,
+    payload?.lastTokenUsage,
+    payload?.usage,
+    payload?.info?.last_token_usage,
+    payload?.info?.lastTokenUsage,
+    raw?.usage,
+    raw?.message?.usage,
+  ].filter((value) => isObject(value));
+  for (const source of sources) {
+    const outputTokens = firstTokenNumber(source, ["output_tokens", "outputTokens", "completion_tokens", "completionTokens", "output"]);
+    if (outputTokens == null) continue;
+    const reasoningTokens = firstTokenNumber(source, ["reasoning_output_tokens", "reasoningOutputTokens", "reasoning_tokens", "reasoningTokens", "reasoning"]) ?? 0;
+    return { outputTokens, reasoningTokens, generatedTokens: outputTokens + reasoningTokens };
+  }
+  return null;
+}
+
+function firstTokenNumber(source, keys) {
+  for (const key of keys) {
+    const value = Number(source?.[key]);
+    if (Number.isFinite(value) && value >= 0) return Math.round(value);
+  }
+  return null;
 }
 
 function normalizeDiagnosticEvent(rawEvent, index = null) {

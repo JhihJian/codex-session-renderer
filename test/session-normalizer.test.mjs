@@ -108,6 +108,20 @@ test("normalizer maps Pi Agent message records to stable message and tool fields
   assert.equal(toolResult.toolOutput, "Successfully wrote file");
 });
 
+test("normalizer extracts generated token usage from Codex and Pi records", () => {
+  const codex = normalizeSessionEvent({
+    type: "event_msg",
+    payload: { type: "token_count", info: { last_token_usage: { output_tokens: 120, reasoning_output_tokens: 80 } } },
+  });
+  const pi = normalizeSessionEvent({
+    type: "message",
+    message: { role: "assistant", content: [{ type: "text", text: "done" }], usage: { output: 42, reasoning: 8 } },
+  });
+
+  assert.deepEqual(codex.tokenUsage, { outputTokens: 120, reasoningTokens: 80, generatedTokens: 200 });
+  assert.deepEqual(pi.tokenUsage, { outputTokens: 42, reasoningTokens: 8, generatedTokens: 50 });
+});
+
 test("coalesceNormalizedEvents joins streamed message delta chunks by message id", () => {
   const events = [
     { type: "assistant", message_id: "msg-1", delta: true, content: [{ text: "第一段" }] },

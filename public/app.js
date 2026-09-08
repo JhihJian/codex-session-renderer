@@ -4318,8 +4318,9 @@ function renderTimingView(timing) {
         ${renderStatsMetric("可解释执行", formatTimingDuration(session.coverageMs), "时间区间覆盖")}
         ${renderStatsMetric("时间覆盖率", `${session.coveragePercent || 0}%`, "执行覆盖 / 总时长")}
         ${renderStatsMetric("并行峰值", `${session.parallelism?.peak || 0} 路`, formatTimingDuration(session.parallelism?.overlapMs, "重叠"))}
+        ${renderStatsMetric("LLM 生成速率", formatTokenRate(session.llm?.generatedTokensPerSecond), session.llm?.generatedTokens != null ? `${compactNumber(session.llm.generatedTokens)} token / ${session.llm.responseCount} 段` : "缺少输出 token 用量")}
       </div>
-      <p class="timing-note">分类按时间区间覆盖计算。并行执行会产生重叠，分类时长总和可以大于总墙钟时长。</p>
+      <p class="timing-note">工具时长来自调用与返回事件。LLM 等待和 token/s 由相邻事件边界推算，非供应商逐 token 流式遥测。</p>
       <div class="timing-buckets" aria-label="时间投入分类">
         ${buckets.length ? buckets.map((bucket) => {
           const refs = bucket.nodeRefs || [];
@@ -4348,7 +4349,8 @@ function renderTimingGroups(groups) {
     const incomplete = group.incompleteCount ? ` · 未完成 ${group.incompleteCount}` : "";
     const gap = ref.actionable === false;
     const context = timingContextLabel(ref.contextUsage);
-    const value = `${formatTimingDuration(group.coverageMs)} · 平均 ${formatTimingDuration(group.averageDurationMs)} · 最长 ${formatTimingDuration(group.maxDurationMs)}${context ? ` · ${context}` : ""}${failed}${incomplete}${gap ? " · 无原始事件" : ""}`;
+    const throughput = group.generatedTokens != null ? ` · ${compactNumber(group.generatedTokens)} token · ${formatTokenRate(group.generatedTokensPerSecond)}` : "";
+    const value = `${formatTimingDuration(group.coverageMs)} · 平均 ${formatTimingDuration(group.averageDurationMs)} · 最长 ${formatTimingDuration(group.maxDurationMs)}${throughput}${context ? ` · ${context}` : ""}${failed}${incomplete}${gap ? " · 无原始事件" : ""}`;
     const content = `<strong>${escapeHtml(group.label)} <small>${group.count} 次</small></strong><span>${escapeHtml(value)}</span>`;
     return gap ? `<div class="timing-detail-row timing-gap-row">${content}</div>` : `<button class="timing-detail-row" type="button" data-timing-node-id="${escapeAttr(ref.traceNodeId || "")}" data-timing-event-index="${escapeAttr(ref.eventIndex ?? "")}">${content}</button>`;
   }).join("")}${groups.length > 8 ? `<span class="timing-more">还有 ${groups.length - 8} 个时间区间</span>` : ""}</div>`;
@@ -4364,6 +4366,10 @@ function timingContextLabel(usage) {
 
 function timingKindLabel(kind) {
   return { observed: "实测", mixed: "混合", estimated: "估算", partial: "部分区间", unavailable: "未记录" }[kind] || "未记录";
+}
+
+function formatTokenRate(value) {
+  return value == null ? "未记录" : `${value} token/s`;
 }
 
 function formatTimingDuration(ms, prefix = "") {

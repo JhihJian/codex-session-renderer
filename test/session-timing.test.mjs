@@ -84,6 +84,39 @@ test("session timing exposes inferred LLM response intervals with model and cont
   assert.equal(responses.groups[0].refs[0].durationKind, "estimated");
 });
 
+test("session timing reports generated tokens and estimated LLM throughput", () => {
+  const timing = buildSessionTiming({
+    timing: {
+      startedAt: "2026-07-08T10:00:00.000Z",
+      completedAt: "2026-07-08T10:00:20.000Z",
+      estimated: true,
+      responses: [{
+        id: "response:0:2",
+        turnIndex: 0,
+        startedAt: "2026-07-08T10:00:05.000Z",
+        completedAt: "2026-07-08T10:00:15.000Z",
+        startMs: Date.parse("2026-07-08T10:00:05.000Z"),
+        endMs: Date.parse("2026-07-08T10:00:15.000Z"),
+        durationMs: 10_000,
+        model: "gpt-5",
+        eventIndex: 2,
+        responseType: "token-count",
+        outputTokens: 300,
+        reasoningTokens: 200,
+        generatedTokens: 500,
+      }],
+    },
+    root: { type: "thread", children: [] },
+  });
+  const response = timing.buckets.find((bucket) => bucket.id === "llm_response");
+
+  assert.equal(response.generatedTokens, 500);
+  assert.equal(response.generatedTokensPerSecond, 50);
+  assert.equal(response.groups[0].generatedTokens, 500);
+  assert.equal(response.groups[0].generatedTokensPerSecond, 50);
+  assert.deepEqual(timing.session.llm, { generatedTokens: 500, generatedTokensPerSecond: 50, responseCount: 1 });
+});
+
 test("session timing reports partial nodes without inventing duration", () => {
   const timing = buildSessionTiming({
     timing: { startedAt: "2026-07-08T10:00:00.000Z", completedAt: "2026-07-08T10:00:05.000Z", estimated: true },

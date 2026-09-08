@@ -892,6 +892,8 @@ function buildTrace(session, rawEvents, normalizedEvents, turns, hierarchy) {
 
 function buildInferredResponseIntervals(turns, session) {
   return turns.flatMap((turn, turnIndex) => {
+    const measured = measuredResponseIntervals(turn, turnIndex, session);
+    if (measured.length) return measured;
     let previousBoundary = turn.startedAt;
     return turn.items.flatMap((item, itemIndex) => {
       if (!["reasoning", "assistant-message"].includes(item.type)) {
@@ -918,9 +920,53 @@ function buildInferredResponseIntervals(turns, session) {
         contextUsage,
         eventIndex: item.sourceIndex ?? null,
         responseType: item.type,
+        outputTokens: null,
+        reasoningTokens: null,
+        generatedTokens: null,
       }];
     });
   });
+}
+
+function measuredResponseIntervals(turn, turnIndex, session) {
+  let requestBoundary = turn.startedAt;
+  const intervals = [];
+  for (const [itemIndex, item] of turn.items.entries()) {
+    if (item.type === "user-message") {
+      requestBoundary = item.timestamp || requestBoundary;
+      continue;
+    }
+    if (item.type === "tool-call" && item.completedAt) {
+      const completed = toMs(item.completedAt);
+      const current = toMs(requestBoundary);
+      if (completed != null && (current == null || completed > current)) requestBoundary = item.completedAt;
+      continue;
+    }
+    if (!item.tokenUsage || !["token-count", "assistant-message"].includes(item.type)) continue;
+    const startMs = toMs(requestBoundary);
+    const endMs = toMs(item.timestamp);
+    if (startMs == null || endMs == null || endMs <= startMs) continue;
+    const outputTokens = item.tokenUsage.outputTokens;
+    const reasoningTokens = item.tokenUsage.reasoningTokens || 0;
+    intervals.push({
+      id: `response:${turnIndex}:${itemIndex}`,
+      turnIndex,
+      startedAt: requestBoundary,
+      completedAt: item.timestamp,
+      startMs,
+      endMs,
+      durationMs: endMs - startMs,
+      durationKind: "estimated",
+      model: turn.context?.model || session.model || null,
+      contextUsage: item.type === "assistant-message" ? contextUsageForAssistantMessage(turn.items, itemIndex) : latestContextUsage(turn.items, itemIndex),
+      eventIndex: item.sourceIndex ?? null,
+      responseType: item.type,
+      outputTokens,
+      reasoningTokens,
+      generatedTokens: item.tokenUsage.generatedTokens,
+    });
+  }
+  return intervals;
 }
 
 function latestContextUsage(items, itemIndex) {
@@ -1255,6 +1301,7 @@ function compactTraceItem(item) {
     outputLength: output.originalLength || null,
     truncated: text.truncated || args.truncated || output.truncated,
     info: compactTraceInfo(item.info),
+    tokenUsage: item.tokenUsage || null,
   };
 }
 
@@ -1487,6 +1534,7 @@ function buildTurns(events) {
           text: event.text ?? "",
           attachments: event.attachments,
           messageId: event.messageId,
+          tokenUsage: event.tokenUsage,
         });
       }
       for (const toolCall of event.toolCalls || []) registerEmbeddedToolCall(current, activeCall, event, toolCall, sourceIndex);
@@ -1500,6 +1548,7 @@ function buildTurns(events) {
         sourceIndex,
         timestamp: event.timestamp,
         info: payload.info ?? {},
+        tokenUsage: event.tokenUsage,
       });
       continue;
     }

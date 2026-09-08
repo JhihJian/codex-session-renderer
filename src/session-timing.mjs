@@ -67,7 +67,7 @@ function responseIntervals(trace) {
       completedAt: response.completedAt,
       durationEstimated: true,
       status: "inferred",
-      detail: { item: { name: response.model || "未知模型", sourceIndex: response.eventIndex, contextUsage: response.contextUsage, responseType: response.responseType } },
+      detail: { item: { name: response.model || "未知模型", sourceIndex: response.eventIndex, contextUsage: response.contextUsage, responseType: response.responseType, outputTokens: response.outputTokens, reasoningTokens: response.reasoningTokens, generatedTokens: response.generatedTokens } },
     },
     turnIndex: response.turnIndex,
     bucketId: "llm_response",
@@ -78,6 +78,9 @@ function responseIntervals(trace) {
     eventIndex: response.eventIndex,
     model: response.model,
     contextUsage: response.contextUsage,
+    outputTokens: response.outputTokens,
+    reasoningTokens: response.reasoningTokens,
+    generatedTokens: response.generatedTokens,
   }));
 }
 
@@ -134,6 +137,9 @@ function nodeRef(item) {
     toolName: item.model || detail.name || null,
     model: item.model || null,
     contextUsage: item.contextUsage || detail.contextUsage || null,
+    outputTokens: item.outputTokens ?? detail.outputTokens ?? null,
+    reasoningTokens: item.reasoningTokens ?? detail.reasoningTokens ?? null,
+    generatedTokens: item.generatedTokens ?? detail.generatedTokens ?? null,
     callId: detail.callId || null,
     status: detail.status || item.node.status || null,
     arguments: detail.arguments || null,
@@ -155,6 +161,8 @@ function buildGroups(intervals) {
   return [...groups.values()].map((group) => {
     const complete = group.intervals.filter((item) => item.durationMs != null);
     const durations = complete.map((item) => item.durationMs).sort((a, b) => a - b);
+    const generatedTokens = complete.reduce((sum, item) => sum + (Number.isFinite(item.generatedTokens) ? item.generatedTokens : 0), 0);
+    const tokenDurationMs = complete.reduce((sum, item) => sum + (Number.isFinite(item.generatedTokens) ? item.durationMs : 0), 0);
     return {
       key: group.key,
       label: group.label,
@@ -163,6 +171,8 @@ function buildGroups(intervals) {
       nodeDurationMs: durations.reduce((sum, duration) => sum + duration, 0),
       averageDurationMs: durations.length ? Math.round(durations.reduce((sum, duration) => sum + duration, 0) / durations.length) : null,
       maxDurationMs: durations.at(-1) ?? null,
+      generatedTokens: generatedTokens || null,
+      generatedTokensPerSecond: generatedTokens && tokenDurationMs ? Math.round(((generatedTokens * 1000) / tokenDurationMs) * 100) / 100 : null,
       failedCount: group.intervals.filter((item) => /fail|error|abort/i.test(item.node.status || item.node.detail?.item?.status || "")).length,
       incompleteCount: group.intervals.filter((item) => item.durationMs == null).length,
       refs: group.refs,
@@ -174,6 +184,8 @@ function buildBucket(id, label, intervals, totalMs) {
   const complete = intervals.filter((item) => item.durationMs != null);
   const coverage = coveredMs(complete.map((item) => ({ startMs: item.startMs, endMs: item.endMs })));
   const overlap = overlapMs(complete.map((item) => ({ startMs: item.startMs, endMs: item.endMs })));
+  const generatedTokens = complete.reduce((sum, item) => sum + (Number.isFinite(item.generatedTokens) ? item.generatedTokens : 0), 0);
+  const tokenDurationMs = complete.reduce((sum, item) => sum + (Number.isFinite(item.generatedTokens) ? item.durationMs : 0), 0);
   return {
     id,
     label,
@@ -183,6 +195,8 @@ function buildBucket(id, label, intervals, totalMs) {
     count: intervals.length,
     confidence: confidenceFor(complete),
     overlapMs: overlap.overlapMs,
+    generatedTokens: generatedTokens || null,
+    generatedTokensPerSecond: generatedTokens && tokenDurationMs ? Math.round(((generatedTokens * 1000) / tokenDurationMs) * 100) / 100 : null,
     groups: buildGroups(intervals),
     nodeRefs: intervals.map(nodeRef),
   };
@@ -248,6 +262,7 @@ function buildSessionTiming(trace) {
     unlinkedCount: intervals.filter((item) => item.eventIndex == null && item.node.type !== "subagent").length,
     notes: trace?.timing?.estimated ? ["会话边界由首末有效事件推算"] : [],
   };
+  const llmBucket = buckets.find((bucket) => bucket.id === "llm_response");
   const turns = (trace?.root?.children || []).filter((node) => node.type === "turn").map((turn, turnIndex) => {
     const turnIntervals = intervals.filter((item) => item.turnIndex === turnIndex);
     const turnStart = Date.parse(turn.timestamp || "");
@@ -276,6 +291,11 @@ function buildSessionTiming(trace) {
       coverageMs: executionCoverage,
       coveragePercent: durationMs ? Math.round((executionCoverage / durationMs) * 1000) / 10 : 0,
       parallelism,
+      llm: {
+        generatedTokens: llmBucket?.generatedTokens || null,
+        generatedTokensPerSecond: llmBucket?.generatedTokensPerSecond || null,
+        responseCount: llmBucket?.count || 0,
+      },
     },
     buckets,
     turns,
