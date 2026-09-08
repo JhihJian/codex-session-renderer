@@ -158,6 +158,15 @@ npm start
 
 默认路径不存在且未显式配置时，不会显示空的 Pi Agent 数据源；显式配置后即使目录暂不可读，也会在数据源状态中提示目录不存在。
 
+如果 Pi 会话由任务运行时按动态任务目录保存，可配置稳定的任务父目录，而不是把可变的 `<task-id>` 写入配置：
+
+```bash
+export PI_AGENT_TASKS_ROOT='/opt/vul-agent/runtime-state/tasks'
+npm start
+```
+
+该模式只读取固定布局 `tasks/task-<id>/artifacts/pi-sessions/**/*.jsonl`。不符合 `task-` 格式的目录，以及任务目录内 `pi-sessions` 以外的工件均不会扫描。页面和 API 使用 `task-<id>:<session-id>` 作为会话 ID，确保不同任务中相同的 Pi 会话 ID 不会冲突。`PI_AGENT_TASKS_ROOT` 与 `PI_AGENT_SESSIONS_ROOT` 不能同时设置。
+
 默认的 `127.0.0.1` / `::1` 监听不需要认证，适合仅在当前工作台浏览。非 loopback 监听（包括 `0.0.0.0`、`::` 和局域网 IP）必须同时设置运行时访问令牌 `CODEX_SESSION_RENDERER_TOKEN`，缺少令牌时服务会拒绝启动。令牌只从运行时环境读取，不会写入页面管理的数据源配置、API 响应或日志。
 
 如需让局域网内其他设备访问，可在当前终端设置随机令牌后启动：

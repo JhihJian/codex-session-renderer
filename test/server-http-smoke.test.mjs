@@ -31,6 +31,7 @@ const envKeys = [
   "CODEX_SESSION_DIAGNOSTIC_MAX_FILE_BYTES",
   "CODEX_SESSION_DIAGNOSTIC_MAX_EVENT_SCAN",
   "PI_AGENT_SESSIONS_ROOT",
+  "PI_AGENT_TASKS_ROOT",
 ];
 const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
 const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "csr-http-smoke-"));
@@ -54,10 +55,14 @@ const mismatchedPathId = "77777777-7777-4777-8777-777777777777";
 const piSessionId = "22222222-2222-4222-8222-222222222222";
 const piLargeSessionId = "99999999-9999-4999-8999-999999999999";
 const piLargePrompt = "Pi 大会话前缀中的首个有效任务";
-const piSessionsRoot = path.join(tempRoot, ".pi", "agent", "sessions");
+const piTasksRoot = path.join(tempRoot, "runtime-state", "tasks");
+const piTaskId = "task-ca67939a-439f-4015-b7a2-3a858b99c0a2";
+const piSessionsRoot = path.join(piTasksRoot, piTaskId, "artifacts", "pi-sessions");
 const piProjectDir = path.join(piSessionsRoot, "--D--work-pi-web--");
 const piSessionPath = path.join(piProjectDir, `2026-07-10T04-51-55-870Z_${piSessionId}.jsonl`);
 const piLargeSessionPath = path.join(piProjectDir, `2026-07-18T04-51-55-870Z_${piLargeSessionId}.jsonl`);
+const piRecordId = `${piTaskId}:${piSessionId}`;
+const piLargeRecordId = `${piTaskId}:${piLargeSessionId}`;
 
 await fs.mkdir(sessionDir, { recursive: true });
 await fs.writeFile(
@@ -232,6 +237,21 @@ await fs.writeFile(
   "utf8",
 );
 
+await fs.mkdir(path.join(piTasksRoot, piTaskId, "artifacts", "unrelated"), { recursive: true });
+await fs.mkdir(path.join(piTasksRoot, "not-a-task", "artifacts", "pi-sessions"), { recursive: true });
+await fs.mkdir(path.join(piTasksRoot, "task-symlink-escape", "artifacts"), { recursive: true });
+await fs.writeFile(
+  path.join(piTasksRoot, piTaskId, "artifacts", "unrelated", "ignored.jsonl"),
+  `${JSON.stringify({ type: "session_info", name: "不应读取的其他工件" })}\n`,
+  "utf8",
+);
+await fs.writeFile(
+  path.join(piTasksRoot, "not-a-task", "artifacts", "pi-sessions", "ignored.jsonl"),
+  `${JSON.stringify({ type: "session_info", name: "不应读取的非任务目录" })}\n`,
+  "utf8",
+);
+await fs.symlink(path.join(piTasksRoot, piTaskId, "artifacts", "unrelated"), path.join(piTasksRoot, "task-symlink-escape", "artifacts", "pi-sessions"));
+
 process.env.CODEX_HOME = codexHome;
 process.env.HOME = tempRoot;
 process.env.USERPROFILE = tempRoot;
@@ -246,7 +266,8 @@ process.env.CODEX_REMOTE_REMOTE_A_CODEX_HOME = remoteOriginalCodexHome;
 process.env.CODEX_SESSION_DETAIL_MAX_FILE_BYTES = "64";
 process.env.CODEX_SESSION_DETAIL_MAX_EVENTS = "4";
 process.env.CODEX_SESSION_DIAGNOSTIC_MAX_EVENT_SCAN = "10001";
-process.env.PI_AGENT_SESSIONS_ROOT = piSessionsRoot;
+delete process.env.PI_AGENT_SESSIONS_ROOT;
+process.env.PI_AGENT_TASKS_ROOT = piTasksRoot;
 
 const serverModuleUrl = `${pathToFileURL(path.resolve("server.mjs")).href}?httpSmoke=${Date.now()}`;
 const { createRendererServer } = await import(serverModuleUrl);
@@ -440,14 +461,14 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   const piList = await requestJson(baseUrl, "/api/sources/pi-agent/sessions");
   assert.equal(piList.response.status, 200);
   assert.equal(piList.body.sessions.length, 2);
-  const piSession = piList.body.sessions.find((entry) => entry.id === piSessionId);
+  const piSession = piList.body.sessions.find((entry) => entry.id === piRecordId);
   assert.equal(piSession.displayTitle, "Pi Agent smoke 会话");
   assert.equal(piSession.title, undefined);
   assert.equal(piSession.cwd, "D:\\work\\pi-web");
   assert.equal(piSession.model, "gpt-5.5");
   assert.equal(piSession.dataSourceKind, "pi-agent");
 
-  const piDetail = await requestJson(baseUrl, `/api/sources/pi-agent/sessions/${piSessionId}`);
+  const piDetail = await requestJson(baseUrl, `/api/sources/pi-agent/sessions/${encodeURIComponent(piRecordId)}`);
   assert.equal(piDetail.response.status, 200);
   assert.equal(piDetail.body.session.title, "Pi Agent smoke 会话");
   assert.equal(piDetail.body.turns[0].items[0].text, "请创建 hello 页面");
@@ -458,28 +479,28 @@ test("server module can be imported and serves core HTTP session APIs", async (t
   const piPrompts = await requestJson(baseUrl, `/api/sources/pi-agent/prompts?scope=recent24h&q=${encodeURIComponent(piLargePrompt)}&project=pi-agent%3Ad%3A%2Fwork%2Fpi-web&status=found`);
   assert.equal(piPrompts.response.status, 200);
   assert.equal(piPrompts.body.entries.length, 1);
-  assert.equal(piPrompts.body.entries[0].sessionId, piLargeSessionId);
+  assert.equal(piPrompts.body.entries[0].sessionId, piLargeRecordId);
   assert.equal(piPrompts.body.entries[0].promptState, "found");
   assert.equal(piPrompts.body.entries[0].promptText, piLargePrompt);
   assert.equal(piPrompts.body.entries[0].promptEventIndex, 17);
   assert.equal(piPrompts.body.entries[0].sessionTitle, "未命名会话");
 
-  const piGoalDetail = await requestJson(baseUrl, `/api/sources/pi-agent/sessions/${piLargeSessionId}`);
+  const piGoalDetail = await requestJson(baseUrl, `/api/sources/pi-agent/sessions/${encodeURIComponent(piLargeRecordId)}`);
   assert.equal(piGoalDetail.response.status, 200);
   assert.equal(piGoalDetail.body.turns[0].items.find((item) => item.type === "user-message").text, piLargePrompt);
   assert.equal(JSON.stringify(piGoalDetail.body.turns).includes("goal_id"), false);
   assert.equal(JSON.stringify(piGoalDetail.body.audit).includes("Goal-mode rules:"), false);
-  const piGoalMarkdown = await requestText(baseUrl, `/api/sources/pi-agent/sessions/${piLargeSessionId}/markdown`);
+  const piGoalMarkdown = await requestText(baseUrl, `/api/sources/pi-agent/sessions/${encodeURIComponent(piLargeRecordId)}/markdown`);
   assert.equal(piGoalMarkdown.response.status, 200);
   assert.match(piGoalMarkdown.body, new RegExp(piLargePrompt));
   assert.doesNotMatch(piGoalMarkdown.body, /goal_id|Goal-mode rules:/);
-  const piGoalSearch = await requestJson(baseUrl, `/api/sources/pi-agent/query/sessions/${piLargeSessionId}/events?q=${encodeURIComponent(piLargePrompt)}`);
+  const piGoalSearch = await requestJson(baseUrl, `/api/sources/pi-agent/query/sessions/${encodeURIComponent(piLargeRecordId)}/events?q=${encodeURIComponent(piLargePrompt)}`);
   assert.equal(piGoalSearch.response.status, 200);
   assert.deepEqual(piGoalSearch.body.events.map((event) => event.index), [17]);
-  const piGoalControlSearch = await requestJson(baseUrl, `/api/sources/pi-agent/query/sessions/${piLargeSessionId}/events?q=goal_id`);
+  const piGoalControlSearch = await requestJson(baseUrl, `/api/sources/pi-agent/query/sessions/${encodeURIComponent(piLargeRecordId)}/events?q=goal_id`);
   assert.equal(piGoalControlSearch.response.status, 200);
   assert.equal(piGoalControlSearch.body.events.length, 0);
-  const piGoalRaw = await requestJson(baseUrl, `/api/sources/pi-agent/sessions/${piLargeSessionId}/events/17`);
+  const piGoalRaw = await requestJson(baseUrl, `/api/sources/pi-agent/sessions/${encodeURIComponent(piLargeRecordId)}/events/17`);
   assert.equal(piGoalRaw.response.status, 200);
   assert.match(JSON.stringify(piGoalRaw.body), /goal_id/);
 
@@ -672,7 +693,7 @@ test("server module can be imported and serves core HTTP session APIs", async (t
 
   for (const pathname of [
     `/api/sources/local/sessions/${largeDetailId}`,
-    `/api/sources/pi-agent/sessions/${largeDetailId}`,
+    `/api/sources/pi-agent/sessions/${encodeURIComponent(`${piTaskId}:${largeDetailId}`)}`,
     `/api/sources/remote-a/sessions/${largeDetailId}`,
   ]) {
     const detail = await requestJson(baseUrl, pathname);

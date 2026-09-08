@@ -20,6 +20,7 @@ const snapshotMetadataFile = ".codex-session-renderer-snapshot.json";
 const allowedSnapshotFiles = new Set(["state_5.sqlite", "session_index.jsonl", snapshotMetadataFile]);
 const piAgentSourceId = "pi-agent";
 const piAgentSessionsRootEnvKeys = ["CODEX_SESSION_RENDERER_PI_AGENT_SESSIONS_ROOT", "PI_AGENT_SESSIONS_ROOT", "PI_AGENT_SESSIONS"];
+const piAgentTasksRootEnvKeys = ["CODEX_SESSION_RENDERER_PI_AGENT_TASKS_ROOT", "PI_AGENT_TASKS_ROOT"];
 const piAgentHomeEnvKeys = ["CODEX_SESSION_RENDERER_PI_AGENT_HOME", "PI_AGENT_HOME"];
 const remoteUrlQueryCode = "remote_url_query";
 const remoteUrlQueryMessage = "远端地址不能包含查询参数或片段；认证信息只填写在访问令牌字段里。";
@@ -333,14 +334,20 @@ function parseRemoteDefinitions(env = process.env) {
 
 function parsePiAgentDefinition(env = process.env, homeDir = os.homedir()) {
   const configuredSessionsRoot = firstEnvValue(env, piAgentSessionsRootEnvKeys);
+  const configuredTasksRoot = firstEnvValue(env, piAgentTasksRootEnvKeys);
   const configuredAgentHome = firstEnvValue(env, piAgentHomeEnvKeys);
+  if (configuredSessionsRoot && configuredTasksRoot) {
+    throw new Error("PI Agent 会话根目录和任务根目录不能同时配置。");
+  }
+  const tasksRoot = configuredTasksRoot ? path.resolve(configuredTasksRoot) : "";
   const sessionsRoot = path.resolve(configuredSessionsRoot || path.join(homeDir, ".pi", "agent", "sessions"));
-  const autoDetected = !configuredSessionsRoot && !configuredAgentHome;
+  const autoDetected = !configuredSessionsRoot && !configuredTasksRoot && !configuredAgentHome;
   if (autoDetected && !existsSync(sessionsRoot)) return null;
-  const agentHome = path.resolve(configuredAgentHome || path.dirname(sessionsRoot));
+  const agentHome = path.resolve(configuredAgentHome || tasksRoot || path.dirname(sessionsRoot));
   return {
     agentHome,
-    sessionsRoot,
+    sessionsRoot: tasksRoot || sessionsRoot,
+    ...(tasksRoot ? { tasksRoot } : {}),
     autoDetected,
   };
 }
@@ -353,7 +360,7 @@ function firstEnvValue(env, keys) {
   return "";
 }
 
-function createPiAgentDataSource({ agentHome, sessionsRoot, autoDetected }) {
+function createPiAgentDataSource({ agentHome, sessionsRoot, tasksRoot, autoDetected }) {
   const snapshotAvailable = existsSync(sessionsRoot);
   return {
     id: piAgentSourceId,
@@ -362,11 +369,13 @@ function createPiAgentDataSource({ agentHome, sessionsRoot, autoDetected }) {
     origin: {
       type: "pi-agent",
       sessionsRoot,
+      taskSessionsRoot: tasksRoot,
       autoDetected,
     },
     codexHome: agentHome,
     originalCodexHome: agentHome,
     sessionsRoot,
+    taskSessionsRoot: tasksRoot,
     sessionIndexPath: path.join(agentHome, "session_index.jsonl"),
     stateDbPath: path.join(agentHome, "state_5.sqlite"),
     status: {

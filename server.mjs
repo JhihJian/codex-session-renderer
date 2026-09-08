@@ -398,6 +398,56 @@ async function* walkJsonl(dir, options = {}) {
   }
 }
 
+const piTaskDirectoryPattern = /^task-[a-z0-9][a-z0-9-]{0,127}$/;
+
+async function isRegularDirectory(directoryPath) {
+  try {
+    const stat = await fs.lstat(directoryPath);
+    return stat.isDirectory() && !stat.isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+async function* walkPiTaskSessions(tasksRoot, options = {}) {
+  let taskDirectories;
+  try {
+    taskDirectories = await fs.readdir(tasksRoot, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  taskDirectories.sort((left, right) => right.name.localeCompare(left.name, "en"));
+  for (const task of taskDirectories) {
+    if (options.signal?.aborted) throw createAbortError();
+    if (!task.isDirectory() || !piTaskDirectoryPattern.test(task.name)) continue;
+    const taskRoot = path.join(tasksRoot, task.name);
+    const artifactsRoot = path.join(taskRoot, "artifacts");
+    const sessionsRoot = path.join(artifactsRoot, "pi-sessions");
+    if (!await isRegularDirectory(taskRoot) || !await isRegularDirectory(artifactsRoot) || !await isRegularDirectory(sessionsRoot)) continue;
+    for await (const filePath of walkJsonl(sessionsRoot, options)) {
+      yield { filePath, taskId: task.name, archived: false };
+    }
+  }
+}
+
+async function* walkSourceSessionFiles(context, options = {}) {
+  if (context.source.taskSessionsRoot) {
+    yield* walkPiTaskSessions(context.source.taskSessionsRoot, options);
+    return;
+  }
+  for (const entry of sessionFileRoots(context.codexHome, context.sessionsRoot, context.source.kind !== "remote")) {
+    if (!await sourceSessionRootIsReadable(context, entry.root)) continue;
+    for await (const filePath of walkJsonl(entry.root, options)) {
+      yield { filePath, taskId: null, archived: entry.archived };
+    }
+  }
+}
+
+function sessionRecordId(filePath, taskId = null) {
+  const sessionId = sessionIdFromFile(filePath);
+  return taskId ? `${taskId}:${sessionId}` : sessionId;
+}
+
 function datedDirectoryEndsBefore(directoryPath, cutoffMs) {
   const parts = path.normalize(directoryPath).split(path.sep);
   for (let index = 0; index <= parts.length - 3; index += 1) {
@@ -410,27 +460,24 @@ function datedDirectoryEndsBefore(directoryPath, cutoffMs) {
 
 async function collectSessionFileRecords(context, options = {}) {
   const records = [];
-  for (const entry of sessionFileRoots(context.codexHome, context.sessionsRoot, context.source.kind !== "remote")) {
-    if (!await sourceSessionRootIsReadable(context, entry.root)) continue;
-    for await (const filePath of walkJsonl(entry.root, options)) {
-      if (options.signal?.aborted) throw createAbortError();
-      let stat;
-      try {
-        stat = await sessionFileStat(context, filePath);
-        if (!stat) continue;
-      } catch {
-        continue;
-      }
-      if (options.sinceMs != null && stat.mtimeMs < options.sinceMs) continue;
-      if (options.beforeMs != null && stat.mtimeMs >= options.beforeMs) continue;
-      records.push({
-        id: sessionIdFromFile(filePath),
-        filePath,
-        archived: entry.archived,
-        stat,
-      });
-      if (records.length >= (options.maxRecords || maxListSessions)) return dedupeSessionFileRecords(records);
+  for await (const record of walkSourceSessionFiles(context, options)) {
+    if (options.signal?.aborted) throw createAbortError();
+    let stat;
+    try {
+      stat = await sessionFileStat(context, record.filePath);
+      if (!stat) continue;
+    } catch {
+      continue;
     }
+    if (options.sinceMs != null && stat.mtimeMs < options.sinceMs) continue;
+    if (options.beforeMs != null && stat.mtimeMs >= options.beforeMs) continue;
+    records.push({
+      id: sessionRecordId(record.filePath, record.taskId),
+      filePath: record.filePath,
+      archived: record.archived,
+      stat,
+    });
+    if (records.length >= (options.maxRecords || maxListSessions)) return dedupeSessionFileRecords(records);
   }
   return dedupeSessionFileRecords(records);
 }
@@ -583,8 +630,8 @@ async function listFileSessions(context, bounds = {}, options = {}) {
   for (const record of files) {
     throwIfRequestAborted(options.signal);
     const { filePath, stat } = record;
-    const id = sessionIdFromFile(filePath);
-    const indexed = index.get(id);
+    const id = record.id;
+    const indexed = index.get(sessionIdFromFile(filePath));
     let events = [];
     try {
       const readMeta = () => readJsonlWithDiagnostics(filePath, {
@@ -720,7 +767,7 @@ async function getSessionById(context, id, options = {}) {
   for (const record of await collectSessionFileRecords(context, options)) {
     throwIfRequestAborted(options.signal);
     if (record.id === id) {
-      const session = await sessionFromFilePath(context, record.filePath, { archived: record.archived, signal: options.signal });
+      const session = await sessionFromFilePath(context, record.filePath, { archived: record.archived, sessionId: record.id, signal: options.signal });
       if (!session) return null;
       const titled = await supplementVerifiedFileSessionTitles(context, [session], options);
       return (await correctControlPacketListTitles(context, titled, options))[0];
@@ -937,6 +984,27 @@ async function promptArchiveCandidates(context, scope, cursor, limit, options = 
 
 async function promptArchiveFileCandidates(context, bounds, cursor, limit, options = {}) {
   const records = [];
+  if (context.source.taskSessionsRoot) {
+    for await (const record of walkSourceSessionFiles(context, options)) {
+      if (records.length >= limit) break;
+      if (cursor?.kind === "file" && record.filePath >= cursor.filePath) continue;
+      let stat;
+      try {
+        stat = await sessionFileStat(context, record.filePath);
+        if (!stat) continue;
+      } catch {
+        continue;
+      }
+      if (bounds.sinceMs != null && stat.mtimeMs < bounds.sinceMs) continue;
+      if (bounds.beforeMs != null && stat.mtimeMs >= bounds.beforeMs) continue;
+      records.push({ id: sessionRecordId(record.filePath, record.taskId), filePath: record.filePath, stat, archived: false, rootIndex: 0 });
+    }
+    const candidates = await Promise.all(records.map(async (record) => ({
+      session: await sessionFromFilePath(context, record.filePath, { archived: false, sessionId: record.id, signal: options.signal }),
+      cursor: { kind: "file", rootIndex: 0, filePath: record.filePath },
+    })));
+    return candidates.filter((candidate) => candidate.session?.path);
+  }
   const roots = sessionFileRoots(context.codexHome, context.sessionsRoot, context.source.kind !== "remote");
   const startRoot = cursor?.kind === "file" ? cursor.rootIndex : 0;
   for (let rootIndex = startRoot; rootIndex < roots.length && records.length < limit; rootIndex += 1) {
@@ -1553,7 +1621,7 @@ async function buildCompactChildNode(sourceContext, child, context) {
 async function sessionFromFilePath(context, filePath, options = {}) {
   const stat = await sessionFileStat(context, filePath);
   if (!stat) return null;
-  const id = sessionIdFromFile(filePath);
+  const id = options.sessionId || sessionIdFromFile(filePath);
   const events = await readJsonlWithDiagnostics(filePath, { maxLines: 40, maxBytes: 128 * 1024, signal: options.signal }).catch((error) => {
     if (isAbortError(error)) throw error;
     return [];
