@@ -1,0 +1,150 @@
+{
+  "version": 4,
+  "documentStatus": "candidate",
+  "snapshot": {
+    "commit": "5ea8381459d324eaf42cd621e080bd483c50f13f",
+    "acceptedAt": "2026-09-09T03:15:00.000Z",
+    "files": []
+  },
+  "documents": [
+    { "role": "overview", "path": "docs/architecture/README.md", "anchor": "Codex 会话工作台架构" },
+    { "role": "session-projection", "path": "docs/architecture/modules/session-projection.md", "anchor": "会话读取与投影" },
+    { "role": "remote-snapshot-sharing", "path": "docs/architecture/modules/remote-snapshot-sharing.md", "anchor": "远端快照与共享" },
+    { "role": "implementation-reference", "path": "docs/architecture/implementation.md", "anchor": "实现参考" }
+  ],
+  "items": [
+    {
+      "id": "purpose-readable-session-workbench",
+      "kind": "purpose",
+      "summary": "将 Codex 和 Pi Agent 会话记录投影为便于阅读的工作台，而不对会话事实作风险或正确性结论。",
+      "moduleId": "workbench",
+      "certainty": "confirmed",
+      "evidence": [
+        { "path": "README.md", "locator": "Codex 会话工作台是只读的会话浏览器。" }
+      ],
+      "tests": [],
+      "document": { "role": "overview", "path": "docs/architecture/README.md", "anchor": "目的" },
+      "impactPaths": ["README.md", "server.mjs", "public/app.js"]
+    },
+    {
+      "id": "boundary-read-only-session-sources",
+      "kind": "boundary",
+      "summary": "原始会话不被修改，浏览和导出仅读取本地文件或已发布的远端快照。",
+      "moduleId": "data-sources",
+      "certainty": "confirmed",
+      "evidence": [
+        { "path": "README.md", "locator": "原始会话文件不会被修改。" },
+        { "path": "src/data-sources.mjs", "locator": "async function copyCodexTree(sourcePath, targetPath, fsApi = fs, options = {})" }
+      ],
+      "tests": [
+        { "path": "test/snapshot-share.test.mjs", "locator": "createSnapshotArchive includes allowed Codex files and metadata" }
+      ],
+      "document": { "role": "overview", "path": "docs/architecture/README.md", "anchor": "系统边界" },
+      "impactPaths": ["README.md", "src/data-sources.mjs", "src/snapshot-share.mjs", "test/snapshot-share.test.mjs"]
+    },
+    {
+      "id": "capability-session-discovery-and-query",
+      "kind": "capability",
+      "summary": "服务从 SQLite 线程索引和 JSONL 文件发现会话，并为列表、查询和详情提供来源隔离的投影。",
+      "moduleId": "session-projection",
+      "certainty": "confirmed",
+      "evidence": [
+        { "path": "server.mjs", "locator": "async function listSessions(context, options = {})" },
+        { "path": "src/session-query.mjs", "locator": "function parseSessionListQuery(params)" }
+      ],
+      "tests": [
+        { "path": "test/session-query.test.mjs", "locator": "session query filters root sessions by time, text and child state" },
+        { "path": "test/source-identity-isolation.test.mjs", "locator": "createDataSourceRegistry" }
+      ],
+      "document": { "role": "session-projection", "path": "docs/architecture/modules/session-projection.md", "anchor": "核心模型" },
+      "impactPaths": ["server.mjs", "src/session-query.mjs", "src/session-models.mjs", "src/sqlite-threads.mjs", "test/session-query.test.mjs", "test/source-identity-isolation.test.mjs"]
+    },
+    {
+      "id": "module-session-projection",
+      "kind": "module",
+      "summary": "会话投影模块规范化原始事件并将其聚合为轮次、工具调用、时间线、子代理层级和 API 响应。",
+      "moduleId": "session-projection",
+      "certainty": "confirmed",
+      "evidence": [
+        { "path": "src/session-normalizer.mjs", "locator": "function normalizeSessionEvent(rawEvent, index = null)" },
+        { "path": "src/session-events.mjs", "locator": "function compactTurnsForClient(turns)" }
+      ],
+      "tests": [
+        { "path": "test/session-normalizer.test.mjs", "locator": "normalizeSessionEvent" },
+        { "path": "test/session-timing.test.mjs", "locator": "session timing classifies trace nodes and preserves source references" }
+      ],
+      "document": { "role": "session-projection", "path": "docs/architecture/modules/session-projection.md", "anchor": "会话读取与投影" },
+      "impactPaths": ["src/session-normalizer.mjs", "src/session-events.mjs", "src/session-timing.mjs", "src/embedded-subagents.mjs", "test/session-normalizer.test.mjs", "test/session-timing.test.mjs"]
+    },
+    {
+      "id": "flow-session-detail-read-consistency",
+      "kind": "flow",
+      "summary": "详情读取在读取前后确认文件状态，并通过并发协调器避免将变化中的会话缓存或返回为完整详情。",
+      "moduleId": "session-projection",
+      "certainty": "confirmed",
+      "evidence": [
+        { "path": "server.mjs", "locator": "async function getSessionDetail(context, id, options = {})" },
+        { "path": "src/session-detail-coordinator.mjs", "locator": "async function read(session, { cacheKey, signal, derive = (events) => events, shouldCache = () => true } = {})" }
+      ],
+      "tests": [
+        { "path": "test/session-detail-coordinator.test.mjs", "locator": "createSessionDetailCoordinator" }
+      ],
+      "document": { "role": "session-projection", "path": "docs/architecture/modules/session-projection.md", "anchor": "必须保持的规则" },
+      "impactPaths": ["server.mjs", "src/session-detail-coordinator.mjs", "src/jsonl-reader.mjs", "test/session-detail-coordinator.test.mjs"]
+    },
+    {
+      "id": "module-remote-snapshot-sharing",
+      "kind": "module",
+      "summary": "远端快照模块管理远端定义、受限获取、验证、私有发布和受令牌保护的共享接口。",
+      "moduleId": "remote-snapshot-sharing",
+      "certainty": "confirmed",
+      "evidence": [
+        { "path": "src/data-sources.mjs", "locator": "function createDataSourceRegistry(options = {})" },
+        { "path": "src/snapshot-share.mjs", "locator": "function createSnapshotShareHandler(options = {})" }
+      ],
+      "tests": [
+        { "path": "test/data-sources.test.mjs", "locator": "createDataSourceRegistry keeps local source compatible when remote is not configured" },
+        { "path": "test/snapshot-share.test.mjs", "locator": "share health endpoint is protected by bearer token" }
+      ],
+      "document": { "role": "remote-snapshot-sharing", "path": "docs/architecture/modules/remote-snapshot-sharing.md", "anchor": "远端快照与共享" },
+      "impactPaths": ["src/data-sources.mjs", "src/snapshot-share.mjs", "src/remote-http.mjs", "share-server.mjs", "test/data-sources.test.mjs", "test/snapshot-share.test.mjs"]
+    },
+    {
+      "id": "flow-remote-refresh-and-publish",
+      "kind": "flow",
+      "summary": "远端刷新先暂存和验证，再原子发布当前快照，失败时保留先前可用版本。",
+      "moduleId": "remote-snapshot-sharing",
+      "certainty": "confirmed",
+      "evidence": [
+        { "path": "src/data-sources.mjs", "locator": "async function refreshRemoteSource(source, options = {})" },
+        { "path": "src/data-sources.mjs", "locator": "async function refreshAndPublishSource(source, stagingPath, options)" }
+      ],
+      "tests": [
+        { "path": "test/snapshot-publication.test.mjs", "locator": "snapshot" },
+        { "path": "test/remote-resource-limits.test.mjs", "locator": "remote refresh gate limits different sources globally" }
+      ],
+      "document": { "role": "remote-snapshot-sharing", "path": "docs/architecture/modules/remote-snapshot-sharing.md", "anchor": "核心模型" },
+      "impactPaths": ["src/data-sources.mjs", "src/snapshot-build-coordinator.mjs", "src/snapshot-root-commit-coordinator.mjs", "test/snapshot-publication.test.mjs", "test/remote-resource-limits.test.mjs"]
+    },
+    {
+      "id": "guarantee-snapshot-and-access-protection",
+      "kind": "guarantee",
+      "summary": "快照只接受允许的内容和来源，主服务非 loopback 监听与共享端点均要求令牌认证。",
+      "moduleId": "remote-snapshot-sharing",
+      "certainty": "confirmed",
+      "evidence": [
+        { "path": "src/data-sources.mjs", "locator": "async function validateSnapshot(codexHomePath, fsApi = fs)" },
+        { "path": "src/access-control.mjs", "locator": "function assertSecureListenConfig(options = {})" },
+        { "path": "share-server.mjs", "locator": "缺少 CODEX_SHARE_TOKEN。为避免会话数据裸露，快照共享服务不会在无 token 时启动。" }
+      ],
+      "tests": [
+        { "path": "test/snapshot-security.test.mjs", "locator": "remote snapshots keep default and custom roots private on Unix" },
+        { "path": "test/server-access-control.test.mjs", "locator": "non-loopback renderer requires credentials for static, read, and write routes" }
+      ],
+      "document": { "role": "remote-snapshot-sharing", "path": "docs/architecture/modules/remote-snapshot-sharing.md", "anchor": "必须保持的规则" },
+      "impactPaths": ["src/data-sources.mjs", "src/access-control.mjs", "src/snapshot-share.mjs", "share-server.mjs", "test/snapshot-security.test.mjs", "test/server-access-control.test.mjs"]
+    }
+  ],
+  "openQuestions": [],
+  "pendingImpact": null
+}

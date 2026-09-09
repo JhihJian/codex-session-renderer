@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 2,
+  "productId": "project-architecture-governance",
+  "repository": "https://github.com/JhihJian/agent-document-governance",
+  "releaseTag": "evolution-v0.34.2",
+  "commit": "45a14876ef78d53411c244a8c0daee8b0b9151b1",
+  "packagePath": "project-architecture-governance",
+  "packageTreeSha256": "sha256:f9d497c98240ac9af79726eb2301af72180fae2e87cc728d7bb92bd58f2b8b30",
+  "agentEntryHash": "sha256:dfa0bb4135ce87a1bf65e646c4fd3a862010f0e0460bc79dc29db7eecb154316",
+  "agentsFileExisted": false,
+  "installedAt": "2026-09-09T07:22:25.814Z",
+  "runId": "a0a8e659-417e-496f-9f2d-2a895486a40f",
+  "baseCommit": "5ea8381459d324eaf42cd621e080bd483c50f13f",
+  "scopeBaseCommit": "5ea8381459d324eaf42cd621e080bd483c50f13f",
+  "localOverrides": [],
+  "ciMode": "github",
+  "ciFiles": [
+    ".github/workflows/project-architecture-governance.yml"
+  ],
+  "ciFileHashes": {
+    ".github/workflows/project-architecture-governance.yml": "sha256:6e638d26735288e4e892ca356f0619d9d075cea7d90107cfdeef529ec6ea9b65"
+  },
+  "managedFileHashes": {
+    ".agents/architecture-governance-tools/.gitignore": "sha256:4d56952b0fb13bf8f9b6c13a6d4c34a075bac3af447636a1df4335d7576e2f97",
+    ".agents/architecture-governance-tools/architecture-check.mjs": "sha256:9c8dcb3525edfac252e385e87eda57c452591191195e6565ce03bab95a0f6628",
+    ".agents/architecture-governance-tools/architecture-workflow.mjs": "sha256:fdab49c9f327634d40f889b49647ca916ca3bce51d295c2e2ac5acc0c6881689",
+    ".agents/architecture-governance-tools/lib/markdown.mjs": "sha256:552a16c7a02b594b18e51e0447ac5e073b601a6107b57dd0c3dca806ae331920",
+    ".agents/architecture-governance-tools/lib/toolkit.mjs": "sha256:dfaf20cbb18850e3f6112f2d6aa686c537eeac232bfbb3d55c3f64b6a69e5794",
+    ".agents/architecture-governance-tools/package-lock.json": "sha256:bd6002b6045d271d943998dfef5b6c03c41c96a157086a8b8e5f4a65092e8141",
+    ".agents/architecture-governance-tools/package.json": "sha256:9750018e10da03263d7708b6cee6f42398753a3c835c20ffee8f22c9fb6d6a26",
+    ".agents/skills/check-project-architecture/SKILL.md": "sha256:93d4c5c242c1d98baa5f668f7ba2bb42f9001e6322f9e2e74e722060874af3a1",
+    ".agents/skills/generate-project-architecture/SKILL.md": "sha256:c0d43a1f7c0e85f244d2185ecbe8f4c5b171501ccbb9663c4878b6f4bf20fc1e",
+    ".agents/skills/investigate-project-architecture/SKILL.md": "sha256:b2c3a05bf5e808a6066a89936d5bc0c30fb52f8cccc5d9ee096eda05f8f466d1",
+    ".agents/skills/maintain-project-architecture/SKILL.md": "sha256:86de695b5242a429dc87eec13d7a745c4f8be7737e92860b31b1b960ac556940",
+    ".agents/skills/migrate-project-architecture/SKILL.md": "sha256:c9ed5b6e4115175ed1eddfd3a071cc5a4f00e929fe59b7ace91bf056a432b059",
+    ".agents/skills/references/diagram-authoring.md": "sha256:3cb329a8d93e84d246fb484ca571808487c3f873805390ef2b178f318f3944c5",
+    ".agents/skills/references/layered-authoring.md": "sha256:95b539882aad15b8134eb58d4f225e9c0a09cee26c4cbea17e15aae8e6cf788e",
+    "docs/architecture/AGENTS.md": "sha256:8debf465dca6792fd7cef47ce0d0cd077b0d6f857ea4949b33172ab3698aa420"
+  },
+  "projectChecks": [
+    [
+      "npm",
+      "run",
+      "check"
+    ]
+  ],
+  "documentOwners": [
+    {
+      "topic": "当前架构",
+      "path": "docs/architecture/README.md"
+    }
+  ],
+  "customizationConfirmed": true
+}

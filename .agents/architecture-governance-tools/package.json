@@ -1,0 +1,16 @@
+{
+  "name": "project-architecture-governance-tools",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "docs:check": "node architecture-check.mjs --root ../.."
+  },
+  "dependencies": {
+    "mdast-util-from-markdown": "^2.0.2",
+    "mdast-util-gfm": "^3.1.0",
+    "micromark-extension-gfm": "^3.0.0"
+  }
+}
