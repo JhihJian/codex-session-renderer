@@ -1,7 +1,9 @@
 import { expect, test } from "@playwright/test";
+import { selectCodexSource } from "./source-helpers.mjs";
 
 test("原始事件详情完整展示大型工具输出", async ({ page }) => {
   await page.goto("/");
+  await selectCodexSource(page);
   await page.locator("#diagnosticViewButton").click();
   await page.locator("#rawViewButton").click();
   const outputEvent = page.locator('[data-raw-event-index="5"]');
@@ -12,6 +14,7 @@ test("原始事件详情完整展示大型工具输出", async ({ page }) => {
 
 test("执行过程展示工具参数和中文执行状态，点击后显示返回结果", async ({ page }) => {
   await page.goto("/");
+  await selectCodexSource(page);
   await page.locator("#traceViewButton").click();
   for (let index = 0; index < 8 && await page.locator('.trace-row[data-trace-node-id]', { hasText: "exec_command" }).count() === 0; index += 1) {
     const toggles = page.locator("[data-trace-toggle-id]");

@@ -1753,13 +1753,13 @@ async function route(req, res) {
     if (isReadOnlyApiPath(pathname) && !allowMethod(req, res, ["GET"])) return;
 
     if (pathname === "/api/health") {
-      const localContext = getSourceContext("local");
+      const defaultContext = getSourceContext(dataSources.getDefaultSource()?.id);
       return sendJson(res, 200, {
         ok: true,
-        codexHome: localContext?.codexHome,
-        sessionsRoot: localContext?.sessionsRoot,
-        sessionIndexPath: localContext?.sessionIndexPath,
-        defaultSourceId: "local",
+        codexHome: defaultContext?.codexHome,
+        sessionsRoot: defaultContext?.sessionsRoot,
+        sessionIndexPath: defaultContext?.sessionIndexPath,
+        defaultSourceId: defaultContext?.source.id,
         sources: dataSources.listSources(),
         time: new Date().toISOString(),
       });

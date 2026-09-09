@@ -1,8 +1,10 @@
 import { expect, test } from "@playwright/test";
+import { selectCodexSource } from "./source-helpers.mjs";
 
 test("严格 Goal 标题在列表、ARIA 与移动端详情保持投影后的同一标题", async ({ page }) => {
   const objective = "Codex Goal 默认阅读只显示这个真实目标";
   await page.goto("/");
+  await selectCodexSource(page);
   const row = page.locator("#sessionList .session-row", { hasText: objective });
   await expect(row).toBeVisible();
   await expect(row).toHaveAttribute("aria-label", objective);
@@ -24,6 +26,7 @@ test("严格 Goal 标题在列表、ARIA 与移动端详情保持投影后的同
 test("长标题在列表、ARIA 与详情中完整保留", async ({ page }) => {
   const suffix = "CHROMIUM_LONG_TITLE_SUFFIX";
   await page.goto("/");
+  await selectCodexSource(page);
   const searchRequest = page.waitForRequest((request) => request.url().includes("/api/sources/local/sessions?") && request.url().includes(`q=${suffix}`));
   await page.locator("#sessionSearch").fill(suffix);
   await searchRequest;
@@ -49,6 +52,7 @@ test("长标题在列表、ARIA 与详情中完整保留", async ({ page }) => {
 test("被截断的会话标题保留完整原文提示", async ({ page }) => {
   const suffix = "CHROMIUM_LONG_TITLE_SUFFIX";
   await page.goto("/");
+  await selectCodexSource(page);
   await page.locator("#sessionSearch").fill(suffix);
   const title = page.locator('[data-session-id="88888888-8888-4888-8888-888888888888"] .session-title');
   await expect(title).toBeVisible();
@@ -58,13 +62,14 @@ test("被截断的会话标题保留完整原文提示", async ({ page }) => {
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator("[data-panel-target=sessions]").click();
-  await expect(title).toHaveAttribute("title", new RegExp(suffix));
+  await expect(title).toContainText(suffix);
 });
 
 test("长标题后段类型筛选由服务端完成，并在本机和远端历史完整展示", async ({ page }) => {
   const localSuffix = "CHROMIUM_LONG_TITLE_ERROR_TOOL_AFTER_DISPLAY_LIMIT";
   const remoteSuffix = "CHROMIUM_REMOTE_LONG_TITLE_ERROR_TOOL_AFTER_DISPLAY_LIMIT";
   await page.goto("/");
+  await selectCodexSource(page);
   const localTypeRequest = page.waitForRequest((request) => request.url().includes("/api/sources/local/sessions?") && request.url().includes("type=error"));
   await page.locator("#sessionTypeFilter").selectOption("error");
   await localTypeRequest;

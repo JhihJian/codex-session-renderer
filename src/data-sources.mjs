@@ -56,9 +56,10 @@ function createDataSourceRegistry(options = {}) {
     beforeFinalCurrentPublish: options.beforeFinalCurrentPublish,
     isUnix,
   });
+  const defaultSourceId = sources.has(piAgentSourceId) ? piAgentSourceId : "local";
 
   function listSources() {
-    return [...sources.values()].map((source) => publicDataSource(source));
+    return [...sources.values()].map((source) => publicDataSource(source, defaultSourceId));
   }
 
   function getSource(id = "local") {
@@ -66,7 +67,7 @@ function createDataSourceRegistry(options = {}) {
   }
 
   function getDefaultSource() {
-    return sources.get("local");
+    return sources.get(defaultSourceId);
   }
 
   async function refreshSource(id, options = {}) {
@@ -106,7 +107,7 @@ function createDataSourceRegistry(options = {}) {
         ok: source.isCurrent() && source.status.lastRefreshOk === true,
         status: source.isCurrent() ? (source.status.lastRefreshOk === true ? 200 : source.status.lastRefreshStatus || 502) : 409,
         error: source.isCurrent() ? undefined : safeRemoteError("source_configuration_changed", "远端来源配置已变更；本次旧快照拉取已取消。"),
-        source: publicDataSource(source),
+        source: publicDataSource(source, defaultSourceId),
       };
     }, options.signal);
     return await refreshPromise;
@@ -1092,13 +1093,13 @@ async function removeTree(targetPath, fsApi = fs) {
   throw lastError;
 }
 
-function publicDataSource(source) {
+function publicDataSource(source, defaultSourceId = "local") {
   return {
     id: source.id,
     label: source.label,
     kind: source.kind,
     origin: publicRemoteOrigin(source.origin),
-    isDefault: source.id === "local",
+    isDefault: source.id === defaultSourceId,
     codexHome: source.kind === "remote" ? null : source.codexHome,
     snapshotPath: source.kind === "remote" ? source.currentPath : null,
     status: {

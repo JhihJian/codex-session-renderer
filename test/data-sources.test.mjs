@@ -13,8 +13,6 @@ import {
   remoteSourceVersion,
   sanitizeErrorMessage,
 } from "../src/data-sources.mjs";
-
-
 test("createDataSourceRegistry keeps local source compatible when remote is not configured", () => {
   const registry = createDataSourceRegistry({
     env: { CODEX_HOME: "/tmp/codex-home" },
@@ -22,12 +20,11 @@ test("createDataSourceRegistry keeps local source compatible when remote is not 
   });
 
   assert.deepEqual(
-    registry.listSources().map((source) => [source.id, source.kind, source.status.refreshable]),
-    [["local", "local", false]],
+    registry.listSources().map((source) => [source.id, source.kind, source.status.refreshable, source.isDefault]),
+    [["local", "local", false, true]],
   );
   assert.equal(registry.getDefaultSource().codexHome, path.resolve("/tmp/codex-home"));
 });
-
 test("parseRemoteDefinitions builds multiple remote sources from runtime env only", () => {
   const definitions = parseRemoteDefinitions({
     CODEX_REMOTE_SOURCES: "office,lab",
@@ -83,7 +80,7 @@ test("createDataSourceRegistry adds Pi Agent source when sessions root is config
     assert.equal(source.codexHome, path.dirname(sessionsRoot));
     assert.equal(source.status.refreshable, false);
     assert.equal(source.status.snapshotAvailable, true);
-    assert.equal(registry.listSources().some((item) => item.id === "pi-agent" && item.codexHome === path.dirname(sessionsRoot)), true);
+    assert.equal(registry.listSources().some((item) => item.id === "pi-agent" && item.codexHome === path.dirname(sessionsRoot)), true); assert.deepEqual([registry.getDefaultSource().id, ...registry.listSources().map(({ id, isDefault }) => [id, isDefault])], ["pi-agent", ["local", false], ["pi-agent", true]]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

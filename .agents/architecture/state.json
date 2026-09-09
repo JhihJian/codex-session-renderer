@@ -1,159 +1,10 @@
 {
   "version": 4,
-  "documentStatus": "active",
+  "documentStatus": "candidate",
   "snapshot": {
     "commit": "6c4ce0577d9a40e8d2069534177b9ad1b77878f2",
     "acceptedAt": "2026-09-09T08:21:34.217Z",
-    "files": [
-      {
-        "path": "README.md",
-        "sha256": "sha256:6a80c6161160122775199c1382535704f3b67749280ee1fdaadb6145b76ea859"
-      },
-      {
-        "path": "docs/architecture/README.md",
-        "sha256": "sha256:6e4b06be489a6aedd3f02ef3b9e736fcb3f86c28f577fcdd0bb2bc8cea4d3567"
-      },
-      {
-        "path": "docs/architecture/implementation.md",
-        "sha256": "sha256:5913268496e83f30682bc6bcf8941a3ded6e5c5bd6a17722a7a470556b594206"
-      },
-      {
-        "path": "docs/architecture/modules/remote-snapshot-sharing.md",
-        "sha256": "sha256:2a12e1e1952b1148c40765b55a9ea14b1ee0717d1884d90596574512c5ee1f0f"
-      },
-      {
-        "path": "docs/architecture/modules/session-projection.md",
-        "sha256": "sha256:9a5d6e15364b93430596e6ca22e1b291fa15638be902ac236c0fda6a0b7d654a"
-      },
-      {
-        "path": "docs/session-event-normalization.md",
-        "sha256": "sha256:b4e0f1477365769354c630d46d2a78420b9777f8902505d8f972313585b0747c"
-      },
-      {
-        "path": "public/app.js",
-        "sha256": "sha256:0c1374d4fa6f7139290a4f1c1e9d98b520785a1fd0721b76607399f7f921a401"
-      },
-      {
-        "path": "public/styles.css",
-        "sha256": "sha256:6b7fb30f4f225949a4dc043dc9c477372be992d61b7d0435ce52f4094f7beb6a"
-      },
-      {
-        "path": "server.mjs",
-        "sha256": "sha256:0663cf89e46c5f2b7b9c53a149f93b802c879013ebd3f2f630b2e2d162eb9c73"
-      },
-      {
-        "path": "share-server.mjs",
-        "sha256": "sha256:744f9c13af7bc603622d32f3592d6af52c294f749fa510656fe39274073609fb"
-      },
-      {
-        "path": "src/access-control.mjs",
-        "sha256": "sha256:77dd682be1f66b4cea2625d67e5f1aed6804a5d6331dbb8b55c9d3dc6fa950fe"
-      },
-      {
-        "path": "src/data-sources.mjs",
-        "sha256": "sha256:079d4d1c5be923bb768f3e2529c2da48e560ea6ff0fb93723dd59c11b21a81ae"
-      },
-      {
-        "path": "src/embedded-subagents.mjs",
-        "sha256": "sha256:7f99ef7039c82efed8e817da6a61dff9d0ab65111a94e80323481fd01eeeb6de"
-      },
-      {
-        "path": "src/jsonl-reader.mjs",
-        "sha256": "sha256:ae209e6def46e9af7135459689789f960a8b28575c734ef2169905529f984c0e"
-      },
-      {
-        "path": "src/remote-http.mjs",
-        "sha256": "sha256:59aa0c142056a74038e322fa1c6bdba64925622d22a9c23cd566039c107e13fa"
-      },
-      {
-        "path": "src/session-detail-coordinator.mjs",
-        "sha256": "sha256:c8e0db66948d2be0613a73271c6348291a2038b7b6c58261b6176293bd6b5831"
-      },
-      {
-        "path": "src/session-events.mjs",
-        "sha256": "sha256:1dfacf8f4fca49ecc7d1cdca245fc2fd021f0a6bdf79c9e1dcfcf4107e2790ab"
-      },
-      {
-        "path": "src/session-models.mjs",
-        "sha256": "sha256:b63e12846a77e207b13cded0f53dfe05e77d449f024281afeffe0ad2c87d22d6"
-      },
-      {
-        "path": "src/session-normalizer.mjs",
-        "sha256": "sha256:af85146b655e2174de5d367aabef52047b138872bf4b57a11d499a00cf2bf51e"
-      },
-      {
-        "path": "src/session-query.mjs",
-        "sha256": "sha256:06c39e352ab5231d9844ade65b6c88ec57f645364f2311b037c9e289b3b0a43d"
-      },
-      {
-        "path": "src/session-timing.mjs",
-        "sha256": "sha256:7dc542e1520ec7d3f9ee02b8d1addb85e1d7b14667fb1477f585d1f8381e3293"
-      },
-      {
-        "path": "src/snapshot-build-coordinator.mjs",
-        "sha256": "sha256:15aa3585297c5ca5f329dc468e27cc3c36f7d33e1f3687a86fb779eb4be6f8cc"
-      },
-      {
-        "path": "src/snapshot-root-commit-coordinator.mjs",
-        "sha256": "sha256:8699600356f6fa784ae7216a6378194bdbe36d31c3f68d8770bf0cf01e156e2b"
-      },
-      {
-        "path": "src/snapshot-share.mjs",
-        "sha256": "sha256:253c145db467cb334e633236e5e4a089918196a5c30eb86a3956b591f0ee9769"
-      },
-      {
-        "path": "src/sqlite-threads.mjs",
-        "sha256": "sha256:55690a948954e3c80b4ffda1fc2f85c0b9e6101eb3c3a13155901074e75482f5"
-      },
-      {
-        "path": "test/data-sources.test.mjs",
-        "sha256": "sha256:a95b024576b037378ae50e7833e505cb806344a2ea06922074ae171bebf99f83"
-      },
-      {
-        "path": "test/remote-resource-limits.test.mjs",
-        "sha256": "sha256:0f1bbeab6836f760b90815d10641340810e9b513aec44c1c082a39437cf573d7"
-      },
-      {
-        "path": "test/server-access-control.test.mjs",
-        "sha256": "sha256:b7c90b72241648e20ff1fa421a1aae4e40beb1d8af36656a7ee131207cedb8ba"
-      },
-      {
-        "path": "test/session-detail-coordinator.test.mjs",
-        "sha256": "sha256:a7ef2409b6b8870f951ff012ac19135945cee0e60b29f5ab63fdc1e38c914748"
-      },
-      {
-        "path": "test/session-events.test.mjs",
-        "sha256": "sha256:8bc552b4e25e6a14b3243b6816506dcdd5ee936e4cd817703489b2b0528eb677"
-      },
-      {
-        "path": "test/session-normalizer.test.mjs",
-        "sha256": "sha256:7286de7b9c1b54b6df5d1560567c798b7b9456f2c01541708fbfe843a39ac509"
-      },
-      {
-        "path": "test/session-query.test.mjs",
-        "sha256": "sha256:a9f3bc755cef3b68572671a56d4090685b8040aa6894bd23fb9a9f3d9c0a6639"
-      },
-      {
-        "path": "test/session-timing.test.mjs",
-        "sha256": "sha256:a78102519158dc042495374119129d5a1474e8c1d9aa0e623cd8f04a54fc80c2"
-      },
-      {
-        "path": "test/snapshot-publication.test.mjs",
-        "sha256": "sha256:28a1668eac91900b7ee3dbc4d524c376505d72054d0e656e883e7c10b57dc5d7"
-      },
-      {
-        "path": "test/snapshot-security.test.mjs",
-        "sha256": "sha256:13bcfc3aca4008408fd6e2fc4e2548ce6a74b137eb48348a43533a7a1a8ed6d4"
-      },
-      {
-        "path": "test/snapshot-share.test.mjs",
-        "sha256": "sha256:67299bf1b4cdf95de92923c508bfcef8e6892f5fdca7861ad8feb1518b50c7e4"
-      },
-      {
-        "path": "test/source-identity-isolation.test.mjs",
-        "sha256": "sha256:9ba501b98c343e6827cac8f8c65aa3efb2eca05306ff8fb55e60658bd19eefa1"
-      }
-    ]
+    "files": []
   },
   "documents": [
     {
@@ -239,13 +90,21 @@
     {
       "id": "capability-session-discovery-and-query",
       "kind": "capability",
-      "summary": "服务从 SQLite 线程索引和 JSONL 文件发现会话，并为列表、查询和详情提供来源隔离的投影。",
+      "summary": "服务优先选择可用的 Pi Agent 来源，否则回退至本机 Codex，并从 SQLite 线程索引和 JSONL 文件发现会话，为列表、查询和详情提供来源隔离的投影。",
       "moduleId": "session-projection",
       "certainty": "confirmed",
       "evidence": [
         {
           "path": "server.mjs",
           "locator": "async function listSessions(context, options = {})"
+        },
+        {
+          "path": "server.mjs",
+          "locator": "if (pathname === \"/api/health\") {"
+        },
+        {
+          "path": "src/data-sources.mjs",
+          "locator": "const defaultSourceId = sources.has(piAgentSourceId) ? piAgentSourceId : \"local\";"
         },
         {
           "path": "src/session-query.mjs",
@@ -260,6 +119,14 @@
         {
           "path": "test/source-identity-isolation.test.mjs",
           "locator": "createDataSourceRegistry"
+        },
+        {
+          "path": "test/data-sources.test.mjs",
+          "locator": "createDataSourceRegistry adds Pi Agent source when sessions root is configured"
+        },
+        {
+          "path": "test/server.test.mjs",
+          "locator": "health selects the Pi Agent source when its sessions directory is available"
         }
       ],
       "document": {
@@ -269,10 +136,18 @@
       },
       "impactPaths": [
         "server.mjs",
+        "src/data-sources.mjs",
         "src/session-query.mjs",
         "src/session-models.mjs",
         "src/sqlite-threads.mjs",
         "test/session-query.test.mjs",
+        "test/data-sources.test.mjs",
+        "test/server.test.mjs",
+        "test/e2e/full-content.spec.mjs",
+        "test/e2e/list-scope-navigation.spec.mjs",
+        "test/e2e/source-default.spec.mjs",
+        "test/e2e/source-helpers.mjs",
+        "test/e2e/title-consistency.spec.mjs",
         "test/source-identity-isolation.test.mjs"
       ]
     },
@@ -492,5 +367,48 @@
     }
   ],
   "openQuestions": [],
-  "pendingImpact": null
+  "pendingImpact": {
+    "baseCommit": "6c4ce0577d9a40e8d2069534177b9ad1b77878f2",
+    "changedPaths": [
+      ".agents/architecture/state.json",
+      "README.md",
+      "docs/architecture/modules/session-projection.md",
+      "docs/session-event-normalization.md",
+      "public/app.js",
+      "public/styles.css",
+      "server.mjs",
+      "src/data-sources.mjs",
+      "src/session-timing.mjs",
+      "test/data-sources.test.mjs",
+      "test/e2e/full-content.spec.mjs",
+      "test/e2e/list-scope-navigation.spec.mjs",
+      "test/e2e/source-default.spec.mjs",
+      "test/e2e/source-helpers.mjs",
+      "test/e2e/title-consistency.spec.mjs",
+      "test/server.test.mjs",
+      "test/session-timing.test.mjs"
+    ],
+    "itemIds": [
+      "purpose-readable-session-workbench",
+      "boundary-read-only-session-sources",
+      "capability-session-discovery-and-query",
+      "module-session-projection",
+      "flow-session-detail-read-consistency",
+      "module-remote-snapshot-sharing",
+      "flow-remote-refresh-and-publish",
+      "guarantee-snapshot-and-access-protection"
+    ],
+    "assessments": [
+      { "itemId": "purpose-readable-session-workbench", "result": "unaffected", "reason": "默认来源调整不改变工作台将会话记录投影为可读视图的产品目的。", "evidence": { "path": "README.md", "locator": "Codex 会话工作台是只读的会话浏览器。" } },
+      { "itemId": "boundary-read-only-session-sources", "result": "unaffected", "reason": "来源优先级只影响首屏选择，未改变原始会话和快照的只读边界。", "evidence": { "path": "README.md", "locator": "原始会话文件不会被修改。" } },
+      { "itemId": "capability-session-discovery-and-query", "result": "updated", "reason": "注册表和健康接口现在优先返回可用的 Pi Agent 来源，端到端测试验证首屏 Pi 与 Codex 专项切换。", "evidence": { "path": "src/data-sources.mjs", "locator": "const defaultSourceId = sources.has(piAgentSourceId) ? piAgentSourceId : \"local\";" } },
+      { "itemId": "module-session-projection", "result": "updated", "reason": "模块说明已同步 Pi 优先来源选择，并将实际运行统计更新为只合并工具和 LLM 区间。", "evidence": { "path": "docs/architecture/modules/session-projection.md", "locator": "数据源注册表在 Pi Agent 会话目录可用时将其作为工作台默认来源" } },
+      { "itemId": "flow-session-detail-read-consistency", "result": "unaffected", "reason": "默认来源选择发生在健康接口和会话列表加载前，未改变详情读取的一致性协调流程。", "evidence": { "path": "server.mjs", "locator": "async function getSessionDetail(context, id, options = {})" } },
+      { "itemId": "module-remote-snapshot-sharing", "result": "unaffected", "reason": "数据源注册表的默认选择不改变远端定义、快照获取、发布或共享模块责任。", "evidence": { "path": "src/data-sources.mjs", "locator": "function createDataSourceRegistry(options = {})" } },
+      { "itemId": "flow-remote-refresh-and-publish", "result": "unaffected", "reason": "本次没有修改远端刷新、暂存验证或原子发布流程。", "evidence": { "path": "src/data-sources.mjs", "locator": "async function refreshRemoteSource(source, options = {})" } },
+      { "itemId": "guarantee-snapshot-and-access-protection", "result": "unaffected", "reason": "默认来源调整不放宽快照允许文件集、来源校验或访问令牌保护。", "evidence": { "path": "src/data-sources.mjs", "locator": "async function validateSnapshot(codexHomePath, fsApi = fs)" } }
+    ],
+    "unmappedPaths": [],
+    "pathAssessments": []
+  }
 }

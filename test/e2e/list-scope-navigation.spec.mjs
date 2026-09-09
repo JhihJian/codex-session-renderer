@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { selectCodexSource } from "./source-helpers.mjs";
 
 const earlierSession = {
   id: "history-scope-session",
@@ -47,6 +48,7 @@ test("过期 recent 列表不会污染更早范围、自动打开详情或提前
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
+  await selectCodexSource(page);
   await expect(page.locator("#refreshButton")).toBeEnabled();
   await page.locator("#refreshButton").click();
   await expect(page.locator("#refreshButton")).toBeDisabled();
@@ -89,6 +91,7 @@ test("桌面端切换到更早范围时，过期 recent 响应不会释放当前
     await route.fulfill({ json: { source: { id: "local", label: "本机 Codex Home", kind: "local" }, scope, sessions: [earlierSession] } });
   });
   await page.goto("/");
+  await selectCodexSource(page);
   await page.locator("#refreshButton").click();
   await page.locator("#sessionTimeFilter [data-session-time=earlier]").click();
   releaseRecent();
@@ -102,6 +105,7 @@ test("桌面端切换到更早范围时，过期 recent 响应不会释放当前
 
 test("列表和归档的 scope 响应错配会失败关闭并保留可重试状态", async ({ page }) => {
   await page.goto("/");
+  await selectCodexSource(page);
   await expect(page.locator("#sessionTitle")).toContainText(/Chromium|验证工作台/);
   await page.route("**/api/sources/local/sessions?*", async (route) => {
     await route.fulfill({ json: { source: { id: "local", label: "本机 Codex Home", kind: "local" }, scope: "day", sessions: [] } });

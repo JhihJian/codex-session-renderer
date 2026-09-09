@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -22,11 +22,18 @@ const envKeys = [
   "CODEX_REMOTE_OFFICE_CODEX_HOME",
   "CODEX_REMOTE_OFFICE_SNAPSHOT_ROOT",
   "CODEX_REMOTE_OFFICE_ALLOW_INSECURE_TLS",
+  "CODEX_SESSION_RENDERER_PI_AGENT_SESSIONS_ROOT",
+  "PI_AGENT_SESSIONS_ROOT",
+  "PI_AGENT_SESSIONS",
+  "CODEX_SESSION_RENDERER_PI_AGENT_TASKS_ROOT",
+  "PI_AGENT_TASKS_ROOT",
+  "CODEX_SESSION_RENDERER_PI_AGENT_HOME",
+  "PI_AGENT_HOME",
 ];
 
 let importCounter = 0;
 
-async function withRemoteServer(t, fetchImpl) {
+async function withRemoteServer(t, fetchImpl, setup = async () => {}) {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "csr-server-"));
   const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
   const clientFetch = globalThis.fetch;
@@ -38,6 +45,7 @@ async function withRemoteServer(t, fetchImpl) {
   process.env.USERPROFILE = tempRoot;
   process.env.CODEX_REMOTE_PEERS = "office|Office=http://example.invalid:4791";
   process.env.CODEX_REMOTE_TOKEN = "secret-token";
+  await setup(tempRoot);
   globalThis.fetch = async (...args) => fetchImpl(...args);
 
   t.after(async () => {
@@ -88,6 +96,26 @@ async function requestJson(context, pathname, options = {}) {
     body: JSON.parse(text),
   };
 }
+
+test("health selects the Pi Agent source when its sessions directory is available", async (t) => {
+  let piSessionsRoot = "";
+  const context = await withRemoteServer(
+    t,
+    async () => new Response("not used"),
+    async (tempRoot) => {
+      piSessionsRoot = path.join(tempRoot, ".pi", "agent", "sessions");
+      await mkdir(piSessionsRoot, { recursive: true });
+    },
+  );
+
+  const { response, body } = await requestJson(context, "/api/health");
+
+  assert.equal(response.status, 200);
+  assert.equal(body.defaultSourceId, "pi-agent");
+  assert.equal(body.sessionsRoot, piSessionsRoot);
+  assert.equal(body.sources.find((source) => source.id === "pi-agent")?.isDefault, true);
+  assert.equal(body.sources.find((source) => source.id === "local")?.isDefault, false);
+});
 
 function assertRedacted(text) {
   assert.doesNotMatch(text, /secret-token/i);
