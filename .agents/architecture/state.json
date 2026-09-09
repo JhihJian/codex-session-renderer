@@ -2,8 +2,8 @@
   "version": 4,
   "documentStatus": "active",
   "snapshot": {
-    "commit": "44f0f3c9c1991c79362428a8eb9d73af2bc0629d",
-    "acceptedAt": "2026-09-09T07:23:25.972Z",
+    "commit": "6c4ce0577d9a40e8d2069534177b9ad1b77878f2",
+    "acceptedAt": "2026-09-09T08:21:34.217Z",
     "files": [
       {
         "path": "README.md",
@@ -15,7 +15,7 @@
       },
       {
         "path": "docs/architecture/implementation.md",
-        "sha256": "sha256:1b0d4dba82e168a6f12fa4ff12f9322ad56f38f9b65d0edfc2e3e135efc752d7"
+        "sha256": "sha256:5913268496e83f30682bc6bcf8941a3ded6e5c5bd6a17722a7a470556b594206"
       },
       {
         "path": "docs/architecture/modules/remote-snapshot-sharing.md",
@@ -23,11 +23,19 @@
       },
       {
         "path": "docs/architecture/modules/session-projection.md",
-        "sha256": "sha256:2adfae755be455871f37c963ca4d4469afc01814a4fa2e5fa57296ae55e303f1"
+        "sha256": "sha256:9a5d6e15364b93430596e6ca22e1b291fa15638be902ac236c0fda6a0b7d654a"
+      },
+      {
+        "path": "docs/session-event-normalization.md",
+        "sha256": "sha256:b4e0f1477365769354c630d46d2a78420b9777f8902505d8f972313585b0747c"
       },
       {
         "path": "public/app.js",
-        "sha256": "sha256:7b88e869a96d69431f93ac14668ae5b3606e0dc0cbe319509b9bfc7a6e6a3038"
+        "sha256": "sha256:0c1374d4fa6f7139290a4f1c1e9d98b520785a1fd0721b76607399f7f921a401"
+      },
+      {
+        "path": "public/styles.css",
+        "sha256": "sha256:6b7fb30f4f225949a4dc043dc9c477372be992d61b7d0435ce52f4094f7beb6a"
       },
       {
         "path": "server.mjs",
@@ -63,7 +71,7 @@
       },
       {
         "path": "src/session-events.mjs",
-        "sha256": "sha256:0d2cf2c083aae19000e5e6d02c1e66ba1ac9a72ef324c184adb512fa655538ac"
+        "sha256": "sha256:1dfacf8f4fca49ecc7d1cdca245fc2fd021f0a6bdf79c9e1dcfcf4107e2790ab"
       },
       {
         "path": "src/session-models.mjs",
@@ -79,7 +87,7 @@
       },
       {
         "path": "src/session-timing.mjs",
-        "sha256": "sha256:8a970c6a3e99613f2d2c4570cb072a31f52e1bcb542d883b7f79214acda31493"
+        "sha256": "sha256:7dc542e1520ec7d3f9ee02b8d1addb85e1d7b14667fb1477f585d1f8381e3293"
       },
       {
         "path": "src/snapshot-build-coordinator.mjs",
@@ -114,6 +122,10 @@
         "sha256": "sha256:a7ef2409b6b8870f951ff012ac19135945cee0e60b29f5ab63fdc1e38c914748"
       },
       {
+        "path": "test/session-events.test.mjs",
+        "sha256": "sha256:8bc552b4e25e6a14b3243b6816506dcdd5ee936e4cd817703489b2b0528eb677"
+      },
+      {
         "path": "test/session-normalizer.test.mjs",
         "sha256": "sha256:7286de7b9c1b54b6df5d1560567c798b7b9456f2c01541708fbfe843a39ac509"
       },
@@ -123,7 +135,7 @@
       },
       {
         "path": "test/session-timing.test.mjs",
-        "sha256": "sha256:16909f55c6de50d6f80287509cdb1f1a2fe97e1a91c95237b5e23c8fc2be86c0"
+        "sha256": "sha256:a78102519158dc042495374119129d5a1474e8c1d9aa0e623cd8f04a54fc80c2"
       },
       {
         "path": "test/snapshot-publication.test.mjs",
@@ -267,7 +279,7 @@
     {
       "id": "module-session-projection",
       "kind": "module",
-      "summary": "会话投影模块规范化原始事件并将其聚合为轮次、工具调用、时间线、子代理层级和 API 响应。",
+      "summary": "会话投影模块规范化原始事件并将其聚合为轮次、工具调用、时间线、子代理层级、时间统计和 API 响应。",
       "moduleId": "session-projection",
       "certainty": "confirmed",
       "evidence": [
@@ -278,6 +290,14 @@
         {
           "path": "src/session-events.mjs",
           "locator": "function compactTurnsForClient(turns)"
+        },
+        {
+          "path": "src/session-events.mjs",
+          "locator": "function buildInputWaitIntervals(turns)"
+        },
+        {
+          "path": "src/session-timing.mjs",
+          "locator": "function buildSessionTiming(trace)"
         }
       ],
       "tests": [
@@ -288,6 +308,10 @@
         {
           "path": "test/session-timing.test.mjs",
           "locator": "session timing classifies trace nodes and preserves source references"
+        },
+        {
+          "path": "test/session-events.test.mjs",
+          "locator": "buildTrace derives waiting-for-input only between assistant and next user messages"
         }
       ],
       "document": {
@@ -300,7 +324,12 @@
         "src/session-events.mjs",
         "src/session-timing.mjs",
         "src/embedded-subagents.mjs",
+        "docs/architecture/implementation.md",
+        "docs/session-event-normalization.md",
+        "public/app.js",
+        "public/styles.css",
         "test/session-normalizer.test.mjs",
+        "test/session-events.test.mjs",
         "test/session-timing.test.mjs"
       ]
     },
