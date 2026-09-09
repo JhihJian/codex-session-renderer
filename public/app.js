@@ -5473,12 +5473,12 @@ function filterTraceNode(node, query, typeFilter) {
 }
 
 function isDefaultTraceNode(node) {
-  return ["thread", "turn", "tool", "handoff", "subagent", "embedded-subagent", "lazy-child"].includes(node.type);
+  return ["thread", "turn", "tool", "handoff", "subagent", "embedded-subagent", "embedded-subagent-task", "lazy-child"].includes(node.type);
 }
 
 function traceNodeMatchesType(node, typeFilter) {
   if (typeFilter === "message") return node.type === "message";
-  if (typeFilter === "tool") return node.type === "tool" || node.type === "handoff" || node.type === "subagent" || node.type === "embedded-subagent";
+  if (typeFilter === "tool") return node.type === "tool" || node.type === "handoff" || node.type === "subagent" || node.type === "embedded-subagent" || node.type === "embedded-subagent-task";
   if (typeFilter === "output") return Boolean(node.detail?.item?.output);
   if (typeFilter === "reasoning") return node.type === "reasoning";
   if (typeFilter === "system") return node.type === "event" || node.type === "metric" || node.type === "turn" || node.type === "thread";
@@ -5509,6 +5509,9 @@ function traceSearchText(node) {
     thread.title,
     thread.agentNickname,
     thread.agentRole,
+    detail.task?.agent,
+    detail.task?.task,
+    detail.task?.summary,
   ];
   return parts.filter(Boolean).join(" ").toLowerCase();
 }
@@ -6111,6 +6114,7 @@ function traceTypeLabel(type) {
   if (type === "handoff") return "委派";
   if (type === "subagent") return "子代理";
   if (type === "embedded-subagent") return "内嵌子代理批次";
+  if (type === "embedded-subagent-task") return "内嵌子代理";
   if (type === "lazy-child") return "子会话";
   if (type === "message") return "消息";
   if (type === "reasoning") return "推理";

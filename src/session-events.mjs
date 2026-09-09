@@ -1069,6 +1069,7 @@ function traceNodeFromItem(item, turnIndex, itemIndex) {
         label: "内嵌子代理批次",
         title: `${batch.mode || "single"} · ${count} 个任务`,
         subtitle: [batch.agentScope ? `范围：${batch.agentScope}` : "", batch.status, formatIsoForTrace(item.timestamp)].filter(Boolean).join(" · "),
+        children: embeddedSubagentTraceTasks(batch, turnIndex, itemIndex),
       };
     }
     const isHandoff = ["spawn_agent", "wait_agent", "handoff"].includes(item.name);
@@ -1112,6 +1113,39 @@ function traceNodeFromItem(item, turnIndex, itemIndex) {
     };
   }
   return null;
+}
+
+function embeddedSubagentTraceTasks(batch, turnIndex, itemIndex) {
+  const requested = Array.isArray(batch.requested) ? batch.requested : [];
+  const results = Array.isArray(batch.results) ? batch.results : [];
+  const resultsByIndex = new Map(results.map((result) => [result.index, result]));
+  const indexes = new Set([...requested.map((task) => task.index), ...results.map((task) => task.index)]);
+  return [...indexes]
+    .sort((left, right) => left - right)
+    .map((index) => {
+      const request = requested.find((task) => task.index === index) || {};
+      const result = resultsByIndex.get(index) || {};
+      const task = { ...request, ...result, index, agent: result.agent || request.agent || "未指定代理", task: request.task || null };
+      return {
+        id: `embedded-subagent:${turnIndex}:${itemIndex}:${index}`,
+        type: "embedded-subagent-task",
+        icon: "agent",
+        label: `子代理：${task.agent}`,
+        title: firstLine(task.task || task.summary || "未记录任务详情", 120),
+        subtitle: [task.agentSource, task.exitCode != null ? `退出 ${task.exitCode}` : "", task.stopReason].filter(Boolean).join(" · "),
+        timestamp: null,
+        completedAt: null,
+        durationMs: null,
+        durationEstimated: false,
+        status: task.status || batch.status || "unknown",
+        children: [],
+        detail: {
+          kind: "embedded-subagent-task",
+          task,
+          batch: { mode: batch.mode || null, agentScope: batch.agentScope || null },
+        },
+      };
+    });
 }
 
 function traceNodeFromChildThread(child, spawnEvent, notificationEvent) {

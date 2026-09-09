@@ -675,5 +675,7 @@ test("Pi 内嵌 subagent 显示为批次而不是子会话", () => {
   assert.deepEqual(item.embeddedSubagents.results.map((task) => task.status), ["succeeded", "rate_limited"]);
   assert.equal(trace.root.children[0].children[0].type, "embedded-subagent");
   assert.equal(trace.root.children[0].children[0].threadId, undefined);
+  assert.deepEqual(trace.root.children[0].children[0].children.map((node) => node.label), ["子代理：reviewer", "子代理：tester"]);
+  assert.equal(trace.root.children[0].children[0].children[0].threadId, undefined);
   assert.equal(compact.embeddedSubagents[0].outputSourceIndex, 2);
 });
