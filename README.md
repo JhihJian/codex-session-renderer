@@ -27,6 +27,12 @@ Pi Agent 会话目录可用时，工作台默认展示 Pi 数据源；未发现 
 
 原始会话文件不会被修改。Markdown 导出和浏览器展示均基于本地文件或已发布的本地快照。
 
+## 完整详情与诊断预算
+
+完整详情、compact/view、turns/trace 和 Markdown 导出读取当前会话的完整 JSONL，不因文件大小或事件数降级。读取前后文件签名变化时，详情返回非完整读取状态，Markdown 返回 `409`，旧结果不会进入缓存。
+
+原始事件分页是独立诊断入口，受 `CODEX_SESSION_DIAGNOSTIC_MAX_FILE_BYTES` 和 `CODEX_SESSION_DIAGNOSTIC_MAX_EVENT_SCAN` 约束。详情并发、诊断上限和缓存可分别通过 `CODEX_SESSION_DETAIL_MAX_CONCURRENT_READS`、`CODEX_SESSION_DIAGNOSTIC_MAX_FILE_BYTES`、`CODEX_SESSION_DIAGNOSTIC_MAX_EVENT_SCAN`、`CODEX_SESSION_DETAIL_MAX_CACHE_ENTRIES` 与 `CODEX_SESSION_DETAIL_MAX_CACHE_BYTES` 配置。
+
 ## 启动
 
 ```bash

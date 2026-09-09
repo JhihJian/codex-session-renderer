@@ -1,187 +1,10 @@
 {
   "version": 4,
-  "documentStatus": "active",
+  "documentStatus": "candidate",
   "snapshot": {
     "commit": "5a0f81fbb6753e086a43134b2612fe6d2ad7c1be",
     "acceptedAt": "2026-09-09T08:48:24.011Z",
-    "files": [
-      {
-        "path": "README.md",
-        "sha256": "sha256:8c22743072d9e83411738193e7e27a29dd8ea9b57dbd543d003e7149a0ef4729"
-      },
-      {
-        "path": "docs/architecture/README.md",
-        "sha256": "sha256:6e4b06be489a6aedd3f02ef3b9e736fcb3f86c28f577fcdd0bb2bc8cea4d3567"
-      },
-      {
-        "path": "docs/architecture/implementation.md",
-        "sha256": "sha256:5913268496e83f30682bc6bcf8941a3ded6e5c5bd6a17722a7a470556b594206"
-      },
-      {
-        "path": "docs/architecture/modules/remote-snapshot-sharing.md",
-        "sha256": "sha256:2a12e1e1952b1148c40765b55a9ea14b1ee0717d1884d90596574512c5ee1f0f"
-      },
-      {
-        "path": "docs/architecture/modules/session-projection.md",
-        "sha256": "sha256:6bdf074a80aac8f9119cde9cd5f04afa4a791b360d0ec7cb897f41beaf30073c"
-      },
-      {
-        "path": "docs/session-event-normalization.md",
-        "sha256": "sha256:b36149c6e49bf0c0b8ee70e3d49e890ebe40414a40fad87df9e40335b923bfc7"
-      },
-      {
-        "path": "public/app.js",
-        "sha256": "sha256:f3a65f219bc7756aed675896784581ec8d2dc18f8d93ec04abc329cc7b873bd5"
-      },
-      {
-        "path": "public/styles.css",
-        "sha256": "sha256:f7a095f360ad673a968ac5219b4c6a61bb230ee172e63626d181a2ca0bd8a2bf"
-      },
-      {
-        "path": "scripts/e2e-server.mjs",
-        "sha256": "sha256:5c501c5e05d4b64844281c893e19f42a1d9da5c2ab04e24423dae8c0354f8706"
-      },
-      {
-        "path": "server.mjs",
-        "sha256": "sha256:af0378495d8a856748cf1d43b9ebaa995d1dd6f2c9b625e345aa28b82e9e6a6b"
-      },
-      {
-        "path": "share-server.mjs",
-        "sha256": "sha256:744f9c13af7bc603622d32f3592d6af52c294f749fa510656fe39274073609fb"
-      },
-      {
-        "path": "src/access-control.mjs",
-        "sha256": "sha256:77dd682be1f66b4cea2625d67e5f1aed6804a5d6331dbb8b55c9d3dc6fa950fe"
-      },
-      {
-        "path": "src/data-sources.mjs",
-        "sha256": "sha256:f887cedac1050527a92bb688bdd6dd55cdc3df2b9028c650653db5fce4c629e5"
-      },
-      {
-        "path": "src/embedded-subagents.mjs",
-        "sha256": "sha256:7f99ef7039c82efed8e817da6a61dff9d0ab65111a94e80323481fd01eeeb6de"
-      },
-      {
-        "path": "src/jsonl-reader.mjs",
-        "sha256": "sha256:ae209e6def46e9af7135459689789f960a8b28575c734ef2169905529f984c0e"
-      },
-      {
-        "path": "src/remote-http.mjs",
-        "sha256": "sha256:59aa0c142056a74038e322fa1c6bdba64925622d22a9c23cd566039c107e13fa"
-      },
-      {
-        "path": "src/session-detail-coordinator.mjs",
-        "sha256": "sha256:c8e0db66948d2be0613a73271c6348291a2038b7b6c58261b6176293bd6b5831"
-      },
-      {
-        "path": "src/session-events.mjs",
-        "sha256": "sha256:dc92da8cdd18703821e9c3a92b674e97a0d7ceffe0fb226392e966e5b4bd6962"
-      },
-      {
-        "path": "src/session-models.mjs",
-        "sha256": "sha256:b63e12846a77e207b13cded0f53dfe05e77d449f024281afeffe0ad2c87d22d6"
-      },
-      {
-        "path": "src/session-normalizer.mjs",
-        "sha256": "sha256:af85146b655e2174de5d367aabef52047b138872bf4b57a11d499a00cf2bf51e"
-      },
-      {
-        "path": "src/session-query.mjs",
-        "sha256": "sha256:06c39e352ab5231d9844ade65b6c88ec57f645364f2311b037c9e289b3b0a43d"
-      },
-      {
-        "path": "src/session-timing.mjs",
-        "sha256": "sha256:80899bce02d42effa6f6c92260fa1b4b2d34390ba623f8fc62bd31c00efda8c5"
-      },
-      {
-        "path": "src/snapshot-build-coordinator.mjs",
-        "sha256": "sha256:15aa3585297c5ca5f329dc468e27cc3c36f7d33e1f3687a86fb779eb4be6f8cc"
-      },
-      {
-        "path": "src/snapshot-root-commit-coordinator.mjs",
-        "sha256": "sha256:8699600356f6fa784ae7216a6378194bdbe36d31c3f68d8770bf0cf01e156e2b"
-      },
-      {
-        "path": "src/snapshot-share.mjs",
-        "sha256": "sha256:253c145db467cb334e633236e5e4a089918196a5c30eb86a3956b591f0ee9769"
-      },
-      {
-        "path": "src/sqlite-threads.mjs",
-        "sha256": "sha256:55690a948954e3c80b4ffda1fc2f85c0b9e6101eb3c3a13155901074e75482f5"
-      },
-      {
-        "path": "test/data-sources.test.mjs",
-        "sha256": "sha256:6c3c728bb1e817c4d349f362097f99cbfe05952bd108bf21740b53bdccbaf585"
-      },
-      {
-        "path": "test/e2e/full-content.spec.mjs",
-        "sha256": "sha256:c3f645a4a6c8d8177a257a8134240872bd2ff24db375068e3b27541a047c3b74"
-      },
-      {
-        "path": "test/e2e/list-scope-navigation.spec.mjs",
-        "sha256": "sha256:432e35b73dd0ca3b0f0545ec2105955e3630b403f6f59ea685be753020605011"
-      },
-      {
-        "path": "test/e2e/source-default.spec.mjs",
-        "sha256": "sha256:937cdb932b33331bad7703728a2d2aba279581742e333f374ff0acabd2ccfb1e"
-      },
-      {
-        "path": "test/e2e/source-helpers.mjs",
-        "sha256": "sha256:99c24e05d8713a532b103178414e1f8c74f8dc4f3f81014eb3707fc223c7b0d8"
-      },
-      {
-        "path": "test/e2e/title-consistency.spec.mjs",
-        "sha256": "sha256:53d4df7d02688aa48d6f8cabea7ed931e6eceb76673230d7a3120765e3dceb2f"
-      },
-      {
-        "path": "test/remote-resource-limits.test.mjs",
-        "sha256": "sha256:0f1bbeab6836f760b90815d10641340810e9b513aec44c1c082a39437cf573d7"
-      },
-      {
-        "path": "test/server-access-control.test.mjs",
-        "sha256": "sha256:b7c90b72241648e20ff1fa421a1aae4e40beb1d8af36656a7ee131207cedb8ba"
-      },
-      {
-        "path": "test/server.test.mjs",
-        "sha256": "sha256:56fa9df24099ebdc3f6ea7a7ef661a2da30d9e8a30a3db1e39dfb591282957f8"
-      },
-      {
-        "path": "test/session-detail-coordinator.test.mjs",
-        "sha256": "sha256:a7ef2409b6b8870f951ff012ac19135945cee0e60b29f5ab63fdc1e38c914748"
-      },
-      {
-        "path": "test/session-events.test.mjs",
-        "sha256": "sha256:2f5efeb742c8824bca6fdbe08c087846cfccf6748bdb7b4d3cbc49d83801610d"
-      },
-      {
-        "path": "test/session-normalizer.test.mjs",
-        "sha256": "sha256:7286de7b9c1b54b6df5d1560567c798b7b9456f2c01541708fbfe843a39ac509"
-      },
-      {
-        "path": "test/session-query.test.mjs",
-        "sha256": "sha256:a9f3bc755cef3b68572671a56d4090685b8040aa6894bd23fb9a9f3d9c0a6639"
-      },
-      {
-        "path": "test/session-timing.test.mjs",
-        "sha256": "sha256:2823910ae26a1ffa9426037814a7650b880a80d8cb8271046792963394e80b67"
-      },
-      {
-        "path": "test/snapshot-publication.test.mjs",
-        "sha256": "sha256:28a1668eac91900b7ee3dbc4d524c376505d72054d0e656e883e7c10b57dc5d7"
-      },
-      {
-        "path": "test/snapshot-security.test.mjs",
-        "sha256": "sha256:13bcfc3aca4008408fd6e2fc4e2548ce6a74b137eb48348a43533a7a1a8ed6d4"
-      },
-      {
-        "path": "test/snapshot-share.test.mjs",
-        "sha256": "sha256:67299bf1b4cdf95de92923c508bfcef8e6892f5fdca7861ad8feb1518b50c7e4"
-      },
-      {
-        "path": "test/source-identity-isolation.test.mjs",
-        "sha256": "sha256:9ba501b98c343e6827cac8f8c65aa3efb2eca05306ff8fb55e60658bd19eefa1"
-      }
-    ]
+    "files": []
   },
   "documents": [
     {
@@ -193,6 +16,11 @@
       "role": "session-projection",
       "path": "docs/architecture/modules/session-projection.md",
       "anchor": "会话读取与投影"
+    },
+    {
+      "role": "prompt-archive-and-goal-projection",
+      "path": "docs/architecture/modules/prompt-archive-and-goal-projection.md",
+      "anchor": "任务归档与目标投影"
     },
     {
       "role": "remote-snapshot-sharing",
@@ -209,16 +37,25 @@
     {
       "id": "purpose-readable-session-workbench",
       "kind": "purpose",
-      "summary": "将 Codex 和 Pi Agent 会话记录投影为便于阅读的工作台，而不对会话事实作风险或正确性结论。",
+      "summary": "将 Codex 和 Pi Agent 会话投影为阅读与诊断工作台，不对会话内容作正确性、安全性、风险或缺陷归因结论。",
       "moduleId": "workbench",
       "certainty": "confirmed",
       "evidence": [
         {
           "path": "README.md",
           "locator": "Codex 会话工作台是只读的会话浏览器。"
+        },
+        {
+          "path": "src/session-events.mjs",
+          "locator": "function buildTurns(events)"
         }
       ],
-      "tests": [],
+      "tests": [
+        {
+          "path": "test/e2e/full-content.spec.mjs",
+          "locator": "原始事件详情完整展示大型工具输出"
+        }
+      ],
       "document": {
         "role": "overview",
         "path": "docs/architecture/README.md",
@@ -227,19 +64,22 @@
       "impactPaths": [
         "README.md",
         "server.mjs",
-        "public/app.js"
+        "public/app.js",
+        "src/session-events.mjs",
+        "test/e2e/full-content.spec.mjs",
+        "docs/architecture/README.md"
       ]
     },
     {
-      "id": "boundary-read-only-session-sources",
+      "id": "boundary-source-records-and-local-derivatives",
       "kind": "boundary",
-      "summary": "原始会话不被修改，浏览和导出仅读取本地文件或已发布的远端快照。",
+      "summary": "系统不改写 Codex 或 Pi Agent 原始会话，但会在用户目录保存远端连接定义和私有远端快照。",
       "moduleId": "data-sources",
       "certainty": "confirmed",
       "evidence": [
         {
-          "path": "README.md",
-          "locator": "原始会话文件不会被修改。"
+          "path": "src/renderer-config.mjs",
+          "locator": "async function writeConfig(config, onCommitted = null)"
         },
         {
           "path": "src/data-sources.mjs",
@@ -247,6 +87,10 @@
         }
       ],
       "tests": [
+        {
+          "path": "test/renderer-config.test.mjs",
+          "locator": "renderer config store persists peers and redacts token in public output"
+        },
         {
           "path": "test/snapshot-share.test.mjs",
           "locator": "createSnapshotArchive includes allowed Codex files and metadata"
@@ -259,15 +103,106 @@
       },
       "impactPaths": [
         "README.md",
+        "src/renderer-config.mjs",
         "src/data-sources.mjs",
         "src/snapshot-share.mjs",
-        "test/snapshot-share.test.mjs"
+        "test/renderer-config.test.mjs",
+        "test/snapshot-share.test.mjs",
+        "docs/architecture/README.md"
       ]
     },
     {
-      "id": "capability-session-discovery-and-query",
+      "id": "external-boundary-http-authentication",
+      "kind": "external-boundary",
+      "summary": "主服务仅在非 loopback 监听时要求令牌认证，快照共享服务无令牌不得启动且每个端点要求 Bearer 令牌。",
+      "moduleId": "http-boundary",
+      "certainty": "confirmed",
+      "evidence": [
+        {
+          "path": "src/access-control.mjs",
+          "locator": "function assertSecureListenConfig(options = {})"
+        },
+        {
+          "path": "share-server.mjs",
+          "locator": "if (!config.token) {"
+        }
+      ],
+      "tests": [
+        {
+          "path": "test/server-access-control.test.mjs",
+          "locator": "non-loopback renderer requires credentials for static, read, and write routes"
+        },
+        {
+          "path": "test/snapshot-share.test.mjs",
+          "locator": "share health endpoint is protected by bearer token"
+        }
+      ],
+      "document": {
+        "role": "overview",
+        "path": "docs/architecture/README.md",
+        "anchor": "系统边界"
+      },
+      "impactPaths": [
+        "server.mjs",
+        "share-server.mjs",
+        "src/access-control.mjs",
+        "src/snapshot-share.mjs",
+        "test/server-access-control.test.mjs",
+        "test/snapshot-share.test.mjs",
+        "docs/architecture/README.md"
+      ]
+    },
+    {
+      "id": "module-session-projection",
+      "kind": "module",
+      "summary": "会话读取与投影模块负责来源隔离的发现、稳定读取、规范化和阅读投影。",
+      "moduleId": "session-projection",
+      "certainty": "confirmed",
+      "evidence": [
+        {
+          "path": "server.mjs",
+          "locator": "function getSourceContext(sourceId = \"local\")"
+        },
+        {
+          "path": "src/session-normalizer.mjs",
+          "locator": "function normalizeSessionEvent(rawEvent, index = null)"
+        }
+      ],
+      "tests": [
+        {
+          "path": "test/session-normalizer.test.mjs",
+          "locator": "normalizeSessionEvent"
+        },
+        {
+          "path": "test/source-identity-isolation.test.mjs",
+          "locator": "changing a source identity after the old final check cannot overwrite a newer current snapshot"
+        }
+      ],
+      "document": {
+        "role": "session-projection",
+        "path": "docs/architecture/modules/session-projection.md",
+        "anchor": "设计结论"
+      },
+      "impactPaths": [
+        "server.mjs",
+        "src/session-catalog.mjs",
+        "src/sqlite-threads.mjs",
+        "src/jsonl-reader.mjs",
+        "src/session-models.mjs",
+        "src/session-normalizer.mjs",
+        "src/session-events.mjs",
+        "src/session-timing.mjs",
+        "test/session-normalizer.test.mjs",
+        "test/session-catalog.test.mjs",
+        "test/source-identity-isolation.test.mjs",
+        "docs/architecture/implementation.md",
+        "docs/architecture/modules/session-projection.md"
+      ]
+    },
+    {
+      "id": "capability-session-discovery-and-view",
       "kind": "capability",
-      "summary": "服务优先选择可用的 Pi Agent 来源，否则回退至本机 Codex，并从 SQLite 线程索引和 JSONL 文件发现会话，为列表、查询和详情提供来源隔离的投影。",
+      "summary": "服务按来源提供 SQLite 优先、JSONL 回退的会话发现，并派生列表、详情、事件、执行过程、时间统计和 Markdown。",
       "moduleId": "session-projection",
       "certainty": "confirmed",
       "evidence": [
@@ -277,33 +212,17 @@
         },
         {
           "path": "server.mjs",
-          "locator": "if (pathname === \"/api/health\") {"
-        },
-        {
-          "path": "src/data-sources.mjs",
-          "locator": "const defaultSourceId = sources.has(piAgentSourceId) ? piAgentSourceId : \"local\";"
-        },
-        {
-          "path": "src/session-query.mjs",
-          "locator": "function parseSessionListQuery(params)"
+          "locator": "async function getSessionDetail(context, id, options = {})"
         }
       ],
       "tests": [
-        {
-          "path": "test/session-query.test.mjs",
-          "locator": "session query filters root sessions by time, text and child state"
-        },
-        {
-          "path": "test/source-identity-isolation.test.mjs",
-          "locator": "createDataSourceRegistry"
-        },
         {
           "path": "test/data-sources.test.mjs",
           "locator": "createDataSourceRegistry adds Pi Agent source when sessions root is configured"
         },
         {
-          "path": "test/server.test.mjs",
-          "locator": "health selects the Pi Agent source when its sessions directory is available"
+          "path": "test/session-query.test.mjs",
+          "locator": "session query filters root sessions by time, text and child state"
         }
       ],
       "document": {
@@ -315,97 +234,35 @@
         "server.mjs",
         "src/data-sources.mjs",
         "src/session-query.mjs",
-        "src/session-models.mjs",
-        "src/sqlite-threads.mjs",
-        "test/session-query.test.mjs",
-        "test/data-sources.test.mjs",
-        "test/server.test.mjs",
-        "test/e2e/full-content.spec.mjs",
-        "test/e2e/list-scope-navigation.spec.mjs",
-        "scripts/e2e-server.mjs",
-        "test/e2e/source-default.spec.mjs",
-        "test/e2e/source-helpers.mjs",
-        "test/e2e/title-consistency.spec.mjs",
-        "test/source-identity-isolation.test.mjs"
-      ]
-    },
-    {
-      "id": "module-session-projection",
-      "kind": "module",
-      "summary": "会话投影模块规范化原始事件并将其聚合为轮次、工具调用、时间线、子代理层级、时间统计和 API 响应。",
-      "moduleId": "session-projection",
-      "certainty": "confirmed",
-      "evidence": [
-        {
-          "path": "src/session-normalizer.mjs",
-          "locator": "function normalizeSessionEvent(rawEvent, index = null)"
-        },
-        {
-          "path": "src/session-events.mjs",
-          "locator": "function compactTurnsForClient(turns)"
-        },
-        {
-          "path": "src/session-events.mjs",
-          "locator": "function buildInputWaitIntervals(turns)"
-        },
-        {
-          "path": "src/session-timing.mjs",
-          "locator": "function buildSessionTiming(trace)"
-        }
-      ],
-      "tests": [
-        {
-          "path": "test/session-normalizer.test.mjs",
-          "locator": "normalizeSessionEvent"
-        },
-        {
-          "path": "test/session-timing.test.mjs",
-          "locator": "session timing classifies trace nodes and preserves source references"
-        },
-        {
-          "path": "test/session-events.test.mjs",
-          "locator": "buildTrace derives waiting-for-input only between assistant and next user messages"
-        }
-      ],
-      "document": {
-        "role": "session-projection",
-        "path": "docs/architecture/modules/session-projection.md",
-        "anchor": "会话读取与投影"
-      },
-      "impactPaths": [
-        "src/session-normalizer.mjs",
         "src/session-events.mjs",
         "src/session-timing.mjs",
-        "src/embedded-subagents.mjs",
-        "docs/architecture/implementation.md",
-        "docs/session-event-normalization.md",
-        "public/app.js",
-        "public/styles.css",
-        "test/session-normalizer.test.mjs",
-        "test/session-events.test.mjs",
-        "test/session-timing.test.mjs"
+        "src/markdown-export.mjs",
+        "test/data-sources.test.mjs",
+        "test/session-query.test.mjs",
+        "test/session-timing.test.mjs",
+        "docs/architecture/modules/session-projection.md"
       ]
     },
     {
-      "id": "flow-session-detail-read-consistency",
+      "id": "flow-stable-session-detail",
       "kind": "flow",
-      "summary": "详情读取在读取前后确认文件状态，并通过并发协调器避免将变化中的会话缓存或返回为完整详情。",
+      "summary": "详情读取前后核验文件签名，只有稳定版本才返回和缓存完整投影，变化、取消和失败都返回受控非完整状态。",
       "moduleId": "session-projection",
       "certainty": "confirmed",
       "evidence": [
         {
-          "path": "server.mjs",
-          "locator": "async function getSessionDetail(context, id, options = {})"
+          "path": "src/session-detail-coordinator.mjs",
+          "locator": "function createSessionDetailCoordinator(options = {})"
         },
         {
-          "path": "src/session-detail-coordinator.mjs",
-          "locator": "async function read(session, { cacheKey, signal, derive = (events) => events, shouldCache = () => true } = {})"
+          "path": "server.mjs",
+          "locator": "function changingSessionDetail(context, session, stat, readState)"
         }
       ],
       "tests": [
         {
           "path": "test/session-detail-coordinator.test.mjs",
-          "locator": "createSessionDetailCoordinator"
+          "locator": "详情协调器检测读取后文件变化，不返回或缓存旧详情"
         }
       ],
       "document": {
@@ -417,13 +274,133 @@
         "server.mjs",
         "src/session-detail-coordinator.mjs",
         "src/jsonl-reader.mjs",
-        "test/session-detail-coordinator.test.mjs"
+        "test/session-detail-coordinator.test.mjs",
+        "docs/architecture/modules/session-projection.md"
+      ]
+    },
+    {
+      "id": "module-prompt-archive-and-goal-projection",
+      "kind": "module",
+      "summary": "任务归档与目标投影模块负责有界提取首个有效用户任务，并失败关闭地投影已验证 Goal 控制包的目标文本。",
+      "moduleId": "prompt-archive-and-goal-projection",
+      "certainty": "confirmed",
+      "evidence": [
+        {
+          "path": "src/prompt-archive-coordinator.mjs",
+          "locator": "function createPromptArchiveCoordinator(options = {})"
+        },
+        {
+          "path": "src/pi-goal-projection.mjs",
+          "locator": "function createPiGoalMessageProjector()"
+        }
+      ],
+      "tests": [
+        {
+          "path": "test/prompt-archive-coordinator.test.mjs",
+          "locator": "归档协调器限制慢读取并发且不会提前启动后续文件"
+        },
+        {
+          "path": "test/codex-goal-http.test.mjs",
+          "locator": "HTTP surfaces project a verified Codex goal while raw diagnostics retain the packet"
+        }
+      ],
+      "document": {
+        "role": "prompt-archive-and-goal-projection",
+        "path": "docs/architecture/modules/prompt-archive-and-goal-projection.md",
+        "anchor": "设计结论"
+      },
+      "impactPaths": [
+        "server.mjs",
+        "src/prompt-archive-coordinator.mjs",
+        "src/session-prompts.mjs",
+        "src/pi-goal-projection.mjs",
+        "test/prompt-archive-coordinator.test.mjs",
+        "test/session-prompts.test.mjs",
+        "test/codex-goal-http.test.mjs",
+        "docs/architecture/implementation.md",
+        "docs/architecture/modules/prompt-archive-and-goal-projection.md"
+      ]
+    },
+    {
+      "id": "capability-bounded-prompt-archive",
+      "kind": "capability",
+      "summary": "任务归档以来源和文件版本隔离，在固定并发、文件、事件、会话和正文预算内返回首个有效用户任务或明确状态。",
+      "moduleId": "prompt-archive-and-goal-projection",
+      "certainty": "confirmed",
+      "evidence": [
+        {
+          "path": "src/prompt-archive-coordinator.mjs",
+          "locator": "const defaultLimits = {"
+        },
+        {
+          "path": "src/session-prompts.mjs",
+          "locator": "function extractFirstPrompt(events, options = {})"
+        }
+      ],
+      "tests": [
+        {
+          "path": "test/prompt-archive-coordinator.test.mjs",
+          "locator": "超长提示词受限，而超大文件的有界前缀仍可归档首个任务"
+        },
+        {
+          "path": "test/session-prompts.test.mjs",
+          "locator": "extractFirstPrompt keeps the first real user task and its source anchor"
+        }
+      ],
+      "document": {
+        "role": "prompt-archive-and-goal-projection",
+        "path": "docs/architecture/modules/prompt-archive-and-goal-projection.md",
+        "anchor": "核心模型"
+      },
+      "impactPaths": [
+        "server.mjs",
+        "src/prompt-archive-coordinator.mjs",
+        "src/session-prompts.mjs",
+        "test/prompt-archive-coordinator.test.mjs",
+        "test/session-prompts.test.mjs",
+        "docs/architecture/modules/prompt-archive-and-goal-projection.md"
+      ]
+    },
+    {
+      "id": "guarantee-goal-control-fails-closed",
+      "kind": "guarantee",
+      "summary": "只有完全符合当前 Codex/Pi Goal profile 的控制包可投影 objective，未知或不匹配内容保持普通消息和 Raw 诊断事实。",
+      "moduleId": "prompt-archive-and-goal-projection",
+      "certainty": "confirmed",
+      "evidence": [
+        {
+          "path": "src/pi-goal-projection.mjs",
+          "locator": "function projectCodexGoalMessage(event, goalState, minimumTokensUsed, projectedObjectives)"
+        },
+        {
+          "path": "docs/session-event-normalization.md",
+          "locator": "未知版本、预算形态、字段缺失、错误 thread ID、状态倒退、模板附加内容、伪造文本和普通用户写出的相似标签均按普通消息保留。"
+        }
+      ],
+      "tests": [
+        {
+          "path": "test/codex-goal-http.test.mjs",
+          "locator": "HTTP surfaces project a verified Codex goal while raw diagnostics retain the packet"
+        }
+      ],
+      "document": {
+        "role": "prompt-archive-and-goal-projection",
+        "path": "docs/architecture/modules/prompt-archive-and-goal-projection.md",
+        "anchor": "必须保持的规则"
+      },
+      "impactPaths": [
+        "src/pi-goal-projection.mjs",
+        "src/session-events.mjs",
+        "src/session-prompts.mjs",
+        "docs/session-event-normalization.md",
+        "test/codex-goal-http.test.mjs",
+        "docs/architecture/modules/prompt-archive-and-goal-projection.md"
       ]
     },
     {
       "id": "module-remote-snapshot-sharing",
       "kind": "module",
-      "summary": "远端快照模块管理远端定义、受限获取、验证、私有发布和受令牌保护的共享接口。",
+      "summary": "远端快照与共享模块负责私有远端来源、受限刷新、来源围栏、原子发布、快照共享和历史索引。",
       "moduleId": "remote-snapshot-sharing",
       "certainty": "confirmed",
       "evidence": [
@@ -439,31 +416,75 @@
       "tests": [
         {
           "path": "test/data-sources.test.mjs",
-          "locator": "createDataSourceRegistry keeps local source compatible when remote is not configured"
+          "locator": "remote snapshot refresh publishes current atomically and keeps previous snapshot after failure"
         },
         {
           "path": "test/snapshot-share.test.mjs",
-          "locator": "share health endpoint is protected by bearer token"
+          "locator": "createSessionIndex returns older sessions without session bodies"
         }
       ],
       "document": {
         "role": "remote-snapshot-sharing",
         "path": "docs/architecture/modules/remote-snapshot-sharing.md",
-        "anchor": "远端快照与共享"
+        "anchor": "设计结论"
       },
       "impactPaths": [
-        "src/data-sources.mjs",
-        "src/snapshot-share.mjs",
-        "src/remote-http.mjs",
         "share-server.mjs",
+        "src/renderer-config.mjs",
+        "src/data-sources.mjs",
+        "src/remote-http.mjs",
+        "src/snapshot-budget.mjs",
+        "src/snapshot-share.mjs",
+        "src/remote-session-index.mjs",
         "test/data-sources.test.mjs",
-        "test/snapshot-share.test.mjs"
+        "test/snapshot-share.test.mjs",
+        "docs/architecture/implementation.md",
+        "docs/architecture/modules/remote-snapshot-sharing.md"
+      ]
+    },
+    {
+      "id": "data-ownership-private-remote-state",
+      "kind": "data-ownership",
+      "summary": "远端连接令牌、来源版本、状态和快照由本机私有配置及快照根拥有，浏览器只获得移除令牌后的来源视图。",
+      "moduleId": "remote-snapshot-sharing",
+      "certainty": "confirmed",
+      "evidence": [
+        {
+          "path": "src/renderer-config.mjs",
+          "locator": "function publicPeer(peer)"
+        },
+        {
+          "path": "src/data-sources.mjs",
+          "locator": "function publicDataSource(source, defaultSourceId = \"local\")"
+        }
+      ],
+      "tests": [
+        {
+          "path": "test/renderer-config.test.mjs",
+          "locator": "renderer config store persists peers and redacts token in public output"
+        },
+        {
+          "path": "test/data-sources.test.mjs",
+          "locator": "publicDataSource never exposes URL userinfo from remote origins"
+        }
+      ],
+      "document": {
+        "role": "remote-snapshot-sharing",
+        "path": "docs/architecture/modules/remote-snapshot-sharing.md",
+        "anchor": "核心模型"
+      },
+      "impactPaths": [
+        "src/renderer-config.mjs",
+        "src/data-sources.mjs",
+        "test/renderer-config.test.mjs",
+        "test/data-sources.test.mjs",
+        "docs/architecture/modules/remote-snapshot-sharing.md"
       ]
     },
     {
       "id": "flow-remote-refresh-and-publish",
       "kind": "flow",
-      "summary": "远端刷新先暂存和验证，再原子发布当前快照，失败时保留先前可用版本。",
+      "summary": "远端刷新在私有暂存中完成获取和验证，最后以来源身份检查保护的原子提交发布 current，失败或取消不发布暂存数据。",
       "moduleId": "remote-snapshot-sharing",
       "certainty": "confirmed",
       "evidence": [
@@ -473,60 +494,17 @@
         },
         {
           "path": "src/data-sources.mjs",
-          "locator": "async function refreshAndPublishSource(source, stagingPath, options)"
+          "locator": "async function publishSnapshot(source, codexHomePath, options = {})"
         }
       ],
       "tests": [
         {
           "path": "test/snapshot-publication.test.mjs",
-          "locator": "snapshot"
+          "locator": "atomic current pointer lets readers observe a complete old or new snapshot"
         },
         {
-          "path": "test/remote-resource-limits.test.mjs",
-          "locator": "remote refresh gate limits different sources globally"
-        }
-      ],
-      "document": {
-        "role": "remote-snapshot-sharing",
-        "path": "docs/architecture/modules/remote-snapshot-sharing.md",
-        "anchor": "核心模型"
-      },
-      "impactPaths": [
-        "src/data-sources.mjs",
-        "src/snapshot-build-coordinator.mjs",
-        "src/snapshot-root-commit-coordinator.mjs",
-        "test/snapshot-publication.test.mjs",
-        "test/remote-resource-limits.test.mjs"
-      ]
-    },
-    {
-      "id": "guarantee-snapshot-and-access-protection",
-      "kind": "guarantee",
-      "summary": "快照只接受允许的内容和来源，主服务非 loopback 监听与共享端点均要求令牌认证。",
-      "moduleId": "remote-snapshot-sharing",
-      "certainty": "confirmed",
-      "evidence": [
-        {
-          "path": "src/data-sources.mjs",
-          "locator": "async function validateSnapshot(codexHomePath, fsApi = fs)"
-        },
-        {
-          "path": "src/access-control.mjs",
-          "locator": "function assertSecureListenConfig(options = {})"
-        },
-        {
-          "path": "share-server.mjs",
-          "locator": "缺少 CODEX_SHARE_TOKEN。为避免会话数据裸露，快照共享服务不会在无 token 时启动。"
-        }
-      ],
-      "tests": [
-        {
-          "path": "test/snapshot-security.test.mjs",
-          "locator": "remote snapshots keep default and custom roots private on Unix"
-        },
-        {
-          "path": "test/server-access-control.test.mjs",
-          "locator": "non-loopback renderer requires credentials for static, read, and write routes"
+          "path": "test/remote-refresh-http-cancellation.test.mjs",
+          "locator": "客户端中止刷新 POST 会取消服务端订阅、上游下载和未提交 staging"
         }
       ],
       "document": {
@@ -535,15 +513,254 @@
         "anchor": "必须保持的规则"
       },
       "impactPaths": [
+        "server.mjs",
         "src/data-sources.mjs",
-        "src/access-control.mjs",
+        "src/snapshot-root-commit-coordinator.mjs",
+        "test/snapshot-publication.test.mjs",
+        "test/remote-refresh-http-cancellation.test.mjs",
+        "test/source-identity-isolation.test.mjs",
+        "docs/architecture/modules/remote-snapshot-sharing.md"
+      ]
+    },
+    {
+      "id": "capability-remote-history-index",
+      "kind": "capability",
+      "summary": "共享端为远端历史会话提供受认证、受预算和快照版本约束的紧凑索引，历史索引不提供会话正文。",
+      "moduleId": "remote-snapshot-sharing",
+      "certainty": "confirmed",
+      "evidence": [
+        {
+          "path": "src/snapshot-share.mjs",
+          "locator": "async function createSessionIndex(options = {})"
+        },
+        {
+          "path": "src/remote-session-index.mjs",
+          "locator": "async function readFileIndexPage({ codexHome, fsApi, query, now, limits, signal })"
+        }
+      ],
+      "tests": [
+        {
+          "path": "test/snapshot-share.test.mjs",
+          "locator": "createSessionIndex returns older sessions without session bodies"
+        },
+        {
+          "path": "test/snapshot-share.test.mjs",
+          "locator": "索引变动拒绝续页令牌，文件回退遵守条目预算和取消"
+        }
+      ],
+      "document": {
+        "role": "remote-snapshot-sharing",
+        "path": "docs/architecture/modules/remote-snapshot-sharing.md",
+        "anchor": "核心模型"
+      },
+      "impactPaths": [
+        "server.mjs",
         "src/snapshot-share.mjs",
+        "src/remote-session-index.mjs",
+        "test/snapshot-share.test.mjs",
+        "docs/architecture/modules/remote-snapshot-sharing.md"
+      ]
+    },
+    {
+      "id": "guarantee-snapshot-and-access-protection",
+      "kind": "guarantee",
+      "summary": "远端快照与共享端点只接受允许内容和认证请求，私有文件权限与错误脱敏避免令牌及会话数据意外公开。",
+      "moduleId": "remote-snapshot-sharing",
+      "certainty": "confirmed",
+      "evidence": [
+        {
+          "path": "src/data-sources.mjs",
+          "locator": "async function validateSnapshot(codexHomePath, fsApi = fs)"
+        },
+        {
+          "path": "src/snapshot-share.mjs",
+          "locator": "function isAuthorizedSnapshotRequest(req, token)"
+        }
+      ],
+      "tests": [
+        {
+          "path": "test/snapshot-security.test.mjs",
+          "locator": "remote snapshots keep default and custom roots private on Unix"
+        },
+        {
+          "path": "test/snapshot-share.test.mjs",
+          "locator": "共享端索引路径要求 Bearer token，响应不回传目录或 token"
+        }
+      ],
+      "document": {
+        "role": "remote-snapshot-sharing",
+        "path": "docs/architecture/modules/remote-snapshot-sharing.md",
+        "anchor": "必须保持的规则"
+      },
+      "impactPaths": [
         "share-server.mjs",
+        "src/data-sources.mjs",
+        "src/snapshot-share.mjs",
+        "src/access-control.mjs",
         "test/snapshot-security.test.mjs",
-        "test/server-access-control.test.mjs"
+        "test/snapshot-share.test.mjs",
+        "test/server-access-control.test.mjs",
+        "docs/architecture/modules/remote-snapshot-sharing.md"
       ]
     }
   ],
   "openQuestions": [],
-  "pendingImpact": null
+  "pendingImpact": {
+    "baseCommit": "5a0f81fbb6753e086a43134b2612fe6d2ad7c1be",
+    "changedPaths": [
+      ".agents/architecture/state.json",
+      "README.md",
+      "docs/architecture/README.md",
+      "docs/architecture/implementation.md",
+      "docs/architecture/modules/prompt-archive-and-goal-projection.md",
+      "docs/architecture/modules/remote-snapshot-sharing.md",
+      "docs/architecture/modules/session-projection.md"
+    ],
+    "itemIds": [
+      "purpose-readable-session-workbench",
+      "boundary-source-records-and-local-derivatives",
+      "external-boundary-http-authentication",
+      "module-session-projection",
+      "capability-session-discovery-and-view",
+      "flow-stable-session-detail",
+      "module-prompt-archive-and-goal-projection",
+      "capability-bounded-prompt-archive",
+      "guarantee-goal-control-fails-closed",
+      "module-remote-snapshot-sharing",
+      "data-ownership-private-remote-state",
+      "flow-remote-refresh-and-publish",
+      "capability-remote-history-index",
+      "guarantee-snapshot-and-access-protection"
+    ],
+    "assessments": [
+      {
+        "itemId": "purpose-readable-session-workbench",
+        "result": "updated",
+        "reason": "总览重写了产品目的和非目标。",
+        "evidence": {
+          "path": "docs/architecture/README.md",
+          "locator": "## 目的"
+        }
+      },
+      {
+        "itemId": "boundary-source-records-and-local-derivatives",
+        "result": "updated",
+        "reason": "总览明确区分原始会话只读与本机派生写入。",
+        "evidence": {
+          "path": "docs/architecture/README.md",
+          "locator": "## 系统边界"
+        }
+      },
+      {
+        "itemId": "external-boundary-http-authentication",
+        "result": "updated",
+        "reason": "总览补充主服务与共享服务的认证边界。",
+        "evidence": {
+          "path": "docs/architecture/README.md",
+          "locator": "主 HTTP 服务默认只监听 loopback。"
+        }
+      },
+      {
+        "itemId": "module-session-projection",
+        "result": "updated",
+        "reason": "会话模块改为独立可审阅的设计层。",
+        "evidence": {
+          "path": "docs/architecture/modules/session-projection.md",
+          "locator": "## 设计结论"
+        }
+      },
+      {
+        "itemId": "capability-session-discovery-and-view",
+        "result": "updated",
+        "reason": "会话发现和投影能力已按实现重新归纳。",
+        "evidence": {
+          "path": "docs/architecture/modules/session-projection.md",
+          "locator": "## 核心模型"
+        }
+      },
+      {
+        "itemId": "flow-stable-session-detail",
+        "result": "updated",
+        "reason": "稳定详情读取的失败语义已进入模块规则。",
+        "evidence": {
+          "path": "docs/architecture/modules/session-projection.md",
+          "locator": "## 必须保持的规则"
+        }
+      },
+      {
+        "itemId": "module-prompt-archive-and-goal-projection",
+        "result": "updated",
+        "reason": "新增模块承接原先遗漏的归档和 Goal 投影职责。",
+        "evidence": {
+          "path": "docs/architecture/modules/prompt-archive-and-goal-projection.md",
+          "locator": "## 设计结论"
+        }
+      },
+      {
+        "itemId": "capability-bounded-prompt-archive",
+        "result": "updated",
+        "reason": "归档预算、签名和取消模型已独立记录。",
+        "evidence": {
+          "path": "docs/architecture/modules/prompt-archive-and-goal-projection.md",
+          "locator": "## 核心模型"
+        }
+      },
+      {
+        "itemId": "guarantee-goal-control-fails-closed",
+        "result": "updated",
+        "reason": "Goal 的严格验证、失败关闭和 Raw 保留已明确。",
+        "evidence": {
+          "path": "docs/architecture/modules/prompt-archive-and-goal-projection.md",
+          "locator": "## 必须保持的规则"
+        }
+      },
+      {
+        "itemId": "module-remote-snapshot-sharing",
+        "result": "updated",
+        "reason": "远端模块补充来源围栏、共享和历史索引职责。",
+        "evidence": {
+          "path": "docs/architecture/modules/remote-snapshot-sharing.md",
+          "locator": "## 设计结论"
+        }
+      },
+      {
+        "itemId": "data-ownership-private-remote-state",
+        "result": "updated",
+        "reason": "远端配置、令牌和快照的本地私有所有权已明确。",
+        "evidence": {
+          "path": "docs/architecture/modules/remote-snapshot-sharing.md",
+          "locator": "## 核心模型"
+        }
+      },
+      {
+        "itemId": "flow-remote-refresh-and-publish",
+        "result": "updated",
+        "reason": "刷新、暂存、验证和原子发布流程已重新说明。",
+        "evidence": {
+          "path": "docs/architecture/modules/remote-snapshot-sharing.md",
+          "locator": "## 必须保持的规则"
+        }
+      },
+      {
+        "itemId": "capability-remote-history-index",
+        "result": "updated",
+        "reason": "历史定位不下载正文的能力和预算边界已纳入模块。",
+        "evidence": {
+          "path": "docs/architecture/modules/remote-snapshot-sharing.md",
+          "locator": "共享服务单独认证健康、归档和索引端点。"
+        }
+      },
+      {
+        "itemId": "guarantee-snapshot-and-access-protection",
+        "result": "updated",
+        "reason": "允许内容、私有权限、认证和脱敏规则已统一到远端模块。",
+        "evidence": {
+          "path": "docs/architecture/modules/remote-snapshot-sharing.md",
+          "locator": "## 必须保持的规则"
+        }
+      }
+    ],
+    "unmappedPaths": [],
+    "pathAssessments": []
+  }
 }
