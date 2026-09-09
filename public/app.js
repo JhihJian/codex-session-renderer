@@ -4166,6 +4166,13 @@ function renderCompactOutlineTurn(turn, context) {
       }),
     )
     .join("");
+  const embeddedSubagents = renderCompactOutlineEmbeddedSubagents(turn.embeddedSubagents || [], {
+    depth: depth + 1,
+    path: context.path,
+    query: context.query,
+    evidenceScope: context.evidenceScope,
+    threadPath: context.threadPath,
+  });
   const children =
     context.allowChildren === false
       ? ""
@@ -4191,9 +4198,32 @@ function renderCompactOutlineTurn(turn, context) {
         </span>
       </button>
       ${compactEvents}
+      ${embeddedSubagents}
       ${children}
     </div>
   `;
+}
+
+function renderCompactOutlineEmbeddedSubagents(batches, context) {
+  if (!batches.length) return "";
+  const targetId = compactEmbeddedSubagentTargetId(context.path);
+  return batches
+    .map((batch, batchIndex) => {
+      const status = batch.status || "unknown";
+      const tasks = compactEmbeddedTaskViews(batch);
+      const eventIndex = batch.outputSourceIndex ?? batch.sourceIndex ?? batchIndex;
+      const runLabel = `内嵌调用 ${batchIndex + 1}`;
+      const taskNodes = tasks
+        .map((task, taskIndex) => {
+          const taskStatus = task.status || status;
+          const taskLabel = `子代理：${task.agent || "未指定代理"}`;
+          const taskMeta = [compactEmbeddedSubagentStatusLabel(taskStatus), compactEmbeddedTaskTitle(task.task)].filter(Boolean).join(" · ");
+          return `<button class="compact-outline-item embedded-subagent status-${escapeAttr(taskStatus)}" role="button" tabindex="-1" type="button" style="--depth:${Math.min(context.depth + 1, 9)}" data-compact-nav-target="${escapeAttr(targetId)}" data-evidence-id="${escapeAttr(buildEvidenceId({ ...context.evidenceScope, threadPath: context.threadPath, eventIndex: `${eventIndex}:${taskIndex}`, entity: "embedded-subagent-task" }))}" aria-label="${escapeAttr(`${taskLabel}：${taskMeta}`)}"><span class="compact-outline-indent" aria-hidden="true"></span><span class="compact-outline-icon">A</span><span class="compact-outline-copy"><strong>${highlight(escapeHtml(taskLabel), context.query)}</strong><em>${highlight(escapeHtml(taskMeta), context.query)}</em></span></button>`;
+        })
+        .join("");
+      return `<div class="compact-outline-group"><button class="compact-outline-item embedded-subagent-run status-${escapeAttr(status)}" role="button" tabindex="-1" type="button" style="--depth:${Math.min(context.depth, 8)}" data-compact-nav-target="${escapeAttr(targetId)}" data-evidence-id="${escapeAttr(buildEvidenceId({ ...context.evidenceScope, threadPath: context.threadPath, eventIndex, entity: "embedded-subagent" }))}" aria-label="${escapeAttr(`${runLabel}：${compactEmbeddedSubagentStatusLabel(status)}`)}"><span class="compact-outline-indent" aria-hidden="true"></span><span class="compact-outline-icon">A</span><span class="compact-outline-copy"><strong>${escapeHtml(runLabel)}</strong><em>${escapeHtml(compactEmbeddedSubagentStatusLabel(status))}</em></span></button>${taskNodes}</div>`;
+    })
+    .join("");
 }
 
 function renderCompactOutlineContextEvent(event, context) {
@@ -4399,7 +4429,7 @@ function renderCompactTurn(turn, context) {
   const compactEvents = compactEventsForTurn(turn)
     .map((event, index) => renderCompactContextEvent(event, context.query, `${path}-compact-${index}`))
     .join("");
-  const embeddedSubagents = renderCompactEmbeddedSubagents(turn.embeddedSubagents || [], context.query);
+  const embeddedSubagents = renderCompactEmbeddedSubagents(turn.embeddedSubagents || [], context.query, compactEmbeddedSubagentTargetId(path));
   const children = (turn.children || [])
     .map((child, index) =>
       renderCompactThread(child, { depth: context.depth + 1, path: `${path}-child-${index}`, query: context.query }),
@@ -4422,10 +4452,14 @@ function renderCompactTurn(turn, context) {
   `;
 }
 
-function renderCompactEmbeddedSubagents(batches, query) {
+function compactEmbeddedSubagentTargetId(path) {
+  return compactElementId("embedded-subagents", path);
+}
+
+function renderCompactEmbeddedSubagents(batches, query, targetId) {
   if (!batches.length) return "";
   const summary = compactEmbeddedSubagentGroupSummary(batches);
-  return `<section class="compact-embedded-subagent-group" aria-label="子代理执行，${escapeAttr(summary)}"><header class="compact-embedded-group-head"><span><strong>子代理执行</strong><em>${escapeHtml(summary)}</em></span></header><ol class="compact-embedded-run-list">${batches.map((batch, index) => renderCompactEmbeddedRun(batch, index, query)).join("")}</ol></section>`;
+  return `<section class="compact-embedded-subagent-group" id="${escapeAttr(targetId)}" tabindex="-1" aria-label="子代理执行，${escapeAttr(summary)}"><header class="compact-embedded-group-head"><span><strong>子代理执行</strong><em>${escapeHtml(summary)}</em></span></header><ol class="compact-embedded-run-list">${batches.map((batch, index) => renderCompactEmbeddedRun(batch, index, query)).join("")}</ol></section>`;
 }
 
 function renderCompactEmbeddedRun(batch, index, query) {

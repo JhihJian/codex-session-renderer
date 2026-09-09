@@ -19,7 +19,7 @@ Codex 会话工作台是只读的会话浏览器。它把 Codex 与 Pi Agent 的
 
 - Codex 元数据：`~/.codex/state_5.sqlite`
 - Codex 会话：`~/.codex/sessions/**/*.jsonl`
-- Pi Agent 会话：自动发现 `~/.pi/agent/sessions/**/*.jsonl`，也可通过 `PI_AGENT_SESSIONS_ROOT` 或 `PI_AGENT_TASKS_ROOT` 配置。内嵌 `subagent` 调用会按轮次汇总为连续执行组，展示每次调用的任务、状态与短回报预览，完整回报按需展开，并保留原始事件跳转；执行过程树同时展示“内嵌子代理批次 → 子代理”节点。两种投影都不会伪装成可打开的独立子会话。
+- Pi Agent 会话：自动发现 `~/.pi/agent/sessions/**/*.jsonl`，也可通过 `PI_AGENT_SESSIONS_ROOT` 或 `PI_AGENT_TASKS_ROOT` 配置。内嵌 `subagent` 调用会按轮次汇总为连续执行组，展示每次调用的任务、状态与短回报预览，完整回报按需展开，并保留原始事件跳转；会话侧栏目录和执行过程树同时展示“内嵌调用 → 子代理”节点。各处投影都不会伪装成可打开的独立子会话。
 - 远端数据源：先拉取到本地快照后只读浏览，历史范围仅查询远端索引，不读取历史正文
 
 原始会话文件不会被修改。Markdown 导出和浏览器展示均基于本地文件或已发布的本地快照。

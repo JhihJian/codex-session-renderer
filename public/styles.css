@@ -2558,6 +2558,19 @@ button:disabled {
   color: var(--orange);
 }
 
+.compact-outline-item.embedded-subagent-run .compact-outline-icon,
+.compact-outline-item.embedded-subagent .compact-outline-icon {
+  background: var(--role-tool-call-soft);
+  color: var(--role-tool-call);
+}
+
+.compact-outline-item.embedded-subagent-run.status-succeeded .compact-outline-icon,
+.compact-outline-item.embedded-subagent.status-succeeded .compact-outline-icon { color: var(--green); }
+.compact-outline-item.embedded-subagent-run.status-failed .compact-outline-icon,
+.compact-outline-item.embedded-subagent-run.status-invalid_request .compact-outline-icon,
+.compact-outline-item.embedded-subagent.status-failed .compact-outline-icon,
+.compact-outline-item.embedded-subagent.status-invalid_request .compact-outline-icon { color: var(--red); }
+
 .compact-outline-note {
   --depth: 0;
   margin-left: calc(var(--depth) * 10px + 25px);
