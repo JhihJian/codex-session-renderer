@@ -77,7 +77,7 @@ test("session timing exposes inferred LLM response intervals with model and cont
     timing: { startedAt: "2026-07-08T10:00:00.000Z", completedAt: "2026-07-08T10:01:00.000Z", estimated: true, responses: [{ id: "response:0:1", turnIndex: 0, startedAt: "2026-07-08T10:00:05.000Z", completedAt: "2026-07-08T10:00:35.000Z", startMs: Date.parse("2026-07-08T10:00:05.000Z"), endMs: Date.parse("2026-07-08T10:00:35.000Z"), durationMs: 30_000, model: "gpt-5", contextUsage: { used: 120_000, limit: 258_000, percent: 46 }, eventIndex: 9, responseType: "reasoning" }] },
     root: { type: "thread", children: [] },
   });
-  const responses = timing.buckets.find((bucket) => bucket.id === "llm_response");
+  const responses = timing.buckets.find((bucket) => bucket.id === "llm_wait");
   assert.equal(responses.coverageMs, 30_000);
   assert.equal(responses.groups[0].label, "第 1 轮 · gpt-5");
   assert.deepEqual(responses.groups[0].refs[0].contextUsage, { used: 120_000, limit: 258_000, percent: 46 });
@@ -108,7 +108,7 @@ test("session timing reports generated tokens and estimated LLM throughput", () 
     },
     root: { type: "thread", children: [] },
   });
-  const response = timing.buckets.find((bucket) => bucket.id === "llm_response");
+  const response = timing.buckets.find((bucket) => bucket.id === "llm_wait");
 
   assert.equal(response.generatedTokens, 500);
   assert.equal(response.generatedTokensPerSecond, 50);
@@ -137,4 +137,38 @@ test("session timing reports partial nodes without inventing duration", () => {
   assert.equal(timing.quality.partialCount, 1);
   assert.equal(timing.buckets.find((bucket) => bucket.id === "tool_execution").count, 1);
   assert.equal(timing.buckets.find((bucket) => bucket.id === "tool_execution").coverageMs, 0);
+});
+
+test("session timing excludes confirmed waiting-for-input intervals from active runtime", () => {
+  const timing = buildSessionTiming({
+    timing: {
+      startedAt: "2026-07-08T10:00:00.000Z",
+      completedAt: "2026-07-08T10:01:40.000Z",
+      estimated: true,
+      inputWaits: [
+        { startMs: Date.parse("2026-07-08T10:00:10.000Z"), endMs: Date.parse("2026-07-08T10:00:40.000Z") },
+        { startMs: Date.parse("2026-07-08T10:00:30.000Z"), endMs: Date.parse("2026-07-08T10:01:00.000Z") },
+      ],
+      responses: [{ id: "response:0:1", turnIndex: 0, startedAt: "2026-07-08T10:00:00.000Z", completedAt: "2026-07-08T10:00:10.000Z", startMs: Date.parse("2026-07-08T10:00:00.000Z"), endMs: Date.parse("2026-07-08T10:00:10.000Z"), durationMs: 10_000, model: "gpt-5", eventIndex: 1 }],
+    },
+    root: {
+      type: "thread",
+      children: [{
+        type: "tool",
+        id: "tool-1",
+        timestamp: "2026-07-08T10:01:00.000Z",
+        completedAt: "2026-07-08T10:01:20.000Z",
+        durationEstimated: false,
+        detail: { item: { sourceIndex: 2, name: "bash" } },
+        children: [],
+      }],
+    },
+  });
+
+  assert.equal(timing.session.durationMs, 100_000);
+  assert.equal(timing.session.waitingForInputMs, 50_000);
+  assert.equal(timing.session.waitingForInputCount, 2);
+  assert.equal(timing.session.activeRunMs, 50_000);
+  assert.equal(timing.buckets.find((bucket) => bucket.id === "llm_wait").sharePercent, 20);
+  assert.equal(timing.buckets.find((bucket) => bucket.id === "tool_execution").sharePercent, 40);
 });

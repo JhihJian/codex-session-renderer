@@ -3580,29 +3580,20 @@ function renderStatsInfoView() {
 function renderTimingView(timing) {
   if (!timing?.session) return `<section class="timing-empty"><strong>暂无会话时间数据</strong><span>当前会话尚未生成可用的时间区间。</span></section>`;
   const session = timing.session;
-  const buckets = (timing.buckets || []).filter((bucket) => bucket.coverageMs > 0 || bucket.count > 0);
-  const max = Math.max(1, ...buckets.map((bucket) => bucket.coverageMs || 0));
+  const buckets = (timing.buckets || []).filter((bucket) => ["tool_execution", "llm_wait", "subagent_execution"].includes(bucket.id) && bucket.coverageMs > 0);
   const quality = timing.quality || {};
   return `
     <section class="timing-section" aria-labelledby="timingHeading">
       <div class="timing-heading"><div><p class="eyebrow">时间投入</p><h3 id="timingHeading">会话时间花在哪里</h3></div><span class="timing-confidence">${escapeHtml(timingKindLabel(session.durationKind))}</span></div>
       <div class="timing-metrics" aria-label="会话时间概览">
-        ${renderStatsMetric("总墙钟时长", formatTimingDuration(session.durationMs), "完整会话口径")}
-        ${renderStatsMetric("可解释执行", formatTimingDuration(session.coverageMs), "时间区间覆盖")}
-        ${renderStatsMetric("时间覆盖率", `${session.coveragePercent || 0}%`, "执行覆盖 / 总时长")}
+        ${renderStatsMetric("总墙钟时长", formatTimingDuration(session.durationMs), "会话开始至最后事件")}
+        ${renderStatsMetric("等待输入时长", formatTimingDuration(session.waitingForInputMs), `${session.waitingForInputCount || 0} 段可确认等待`)}
+        ${renderStatsMetric("实际运行时长", formatTimingDuration(session.activeRunMs), "总墙钟时长 - 等待输入")}
         ${renderStatsMetric("并行峰值", `${session.parallelism?.peak || 0} 路`, formatTimingDuration(session.parallelism?.overlapMs, "重叠"))}
-        ${renderStatsMetric("LLM 生成速率", formatTokenRate(session.llm?.generatedTokensPerSecond), session.llm?.generatedTokens != null ? `${compactNumber(session.llm.generatedTokens)} token / ${session.llm.responseCount} 段` : "缺少输出 token 用量")}
       </div>
-      <p class="timing-note">工具时长来自调用与返回事件。LLM 等待和 token/s 由相邻事件边界推算，非供应商逐 token 流式遥测。</p>
-      <div class="timing-buckets" aria-label="时间投入分类">
-        ${buckets.length ? buckets.map((bucket) => {
-          const refs = bucket.nodeRefs || [];
-          const groups = bucket.groups || [];
-          const firstRef = refs[0] || {};
-          const bar = Math.max(2, Math.round(((bucket.coverageMs || 0) / max) * 100));
-          const details = groups.length > 0 ? renderTimingGroups(groups) : "";
-          return `<div class="timing-bucket-wrap"><button class="timing-bucket timing-${escapeAttr(bucket.id)}" type="button" data-timing-node-id="${escapeAttr(firstRef.traceNodeId || "")}" data-timing-event-index="${escapeAttr(firstRef.eventIndex ?? "")}" aria-label="${escapeAttr(`${bucket.label}，${formatTimingDuration(bucket.coverageMs)}，${bucket.sharePercent}%`)}"><span class="timing-bucket-main"><strong>${escapeHtml(bucket.label)}</strong><em>${escapeHtml(`${formatTimingDuration(bucket.coverageMs)} · ${bucket.sharePercent}% · ${bucket.count} ${bucket.id === "unattributed" ? "个区间" : bucket.id === "llm_response" ? "个响应区间" : "次调用"}`)}</em></span><span class="timing-bar" aria-hidden="true"><i style="width:${bar}%"></i></span><span class="timing-bucket-status">${escapeHtml(timingKindLabel(bucket.confidence))}${bucket.overlapMs ? ` · 重叠 ${escapeHtml(formatTimingDuration(bucket.overlapMs))}` : ""}</span></button>${details}</div>`;
-        }).join("") : `<div class="timing-empty"><strong>暂无可解释时间区间</strong><span>会话事件中尚未发现可关联的起止时间。</span></div>`}
+      <p class="timing-note">等待输入仅统计助手最后回复到下一次用户消息的间隔。LLM 等待由请求与模型产出事件边界推算，工具、LLM 和子代理可以并行，比例不会相加。</p>
+      <div class="timing-ratio-chart" aria-label="实际运行时长中的工具、LLM 和子代理时间比例">
+        ${buckets.length ? buckets.map((bucket) => renderTimingRatio(bucket, session.activeRunMs)).join("") : `<div class="timing-empty"><strong>暂无可关联执行时长</strong><span>会话事件中尚未发现具有完整起止时间的工具、LLM 或子代理记录。</span></div>`}
       </div>
       ${renderTimingTurns(timing.turns)}
       <div class="timing-quality"><strong>时间数据质量</strong><span>估算 ${quality.estimatedCount || 0} 项 · 缺少开始 ${quality.missingStartCount || 0} 项 · 缺少结束 ${quality.missingEndCount || 0} 项 · 未关联 ${quality.unlinkedCount || 0} 项</span></div>
@@ -3610,39 +3601,22 @@ function renderTimingView(timing) {
   `;
 }
 
+function renderTimingRatio(bucket, activeRunMs) {
+  const refs = bucket.nodeRefs || [];
+  const firstRef = refs[0] || {};
+  const share = activeRunMs ? Math.round(((bucket.coverageMs || 0) / activeRunMs) * 1000) / 10 : 0;
+  const width = Math.max(2, Math.min(100, share));
+  const countLabel = bucket.id === "llm_wait" ? "段" : "次";
+  return `<button class="timing-ratio timing-${escapeAttr(bucket.id)}" type="button" data-timing-node-id="${escapeAttr(firstRef.traceNodeId || "")}" data-timing-event-index="${escapeAttr(firstRef.eventIndex ?? "")}" aria-label="${escapeAttr(`${bucket.label}，${formatTimingDuration(bucket.coverageMs)}，占实际运行时长 ${share}%`)}"><span class="timing-ratio-label"><strong>${escapeHtml(bucket.label)}</strong><em>${escapeHtml(`${formatTimingDuration(bucket.coverageMs)} · ${share}% · ${bucket.count} ${countLabel}`)}</em></span><span class="timing-ratio-bar" aria-hidden="true"><i style="width:${width}%"></i></span></button>`;
+}
+
 function renderTimingTurns(turns = []) {
   if (!turns.length) return "";
   return `<div class="timing-turns"><h4>按轮次查看</h4>${turns.map((turn) => `<div class="timing-turn"><div class="timing-turn-head"><strong>第 ${turn.turnNumber} 轮</strong><span>${escapeHtml(formatTimingDuration(turn.durationMs))} · ${escapeHtml(timingKindLabel(turn.confidence))}</span></div><div class="timing-turn-bars">${(turn.buckets || []).map((bucket) => `<span class="timing-turn-bar timing-${escapeAttr(bucket.id)}" style="--bar:${Math.max(3, Math.min(100, bucket.sharePercent || 0))}%" title="${escapeAttr(`${bucket.label} ${formatTimingDuration(bucket.coverageMs)}`)}"><i></i></span>`).join("")}</div></div>`).join("")}</div>`;
 }
 
-function renderTimingGroups(groups) {
-  return `<div class="timing-detail-list">${groups.slice(0, 8).map((group) => {
-    const ref = group.refs[0] || {};
-    const failed = group.failedCount ? ` · 失败 ${group.failedCount}` : "";
-    const incomplete = group.incompleteCount ? ` · 未完成 ${group.incompleteCount}` : "";
-    const gap = ref.actionable === false;
-    const context = timingContextLabel(ref.contextUsage);
-    const throughput = group.generatedTokens != null ? ` · ${compactNumber(group.generatedTokens)} token · ${formatTokenRate(group.generatedTokensPerSecond)}` : "";
-    const value = `${formatTimingDuration(group.coverageMs)} · 平均 ${formatTimingDuration(group.averageDurationMs)} · 最长 ${formatTimingDuration(group.maxDurationMs)}${throughput}${context ? ` · ${context}` : ""}${failed}${incomplete}${gap ? " · 无原始事件" : ""}`;
-    const content = `<strong>${escapeHtml(group.label)} <small>${group.count} 次</small></strong><span>${escapeHtml(value)}</span>`;
-    return gap ? `<div class="timing-detail-row timing-gap-row">${content}</div>` : `<button class="timing-detail-row" type="button" data-timing-node-id="${escapeAttr(ref.traceNodeId || "")}" data-timing-event-index="${escapeAttr(ref.eventIndex ?? "")}">${content}</button>`;
-  }).join("")}${groups.length > 8 ? `<span class="timing-more">还有 ${groups.length - 8} 个时间区间</span>` : ""}</div>`;
-}
-
-function timingContextLabel(usage) {
-  if (!usage) return "";
-  const used = usage.used != null ? compactNumber(usage.used) : "?";
-  const limit = usage.limit != null ? compactNumber(usage.limit) : "?";
-  const percent = usage.percent != null ? ` (${usage.percent}%)` : "";
-  return `context ${used} / ${limit}${percent}`;
-}
-
 function timingKindLabel(kind) {
   return { observed: "实测", mixed: "混合", estimated: "估算", partial: "部分区间", unavailable: "未记录" }[kind] || "未记录";
-}
-
-function formatTokenRate(value) {
-  return value == null ? "未记录" : `${value} token/s`;
 }
 
 function formatTimingDuration(ms, prefix = "") {

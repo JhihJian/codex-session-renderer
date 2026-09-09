@@ -147,6 +147,39 @@ test("buildTrace localizes thread, turn, and execution fallback labels", () => {
   );
 });
 
+test("buildTrace derives waiting-for-input only between assistant and next user messages", () => {
+  const trace = buildTrace(
+    { id: "thread-1", title: "" },
+    [],
+    [{ timestamp: "2026-07-08T10:01:00.000Z" }],
+    [
+      {
+        id: "turn-1",
+        startedAt: "2026-07-08T10:00:00.000Z",
+        items: [{ type: "assistant-message", timestamp: "2026-07-08T10:00:10.000Z", sourceIndex: 1 }],
+      },
+      {
+        id: "turn-2",
+        startedAt: "2026-07-08T10:00:40.000Z",
+        items: [{ type: "user-message", timestamp: "2026-07-08T10:00:40.000Z", sourceIndex: 2 }],
+      },
+    ],
+    { children: [], siblings: [] },
+  );
+
+  assert.deepEqual(trace.timing.inputWaits, [{
+    id: "input-wait:0:turn-1",
+    turnIndex: 0,
+    startedAt: "2026-07-08T10:00:10.000Z",
+    completedAt: "2026-07-08T10:00:40.000Z",
+    startMs: Date.parse("2026-07-08T10:00:10.000Z"),
+    endMs: Date.parse("2026-07-08T10:00:40.000Z"),
+    durationMs: 30_000,
+    eventIndex: 1,
+    nextEventIndex: 2,
+  }]);
+});
+
 test("findSubagentNotifications inspects payload even when preview omits child id", () => {
   const childId = "019efa76-515d-7ef3-a544-8b13547c0ddb";
   const events = [

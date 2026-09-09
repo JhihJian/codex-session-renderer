@@ -168,11 +168,11 @@ Raw event 仍可按需查看完整原始 JSON。默认视图、事件预览和�
 
 ## 会话时间投入
 
-完整详情额外返回 `timing` 投影，用于诊断页展示会话墙钟时长、时间区间覆盖、分类投入、并行关系和数据质量。`timing.session.durationMs` 是首个有效时间点到最后有效时间点的墙钟区间；`coverageMs` 使用所有可关联执行区间的并集计算。工具、委派和子代理可能并行执行，因此分类的 `nodeDurationMs` 累加值可以大于 `coverageMs`，页面同时显示 `overlapMs` 和并行峰值。工具区间之外的时间不再作为单一的不可读总数，而是拆成按轮次排序的“时间缺口（模型处理 / 等待）”；这些区间明确标注没有原始事件，避免伪造工具归因。
+完整详情额外返回 `timing` 投影，用于诊断页展示会话墙钟时长、等待输入、实际运行、分类投入、并行关系和数据质量。`timing.session.durationMs` 是首个有效时间点到最后有效时间点的墙钟区间。`waitingForInputMs` 只统计上一轮最后一次助手回复到下一轮有效用户消息之间的区间，原始记录没有键盘输入开始事件时不会猜测等待时间。`activeRunMs` 等于墙钟时长减去这些等待输入区间。工具、LLM 和子代理可能并行，三者各自的 `coverageMs` 都以实际运行时长为分母，比例不构成可相加的组成部分；页面同时显示重叠时长和并行峰值。没有完整起止边界的工具、子代理或事件只进入数据质量摘要，不伪造时长。
 
 每个分类保留 `nodeRefs`，包括 `traceNodeId`、轮次索引和原始事件索引，前端可从时间投入条跳转到 Audit 或 Raw。时间区间的 `durationKind` 使用 `observed`、`estimated`、`partial` 和 `unavailable`，会话和分类的 `confidence` 使用 `observed`、`mixed`、`estimated` 和 `unavailable`。缺少开始或结束事件的项目计入质量摘要，并以部分区间或估算状态展示。
 
-`timing` 还从轮次开始或上一条工具、上下文边界到 reasoning 或 assistant 事件推导 LLM 响应区间。原始 JSONL 没有稳定的 API `response.started` / `response.completed` 生命周期时，这些区间标记为 `estimated`，而非精确 API 耗时。Codex 的 `token_count.info.last_token_usage` 与 Pi 助手消息的 `usage` 若包含输出 token，会关联到本次 LLM 响应，展示输出 token 加推理 token 的总生成量及 `token/s`。速率的分母是上述推导区间，不是供应商逐 token 的流式遥测，缺少明确用量时不会按字符数估算。每个长响应保留轮次、当时模型、上下文占用采样（已用、上限和百分比）和原始事件索引，按单次区间时长展示，不会与同模型的其他响应混合。工具时长仍来自工具调用与其结果事件。`GET /api/query/sessions/:id/view?view=timing` 返回与详情中相同的 `timing` 投影。搜索、类型筛选和事件统计不改变完整会话时间口径。详情读取和文件签名校验仍然是 timing 的版本边界，文件变化时前端清理旧的时间分析结果。
+`timing` 还从轮次开始或上一条工具、上下文边界到 reasoning 或 assistant 事件推导 LLM 等待区间。原始 JSONL 没有稳定的 API `response.started` / `response.completed` 生命周期时，这些区间标记为 `estimated`，而非精确 API 耗时。Codex 的 `token_count.info.last_token_usage` 与 Pi 助手消息的 `usage` 若包含输出 token，会关联到本次 LLM 等待，展示输出 token 加推理 token 的总生成量及 `token/s`。速率的分母是上述推导区间，不是供应商逐 token 的流式遥测，缺少明确用量时不会按字符数估算。子代理只有同时拥有父会话中的启动事件和完成通知时才计入运行时长，内嵌子代理结果和子会话文件更新时间都不足以推断时长。工具时长仍来自同一调用的调用与返回事件。`GET /api/query/sessions/:id/view?view=timing` 返回与详情中相同的 `timing` 投影。搜索、类型筛选和事件统计不改变完整会话时间口径。详情读取和文件签名校验仍然是 timing 的版本边界，文件变化时前端清理旧的时间分析结果。
 
 ## 完整详情与诊断预算
 

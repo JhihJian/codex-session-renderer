@@ -3530,7 +3530,10 @@ button.compact-replacement-row:focus-visible {
 
 .stats-view-shell {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
+  width: 100%;
+  max-width: 100%;
 }
 
 .stats-view-head {
@@ -3564,32 +3567,21 @@ button.compact-replacement-row:focus-visible {
 .timing-section { display: grid; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--hair); background: var(--bg-elev); }
 .timing-heading, .timing-turn-head, .timing-quality { display: flex; min-width: 0; align-items: baseline; justify-content: space-between; gap: 10px; }
 .timing-heading h3, .timing-turns h4 { margin: 0; font-size: 14px; }
-.timing-confidence, .timing-bucket-status, .timing-quality span, .timing-note, .timing-turn-head span { color: var(--text-3); font-size: 11px; }
+.timing-confidence, .timing-quality span, .timing-note, .timing-turn-head span { color: var(--text-3); font-size: 11px; }
 .timing-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .timing-note { margin: 0; }
-.timing-buckets, .timing-turns { display: grid; gap: 6px; }
-.timing-bucket-wrap { display: grid; gap: 3px; }
-.timing-detail-list { display: grid; gap: 2px; padding-left: 14px; }
-.timing-detail-row { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; border: 0; border-left: 2px solid var(--hair); background: transparent; padding: 4px 8px; text-align: left; }
-.timing-detail-row:hover { border-color: var(--blue); background: var(--blue-soft); }
-.timing-detail-row strong, .timing-detail-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.timing-detail-row strong { font-size: 11px; font-weight: 650; }
-.timing-detail-row small { color: var(--text-3); font-size: 10px; font-weight: 500; }
-.timing-detail-row span { color: var(--text-3); font-family: var(--mono); font-size: 10px; }
-.timing-more { padding: 3px 8px 3px 10px; color: var(--text-3); font-size: 10px; }
-.timing-bucket { display: grid; grid-template-columns: minmax(150px, 1.1fr) minmax(90px, 2fr) minmax(110px, .8fr); align-items: center; gap: 10px; min-width: 0; border: 1px solid var(--hair); border-radius: var(--radius-tool); background: var(--bg-sunken); padding: 8px 10px; text-align: left; }
-.timing-bucket:hover { border-color: var(--blue); background: var(--blue-soft); }
-.timing-bucket-main { display: grid; min-width: 0; gap: 2px; }
-.timing-bucket-main strong, .timing-bucket-main em { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.timing-bucket-main strong { font-size: 12px; }
-.timing-bucket-main em { color: var(--text-3); font-family: var(--mono); font-size: 10.5px; font-style: normal; }
-.timing-bar { display: block; height: 7px; overflow: hidden; border-radius: 999px; background: var(--bg-elev); }
-.timing-bar i { display: block; height: 100%; border-radius: inherit; background: var(--blue); }
-.timing-subagent_execution .timing-bar i { background: var(--purple); }
-.timing-delegation .timing-bar i { background: var(--orange); }
-.timing-context_compaction .timing-bar i { background: var(--green); }
-.timing-system_processing .timing-bar i { background: var(--text-3); }
-.timing-unattributed .timing-bar i { background: repeating-linear-gradient(135deg, var(--text-3) 0 4px, transparent 4px 8px); }
+.timing-ratio-chart { display: grid; gap: 7px; }
+.timing-ratio { display: grid; grid-template-columns: minmax(152px, 1fr) minmax(130px, 2fr); align-items: center; gap: 10px; width: 100%; border: 1px solid var(--hair); border-radius: var(--radius-tool); background: var(--bg-sunken); color: var(--text); cursor: pointer; padding: 8px 10px; text-align: left; }
+.timing-ratio:hover { border-color: var(--blue); background: var(--blue-soft); }
+.timing-ratio-label { display: grid; min-width: 0; gap: 2px; }
+.timing-ratio-label strong, .timing-ratio-label em { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timing-ratio-label strong { font-size: 12px; }
+.timing-ratio-label em { color: var(--text-3); font-family: var(--mono); font-size: 10.5px; font-style: normal; }
+.timing-ratio-bar { display: block; height: 8px; overflow: hidden; border-radius: 999px; background: var(--bg-elev); }
+.timing-ratio-bar i { display: block; height: 100%; border-radius: inherit; background: var(--blue); }
+.timing-llm_wait .timing-ratio-bar i { background: var(--green); }
+.timing-subagent_execution .timing-ratio-bar i { background: var(--purple); }
+.timing-turns { display: grid; gap: 6px; }
 .timing-turns { margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--hair); }
 .timing-turn { display: grid; gap: 5px; }
 .timing-turn-bars { display: flex; gap: 2px; height: 8px; overflow: hidden; border-radius: 999px; background: var(--bg-sunken); }
@@ -7239,12 +7231,9 @@ mark {
     padding: 8px;
   }
 
-  .timing-bucket {
-    grid-template-columns: minmax(130px, 1fr) minmax(80px, 1.4fr);
-  }
-
-  .timing-bucket-status {
-    grid-column: 1 / -1;
+  .timing-ratio {
+    grid-template-columns: 1fr;
+    gap: 6px;
   }
 
   .stats-event-table {

@@ -897,8 +897,33 @@ function buildTrace(session, rawEvents, normalizedEvents, turns, hierarchy) {
       durationMs: root.durationMs,
       estimated: true,
       responses: buildInferredResponseIntervals(turns, session),
+      inputWaits: buildInputWaitIntervals(turns),
     },
   };
+}
+
+// Input-start telemetry is unavailable, so only use a completed assistant reply
+// followed by the next turn's user message as a waiting-for-input interval.
+function buildInputWaitIntervals(turns) {
+  return turns.slice(0, -1).flatMap((turn, turnIndex) => {
+    const nextTurn = turns[turnIndex + 1];
+    const lastAssistant = [...(turn.items || [])].reverse().find((item) => item.type === "assistant-message" && toMs(item.timestamp) != null);
+    const nextUser = (nextTurn?.items || []).find((item) => item.type === "user-message" && toMs(item.timestamp) != null);
+    const startMs = toMs(lastAssistant?.timestamp);
+    const endMs = toMs(nextUser?.timestamp);
+    if (startMs == null || endMs == null || endMs <= startMs) return [];
+    return [{
+      id: `input-wait:${turnIndex}:${turn.id || turnIndex}`,
+      turnIndex,
+      startedAt: lastAssistant.timestamp,
+      completedAt: nextUser.timestamp,
+      startMs,
+      endMs,
+      durationMs: endMs - startMs,
+      eventIndex: lastAssistant.sourceIndex ?? null,
+      nextEventIndex: nextUser.sourceIndex ?? null,
+    }];
+  });
 }
 
 function buildInferredResponseIntervals(turns, session) {
@@ -1136,8 +1161,8 @@ function embeddedSubagentTraceTasks(batch, turnIndex, itemIndex) {
 
 function traceNodeFromChildThread(child, spawnEvent, notificationEvent) {
   const thread = child.thread || {};
-  const timestamp = spawnEvent?.timestamp || thread.updatedAt || null;
-  const completedAt = notificationEvent?.timestamp || thread.updatedAt || null;
+  const timestamp = spawnEvent?.timestamp || null;
+  const completedAt = notificationEvent?.timestamp || null;
   return {
     id: `subagent:${child.childThreadId}`,
     type: "subagent",
