@@ -1,6 +1,6 @@
 # 实现参考
 
-本页是架构文档的实现下钻入口，记录当前责任单元的源码、运行边界和验证位置。它不替代模块设计，也不完整列举 HTTP 参数、事件字段或环境变量。
+本页是架构文档的实现下钻入口，记录当前责任单元的源码、运行边界和验证位置。HTTP 参数、事件字段和兼容 profile 由对应源码契约负责。
 
 ## 服务装配
 
@@ -13,7 +13,8 @@
 - `src/data-sources.mjs` 创建本机、Pi Agent 和远端来源，定义来源版本、私有快照、刷新、验证及发布。
 - `src/renderer-config.mjs` 将远端连接定义原子写入用户私有配置，并在公开视图删除令牌。
 - `src/remote-http.mjs`、`src/snapshot-budget.mjs`、`src/snapshot-build-coordinator.mjs` 和 `src/snapshot-root-commit-coordinator.mjs` 负责期限、取消、资源预算、共享构建和当前快照提交。
-- `src/snapshot-share.mjs` 与 `src/remote-session-index.mjs` 分别提供受保护的快照归档和历史索引。历史索引只返回紧凑元数据，不能替代当前快照的会话正文。
+- `src/snapshot-share.mjs` 与 `src/remote-session-index.mjs` 分别提供受保护的快照归档和历史索引。历史索引返回紧凑元数据，正文读取使用当前已发布快照。
+- 远端刷新在私有暂存区完成内容、来源和资源预算验证，并在提交协调器内替换当前快照。`src/data-sources.mjs` 负责允许文件集和私有权限，`src/snapshot-budget.mjs` 负责传输与展开预算。
 
 ## 会话与阅读投影
 
