@@ -3572,19 +3572,17 @@ button.compact-replacement-row:focus-visible {
 .timing-note { margin: 0; }
 .timing-composition { display: grid; gap: 8px; }
 .timing-composition-bar { display: flex; height: 12px; overflow: hidden; border-radius: var(--radius-small); background: var(--bg-sunken); }
-.timing-composition-segment { min-width: 0; flex: var(--segment) 1 0; border: 0; background: var(--blue); cursor: pointer; padding: 0; }
+.timing-composition-segment { min-width: 0; flex: var(--segment) 1 0; border: 0; background: var(--orange); cursor: pointer; padding: 0; }
 .timing-composition-segment:hover, .timing-composition-segment:focus-visible { box-shadow: inset 0 0 0 2px var(--bg-elev); outline: 0; }
-.timing-composition-llm_wait { background: var(--green); }
-.timing-composition-subagent_execution { background: var(--purple); }
-.timing-composition-parallel { background: var(--orange); }
+.timing-composition-llm_wait { background: var(--purple); }
+.timing-composition-parallel { background: var(--teal); }
 .timing-composition-legend-list { display: flex; flex-wrap: wrap; gap: 6px 12px; }
 .timing-composition-legend { display: inline-grid; grid-template-columns: 8px auto auto; align-items: center; gap: 5px; min-width: 0; border: 0; background: transparent; color: var(--text-2); cursor: pointer; font-size: 11px; padding: 0; text-align: left; }
-.timing-composition-legend i { width: 8px; height: 8px; border-radius: 2px; background: var(--blue); }
+.timing-composition-legend i { width: 8px; height: 8px; border-radius: 2px; background: var(--orange); }
 .timing-composition-legend span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .timing-composition-legend strong { color: var(--text-3); font-family: var(--mono); font-size: 10px; font-weight: 600; white-space: nowrap; }
-.timing-composition-legend.timing-composition-llm_wait i { background: var(--green); }
-.timing-composition-legend.timing-composition-subagent_execution i { background: var(--purple); }
-.timing-composition-legend.timing-composition-parallel i { background: var(--orange); }
+.timing-composition-legend.timing-composition-llm_wait i { background: var(--purple); }
+.timing-composition-legend.timing-composition-parallel i { background: var(--teal); }
 .timing-turns { display: grid; gap: 6px; }
 .timing-turns { margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--hair); }
 .timing-turn { display: grid; gap: 5px; }

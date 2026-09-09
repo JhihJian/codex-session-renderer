@@ -57,25 +57,22 @@ test("session timing classifies trace nodes and preserves source references", ()
   };
   const timing = buildSessionTiming(trace);
   const tools = timing.buckets.find((bucket) => bucket.id === "tool_execution");
-  const agents = timing.buckets.find((bucket) => bucket.id === "subagent_execution");
 
   assert.equal(timing.session.durationMs, 20_000);
-  assert.equal(timing.session.coverageMs, 10_000);
-  assert.equal(timing.session.parallelism.peak, 2);
-  assert.equal(timing.session.parallelism.overlapMs, 3_000);
+  assert.equal(timing.session.coverageMs, 6_000);
+  assert.equal(timing.session.parallelism.peak, 1);
+  assert.equal(timing.session.parallelism.overlapMs, 0);
   assert.equal(tools.coverageMs, 6_000);
   assert.equal(tools.nodeRefs[0].eventIndex, 4);
   assert.equal(tools.groups[0].label, "exec_command");
   assert.equal(tools.groups[0].count, 1);
   assert.equal(tools.groups[0].averageDurationMs, 6_000);
-  assert.equal(agents.confidence, "estimated");
+  assert.equal(timing.buckets.some((bucket) => bucket.id === "subagent_execution"), false);
   assert.equal(timing.turns[0].turnNumber, 1);
   assert.deepEqual(
     Object.fromEntries(timing.session.executionComposition.map((component) => [component.key, component.durationMs])),
     {
-      "subagent_execution:single": 4_000,
-      "subagent_execution+tool_execution:parallel": 3_000,
-      "tool_execution:single": 3_000,
+      "tool_execution:single": 6_000,
     },
   );
   assert.equal(timing.session.executionComposition.reduce((sum, component) => sum + component.durationMs, 0), timing.session.activeRunMs);

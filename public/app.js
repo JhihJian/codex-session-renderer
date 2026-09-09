@@ -3588,12 +3588,12 @@ function renderTimingView(timing) {
       <div class="timing-metrics" aria-label="会话时间概览">
         ${renderStatsMetric("总墙钟时长", formatTimingDuration(session.durationMs), "会话开始至最后事件")}
         ${renderStatsMetric("等待输入时长", formatTimingDuration(session.waitingForInputMs), `${session.waitingForInputCount || 0} 段可确认等待`)}
-        ${renderStatsMetric("实际运行时长", formatTimingDuration(session.activeRunMs), "工具、LLM、子代理时间并集")}
+        ${renderStatsMetric("实际运行时长", formatTimingDuration(session.activeRunMs), "工具与 LLM 时间并集")}
         ${renderStatsMetric("并行峰值", `${session.parallelism?.peak || 0} 路`, formatTimingDuration(session.parallelism?.overlapMs, "重叠"))}
       </div>
-      <p class="timing-note">等待输入仅统计助手最后回复到下一次用户消息的间隔。实际运行时长只统计工具、LLM 和子代理的可关联区间；三者可以并行，因此会按时间并集计一次。</p>
+      <p class="timing-note">等待输入仅统计助手最后回复到下一次用户消息的间隔。实际运行时长只统计工具与 LLM 的可关联区间；两者并行时按时间并集计一次。</p>
       <div class="timing-composition" aria-label="实际运行时长构成">
-        ${composition.length ? renderTimingComposition(composition) : `<div class="timing-empty"><strong>暂无可关联执行时长</strong><span>会话事件中尚未发现具有完整起止时间的工具、LLM 或子代理记录。</span></div>`}
+        ${composition.length ? renderTimingComposition(composition) : `<div class="timing-empty"><strong>暂无可关联执行时长</strong><span>会话事件中尚未发现具有完整起止时间的工具或 LLM 记录。</span></div>`}
       </div>
       ${renderTimingTurns(timing.turns)}
       <div class="timing-quality"><strong>时间数据质量</strong><span>估算 ${quality.estimatedCount || 0} 项 · 缺少开始 ${quality.missingStartCount || 0} 项 · 缺少结束 ${quality.missingEndCount || 0} 项 · 未关联 ${quality.unlinkedCount || 0} 项</span></div>

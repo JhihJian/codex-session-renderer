@@ -1,7 +1,6 @@
 const bucketDefinitions = [
   ["llm_wait", "LLM 等待时长"],
   ["tool_execution", "工具执行时长"],
-  ["subagent_execution", "子代理运行时长"],
 ];
 
 // eslint-disable-next-line complexity
@@ -37,7 +36,6 @@ function intervalFromNode(node, parentTurnIndex = null) {
 function bucketForNode(node) {
   if (node.type === "llm-response") return "llm_wait";
   if (node.type === "tool") return "tool_execution";
-  if (node.type === "subagent") return "subagent_execution";
   return null;
 }
 
@@ -206,7 +204,7 @@ function executionComposition(intervals, totalMs) {
     const active = complete.filter((item) => item.startMs <= startMs && item.endMs >= endMs);
     if (!active.length) continue;
     const bucketIds = [...new Set(active.map((item) => item.bucketId))].sort();
-    const parallel = active.length > 1;
+    const parallel = bucketIds.length > 1;
     const key = `${bucketIds.join("+")}:${parallel ? "parallel" : "single"}`;
     const component = components.get(key) || { key, bucketIds, parallel, durationMs: 0, intervals: [], refs: new Map() };
     component.durationMs += endMs - startMs;
