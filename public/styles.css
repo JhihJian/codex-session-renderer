@@ -123,6 +123,11 @@ select {
   font: inherit;
 }
 
+/* Metadata and summary fields opt in to native full-text tooltips when clipped. */
+[data-overflow-tooltip] {
+  min-width: 0;
+}
+
 button {
   border: 0;
 }
@@ -1563,9 +1568,11 @@ button {
 
 .session-title {
   min-width: 0;
+  overflow: hidden;
   font-weight: 650;
   line-height: 1.2;
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .session-date {
@@ -1587,7 +1594,9 @@ button {
 
 .session-meta span {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .session-meta span:first-child,
@@ -1715,6 +1724,12 @@ button:disabled {
 
 .thread-title-block h2 {
   max-width: 56vw;
+}
+
+#sessionMetaLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .thread-filter-notice {
@@ -1890,11 +1905,14 @@ button:disabled {
 }
 
 .handoff-copy em {
+  display: -webkit-box;
+  overflow: hidden;
   color: var(--text);
   font-size: 11px;
   font-style: normal;
   line-height: 1.25;
-  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .toggle-control {

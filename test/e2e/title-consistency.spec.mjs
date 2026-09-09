@@ -46,6 +46,21 @@ test("长标题在列表、ARIA 与详情中完整保留", async ({ page }) => {
   await expect(page.locator("#sessionTitle")).toContainText(suffix);
 });
 
+test("被截断的会话标题保留完整原文提示", async ({ page }) => {
+  const suffix = "CHROMIUM_LONG_TITLE_SUFFIX";
+  await page.goto("/");
+  await page.locator("#sessionSearch").fill(suffix);
+  const title = page.locator('[data-session-id="88888888-8888-4888-8888-888888888888"] .session-title');
+  await expect(title).toBeVisible();
+  await expect(title).toHaveCSS("text-overflow", "ellipsis");
+  await expect(title).toHaveAttribute("title", new RegExp(suffix));
+  expect(await title.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator("[data-panel-target=sessions]").click();
+  await expect(title).toHaveAttribute("title", new RegExp(suffix));
+});
+
 test("长标题后段类型筛选由服务端完成，并在本机和远端历史完整展示", async ({ page }) => {
   const localSuffix = "CHROMIUM_LONG_TITLE_ERROR_TOOL_AFTER_DISPLAY_LIMIT";
   const remoteSuffix = "CHROMIUM_REMOTE_LONG_TITLE_ERROR_TOOL_AFTER_DISPLAY_LIMIT";

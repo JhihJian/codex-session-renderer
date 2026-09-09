@@ -134,6 +134,7 @@ const markdownCacheLimit = 700;
 const remoteIndexPageCacheLimit = 6;
 const remoteIndexPageLimit = 100;
 const visibleViewModes = new Set(["compact", "trace", "diagnostic"]);
+let overflowTooltipFrame = 0;
 const markdownRenderer = window.markdownit?.({
   html: false,
   linkify: true,
@@ -313,6 +314,7 @@ init();
 
 function init() {
   state.summaryRules = window.ToolSummary?.loadCustomRules?.() || [];
+  initializeOverflowTooltips();
   bindEvents();
   syncPanelToggleLabels();
   syncMobilePanelNavigation();
@@ -446,6 +448,7 @@ function bindEvents() {
   window.addEventListener("resize", () => {
     syncMobilePanelNavigation();
     syncPanelToggleLabels();
+    scheduleOverflowTooltipSync();
   });
   document.querySelectorAll("[data-panel-target]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -2379,6 +2382,50 @@ function renderAll() {
   renderToolDetails(state.selectedDetailsNodeId ? findTraceNode(state.detail?.trace?.root, state.selectedDetailsNodeId) : null);
   renderStatusbar();
   syncExportButtons();
+  scheduleOverflowTooltipSync();
+}
+
+function initializeOverflowTooltips() {
+  const observer = new MutationObserver(() => scheduleOverflowTooltipSync());
+  observer.observe(els.appShell, { childList: true, characterData: true, subtree: true });
+  scheduleOverflowTooltipSync();
+}
+
+function scheduleOverflowTooltipSync() {
+  if (overflowTooltipFrame) return;
+  overflowTooltipFrame = window.requestAnimationFrame(() => {
+    overflowTooltipFrame = 0;
+    document.querySelectorAll(".app-shell *").forEach((element) => {
+      if (!overflowTooltipCandidate(element)) return;
+      syncOverflowTooltip(element);
+    });
+  });
+}
+
+function overflowTooltipCandidate(element) {
+  if (element.hasAttribute("data-overflow-tooltip")) return true;
+  if (element.children.length || !element.textContent.trim()) return false;
+  const style = window.getComputedStyle(element);
+  return style.textOverflow === "ellipsis" || Number.parseInt(style.webkitLineClamp, 10) > 0;
+}
+
+function syncOverflowTooltip(element) {
+  const text = element.textContent.replace(/\s+/g, " ").trim();
+  const clipped = element.clientWidth > 0 && element.clientHeight > 0
+    && (element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1);
+  if (clipped && text) {
+    if (element.dataset.overflowTooltipOriginalTitle === undefined && element.hasAttribute("title")) {
+      element.dataset.overflowTooltipOriginalTitle = element.getAttribute("title") || "";
+    }
+    element.title = text;
+    element.dataset.overflowTooltipVisible = "true";
+    return;
+  }
+  if (element.dataset.overflowTooltipVisible !== "true") return;
+  const originalTitle = element.dataset.overflowTooltipOriginalTitle;
+  if (originalTitle === undefined || originalTitle === "") element.removeAttribute("title");
+  else element.title = originalTitle;
+  delete element.dataset.overflowTooltipVisible;
 }
 
 function setViewMode(mode) {
@@ -2511,7 +2558,7 @@ function renderPromptArchiveSidebar() {
       .map(
         (project) => `
           <button class="prompt-project-row${active === project.key ? " active" : ""}" type="button" data-prompt-project="${escapeAttr(project.key)}">
-            <span><strong>${escapeHtml(project.label)}</strong><em>${escapeHtml(project.cwd || "无工作目录")}</em></span><small>${project.count}</small>
+            <span><strong data-overflow-tooltip>${escapeHtml(project.label)}</strong><em data-overflow-tooltip>${escapeHtml(project.cwd || "无工作目录")}</em></span><small>${project.count}</small>
           </button>
         `,
       )
@@ -2644,7 +2691,7 @@ function groupPromptArchiveEntries(entries) {
 function renderPromptArchiveGroup(group) {
   return `
     <section class="prompt-archive-group">
-      <div class="prompt-archive-group-head"><div><strong>${escapeHtml(group.label)}</strong><span>${escapeHtml(group.cwd || "无工作目录")}</span></div><small>${group.entries.length}</small></div>
+      <div class="prompt-archive-group-head"><div><strong data-overflow-tooltip>${escapeHtml(group.label)}</strong><span data-overflow-tooltip>${escapeHtml(group.cwd || "无工作目录")}</span></div><small>${group.entries.length}</small></div>
       <div class="prompt-archive-list">${group.entries.map(renderPromptArchiveEntry).join("")}</div>
     </section>
   `;
@@ -2658,14 +2705,14 @@ function renderPromptArchiveEntry(entry) {
   return `
     <article class="prompt-archive-entry${entry.promptState !== "found" ? " is-muted" : ""}">
       <div class="prompt-archive-entry-head">
-        <div><strong>${escapeHtml(entry.sessionTitle)}</strong><span>${escapeHtml(formatDate(entry.updatedAt || entry.startedAt) || "未知时间")}</span></div>
-        <span class="prompt-archive-status" data-state="${escapeAttr(entry.promptState)}">${escapeHtml(stateLabel + attachmentLabel)}</span>
+        <div><strong data-overflow-tooltip>${escapeHtml(entry.sessionTitle)}</strong><span>${escapeHtml(formatDate(entry.updatedAt || entry.startedAt) || "未知时间")}</span></div>
+        <span class="prompt-archive-status" data-state="${escapeAttr(entry.promptState)}" data-overflow-tooltip>${escapeHtml(stateLabel + attachmentLabel)}</span>
       </div>
       <details class="prompt-archive-text"${entry.promptState === "found" ? " open" : ""}>
         <summary>${escapeHtml(entry.promptPreview || promptBody)}</summary>
         ${entry.promptText ? `<div class="prompt-archive-full-text">${escapeHtml(entry.promptText)}</div>` : `<div class="prompt-archive-empty-text">${escapeHtml(promptBody)}</div>`}
       </details>
-      <div class="prompt-archive-entry-meta"><span>${escapeHtml(entry.sourceLabel || "当前数据源")}</span><span>${escapeHtml(entry.cwd || "无项目")}</span><span>${escapeHtml(eventAnchor)}</span><button class="ghost-button small" type="button" data-prompt-session-id="${escapeAttr(entry.sessionId)}">打开原会话</button></div>
+      <div class="prompt-archive-entry-meta"><span data-overflow-tooltip>${escapeHtml(entry.sourceLabel || "当前数据源")}</span><span data-overflow-tooltip>${escapeHtml(entry.cwd || "无项目")}</span><span data-overflow-tooltip>${escapeHtml(eventAnchor)}</span><button class="ghost-button small" type="button" data-prompt-session-id="${escapeAttr(entry.sessionId)}">打开原会话</button></div>
     </article>
   `;
 }
@@ -3141,7 +3188,7 @@ function renderSessionDirectoryGroups(sessions, query) {
       (group) => `
         <section class="session-directory-group" role="group" aria-label="${escapeAttr(group.label)}">
           <div class="session-directory-head">
-            <strong>${escapeHtml(group.label)}</strong>
+            <strong data-overflow-tooltip>${escapeHtml(group.label)}</strong>
             <span>${group.sessions.length}</span>
           </div>
           <div class="session-directory-list" role="list">
@@ -3193,16 +3240,16 @@ function renderSessionRow(session, query) {
   return `
     <div class="session-row${active}${indexOnly}" ${rowSemantics} data-session-id="${escapeAttr(session.id)}" data-evidence-id="${escapeAttr(sessionEvidenceId(session))}" data-remote-index-only="${session.remoteIndexOnly ? "true" : "false"}" ${title ? `title="${escapeAttr(title)}"` : ""} aria-label="${escapeAttr(ariaLabel)}">
       <span class="agent-dot" data-agent="${escapeAttr(agentName.toLowerCase())}" aria-hidden="true"></span>
-      <span class="session-title markdown-inline-title">${renderMarkdownTitle(displayTitle, query)}</span>
+      <span class="session-title markdown-inline-title" data-overflow-tooltip>${renderMarkdownTitle(displayTitle, query)}</span>
       <span class="session-date">${formatShortDate(session.updatedAt || session.fileModifiedAt)}</span>
       <span class="session-meta">
-        <span>${escapeHtml(agent)}</span>
-        <span>${escapeHtml(model)}</span>
-        ${indexLabel ? `<span>${escapeHtml(indexLabel)}</span>` : ""}
-        ${status ? `<span>${escapeHtml(status)}</span>` : ""}
-        <span>${escapeHtml(cwd)}</span>
+        <span data-overflow-tooltip>${escapeHtml(agent)}</span>
+        <span data-overflow-tooltip>${escapeHtml(model)}</span>
+        ${indexLabel ? `<span data-overflow-tooltip>${escapeHtml(indexLabel)}</span>` : ""}
+        ${status ? `<span data-overflow-tooltip>${escapeHtml(status)}</span>` : ""}
+        <span data-overflow-tooltip>${escapeHtml(cwd)}</span>
       </span>
-      <span class="session-source">${escapeHtml(source)}</span>
+      <span class="session-source" data-overflow-tooltip>${escapeHtml(source)}</span>
     </div>
   `;
 }
@@ -3375,7 +3422,7 @@ function renderHandoffFact(fact, index) {
   const accessibleSummary = fact.label + "：" + fact.value;
   return `<button class="handoff-fact kind-${escapeAttr(fact.target)}" type="button" data-handoff-target="${escapeAttr(fact.target)}" title="${escapeAttr(accessibleSummary)}" aria-label="${escapeAttr(accessibleSummary)}">
     <span class="handoff-index" aria-hidden="true">${index}</span>
-    <span class="handoff-copy"><strong>${escapeHtml(fact.label)}</strong><em>${escapeHtml(fact.value)}</em></span>
+    <span class="handoff-copy"><strong>${escapeHtml(fact.label)}</strong><em data-overflow-tooltip>${escapeHtml(fact.value)}</em></span>
   </button>`;
 }
 
@@ -3632,17 +3679,17 @@ function renderStatsEventRow(stat, totalEvents, maxCount, query) {
   return `
     <div class="stats-event-row" role="row" style="--bar:${escapeAttr(String(bar))}" title="${escapeAttr(`${stat.kind} · ${stat.count} 个事件 · 约 ${compactNumber(stat.approxTokens)} tok`)}">
       <span class="stats-event-type" role="cell">
-        <strong>${highlight(escapeHtml(stat.label), query)}</strong>
-        <em>${highlight(escapeHtml(stat.kind), query)}</em>
+        <strong data-overflow-tooltip>${highlight(escapeHtml(stat.label), query)}</strong>
+        <em data-overflow-tooltip>${highlight(escapeHtml(stat.kind), query)}</em>
       </span>
-      <span role="cell"><strong>${escapeHtml(String(stat.count))}</strong></span>
-      <span role="cell">${escapeHtml(`约 ${compactNumber(stat.approxTokens)}`)}</span>
-      <span role="cell">${escapeHtml(`约 ${compactNumber(average)}`)}</span>
+      <span role="cell" data-overflow-tooltip><strong>${escapeHtml(String(stat.count))}</strong></span>
+      <span role="cell" data-overflow-tooltip>${escapeHtml(`约 ${compactNumber(stat.approxTokens)}`)}</span>
+      <span role="cell" data-overflow-tooltip>${escapeHtml(`约 ${compactNumber(average)}`)}</span>
       <span class="stats-event-share" role="cell">
         <i aria-hidden="true"></i>
         <em>${escapeHtml(`${percent}%`)}</em>
       </span>
-      <span role="cell">${escapeHtml(formatBytes(stat.approxBytes))}</span>
+      <span role="cell" data-overflow-tooltip>${escapeHtml(formatBytes(stat.approxBytes))}</span>
     </div>
   `;
 }
@@ -5390,10 +5437,10 @@ function renderRawViewEventRow(event) {
   const compact = isCompactEvent(event) ? " compact-event" : "";
   return `
     <button class="raw-view-row${active}${compact}" type="button" data-raw-event-index="${event.index}" data-evidence-id="${escapeAttr(rawEventEvidenceId(event))}">
-      <span class="raw-view-kind">${escapeHtml(event.kind || event.type || "event")}</span>
-      <strong>${escapeHtml(`事件 ${event.index} ${humanEventTitle(event)}`)}</strong>
-      <em>${escapeHtml(formatDate(event.timestamp) || event.payloadType || "")}</em>
-      <span>${escapeHtml(event.preview || "")}</span>
+      <span class="raw-view-kind" data-overflow-tooltip>${escapeHtml(event.kind || event.type || "event")}</span>
+      <strong data-overflow-tooltip>${escapeHtml(`事件 ${event.index} ${humanEventTitle(event)}`)}</strong>
+      <em data-overflow-tooltip>${escapeHtml(formatDate(event.timestamp) || event.payloadType || "")}</em>
+      <span data-overflow-tooltip>${escapeHtml(event.preview || "")}</span>
     </button>
   `;
 }
@@ -5483,7 +5530,7 @@ function renderTrace() {
       <div class="trace-head">
         <div>
           <p class="eyebrow">执行过程</p>
-          <h3 class="markdown-inline-title">${renderMarkdownTitle(detail.session.title || "未命名会话")}</h3>
+          <h3 class="markdown-inline-title" data-overflow-tooltip>${renderMarkdownTitle(detail.session.title || "未命名会话")}</h3>
         </div>
         <div class="trace-legend">
           <span><i class="legend-dot agent"></i>子代理</span>
@@ -5582,12 +5629,12 @@ function renderTraceNode(node, context) {
         }
         <span class="trace-icon ${escapeAttr(node.icon || node.type)}">${traceIcon(node)}</span>
         <span class="trace-main">
-          <span class="trace-label">${escapeHtml(node.label || node.type)}</span>
-          <span class="trace-title">${escapeHtml(isTool ? (item?.name || node.title || "工具调用") : node.title || "")}</span>
-          ${argumentPreview ? `<span class="trace-arguments" title="${escapeAttr(argumentPreview)}">${escapeHtml(argumentPreview)}</span>` : ""}
+          <span class="trace-label" data-overflow-tooltip>${escapeHtml(node.label || node.type)}</span>
+          <span class="trace-title" data-overflow-tooltip>${escapeHtml(isTool ? (item?.name || node.title || "工具调用") : node.title || "")}</span>
+          ${argumentPreview ? `<span class="trace-arguments" data-overflow-tooltip title="${escapeAttr(argumentPreview)}">${escapeHtml(argumentPreview)}</span>` : ""}
         </span>
-        <span class="trace-status status-${escapeAttr(traceStatusKind(node.status || item?.status))}">${escapeHtml(traceStatusLabel(node.status || item?.status))}</span>
-        <span class="trace-duration">${escapeHtml(durationLabel)}${node.durationEstimated ? " est" : ""}</span>
+        <span class="trace-status status-${escapeAttr(traceStatusKind(node.status || item?.status))}" data-overflow-tooltip>${escapeHtml(traceStatusLabel(node.status || item?.status))}</span>
+        <span class="trace-duration" data-overflow-tooltip>${escapeHtml(durationLabel)}${node.durationEstimated ? " est" : ""}</span>
         <span class="trace-bar" aria-hidden="true"><i style="width:${width}%"></i></span>
       </button>
       ${children.length && expanded ? `<div class="trace-children">${children.map((child) => renderTraceNode(child, { ...context, depth: depth + 1 })).join("")}</div>` : ""}
