@@ -27,6 +27,8 @@ export default defineConfig([
     "**/dist/**",
     "**/build/**",
     "**/coverage/**",
+    "**/playwright-report/**",
+    "**/test-results/**",
     "**/.next/**",
     "**/.nuxt/**",
     "**/.cache/**",

@@ -5635,6 +5635,7 @@ function renderToolDetails(node = null) {
   const title = item?.name || node.title || node.label || "执行节点";
   const argumentsText = item?.arguments ? prettyMaybeJson(item.arguments) : task?.task || "未记录参数";
   const outputText = item?.output == null || item.output === "" ? "未返回内容" : String(item.output);
+  const status = traceStatusLabel(node.status || item?.status || task?.status);
   els.toolDetailsContent.innerHTML = `
     <div class="tool-details-head">
       <span class="tool-details-icon ${escapeAttr(node.icon || node.type)}">${traceIcon(node)}</span>

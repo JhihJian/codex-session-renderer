@@ -7490,4 +7490,26 @@ mark {
 
   .app-shell[data-panel="sessions"] .details-panel,
   .app-shell[data-panel="thread"] .details-panel { display: none; }
+
+  .trace-shell { min-width: 0; }
+
+  .trace-row {
+    grid-template-columns: 18px 23px minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    gap: 4px 7px;
+    min-height: 54px;
+    padding: 6px 12px;
+  }
+
+  .trace-indent { display: none; }
+
+  .trace-expander { grid-column: 1; grid-row: 1; }
+  .trace-icon { grid-column: 2; grid-row: 1; }
+  .trace-main { grid-column: 3; grid-row: 1 / span 2; grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .trace-label,
+  .trace-title,
+  .trace-arguments { grid-column: 1; }
+  .trace-status { grid-column: 4; grid-row: 1; }
+  .trace-duration { grid-column: 4; grid-row: 2; }
+  .trace-bar { display: none; }
 }

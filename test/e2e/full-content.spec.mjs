@@ -27,4 +27,12 @@ test("执行过程展示工具参数和中文执行状态，点击后显示返�
   await expect(page.locator("#toolDetailsContent")).toContainText('"cmd": "npm test"');
   await expect(page.locator("#toolDetailsContent")).toContainText("返回结果");
   await expect(page.locator("#toolDetailsContent")).toContainText("FULL_TOOL_OUTPUT_END");
+  await expect(page.locator("#toolDetailsContent .tool-details-status")).toHaveText("执行成功");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('[data-panel-target="thread"]').click();
+  const traceWidth = await page.locator(".trace-shell").evaluate((element) => ({ client: element.clientWidth, scroll: element.scrollWidth }));
+  expect(traceWidth.scroll).toBeLessThanOrEqual(traceWidth.client);
+  await page.locator('[data-panel-target="details"]').click();
+  await expect(page.locator("#toolDetailsContent .tool-details-status")).toHaveText("执行成功");
 });
