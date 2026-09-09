@@ -3580,7 +3580,7 @@ function renderStatsInfoView() {
 function renderTimingView(timing) {
   if (!timing?.session) return `<section class="timing-empty"><strong>暂无会话时间数据</strong><span>当前会话尚未生成可用的时间区间。</span></section>`;
   const session = timing.session;
-  const buckets = (timing.buckets || []).filter((bucket) => ["tool_execution", "llm_wait", "subagent_execution"].includes(bucket.id) && bucket.coverageMs > 0);
+  const composition = session.executionComposition || [];
   const quality = timing.quality || {};
   return `
     <section class="timing-section" aria-labelledby="timingHeading">
@@ -3592,8 +3592,8 @@ function renderTimingView(timing) {
         ${renderStatsMetric("并行峰值", `${session.parallelism?.peak || 0} 路`, formatTimingDuration(session.parallelism?.overlapMs, "重叠"))}
       </div>
       <p class="timing-note">等待输入仅统计助手最后回复到下一次用户消息的间隔。实际运行时长只统计工具、LLM 和子代理的可关联区间；三者可以并行，因此会按时间并集计一次。</p>
-      <div class="timing-ratio-chart" aria-label="实际运行时长中的工具、LLM 和子代理时间比例">
-        ${buckets.length ? buckets.map((bucket) => renderTimingRatio(bucket, session.activeRunMs)).join("") : `<div class="timing-empty"><strong>暂无可关联执行时长</strong><span>会话事件中尚未发现具有完整起止时间的工具、LLM 或子代理记录。</span></div>`}
+      <div class="timing-composition" aria-label="实际运行时长构成">
+        ${composition.length ? renderTimingComposition(composition) : `<div class="timing-empty"><strong>暂无可关联执行时长</strong><span>会话事件中尚未发现具有完整起止时间的工具、LLM 或子代理记录。</span></div>`}
       </div>
       ${renderTimingTurns(timing.turns)}
       <div class="timing-quality"><strong>时间数据质量</strong><span>估算 ${quality.estimatedCount || 0} 项 · 缺少开始 ${quality.missingStartCount || 0} 项 · 缺少结束 ${quality.missingEndCount || 0} 项 · 未关联 ${quality.unlinkedCount || 0} 项</span></div>
@@ -3601,13 +3601,21 @@ function renderTimingView(timing) {
   `;
 }
 
-function renderTimingRatio(bucket, activeRunMs) {
-  const refs = bucket.nodeRefs || [];
-  const firstRef = refs[0] || {};
-  const share = activeRunMs ? Math.round(((bucket.coverageMs || 0) / activeRunMs) * 1000) / 10 : 0;
-  const width = Math.max(2, Math.min(100, share));
-  const countLabel = bucket.id === "llm_wait" ? "段" : "次";
-  return `<button class="timing-ratio timing-${escapeAttr(bucket.id)}" type="button" data-timing-node-id="${escapeAttr(firstRef.traceNodeId || "")}" data-timing-event-index="${escapeAttr(firstRef.eventIndex ?? "")}" aria-label="${escapeAttr(`${bucket.label}，${formatTimingDuration(bucket.coverageMs)}，占实际运行时长 ${share}%`)}"><span class="timing-ratio-label"><strong>${escapeHtml(bucket.label)}</strong><em>${escapeHtml(`${formatTimingDuration(bucket.coverageMs)} · ${share}% · ${bucket.count} ${countLabel}`)}</em></span><span class="timing-ratio-bar" aria-hidden="true"><i style="width:${width}%"></i></span></button>`;
+function renderTimingComposition(composition) {
+  const segments = composition.map((component) => {
+    const refs = component.nodeRefs || [];
+    const firstRef = refs[0] || {};
+    const bucketClass = component.parallel ? "parallel" : component.bucketIds?.[0] || "unknown";
+    const label = `${component.label}，${formatTimingDuration(component.durationMs)}，${component.sharePercent}%`;
+    return `<button class="timing-composition-segment timing-composition-${escapeAttr(bucketClass)}" type="button" style="--segment:${Math.max(0, component.durationMs || 0)}" data-timing-node-id="${escapeAttr(firstRef.traceNodeId || "")}" data-timing-event-index="${escapeAttr(firstRef.eventIndex ?? "")}" aria-label="${escapeAttr(label)}" title="${escapeAttr(label)}"></button>`;
+  }).join("");
+  const legend = composition.map((component) => {
+    const refs = component.nodeRefs || [];
+    const firstRef = refs[0] || {};
+    const bucketClass = component.parallel ? "parallel" : component.bucketIds?.[0] || "unknown";
+    return `<button class="timing-composition-legend timing-composition-${escapeAttr(bucketClass)}" type="button" data-timing-node-id="${escapeAttr(firstRef.traceNodeId || "")}" data-timing-event-index="${escapeAttr(firstRef.eventIndex ?? "")}"><i aria-hidden="true"></i><span>${escapeHtml(component.label)}</span><strong>${escapeHtml(`${formatTimingDuration(component.durationMs)} · ${component.sharePercent}%`)}</strong></button>`;
+  }).join("");
+  return `<div class="timing-composition-bar" role="img" aria-label="执行时长组合条，总长度等于实际运行时长">${segments}</div><div class="timing-composition-legend-list">${legend}</div>`;
 }
 
 function renderTimingTurns(turns = []) {

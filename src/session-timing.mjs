@@ -195,6 +195,44 @@ function buildBucket(id, label, intervals, totalMs) {
   };
 }
 
+function executionComposition(intervals, totalMs) {
+  const complete = intervals.filter((item) => item.durationMs != null);
+  const points = [...new Set(complete.flatMap((item) => [item.startMs, item.endMs]))].sort((left, right) => left - right);
+  const components = new Map();
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const startMs = points[index];
+    const endMs = points[index + 1];
+    if (endMs <= startMs) continue;
+    const active = complete.filter((item) => item.startMs <= startMs && item.endMs >= endMs);
+    if (!active.length) continue;
+    const bucketIds = [...new Set(active.map((item) => item.bucketId))].sort();
+    const parallel = active.length > 1;
+    const key = `${bucketIds.join("+")}:${parallel ? "parallel" : "single"}`;
+    const component = components.get(key) || { key, bucketIds, parallel, durationMs: 0, intervals: [], refs: new Map() };
+    component.durationMs += endMs - startMs;
+    component.intervals.push(...active);
+    for (const item of active) {
+      const ref = nodeRef(item);
+      component.refs.set(`${ref.traceNodeId || ""}:${ref.eventIndex ?? ""}`, ref);
+    }
+    components.set(key, component);
+  }
+  const labels = new Map(bucketDefinitions);
+  return [...components.values()].map((component) => {
+    const categories = component.bucketIds.map((id) => labels.get(id) || id);
+    return {
+      key: component.key,
+      bucketIds: component.bucketIds,
+      label: component.parallel ? `并行：${categories.join(" + ")}` : categories[0],
+      durationMs: component.durationMs,
+      sharePercent: totalMs ? Math.round((component.durationMs / totalMs) * 1000) / 10 : 0,
+      parallel: component.parallel,
+      confidence: confidenceFor(component.intervals),
+      nodeRefs: [...component.refs.values()],
+    };
+  }).sort((left, right) => right.durationMs - left.durationMs || left.key.localeCompare(right.key));
+}
+
 // eslint-disable-next-line complexity
 function buildSessionTiming(trace) {
   const sessionTiming = trace?.timing || {};
@@ -211,6 +249,7 @@ function buildSessionTiming(trace) {
   const waitingForInputMs = coveredMs(inputWaits);
   const activeRunMs = executionCoverage;
   const buckets = bucketDefinitions.map(([id, label]) => buildBucket(id, label, intervals.filter((item) => item.bucketId === id), activeRunMs || 0));
+  const composition = executionComposition(completeIntervals, activeRunMs);
   const partialCount = intervals.filter((item) => item.durationKind === "partial").length;
   const unavailableCount = intervals.filter((item) => item.durationKind === "unavailable").length;
   const estimatedCount = intervals.filter((item) => item.durationKind === "estimated").length;
@@ -254,6 +293,7 @@ function buildSessionTiming(trace) {
       waitingForInputCount: inputWaits.length,
       activeRunMs,
       coverageMs: executionCoverage,
+      executionComposition: composition,
       parallelism,
       llm: {
         generatedTokens: llmBucket?.generatedTokens || null,

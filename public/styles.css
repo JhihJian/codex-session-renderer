@@ -3570,17 +3570,21 @@ button.compact-replacement-row:focus-visible {
 .timing-confidence, .timing-quality span, .timing-note, .timing-turn-head span { color: var(--text-3); font-size: 11px; }
 .timing-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .timing-note { margin: 0; }
-.timing-ratio-chart { display: grid; gap: 7px; }
-.timing-ratio { display: grid; grid-template-columns: minmax(152px, 1fr) minmax(130px, 2fr); align-items: center; gap: 10px; width: 100%; border: 1px solid var(--hair); border-radius: var(--radius-tool); background: var(--bg-sunken); color: var(--text); cursor: pointer; padding: 8px 10px; text-align: left; }
-.timing-ratio:hover { border-color: var(--blue); background: var(--blue-soft); }
-.timing-ratio-label { display: grid; min-width: 0; gap: 2px; }
-.timing-ratio-label strong, .timing-ratio-label em { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.timing-ratio-label strong { font-size: 12px; }
-.timing-ratio-label em { color: var(--text-3); font-family: var(--mono); font-size: 10.5px; font-style: normal; }
-.timing-ratio-bar { display: block; height: 8px; overflow: hidden; border-radius: 999px; background: var(--bg-elev); }
-.timing-ratio-bar i { display: block; height: 100%; border-radius: inherit; background: var(--blue); }
-.timing-llm_wait .timing-ratio-bar i { background: var(--green); }
-.timing-subagent_execution .timing-ratio-bar i { background: var(--purple); }
+.timing-composition { display: grid; gap: 8px; }
+.timing-composition-bar { display: flex; height: 12px; overflow: hidden; border-radius: var(--radius-small); background: var(--bg-sunken); }
+.timing-composition-segment { min-width: 0; flex: var(--segment) 1 0; border: 0; background: var(--blue); cursor: pointer; padding: 0; }
+.timing-composition-segment:hover, .timing-composition-segment:focus-visible { box-shadow: inset 0 0 0 2px var(--bg-elev); outline: 0; }
+.timing-composition-llm_wait { background: var(--green); }
+.timing-composition-subagent_execution { background: var(--purple); }
+.timing-composition-parallel { background: var(--orange); }
+.timing-composition-legend-list { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.timing-composition-legend { display: inline-grid; grid-template-columns: 8px auto auto; align-items: center; gap: 5px; min-width: 0; border: 0; background: transparent; color: var(--text-2); cursor: pointer; font-size: 11px; padding: 0; text-align: left; }
+.timing-composition-legend i { width: 8px; height: 8px; border-radius: 2px; background: var(--blue); }
+.timing-composition-legend span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timing-composition-legend strong { color: var(--text-3); font-family: var(--mono); font-size: 10px; font-weight: 600; white-space: nowrap; }
+.timing-composition-legend.timing-composition-llm_wait i { background: var(--green); }
+.timing-composition-legend.timing-composition-subagent_execution i { background: var(--purple); }
+.timing-composition-legend.timing-composition-parallel i { background: var(--orange); }
 .timing-turns { display: grid; gap: 6px; }
 .timing-turns { margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--hair); }
 .timing-turn { display: grid; gap: 5px; }
@@ -7231,10 +7235,6 @@ mark {
     padding: 8px;
   }
 
-  .timing-ratio {
-    grid-template-columns: 1fr;
-    gap: 6px;
-  }
 
   .stats-event-table {
     min-width: 640px;

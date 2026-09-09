@@ -70,6 +70,15 @@ test("session timing classifies trace nodes and preserves source references", ()
   assert.equal(tools.groups[0].averageDurationMs, 6_000);
   assert.equal(agents.confidence, "estimated");
   assert.equal(timing.turns[0].turnNumber, 1);
+  assert.deepEqual(
+    Object.fromEntries(timing.session.executionComposition.map((component) => [component.key, component.durationMs])),
+    {
+      "subagent_execution:single": 4_000,
+      "subagent_execution+tool_execution:parallel": 3_000,
+      "tool_execution:single": 3_000,
+    },
+  );
+  assert.equal(timing.session.executionComposition.reduce((sum, component) => sum + component.durationMs, 0), timing.session.activeRunMs);
 });
 
 test("session timing exposes inferred LLM response intervals with model and context", () => {
