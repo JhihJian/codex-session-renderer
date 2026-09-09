@@ -137,6 +137,7 @@ test("buildTrace localizes thread, turn, and execution fallback labels", () => {
 
   assert.equal(trace.root.label, "根会话");
   assert.equal(trace.root.title, "未命名会话");
+  assert.equal(trace.root.status, "completed");
   assert.equal(turn.label, "第 1 轮");
   assert.deepEqual(
     turn.children.map((node) => [node.type, node.label, node.title]),

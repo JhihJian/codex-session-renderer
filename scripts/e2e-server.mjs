@@ -63,6 +63,9 @@ await writeFile(
     { type: "session", version: 3, id: piSessionId, timestamp: new Date().toISOString(), cwd: "/workspace/pi-agent" },
     { type: "session_info", id: "pi-info", timestamp: new Date().toISOString(), name: "Pi 可切换会话" },
     { type: "message", id: "pi-user", timestamp: new Date().toISOString(), message: { role: "user", content: [{ type: "text", text: "Pi 来源可读会话" }] } },
+    { type: "message", id: "pi-tool-call", parentId: "pi-user", timestamp: new Date().toISOString(), message: { role: "assistant", content: [{ type: "text", text: "开始检查" }, { type: "toolCall", id: "pi-trace-tool", name: "bash", arguments: { command: "pwd" } }] } },
+    { type: "message", id: "pi-tool-result", parentId: "pi-tool-call", timestamp: new Date().toISOString(), message: { role: "toolResult", toolCallId: "pi-trace-tool", toolName: "bash", content: [{ type: "text", text: "/workspace/pi-agent" }] } },
+    { type: "message", id: "pi-final", parentId: "pi-tool-result", timestamp: new Date().toISOString(), message: { role: "assistant", content: [{ type: "text", text: "检查完成，等待下一次输入。" }] } },
   ].map((event) => JSON.stringify(event)).join("\n")}\n`,
   "utf8",
 );

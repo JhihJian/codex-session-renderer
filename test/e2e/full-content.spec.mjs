@@ -39,3 +39,20 @@ test("执行过程展示工具参数和中文执行状态，点击后显示返�
   await page.locator('[data-panel-target="details"]').click();
   await expect(page.locator("#toolDetailsContent .tool-details-status")).toHaveText("执行成功");
 });
+
+test("Pi 执行过程区分等待输入、完成工具与缺失时长", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#traceViewButton").click();
+  await expect(page.locator(".trace-row").first()).toContainText("等待输入");
+
+  for (let index = 0; index < 8 && await page.locator('.trace-row[data-trace-node-id]', { hasText: "bash" }).count() === 0; index += 1) {
+    const toggles = page.locator("[data-trace-toggle-id]");
+    if (await toggles.count() === 0) break;
+    await toggles.last().click();
+  }
+
+  const tool = page.locator('.trace-row[data-trace-node-id]', { hasText: "bash" }).first();
+  await expect(tool).toContainText("执行成功");
+  await expect(page.locator(".trace-duration").filter({ hasText: "未记录" })).not.toContainText("估算");
+  expect((await page.locator(".trace-duration").allTextContents()).join(" ")).not.toContain("est");
+});

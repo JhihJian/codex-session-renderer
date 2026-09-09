@@ -824,7 +824,7 @@ function buildTrace(session, rawEvents, normalizedEvents, turns, hierarchy) {
     completedAt: rootEndedAt,
     durationMs: durationMs(rootStartedAt, rootEndedAt),
     durationEstimated: true,
-    status: "open",
+    status: deriveSessionStatusFromTurns(turns) || "unknown",
     icon: "thread",
     detail: {
       kind: "thread",

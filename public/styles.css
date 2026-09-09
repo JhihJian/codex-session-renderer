@@ -7420,7 +7420,13 @@ mark {
 .trace-status.status-failed { color: var(--red); }
 
 .tool-details-status.status-running,
-.trace-status.status-running { color: var(--text-3); }
+.trace-status.status-running,
+.tool-details-status.status-waiting,
+.trace-status.status-waiting,
+.tool-details-status.status-pending,
+.trace-status.status-pending,
+.tool-details-status.status-unknown,
+.trace-status.status-unknown { color: var(--text-3); }
 
 .tool-details-meta {
   border-bottom: 1px solid var(--hair);

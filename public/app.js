@@ -5616,7 +5616,7 @@ function renderTraceNode(node, context) {
           ${argumentPreview ? `<span class="trace-arguments" data-overflow-tooltip title="${escapeAttr(argumentPreview)}">${escapeHtml(argumentPreview)}</span>` : ""}
         </span>
         <span class="trace-status status-${escapeAttr(traceStatusKind(node.status || item?.status))}" data-overflow-tooltip>${escapeHtml(traceStatusLabel(node.status || item?.status))}</span>
-        <span class="trace-duration" data-overflow-tooltip>${escapeHtml(durationLabel)}${node.durationEstimated ? " est" : ""}</span>
+        <span class="trace-duration" data-overflow-tooltip>${escapeHtml(durationLabel)}${node.durationEstimated && node.durationMs != null ? " · 估算" : ""}</span>
         <span class="trace-bar" aria-hidden="true"><i style="width:${width}%"></i></span>
       </button>
       ${children.length && expanded ? `<div class="trace-children">${children.map((child) => renderTraceNode(child, { ...context, depth: depth + 1 })).join("")}</div>` : ""}
@@ -5642,14 +5642,21 @@ function traceStatusKind(status) {
   const value = String(status || "").toLowerCase();
   if (["failed", "error", "aborted", "cancelled", "canceled"].includes(value)) return "failed";
   if (["completed", "succeeded", "success", "done"].includes(value)) return "success";
-  return "running";
+  if (["started", "running", "in_progress"].includes(value)) return "running";
+  if (value === "waiting") return "waiting";
+  if (value === "pending") return "pending";
+  return "unknown";
 }
 
 function traceStatusLabel(status) {
   const kind = traceStatusKind(status);
   if (kind === "success") return "执行成功";
   if (kind === "failed") return "执行失败";
-  return status === "pending" ? "等待执行" : "执行中";
+  if (kind === "running") return "执行中";
+  if (kind === "waiting") return "等待输入";
+  if (kind === "pending") return "等待执行";
+  if (String(status || "").toLowerCase() === "open") return "记录未闭合";
+  return status ? String(status) : "状态未记录";
 }
 
 function renderToolDetails(node = null) {
