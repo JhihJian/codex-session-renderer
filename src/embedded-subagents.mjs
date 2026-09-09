@@ -1,5 +1,3 @@
-const summaryLimit = 600;
-
 function piEmbeddedSubagentCall(argumentsValue) {
   const argumentsObject = parseObject(argumentsValue);
   if (!argumentsObject) return null;
@@ -32,7 +30,7 @@ function resultlessFailure(batch, rawEvent, output) {
     status: isInvalidRequest ? "invalid_request" : "failed",
     exitCode: null,
     stopReason: null,
-    summary: truncate(text, summaryLimit),
+    summary: text,
     summaryLength: text.length,
   }];
 }
@@ -54,7 +52,7 @@ function resultProjection(value, index) {
     : stopReason === "error" || (exitCode != null && exitCode !== 0) ? "failed" : exitCode === 0 || stopReason === "stop" ? "succeeded" : "unknown";
   const summary = failure || resultText(value);
   const agentSource = stringValue(value.agentSource);
-  return { index, agent: stringValue(value.agent) || "未指定代理", agentSource: agentSource === "unknown" ? null : agentSource, status, exitCode, stopReason, summary: truncate(summary, summaryLimit), summaryLength: String(summary || "").length };
+  return { index, agent: stringValue(value.agent) || "未指定代理", agentSource: agentSource === "unknown" ? null : agentSource, status, exitCode, stopReason, summary, summaryLength: String(summary || "").length };
 }
 
 function resultFailure(result) {
@@ -88,6 +86,4 @@ function parseObject(value) {
 
 function stringValue(value) { return typeof value === "string" && value.trim() ? value.trim() : null; }
 function finiteNumber(value) { const number = Number(value); return Number.isFinite(number) ? number : null; }
-function truncate(value, limit) { const text = String(value || "").trim(); return text.length > limit ? `${text.slice(0, limit)}...` : text; }
-
 export { piEmbeddedSubagentCall, piEmbeddedSubagentResult };

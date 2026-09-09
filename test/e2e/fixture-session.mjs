@@ -1,5 +1,6 @@
 const sessionId = "33333333-3333-4333-8333-333333333333";
 const sessionTitle = "确定性 Chromium 验证会话";
+const fullToolOutput = `完整工具输出开始\n${"x".repeat(70_000)}\nFULL_TOOL_OUTPUT_END`;
 const sessionEvents = [
   {
     timestamp: "2025-01-02T03:04:05.000Z",
@@ -33,7 +34,7 @@ const sessionEvents = [
   {
     timestamp: "2025-01-02T03:04:10.000Z",
     type: "response_item",
-    payload: { type: "function_call_output", call_id: "e2e-check", output: "tests 1\npass 1\nfail 0" },
+    payload: { type: "function_call_output", call_id: "e2e-check", output: fullToolOutput },
   },
   {
     timestamp: "2025-01-02T03:04:11.000Z",
@@ -47,4 +48,4 @@ const sessionEvents = [
   })),
 ];
 
-export { sessionEvents, sessionId, sessionTitle };
+export { fullToolOutput, sessionEvents, sessionId, sessionTitle };

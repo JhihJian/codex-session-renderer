@@ -197,7 +197,7 @@ test("createSessionIndex keeps total and cursors stable across bounded pages", a
   }
 });
 
-test("remote history searches the canonical title but only returns its bounded display projection", async () => {
+test("remote history returns the complete canonical display title", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "csr-share-long-title-"));
   try {
     const codexHome = path.join(dir, ".codex");
@@ -221,9 +221,9 @@ test("remote history searches the canonical title but only returns its bounded d
     });
     assert.deepEqual(index.sessions.map((session) => session.id), [id]);
     assert.equal(index.sessions[0].title, undefined);
-    assert.equal(index.sessions[0].titleTruncated, true);
-    assert.equal(index.sessions[0].displayTitle.includes(suffix), false);
-    assert.equal(JSON.stringify(index).includes(suffix), false);
+    assert.equal(index.sessions[0].titleTruncated, false);
+    assert.equal(index.sessions[0].displayTitle.includes(suffix), true);
+    assert.equal(JSON.stringify(index).includes(suffix), true);
     for (const type of ["error", "tool"]) {
       const typed = await createSessionIndex({
         codexHome,
@@ -232,8 +232,8 @@ test("remote history searches the canonical title but only returns its bounded d
       });
       assert.deepEqual(typed.sessions.map((session) => session.id), [id]);
       assert.equal(typed.sessions[0].title, undefined);
-      assert.equal(typed.sessions[0].displayTitle.includes(typeSuffix), false);
-      assert.equal(JSON.stringify(typed).includes(typeSuffix), false);
+      assert.equal(typed.sessions[0].displayTitle.includes(typeSuffix), true);
+      assert.equal(JSON.stringify(typed).includes(typeSuffix), true);
     }
     const all = await createSessionIndex({
       codexHome,
@@ -269,8 +269,8 @@ test("SQLite 历史索引按完整长标题类型筛选并绑定分页快照", a
     });
     assert.equal(first.page.total, 2);
     assert.equal(first.sessions[0].id, "thread-0001");
-    assert.equal(first.sessions[0].displayTitle.includes(typeSuffix), false);
-    assert.equal(JSON.stringify(first).includes(typeSuffix), false);
+    assert.equal(first.sessions[0].displayTitle.includes(typeSuffix), true);
+    assert.equal(JSON.stringify(first).includes(typeSuffix), true);
     const second = await createSessionIndex({
       codexHome,
       query: new URLSearchParams({ bucket: "earlier", type: "error", limit: "1", cursor: first.page.nextCursor, snapshot: first.page.snapshot }),

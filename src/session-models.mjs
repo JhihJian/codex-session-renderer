@@ -1,13 +1,11 @@
 import path from "node:path";
 import {
-  firstLine,
   normalizeSlash,
   sessionStartedFromFile,
   toIso,
 } from "./session-events.mjs";
 import { stripLongPathPrefix } from "./sqlite-threads.mjs";
 
-const listDisplayTitleLimit = 160;
 const sessionListTypes = new Set(["all", "error", "tool"]);
 const sessionListTypePatterns = {
   error: /error|failed|失败|错误/i,
@@ -26,11 +24,9 @@ function sessionMatchesListType(session, type = "all") {
   return sessionListTypePatterns[normalizedType].test(searchable);
 }
 
-function displayTitleForList(title, limit = listDisplayTitleLimit) {
+function displayTitleForList(title) {
   const normalized = String(title || "未命名会话").replace(/\s+/g, " ").trim() || "未命名会话";
-  const characters = Array.from(normalized);
-  if (characters.length <= limit) return { displayTitle: normalized, titleTruncated: false };
-  return { displayTitle: `${characters.slice(0, Math.max(1, limit - 3)).join("")}...`, titleTruncated: true };
+  return { displayTitle: normalized, titleTruncated: false };
 }
 
 function mapCodexHomePath(filePath, codexHome, originalCodexHome = codexHome, options = {}) {
@@ -123,7 +119,7 @@ function compactSessionForList(session) {
     archived: enriched.archived ?? false,
     agentNickname: enriched.agentNickname || null,
     agentRole: enriched.agentRole || null,
-    preview: firstLine(enriched.preview || "", 120) || null,
+    preview: enriched.preview || null,
     status: enriched.status || null,
     relativePath: enriched.relativePath || null,
     startedAt: enriched.startedAt || null,
@@ -235,7 +231,7 @@ function publicThreadMeta(thread, codexHome, options = {}) {
 export {
   compactSessionForList,
   displayTitleForList,
-  listDisplayTitleLimit,
+
   mapCodexHomePath,
   publicThreadMeta,
   relativeCodexPath,

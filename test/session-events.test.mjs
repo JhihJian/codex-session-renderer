@@ -213,7 +213,7 @@ test("compact child nodes expose subagent notification summaries", () => {
 });
 
 test("compactTurnsForClient keeps tool output complete for reading view", () => {
-  const longOutput = "output-line\n" + "x".repeat(1200);
+  const longOutput = `output-line\n${"x".repeat(70_000)}\ncomplete-output-tail`;
   const events = [
     {
       type: "event_msg",
@@ -237,6 +237,7 @@ test("compactTurnsForClient keeps tool output complete for reading view", () => 
 
   assert.equal(item.output, longOutput);
   assert.equal(item.outputLength, longOutput.length);
+  assert.match(item.output, /complete-output-tail$/);
   assert.equal(item.truncated, undefined);
   assert.equal(item.truncatedFields, undefined);
 });

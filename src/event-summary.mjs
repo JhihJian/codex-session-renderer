@@ -192,31 +192,31 @@ function summarizeEventPreview(event) {
     ]
       .filter(Boolean)
       .join(" · ");
-    return firstLine([prefix, normalized.compact.message].filter(Boolean).join("："), 180);
+    return firstLine([prefix, normalized.compact.message].filter(Boolean).join("："));
   }
   if (normalized.compact?.kind === "context_compacted") return "上下文压缩完成，后续轮次将使用已压缩事件写入的替换摘要。";
   if (normalized.role === "user" || normalized.kind === "user_message") {
     const text = cleanUserMessageText(normalized.text);
-    if (text) return firstLine(text, 180);
-    if (normalized.attachments?.length) return firstLine(normalized.attachments.map((attachment) => attachment.label).join(", "), 180);
+    if (text) return firstLine(text);
+    if (normalized.attachments?.length) return firstLine(normalized.attachments.map((attachment) => attachment.label).join(", "));
     return "";
   }
-  if (normalized.text) return firstLine(normalized.text, 180);
-  if (normalized.toolInput) return firstLine(normalized.toolInput, 180);
-  if (normalized.toolOutput) return firstLine(normalized.toolOutput, 180);
-  if (normalized.attachments?.length) return firstLine(normalized.attachments.map((attachment) => attachment.label).join(", "), 180);
+  if (normalized.text) return firstLine(normalized.text);
+  if (normalized.toolInput) return firstLine(normalized.toolInput);
+  if (normalized.toolOutput) return firstLine(normalized.toolOutput);
+  if (normalized.attachments?.length) return firstLine(normalized.attachments.map((attachment) => attachment.label).join(", "));
   if (normalized.reasoning?.encrypted) return `加密推理内容（${normalized.reasoning.encryptedLength} 字符）`;
-  if (normalized.diagnostic?.preview) return firstLine(normalized.diagnostic.preview, 180);
+  if (normalized.diagnostic?.preview) return firstLine(normalized.diagnostic.preview);
   const payload = event.payload ?? {};
-  if (payload.message) return firstLine(redactSensitiveText(payload.message), 180);
-  if (payload.last_agent_message) return firstLine(redactSensitiveText(payload.last_agent_message), 180);
-  if (payload.content) return firstLine(redactSensitiveText(extractContentText(payload.content)), 180);
-  if (payload.arguments) return firstLine(redactSensitiveText(payload.arguments), 180);
-  if (payload.input) return firstLine(redactSensitiveText(payload.input), 180);
-  if (payload.output) return firstLine(redactSensitiveText(payload.output), 180);
-  if (payload.stdout) return firstLine(redactSensitiveText(payload.stdout), 180);
-  if (payload.invocation) return firstLine(`${payload.invocation.server}.${payload.invocation.tool}`, 180);
-  if (payload.summary?.length) return firstLine(JSON.stringify(payload.summary), 180);
+  if (payload.message) return firstLine(redactSensitiveText(payload.message));
+  if (payload.last_agent_message) return firstLine(redactSensitiveText(payload.last_agent_message));
+  if (payload.content) return firstLine(redactSensitiveText(extractContentText(payload.content)));
+  if (payload.arguments) return firstLine(redactSensitiveText(payload.arguments));
+  if (payload.input) return firstLine(redactSensitiveText(payload.input));
+  if (payload.output) return firstLine(redactSensitiveText(payload.output));
+  if (payload.stdout) return firstLine(redactSensitiveText(payload.stdout));
+  if (payload.invocation) return firstLine(`${payload.invocation.server}.${payload.invocation.tool}`);
+  if (payload.summary?.length) return firstLine(JSON.stringify(payload.summary));
   return "";
 }
 

@@ -34,7 +34,7 @@ function sessionStartedFromFile(filePath) {
   return null;
 }
 
-function firstLine(text, max = 120) {
+function firstLine(text, max = Infinity) {
   const normalized = String(text).replace(/\s+/g, " ").trim();
   return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
 }

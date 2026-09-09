@@ -1,5 +1,4 @@
 import {
-  firstLine,
   isImportantEvent,
   normalizeText,
   summarizeEventPreview,
@@ -118,7 +117,7 @@ function projectSessionForApi(session, query = {}, options = {}) {
   const projected = {
     id: enriched.id,
     title: enriched.title || "未命名会话",
-    preview: firstLine(enriched.preview || "", 180) || null,
+    preview: enriched.preview || null,
     cwd: enriched.cwd || null,
     originator: enriched.originator || null,
     model: enriched.model || null,

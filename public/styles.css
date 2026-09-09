@@ -1563,11 +1563,9 @@ button {
 
 .session-title {
   min-width: 0;
-  overflow: hidden;
   font-weight: 650;
   line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .session-date {
@@ -1589,15 +1587,12 @@ button {
 
 .session-meta span {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .session-meta span:first-child,
 .session-meta span:nth-child(2) {
-  flex: 0 0 auto;
-  max-width: 42%;
+  flex: 0 1 auto;
   font-family: var(--mono);
 }
 
@@ -1895,15 +1890,11 @@ button:disabled {
 }
 
 .handoff-copy em {
-  display: -webkit-box;
-  overflow: hidden;
   color: var(--text);
   font-size: 11px;
   font-style: normal;
   line-height: 1.25;
   overflow-wrap: anywhere;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
 }
 
 .toggle-control {
@@ -3063,43 +3054,33 @@ button.compact-replacement-row:focus-visible {
 }
 
 .compact-replacement-copy strong {
-  overflow: hidden;
   color: var(--text-3);
   font-family: var(--mono);
   font-size: 10.5px;
   font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .compact-replacement-copy em {
-  display: -webkit-box;
-  overflow: hidden;
   font-style: normal;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
 }
 
 .compact-replacement-meta {
   grid-area: meta;
   min-width: 0;
-  overflow: hidden;
   color: var(--text-3);
   font-family: var(--mono);
   font-size: 10.5px;
   text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .compact-replacement-outcome {
-  display: -webkit-box;
   grid-area: outcome;
-  overflow: hidden;
   color: var(--text-2);
   font-size: 11.5px;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
 }
 
 .compact-replacement-outcome strong {
@@ -5350,7 +5331,6 @@ button.compact-replacement-row:focus-visible {
 
 .raw-view-kind {
   min-width: 0;
-  overflow: hidden;
   border-radius: 4px;
   background: var(--bg-sunken);
   color: var(--text-2);
@@ -5358,17 +5338,14 @@ button.compact-replacement-row:focus-visible {
   font-size: 10px;
   font-weight: 720;
   padding: 2px 5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .raw-view-row strong,
 .raw-view-row em,
 .raw-view-row > span:last-child {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .raw-view-row strong {
@@ -5422,9 +5399,7 @@ button.compact-replacement-row:focus-visible {
 .raw-preview-title strong,
 .raw-preview-title span {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .raw-preview-title span {
@@ -5523,12 +5498,9 @@ button.compact-replacement-row:focus-visible {
 
 .trace-head h3 {
   margin: 0;
-  overflow: hidden;
-  max-width: 58vw;
   font-size: 15px;
   line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .trace-legend {

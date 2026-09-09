@@ -49,15 +49,6 @@ export {
   normalizeSessionEvent,
 };
 
-const previewLimits = {
-  payload: 700,
-  traceText: 160,
-  traceArguments: 160,
-  traceOutput: 160,
-  compactMessage: 2400,
-  subagentNotification: 5200,
-};
-
 function compactTurnsForClient(turns) {
   return turns.map((turn, turnIndex) => ({
     ...turn,
@@ -118,7 +109,7 @@ function compactItemForClient(item, turnIndex, itemIndex, options = {}) {
   }
   if (item.payload != null || item.info != null) {
     const source = item.payload ?? item.info;
-    const limited = limitText(safeStringifyRedacted(source, 2), previewLimits.payload);
+    const limited = limitText(safeStringifyRedacted(source, 2));
     base.payloadPreview = limited.text;
     base.payloadLength = limited.originalLength;
     if (limited.truncated) addTruncatedField(base, "payload");
@@ -198,7 +189,7 @@ function compactUserMessageForView(item, options = {}) {
 }
 
 function compactMessageForView(item, options = {}) {
-  const limited = limitText(item.text || "", previewLimits.compactMessage);
+  const limited = limitText(item.text || "");
   const message = {
     id: item.id,
     type: item.type,
@@ -221,7 +212,7 @@ function compactMessageForView(item, options = {}) {
 function compactContextEventForView(item, context = {}) {
   const compact = item.compact || {};
   const text = item.text || compact.message || "";
-  const limited = limitText(text, previewLimits.subagentNotification);
+  const limited = limitText(text);
   return {
     id: item.id,
     type: item.type,
@@ -268,8 +259,8 @@ function compactReplacementTurnLookup(turns = []) {
       turnStatus: turn.status || null,
       turnStartedAt: turn.startedAt || null,
       turnCompletedAt: turn.completedAt || null,
-      userPreview: user ? firstLine(cleanCompactUserText(user.text || ""), 160) : "",
-      assistantPreview: assistant ? firstLine(assistant.text || "", 160) : "",
+      userPreview: user ? firstLine(cleanCompactUserText(user.text || "")) : "",
+      assistantPreview: assistant ? firstLine(assistant.text || "") : "",
     });
   }
   return lookup;
@@ -345,8 +336,8 @@ function compactCompressionRefsByItem(turns = []) {
           replacementItemType: target.item?.type || null,
           windowNumber: item.compact?.windowNumber ?? null,
           timestamp: item.timestamp || null,
-          summaryPreview: firstLine(item.text || item.compact?.message || "", 140),
-          replacementPreview: firstLine(entry.preview || "", 140),
+          summaryPreview: firstLine(item.text || item.compact?.message || ""),
+          replacementPreview: firstLine(entry.preview || ""),
         };
         const key = compactCompressionItemKey(target.turnIndex, ownerIndex);
         const existing = refs.get(key) || [];
@@ -651,7 +642,7 @@ function compactCompactEvent(event) {
     timestamp: event.timestamp,
     kind: event.kind,
     title: event.title,
-    preview: firstLine(event.preview || "", 220),
+    preview: firstLine(event.preview || ""),
   };
 }
 
@@ -661,7 +652,7 @@ function compactSubagentNotification(event) {
   const status = notificationStatusObject(payload);
   const state = subagentNotificationState(payload, status);
   const body = subagentNotificationBody(payload, status);
-  const limited = limitText(body, previewLimits.subagentNotification);
+  const limited = limitText(body);
   const summary = {
     state,
     label: subagentNotificationStateLabel(state),
@@ -807,15 +798,10 @@ function addTruncatedField(target, field) {
   target.truncatedFields.push(field);
 }
 
-function limitText(value, max) {
+function limitText(value) {
   if (value == null) return { text: value, originalLength: 0, truncated: false };
   const text = String(value);
-  if (text.length <= max) return { text, originalLength: text.length, truncated: false };
-  return {
-    text: text.slice(0, max),
-    originalLength: text.length,
-    truncated: true,
-  };
+  return { text, originalLength: text.length, truncated: false };
 }
 
 function buildTrace(session, rawEvents, normalizedEvents, turns, hierarchy) {
@@ -1043,7 +1029,7 @@ function traceNodeFromItem(item, turnIndex, itemIndex) {
       type: "message",
       icon: "user",
       label: "用户消息",
-      title: firstLine(item.text || "用户消息", 80),
+      title: firstLine(item.text || "用户消息"),
       subtitle: formatIsoForTrace(item.timestamp),
     };
   }
@@ -1053,7 +1039,7 @@ function traceNodeFromItem(item, turnIndex, itemIndex) {
       type: "message",
       icon: "assistant",
       label: item.phase === "final" || item.phase === "final_answer" ? "最终回复" : "助手回复",
-      title: firstLine(item.text || "助手消息", 80),
+      title: firstLine(item.text || "助手消息"),
       subtitle: [assistantPhaseLabel(item.phase), formatIsoForTrace(item.timestamp)].filter(Boolean).join(" · "),
     };
   }
@@ -1088,7 +1074,7 @@ function traceNodeFromItem(item, turnIndex, itemIndex) {
       type: "reasoning",
       icon: "reasoning",
       label: "推理",
-      title: item.text ? firstLine(item.text, 80) : item.encrypted ? "推理内容已加密存储" : "无明文摘要",
+      title: item.text ? firstLine(item.text) : item.encrypted ? "推理内容已加密存储" : "无明文摘要",
       subtitle: item.encrypted ? "已加密" : "摘要",
     };
   }
@@ -1131,7 +1117,7 @@ function embeddedSubagentTraceTasks(batch, turnIndex, itemIndex) {
         type: "embedded-subagent-task",
         icon: "agent",
         label: `子代理：${task.agent}`,
-        title: firstLine(task.task || task.summary || "未记录任务详情", 120),
+        title: firstLine(task.task || task.summary || "未记录任务详情"),
         subtitle: [task.agentSource, task.exitCode != null ? `退出 ${task.exitCode}` : "", task.stopReason].filter(Boolean).join(" · "),
         timestamp: null,
         completedAt: null,
@@ -1227,7 +1213,7 @@ function summarizeTurnForTrace(turn, hierarchy) {
     .find(({ title }) => isUsefulTurnTitle(title));
   if (user) {
     return {
-      title: firstLine(user.title, 96) || "用户请求",
+      title: firstLine(user.title) || "用户请求",
       subtitle: "用户请求",
       source: "user-message",
     };
@@ -1244,7 +1230,7 @@ function summarizeTurnForTrace(turn, hierarchy) {
   const handoff = turn.items.find((item) => item.type === "tool-call" && ["spawn_agent", "wait_agent", "handoff"].includes(item.name));
   if (handoff) {
     return {
-      title: firstLine(summarizeHandoffTool(handoff, hierarchy), 96),
+      title: firstLine(summarizeHandoffTool(handoff, hierarchy)),
       subtitle: "子代理委派",
       source: "handoff",
     };
@@ -1253,7 +1239,7 @@ function summarizeTurnForTrace(turn, hierarchy) {
   const toolNames = [...new Set(turn.items.filter((item) => item.type === "tool-call" && item.name).map((item) => item.name))];
   if (toolNames.length > 0) {
     return {
-      title: firstLine(`工具执行：${toolNames.slice(0, 3).join(", ")}${toolNames.length > 3 ? ` +${toolNames.length - 3}` : ""}`, 96),
+      title: firstLine(`工具执行：${toolNames.join(", ")}`),
       subtitle: "工具执行",
       source: "tool-call",
     };
@@ -1265,7 +1251,7 @@ function summarizeTurnForTrace(turn, hierarchy) {
     .find(({ title }) => isUsefulTurnTitle(title));
   if (assistant) {
     return {
-      title: firstLine(assistant.title, 96) || "助手回复",
+      title: firstLine(assistant.title) || "助手回复",
       subtitle: "助手回复",
       source: "assistant-message",
     };
@@ -1285,7 +1271,7 @@ function summarizeSubagentNotification(payload, hierarchy) {
   const thread = child?.thread || {};
   const name = [thread.agentNickname, thread.agentRole].filter(Boolean).join(" / ") || thread.title || agentId;
   return {
-    title: firstLine(`子代理回执：${name}`, 96),
+    title: firstLine(`子代理回执：${name}`),
     subtitle: "子代理回执",
     source: "subagent-notification",
   };
@@ -1320,7 +1306,7 @@ function cleanTurnTitle(text) {
     .replace(/\[[^\]]+\]\([^)]+\)/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  return withoutGoalWrapper || firstLine(raw, 120);
+  return withoutGoalWrapper || firstLine(raw);
 }
 
 function isUsefulTurnTitle(title) {
@@ -1347,9 +1333,9 @@ function compactTraceTurn(turn, summary) {
 }
 
 function compactTraceItem(item) {
-  const text = limitText(item.text, previewLimits.traceText);
-  const args = limitText(item.arguments, previewLimits.traceArguments);
-  const output = limitText(item.output, previewLimits.traceOutput);
+  const text = limitText(item.text);
+  const args = limitText(item.arguments);
+  const output = limitText(item.output);
   return {
     id: item.id,
     type: item.type,
@@ -1401,8 +1387,8 @@ function compactTraceInfo(info) {
   return { total_token_usage: total, last_token_usage: last, context_usage: contextUsage };
 }
 
-function truncateTraceText(value, max) {
-  return limitText(value, max).text;
+function truncateTraceText(value) {
+  return limitText(value).text;
 }
 
 function findSpawnAgentEvents(events, childById) {

@@ -221,8 +221,9 @@ test("normalizer exposes Codex context compact metadata", () => {
   assert.equal(normalized.compact.replacementHistoryPreview[0].role, "user");
   assert.equal(normalized.compact.replacementHistoryPreview[0].turnId, "turn-1");
   assert.match(normalized.compact.replacementHistoryPreview[0].preview, /原始用户问题/);
-  assert.equal(normalized.compact.replacementHistoryPreview[1].truncated, true);
-  assert.ok(normalized.compact.replacementHistoryPreview[1].preview.length <= 320);
+  assert.equal(normalized.compact.replacementHistoryPreview[1].truncated, false);
+  assert.equal(normalized.compact.replacementHistoryPreview[1].preview.length, normalized.compact.replacementHistoryPreview[1].textLength);
+  assert.match(normalized.compact.replacementHistoryPreview[1].preview, /x{420}/);
   assert.equal(normalized.compact.windowNumber, 3);
   assert.equal(normalized.compact.windowId, "w-3");
   assert.match(normalized.searchText, /当前进展/);

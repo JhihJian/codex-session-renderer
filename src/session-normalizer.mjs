@@ -3,9 +3,6 @@ import { cleanUserMessageText } from "./user-message-cleanup.mjs";
 
 const timeKeys = ["timestamp", "time", "ts", "created", "created_at", "datetime", "date", "event_time", "when", "at"];
 const dataUriPattern = /data:([a-zA-Z0-9.+-]+\/[a-zA-Z0-9.+-]+)?(?:;[^,]*)?,[A-Za-z0-9+/=._~%-]+/g;
-const compactReplacementPreviewLimit = 320;
-const compactReplacementPreviewMaxItems = 30;
-
 function normalizeSessionEvent(rawEvent, index = null) {
   if (rawEvent?.__normalized) return rawEvent;
   if (rawEvent?.__jsonlDiagnostic) return normalizeDiagnosticEvent(rawEvent, index);
@@ -383,7 +380,6 @@ function extractCompact(payload, raw, kind) {
       : [];
   const message = stringOrNull(source.message ?? fallback.message);
   const replacementHistoryPreview = replacementHistory
-    .slice(0, compactReplacementPreviewMaxItems)
     .map((entry, index) => compactReplacementHistoryPreview(entry, index))
     .filter(Boolean);
   return {
@@ -393,7 +389,7 @@ function extractCompact(payload, raw, kind) {
     messageLength: message ? message.length : 0,
     replacementHistoryCount: replacementHistory.length,
     replacementHistoryPreview,
-    replacementHistoryPreviewTruncated: replacementHistory.length > replacementHistoryPreview.length,
+    replacementHistoryPreviewTruncated: false,
     windowNumber: numberOrNull(source.window_number ?? source.windowNumber ?? fallback.window_number ?? fallback.windowNumber),
     firstWindowId: stringOrNull(source.first_window_id ?? source.firstWindowId ?? fallback.first_window_id ?? fallback.firstWindowId),
     previousWindowId: stringOrNull(source.previous_window_id ?? source.previousWindowId ?? fallback.previous_window_id ?? fallback.previousWindowId),
@@ -405,7 +401,6 @@ function compactReplacementHistoryPreview(entry, index) {
   const source = isObject(entry) ? entry : {};
   const metadata = isObject(source.internal_chat_message_metadata_passthrough) ? source.internal_chat_message_metadata_passthrough : {};
   const text = redactSensitiveText(replacementHistoryText(entry)).trim();
-  const limited = limitPreviewText(text, compactReplacementPreviewLimit);
   return compactObject({
     index: index + 1,
     type: stringOrNull(source.type) || (entry == null ? null : typeof entry),
@@ -417,9 +412,9 @@ function compactReplacementHistoryPreview(entry, index) {
     timestamp: stringOrNull(source.timestamp ?? source.created_at ?? source.createdAt ?? metadata.timestamp),
     contentKinds: replacementContentKinds(source.content),
     contentParts: Array.isArray(source.content) ? source.content.length : null,
-    preview: limited.text,
-    textLength: limited.originalLength,
-    truncated: limited.truncated,
+    preview: text,
+    textLength: text.length,
+    truncated: false,
   });
 }
 
@@ -460,16 +455,6 @@ function replacementTextFromValue(value, depth = 0) {
     if (value[key] != null) parts.push(replacementTextFromValue(value[key], depth + 1));
   }
   return [...new Set(parts.filter(Boolean))].join("\n");
-}
-
-function limitPreviewText(value, max) {
-  const text = String(value ?? "").replace(/\s+/g, " ").trim();
-  if (text.length <= max) return { text, originalLength: text.length, truncated: false };
-  return {
-    text: `${text.slice(0, Math.max(0, max - 1))}…`,
-    originalLength: text.length,
-    truncated: true,
-  };
 }
 
 function compactObject(value) {

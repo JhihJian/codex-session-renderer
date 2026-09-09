@@ -44,7 +44,10 @@ const state = {
   detail: null,
   selectedItemRef: null,
   selectedEventIndex: null,
+  selectedRawEvent: null,
+
   selectedTraceNodeId: null,
+
   selectedTerminalBlockId: null,
   expandedTraceNodeIds: new Set(),
   rawEventCache: createRawEventCache(rawEventCacheLimits),
@@ -192,6 +195,8 @@ const els = {
   healthStatus: document.getElementById("healthStatus"),
   sessionsPanel: document.getElementById("sessionsPanel"),
   threadPanel: document.getElementById("threadPanel"),
+
+
 
   sessionCount: document.getElementById("sessionCount"),
   sessionList: document.getElementById("sessionList"),
@@ -546,6 +551,8 @@ function syncPanelVisibilityState() {
   const panels = [
     [els.sessionsPanel, mobile ? activePanel === "sessions" : els.appShell.dataset.left !== "closed", mobile ? mobilePanelTab("sessions") : els.toggleLeft],
     [els.threadPanel, mobile ? activePanel === "thread" : true, mobile ? mobilePanelTab("thread") : null],
+
+
   ];
   panels.forEach(([panel, open, fallback]) => {
     moveFocusBeforeHidingPanel(panel, fallback, open);
@@ -1127,7 +1134,7 @@ async function selectSession(id, { announce = true, focusMobilePanel = true, imm
   state.visibleThreadItems = 140;
 
   syncExportButtons();
-  setWorkbenchStatus(operationKey, `正在读取会话：${firstLine(state.pendingSessionTitle, 54)}`, { announce });
+  setWorkbenchStatus(operationKey, `正在读取会话：${state.pendingSessionTitle}`, { announce });
   renderAll();
   try {
     const detail = await fetchJson(sourceSessionUrl(id, sourceId), { signal: sessionAbortController.signal });
@@ -2811,12 +2818,7 @@ function renderSessionList() {
     syncExportButtons();
     return;
   }
-  const renderedSessions = sessions.slice(0, 220);
-  const overflowHtml =
-    sessions.length > renderedSessions.length
-      ? `<div class="list-overflow-note">已显示前 ${renderedSessions.length} 条，继续输入关键词可缩小范围。</div>`
-      : "";
-  els.sessionList.innerHTML = renderSessionDirectoryGroups(renderedSessions, query) + overflowHtml + renderRemoteIndexPagination();
+  els.sessionList.innerHTML = renderSessionDirectoryGroups(sessions, query) + renderRemoteIndexPagination();
   const activateSessionRow = (row) => {
     const rowSessionId = row.dataset.sessionId;
     const rowSessionKey = sessionKey({ id: rowSessionId, sourceId: state.selectedSourceId });
@@ -3038,7 +3040,7 @@ function syncExportButtons() {
 
 function selectedSessionDisplayTitle() {
   const title = state.pendingSessionTitle || findSessionSummary(state.selectedSessionId)?.displayTitle || state.selectedSessionId || "目标会话";
-  return firstLine(title, 80);
+  return title;
 }
 
 function sessionPlaceholderState() {
@@ -3173,10 +3175,9 @@ function renderSessionRow(session, query) {
   const indexLabel = session.remoteIndexOnly ? "仅索引/未同步正文" : "";
   const title = session.remoteIndexOnly ? remoteIndexOnlyMessage() : "";
   const displayTitle = session.displayTitle || "未命名会话";
-  const truncation = session.titleTruncated ? "，标题已截断" : "";
   const ariaLabel = session.remoteIndexOnly
-    ? `${displayTitle}${truncation}，仅索引，未同步正文，无法直接打开`
-    : `${displayTitle}${truncation}${active ? "，当前会话" : ""}`;
+    ? `${displayTitle}，仅索引，未同步正文，无法直接打开`
+    : `${displayTitle}${active ? "，当前会话" : ""}`;
   const rowSemantics = session.remoteIndexOnly
     ? 'role="listitem"'
     : `role="button" tabindex="0" ${active ? 'aria-current="true"' : ""}`;
@@ -3267,7 +3268,7 @@ function renderThreadHeader() {
   if (!session) {
     const placeholder = sessionPlaceholderState();
     els.sessionTitle.textContent = placeholder?.title || "选择一个会话";
-    els.sessionMetaLabel.textContent = placeholder?.subtitle ? firstLine(placeholder.subtitle, 96) : selectedSource()?.label || "未选择";
+    els.sessionMetaLabel.textContent = placeholder?.subtitle || selectedSource()?.label || "未选择";
     renderSessionHandoff();
     return;
   }
@@ -3335,9 +3336,9 @@ function sessionHandoffFacts(detail) {
   const lastAssistant = [...items].reverse().find((item) => item.type === "assistant-message" && String(item.text || "").trim());
   const tools = items.filter((item) => item.type === "tool-call");
   return [
-    handoffFact("目标", firstLine(firstUser?.text || "未记录用户目标", 180), "compact"),
+    handoffFact("目标", firstUser?.text || "未记录用户目标", "compact"),
     handoffFact("当前状态", handoffSessionStatus(detail), "compact"),
-    handoffFact("最新回复", firstLine(lastAssistant?.text || "尚无助手回复", 180), "compact"),
+    handoffFact("最新回复", lastAssistant?.text || "尚无助手回复", "compact"),
     handoffFact("执行", tools.length ? String(tools.length) + " 次工具调用" : "没有工具调用", "trace"),
     handoffFact("轮次", String(turns.length) + " 轮对话", "compact"),
     handoffFact("子代理", handoffChildText(detail), "trace"),
@@ -3358,7 +3359,7 @@ function handoffChildText(detail) {
 }
 
 function handoffFact(label, value, target) {
-  return { label, value: firstLine(value, 180), target };
+  return { label, value: String(value || ""), target };
 }
 
 function renderHandoffFact(fact, index) {
@@ -4268,7 +4269,7 @@ function compactNodeChildEntries(node, basePath) {
 
 function compactTurnOutlineTitle(turn) {
   const text = turn.userMessages?.[0]?.text || compactAssistantMessages(turn)[0]?.text || turn.status || "";
-  return firstLine(text, 72) || "无消息";
+  return text || "无消息";
 }
 
 function compactOutlineStats(node, seen = new Set()) {
@@ -4477,10 +4478,9 @@ function renderCompactEmbeddedTask(task, batch, runIndex, query, showTaskStatus)
   const status = task.status || batch.status || "unknown";
   const meta = task.exitCode != null && task.exitCode !== 0 ? `退出 ${task.exitCode}` : "";
   const taskTitle = compactEmbeddedTaskTitle(task.task);
-  const preview = compactEmbeddedPreview(task.summary);
   const reportId = `embedded-report-${batch.turnIndex}-${batch.itemIndex}-${task.index}`;
   const report = task.summary
-    ? `<div class="compact-embedded-report-preview">${highlight(escapeHtml(preview), query)}</div><details class="compact-embedded-report"><summary aria-controls="${escapeAttr(reportId)}">查看完整回报</summary><div id="${escapeAttr(reportId)}">${renderMarkdownMessage(task.summary, query)}</div></details>`
+    ? `<div id="${escapeAttr(reportId)}" class="compact-embedded-report">${renderMarkdownMessage(task.summary, query)}</div>`
     : "";
   return `<article class="compact-embedded-task${showTaskStatus ? "" : " single-task"} status-${escapeAttr(status)}">${showTaskStatus ? `<span class="compact-embedded-task-status">${escapeHtml(compactEmbeddedSubagentStatusLabel(status))}</span>` : ""}<div class="compact-embedded-task-body"><div class="compact-embedded-task-main"><strong>${highlight(escapeHtml(task.agent || "未指定代理"), query)}</strong>${taskTitle ? `<span>${highlight(escapeHtml(taskTitle), query)}</span>` : ""}</div>${meta ? `<em>${escapeHtml(meta)}</em>` : ""}${report}</div></article>`;
 }
@@ -4505,17 +4505,7 @@ function compactEmbeddedSubagentGroupSummary(batches) {
 }
 
 function compactEmbeddedTaskTitle(value) {
-  const text = String(value || "").replace(/\s+/g, " ").trim();
-  return text.length > 78 ? `${text.slice(0, 78)}...` : text;
-}
-
-function compactEmbeddedPreview(value) {
-  const text = String(value || "")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/^[#>*`-]+\s*/gm, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  return text.length > 220 ? `${text.slice(0, 220)}...` : text;
+  return String(value || "").replace(/\s+/g, " ").trim();
 }
 
 function compactEmbeddedSubagentStatusLabel(status) {
@@ -5102,6 +5092,7 @@ function rawDiagnosticRenderModel(detail) {
     limits: currentPage?.readState?.limits || {},
     query,
     selected: selectedRawViewEvent(events, events),
+    selectedRawEvent: state.selectedRawEvent?.index === state.selectedEventIndex ? state.selectedRawEvent : null,
     session: detail.session || {},
   };
 }
@@ -5147,7 +5138,7 @@ function rawDiagnosticEmptyMarkup(diagnostic) {
   return emptyState("正在读取有界事件摘要", "正在从当前数据源读取第一页摘要。");
 }
 
-function rawDiagnosticResultsMarkup({ diagnostic, currentPage, events, selected }, header) {
+function rawDiagnosticResultsMarkup({ diagnostic, currentPage, events, selected, selectedRawEvent }, header) {
   const canLoadNext = Boolean(currentPage.hasMore && !diagnostic.loading);
   const canLoadPrevious = diagnostic.pageIndex > 0 && !diagnostic.loading;
   return `
@@ -5166,8 +5157,8 @@ function rawDiagnosticResultsMarkup({ diagnostic, currentPage, events, selected 
             <strong>${escapeHtml(selected ? `事件 ${selected.index} ${humanEventTitle(selected)}` : "事件摘要")}</strong>
             <span>${escapeHtml(selected ? selected.kind || "" : "未选择")}</span>
           </div>
-          ${selected ? renderRawEventInsight(selected, els.itemSearch.value.trim().toLowerCase()) : ""}
-          <pre class="raw-preview">${escapeHtml(JSON.stringify(selected || { page: currentPage.page, readState: diagnostic.readState }, null, 2))}</pre>
+          ${selected ? renderRawEventInsight(selectedRawEvent || selected, els.itemSearch.value.trim().toLowerCase()) : ""}
+          <pre class="raw-preview">${escapeHtml(JSON.stringify(selectedRawEvent?.raw || selected || { page: currentPage.page, readState: diagnostic.readState }, null, 2))}</pre>
         </div>
       </div>
     </div>`;
@@ -5274,6 +5265,7 @@ function resetRawDiagnosticPages(diagnostic, { clearSelection = false, readState
   diagnostic.snapshot = "";
   diagnostic.readState = readState;
   clearRawEventCache();
+  state.selectedRawEvent = null;
   if (clearSelection) state.selectedEventIndex = null;
 }
 
@@ -5392,7 +5384,7 @@ function renderRawViewEventRow(event) {
       <span class="raw-view-kind">${escapeHtml(event.kind || event.type || "event")}</span>
       <strong>${escapeHtml(`事件 ${event.index} ${humanEventTitle(event)}`)}</strong>
       <em>${escapeHtml(formatDate(event.timestamp) || event.payloadType || "")}</em>
-      <span>${escapeHtml(firstLine(event.preview || "", 140))}</span>
+      <span>${escapeHtml(event.preview || "")}</span>
     </button>
   `;
 }
@@ -5449,7 +5441,17 @@ async function openRawEvent(index) {
 
 async function selectRawViewEvent(index) {
   await selectRawEvent(index, { rerender: false });
+  state.selectedRawEvent = null;
   renderRawView();
+  try {
+    const raw = await loadRawEvent(index);
+    if (raw && state.selectedEventIndex === index) {
+      state.selectedRawEvent = raw;
+      renderRawView();
+    }
+  } catch (error) {
+    if (!isAbortError(error)) showToast(`读取完整原始事件失败：${error.message}`);
+  }
 }
 
 
@@ -5906,19 +5908,7 @@ function sensitiveCopyToast(prefix) {
 }
 
 function compactTraceItem(item) {
-  if (!item) return item;
-  return {
-    ...item,
-    text: truncateText(item.text, 4000),
-    arguments: truncateText(item.arguments, 4000),
-    output: truncateText(item.output, 8000),
-  };
-}
-
-function truncateText(value, max) {
-  if (value == null) return value;
-  const text = String(value);
-  return text.length > max ? `${text.slice(0, max)}\n\n... 复核预览已截断 ${text.length - max} 个字符 ...` : value;
+  return item;
 }
 
 function traceNodeLabel(node) {
@@ -5986,7 +5976,7 @@ function readableCompactEvent(event) {
   return {
     matched: true,
     title,
-    summary: firstLine([meta, summary].filter(Boolean).join("："), 300),
+    summary: [meta, summary].filter(Boolean).join("："),
     body: summary,
     command: "",
   };
@@ -6027,10 +6017,10 @@ function itemDebugPreview(item) {
     ref: itemRef(item),
     title: itemTitle(item),
     ...item,
-    text: truncateText(item.text, 4000),
-    arguments: truncateText(item.arguments, 4000),
-    output: truncateText(item.output, 8000),
-    payloadPreview: truncateText(item.payloadPreview, 4000),
+    text: item.text,
+    arguments: item.arguments,
+    output: item.output,
+    payloadPreview: item.payloadPreview,
   };
 }
 

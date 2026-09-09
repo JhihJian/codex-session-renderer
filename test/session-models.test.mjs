@@ -4,7 +4,7 @@ import path from "node:path";
 import {
   compactSessionForList,
   displayTitleForList,
-  listDisplayTitleLimit,
+
   mapCodexHomePath,
   publicThreadMeta,
   rootSessionsOnly,
@@ -45,7 +45,7 @@ test("sessionFromThread creates the API session model without touching the file"
   assert.equal(session.archived, true);
 });
 
-test("compactSessionForList separates a bounded display title from the canonical title", () => {
+test("compactSessionForList preserves the complete display title and preview", () => {
   const compact = compactSessionForList({
     id: "thread-1",
     title: "x".repeat(200),
@@ -59,19 +59,16 @@ test("compactSessionForList separates a bounded display title from the canonical
   });
 
   assert.equal(compact.title, undefined);
-  assert.equal(compact.displayTitle, `${"x".repeat(listDisplayTitleLimit - 3)}...`);
-  assert.equal(compact.titleTruncated, true);
-  assert.equal(compact.preview.length, 120);
+  assert.equal(compact.displayTitle, "x".repeat(200));
+  assert.equal(compact.titleTruncated, false);
+  assert.equal(compact.preview.length, 200);
   assert.equal(compact.sizeBytes, null);
   assert.equal(compact.sourceId, "local");
 });
 
-test("displayTitleForList normalizes whitespace and has a deterministic boundary", () => {
+test("displayTitleForList normalizes whitespace without shortening content", () => {
   assert.deepEqual(displayTitleForList("  第一行\n第二行  "), { displayTitle: "第一行 第二行", titleTruncated: false });
-  assert.deepEqual(displayTitleForList("a".repeat(listDisplayTitleLimit + 1)), {
-    displayTitle: `${"a".repeat(listDisplayTitleLimit - 3)}...`,
-    titleTruncated: true,
-  });
+  assert.deepEqual(displayTitleForList("a".repeat(1000)), { displayTitle: "a".repeat(1000), titleTruncated: false });
 });
 
 test("rootSessionsOnly removes subagent child threads from the standalone list", () => {
