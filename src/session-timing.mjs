@@ -209,7 +209,7 @@ function buildSessionTiming(trace) {
   const parallelism = overlapMs(completeIntervals.map((item) => ({ startMs: item.startMs, endMs: item.endMs })));
   const inputWaits = (trace?.timing?.inputWaits || []).filter((wait) => Number.isFinite(wait.startMs) && Number.isFinite(wait.endMs) && wait.endMs >= wait.startMs);
   const waitingForInputMs = coveredMs(inputWaits);
-  const activeRunMs = durationMs == null ? null : Math.max(0, durationMs - waitingForInputMs);
+  const activeRunMs = executionCoverage;
   const buckets = bucketDefinitions.map(([id, label]) => buildBucket(id, label, intervals.filter((item) => item.bucketId === id), activeRunMs || 0));
   const partialCount = intervals.filter((item) => item.durationKind === "partial").length;
   const unavailableCount = intervals.filter((item) => item.durationKind === "unavailable").length;

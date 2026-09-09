@@ -168,7 +168,7 @@ test("session timing excludes confirmed waiting-for-input intervals from active 
   assert.equal(timing.session.durationMs, 100_000);
   assert.equal(timing.session.waitingForInputMs, 50_000);
   assert.equal(timing.session.waitingForInputCount, 2);
-  assert.equal(timing.session.activeRunMs, 50_000);
-  assert.equal(timing.buckets.find((bucket) => bucket.id === "llm_wait").sharePercent, 20);
-  assert.equal(timing.buckets.find((bucket) => bucket.id === "tool_execution").sharePercent, 40);
+  assert.equal(timing.session.activeRunMs, 30_000);
+  assert.equal(timing.buckets.find((bucket) => bucket.id === "llm_wait").sharePercent, 33.3);
+  assert.equal(timing.buckets.find((bucket) => bucket.id === "tool_execution").sharePercent, 66.7);
 });
