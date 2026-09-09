@@ -23,6 +23,7 @@
         <nav class="mobile-tabs" role="tablist" aria-label="移动端工作台面板">
           <button class="mobile-tab" id="mobileSessionsTab" data-panel-target="sessions" type="button" role="tab" aria-controls="sessionsPanel" aria-selected="false">会话</button>
           <button class="mobile-tab" id="mobileThreadTab" data-panel-target="thread" type="button" role="tab" aria-controls="threadPanel" aria-selected="true">内容</button>
+          <button class="mobile-tab" id="mobileDetailsTab" data-panel-target="details" type="button" role="tab" aria-controls="detailsPanel" aria-selected="false">详情</button>
 
         </nav>
 
@@ -155,6 +156,15 @@
         <section class="trace-content" id="traceContent" tabindex="-1" hidden></section>
       </main>
 
+      <aside class="details-panel panel" id="detailsPanel" aria-label="工具详情">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">执行过程</p>
+            <h2>工具详情</h2>
+          </div>
+        </div>
+        <section class="tool-details-content" id="toolDetailsContent" tabindex="-1" aria-live="polite"></section>
+      </aside>
 
       <footer class="statusbar" id="statusbar" aria-label="工作台状态">
         <span id="statusSource">数据源：读取中</span>

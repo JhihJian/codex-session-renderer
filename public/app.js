@@ -45,6 +45,7 @@ const state = {
   selectedItemRef: null,
   selectedEventIndex: null,
   selectedRawEvent: null,
+  selectedDetailsNodeId: null,
 
   selectedTraceNodeId: null,
 
@@ -195,6 +196,9 @@ const els = {
   healthStatus: document.getElementById("healthStatus"),
   sessionsPanel: document.getElementById("sessionsPanel"),
   threadPanel: document.getElementById("threadPanel"),
+  detailsPanel: document.getElementById("detailsPanel"),
+  toolDetailsContent: document.getElementById("toolDetailsContent"),
+
 
 
 
@@ -528,7 +532,7 @@ function mobilePanelTab(panel) {
 }
 
 function setMobilePanel(panel, { userInitiated = false } = {}) {
-  const next = panel === "sessions" ? "sessions" : "thread";
+  const next = ["sessions", "thread", "details"].includes(panel) ? panel : "thread";
   if (userInitiated) state.mobilePanelNavigationVersion += 1;
   els.appShell.dataset.panel = next;
   syncMobilePanelNavigation();
@@ -551,6 +555,8 @@ function syncPanelVisibilityState() {
   const panels = [
     [els.sessionsPanel, mobile ? activePanel === "sessions" : els.appShell.dataset.left !== "closed", mobile ? mobilePanelTab("sessions") : els.toggleLeft],
     [els.threadPanel, mobile ? activePanel === "thread" : true, mobile ? mobilePanelTab("thread") : null],
+    [els.detailsPanel, mobile ? activePanel === "details" : true, mobile ? mobilePanelTab("details") : null],
+
 
 
   ];
@@ -1127,6 +1133,7 @@ async function selectSession(id, { announce = true, focusMobilePanel = true, imm
   state.selectedItemRef = null;
   state.selectedEventIndex = null;
   state.selectedTraceNodeId = null;
+  state.selectedDetailsNodeId = null;
   state.selectedTerminalBlockId = null;
   state.expandedTraceNodeIds = new Set();
   clearRawEventCache();
@@ -1209,6 +1216,7 @@ function clearSelectedSession() {
   state.selectedItemRef = null;
   state.selectedEventIndex = null;
   state.selectedTraceNodeId = null;
+  state.selectedDetailsNodeId = null;
   state.selectedTerminalBlockId = null;
   state.expandedTraceNodeIds = new Set();
   clearRawEventCache();
@@ -2368,6 +2376,7 @@ function renderAll() {
   renderThreadHeader();
   renderStats();
   renderMainContent();
+  renderToolDetails(state.selectedDetailsNodeId ? findTraceNode(state.detail?.trace?.root, state.selectedDetailsNodeId) : null);
   renderStatusbar();
   syncExportButtons();
 }
@@ -5559,6 +5568,9 @@ function renderTraceNode(node, context) {
   const width = node.durationMs == null ? 2 : Math.max(2, Math.min(100, (node.durationMs / context.maxDuration) * 100));
   const children = node.children || [];
   const expanded = state.expandedTraceNodeIds.has(node.id);
+  const item = fullTraceItem(node);
+  const isTool = item?.type === "tool-call" || node.type === "tool" || node.type === "handoff";
+  const argumentPreview = isTool ? traceArgumentPreview(item) : "";
   return `
     <div class="trace-node" style="--depth:${depth}">
       <button class="trace-row${selected}" type="button" data-trace-node-id="${escapeAttr(node.id)}">
@@ -5571,14 +5583,66 @@ function renderTraceNode(node, context) {
         <span class="trace-icon ${escapeAttr(node.icon || node.type)}">${traceIcon(node)}</span>
         <span class="trace-main">
           <span class="trace-label">${escapeHtml(node.label || node.type)}</span>
-          <span class="trace-title">${escapeHtml(node.title || "")}</span>
+          <span class="trace-title">${escapeHtml(isTool ? (item?.name || node.title || "工具调用") : node.title || "")}</span>
+          ${argumentPreview ? `<span class="trace-arguments" title="${escapeAttr(argumentPreview)}">${escapeHtml(argumentPreview)}</span>` : ""}
         </span>
-        <span class="trace-status">${escapeHtml(node.status || "")}</span>
+        <span class="trace-status status-${escapeAttr(traceStatusKind(node.status || item?.status))}">${escapeHtml(traceStatusLabel(node.status || item?.status))}</span>
         <span class="trace-duration">${escapeHtml(durationLabel)}${node.durationEstimated ? " est" : ""}</span>
         <span class="trace-bar" aria-hidden="true"><i style="width:${width}%"></i></span>
       </button>
       ${children.length && expanded ? `<div class="trace-children">${children.map((child) => renderTraceNode(child, { ...context, depth: depth + 1 })).join("")}</div>` : ""}
     </div>
+  `;
+}
+
+function fullTraceItem(node) {
+  const compact = node?.detail?.item;
+  if (!compact) return null;
+  const match = String(node.id || "").match(/^item:(\d+):(\d+):/);
+  if (!match) return compact;
+  return state.detail?.turns?.[Number(match[1])]?.items?.[Number(match[2])] || compact;
+}
+
+function traceArgumentPreview(item) {
+  if (!item?.arguments) return "";
+  const value = prettyMaybeJson(item.arguments).replace(/\s+/g, " ").trim();
+  return value.length > 180 ? `${value.slice(0, 180)}...` : value;
+}
+
+function traceStatusKind(status) {
+  const value = String(status || "").toLowerCase();
+  if (["failed", "error", "aborted", "cancelled", "canceled"].includes(value)) return "failed";
+  if (["completed", "succeeded", "success", "done"].includes(value)) return "success";
+  return "running";
+}
+
+function traceStatusLabel(status) {
+  const kind = traceStatusKind(status);
+  if (kind === "success") return "执行成功";
+  if (kind === "failed") return "执行失败";
+  return status === "pending" ? "等待执行" : "执行中";
+}
+
+function renderToolDetails(node = null) {
+  if (!els.toolDetailsContent) return;
+  if (!node) {
+    els.toolDetailsContent.innerHTML = emptyState("选择一个执行节点", "点击执行过程中的工具调用，查看参数和返回结果。");
+    return;
+  }
+  const item = fullTraceItem(node);
+  const task = node.detail?.task;
+  const isTool = item?.type === "tool-call" || node.type === "tool" || node.type === "handoff";
+  const title = item?.name || node.title || node.label || "执行节点";
+  const argumentsText = item?.arguments ? prettyMaybeJson(item.arguments) : task?.task || "未记录参数";
+  const outputText = item?.output == null || item.output === "" ? "未返回内容" : String(item.output);
+  els.toolDetailsContent.innerHTML = `
+    <div class="tool-details-head">
+      <span class="tool-details-icon ${escapeAttr(node.icon || node.type)}">${traceIcon(node)}</span>
+      <div><p class="eyebrow">${escapeHtml(node.label || "执行节点")}</p><h3>${escapeHtml(title)}</h3><span class="tool-details-status status-${escapeAttr(traceStatusKind(node.status || item?.status || task?.status))}">${escapeHtml(status)}</span></div>
+    </div>
+    <div class="tool-details-meta">${escapeHtml([formatDate(node.timestamp), node.durationMs != null ? formatDuration(node.durationMs) : "未记录耗时"].filter(Boolean).join(" · "))}</div>
+    <section class="tool-details-section"><h4>${isTool ? "调用参数" : "节点信息"}</h4><pre>${escapeHtml(argumentsText)}</pre></section>
+    <section class="tool-details-section"><h4>返回结果</h4><pre>${escapeHtml(outputText)}</pre></section>
   `;
 }
 
@@ -5743,11 +5807,15 @@ function rawEventStillInDiagnosticPages(diagnostic, index, snapshot) {
 }
 
 function selectTraceNode(id) {
-  if (!findTraceNode(state.detail?.trace?.root, id)) return;
+  const node = findTraceNode(state.detail?.trace?.root, id);
+  if (!node) return;
   state.selectedTraceNodeId = id;
+  state.selectedDetailsNodeId = id;
   state.selectedEventIndex = null;
   state.selectedItemRef = null;
   renderTrace();
+  renderToolDetails(node);
+  if (mobilePanelLayoutActive()) setMobilePanel("details");
 }
 
 function selectItemRef(ref) {
