@@ -127,6 +127,12 @@ test("projectSessionForApi exposes subagent display name from JSONL metadata", (
   assert.equal(projected.agentRole, "explorer");
 });
 
+test("projectSessionForApi exposes the pi fork chain parent", () => {
+  const projected = projectSessionForApi({ id: "child", title: "分叉", parentSessionId: "01a09d90-a529-7352-b1b1-155c3abd07a5" });
+  assert.equal(projected.parentSessionId, "01a09d90-a529-7352-b1b1-155c3abd07a5");
+  assert.equal(projectSessionForApi({ id: "root", title: "根" }).parentSessionId, null);
+});
+
 test("projectSessionForApi keeps legacy links by default and supports source-scoped links", () => {
   const legacy = projectSessionForApi({ id: "thread id", title: "链接测试" });
   assert.deepEqual(legacy.links, {

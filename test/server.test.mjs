@@ -283,3 +283,50 @@ test("remote peer health authentication failure returns clear result", async (t)
   assert.equal(body.error, "远端认证失败。");
   assertRedacted(text);
 });
+
+test("pi session list and detail surface fork chain relationships", async (t) => {
+  const context = await withRemoteServer(
+    t,
+    async () => new Response("not used"),
+    async (tempRoot) => {
+      const sessionsRoot = path.join(tempRoot, "pi-sessions", "--data-dev-demo--");
+      const parentFile = path.join(sessionsRoot, "2026-09-14T01-00-00-000Z_11111111-1111-4111-8111-111111111111.jsonl");
+      const childFile = path.join(sessionsRoot, "2026-09-14T02-00-00-000Z_22222222-2222-4222-8222-222222222222.jsonl");
+      const grandchildFile = path.join(sessionsRoot, "2026-09-14T03-00-00-000Z_33333333-3333-4333-8333-333333333333.jsonl");
+      const header = (id, timestamp, parentSession = null) =>
+        `${JSON.stringify({ type: "session", version: 3, id, timestamp, cwd: "/data/dev/demo", ...(parentSession ? { parentSession } : {}) })}\n`;
+      await mkdir(sessionsRoot, { recursive: true });
+      process.env.CODEX_SESSION_RENDERER_PI_AGENT_SESSIONS_ROOT = sessionsRoot;
+      const { writeFile } = await import("node:fs/promises");
+      await writeFile(parentFile, header("11111111-1111-4111-8111-111111111111", "2026-09-14T01:00:00.000Z"), "utf8");
+      await writeFile(childFile, header("22222222-2222-4222-8222-222222222222", "2026-09-14T02:00:00.000Z", parentFile), "utf8");
+      await writeFile(grandchildFile, header("33333333-3333-4333-8333-333333333333", "2026-09-14T03:00:00.000Z", childFile), "utf8");
+    },
+  );
+
+  const list = await requestJson(context, "/api/sources/pi-agent/sessions");
+  assert.equal(list.response.status, 200);
+  assert.equal(list.body.sessions.length, 3);
+  const parent = list.body.sessions.find((session) => session.id === "11111111-1111-4111-8111-111111111111");
+  const child = list.body.sessions.find((session) => session.id === "22222222-2222-4222-8222-222222222222");
+  const grandchild = list.body.sessions.find((session) => session.id === "33333333-3333-4333-8333-333333333333");
+  assert.equal(parent.parentSessionId, null);
+  assert.equal(child.parentSessionId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(grandchild.parentSessionId, "22222222-2222-4222-8222-222222222222");
+
+  const detail = await requestJson(context, "/api/sources/pi-agent/sessions/33333333-3333-4333-8333-333333333333");
+  assert.equal(detail.response.status, 200);
+  assert.equal(detail.body.related.parent.id, "22222222-2222-4222-8222-222222222222");
+  assert.deepEqual(
+    detail.body.related.chain.map((session) => session.id),
+    ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"],
+  );
+  assert.equal(detail.body.related.children.length, 0);
+
+  const rootDetail = await requestJson(context, "/api/sources/pi-agent/sessions/11111111-1111-4111-8111-111111111111");
+  assert.equal(rootDetail.body.related.parent, null);
+  assert.deepEqual(
+    rootDetail.body.related.children.map((session) => session.id),
+    ["22222222-2222-4222-8222-222222222222"],
+  );
+});

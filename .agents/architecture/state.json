@@ -1,203 +1,10 @@
 {
   "version": 4,
-  "documentStatus": "active",
+  "documentStatus": "candidate",
   "snapshot": {
     "commit": "90e36ed63617bfcbb501e9c7e815ae59c9dd0577",
     "acceptedAt": "2026-09-14T03:35:51.491Z",
-    "files": [
-      {
-        "path": "README.md",
-        "sha256": "sha256:065f7138e1801b713326a39273cbc6e5aa164092bd218d1b89a2a2cdf8b591a0"
-      },
-      {
-        "path": "docs/architecture/README.md",
-        "sha256": "sha256:6ec12dd1608d2ba8766a3175def0a021a702c86936fce9b1be12c5aa1ab8f5a9"
-      },
-      {
-        "path": "docs/architecture/implementation.md",
-        "sha256": "sha256:c05fcf370d534f895e81435c919315b9e03db057840e2a3814e70f8e25a26085"
-      },
-      {
-        "path": "docs/architecture/modules/prompt-archive-and-goal-projection.md",
-        "sha256": "sha256:656e93e0c3e140a637aa0ca4e55ec6f48ac1ac3f6553d41000d23f67dfc457b8"
-      },
-      {
-        "path": "docs/architecture/modules/remote-snapshot-sharing.md",
-        "sha256": "sha256:51b294478ebc1342285b0fd5906bb190183b809576a777ea184543c36e91627f"
-      },
-      {
-        "path": "docs/architecture/modules/session-projection.md",
-        "sha256": "sha256:6a362e0a7880c2955a0c298d2d0676f46531593f89960dd4050f06cfdb62ac4e"
-      },
-      {
-        "path": "docs/session-event-normalization.md",
-        "sha256": "sha256:b36149c6e49bf0c0b8ee70e3d49e890ebe40414a40fad87df9e40335b923bfc7"
-      },
-      {
-        "path": "public/app.js",
-        "sha256": "sha256:f3a65f219bc7756aed675896784581ec8d2dc18f8d93ec04abc329cc7b873bd5"
-      },
-      {
-        "path": "server.mjs",
-        "sha256": "sha256:af0378495d8a856748cf1d43b9ebaa995d1dd6f2c9b625e345aa28b82e9e6a6b"
-      },
-      {
-        "path": "share-server.mjs",
-        "sha256": "sha256:744f9c13af7bc603622d32f3592d6af52c294f749fa510656fe39274073609fb"
-      },
-      {
-        "path": "src/access-control.mjs",
-        "sha256": "sha256:77dd682be1f66b4cea2625d67e5f1aed6804a5d6331dbb8b55c9d3dc6fa950fe"
-      },
-      {
-        "path": "src/data-sources.mjs",
-        "sha256": "sha256:f887cedac1050527a92bb688bdd6dd55cdc3df2b9028c650653db5fce4c629e5"
-      },
-      {
-        "path": "src/jsonl-reader.mjs",
-        "sha256": "sha256:ae209e6def46e9af7135459689789f960a8b28575c734ef2169905529f984c0e"
-      },
-      {
-        "path": "src/markdown-export.mjs",
-        "sha256": "sha256:b70d5a1aec036951f28bb41127336d69b37c312505febed2716216c4f7eec76c"
-      },
-      {
-        "path": "src/pi-goal-projection.mjs",
-        "sha256": "sha256:9d8ed5049596ef51108702893bffa629bd52ee9afc4dc89f55b12052bdfd5745"
-      },
-      {
-        "path": "src/prompt-archive-coordinator.mjs",
-        "sha256": "sha256:9a1dda2e5bbeb012f658b17e110c159c51af1bf027f3b828076ca2b445650320"
-      },
-      {
-        "path": "src/remote-http.mjs",
-        "sha256": "sha256:59aa0c142056a74038e322fa1c6bdba64925622d22a9c23cd566039c107e13fa"
-      },
-      {
-        "path": "src/remote-session-index.mjs",
-        "sha256": "sha256:3328bc04f069aabdcc683076f6637f0203e67e2fb1d5d5b25da6c043e851bb33"
-      },
-      {
-        "path": "src/renderer-config.mjs",
-        "sha256": "sha256:92df8bbee9dd3c0f29bb02af153cb30c851f8d2f65bb68064fd023e26671b358"
-      },
-      {
-        "path": "src/session-catalog.mjs",
-        "sha256": "sha256:f55a6189486e3f11a5fc0a4c0da1457fe454266151321390a7c62152726d276a"
-      },
-      {
-        "path": "src/session-detail-coordinator.mjs",
-        "sha256": "sha256:c8e0db66948d2be0613a73271c6348291a2038b7b6c58261b6176293bd6b5831"
-      },
-      {
-        "path": "src/session-events.mjs",
-        "sha256": "sha256:dc92da8cdd18703821e9c3a92b674e97a0d7ceffe0fb226392e966e5b4bd6962"
-      },
-      {
-        "path": "src/session-models.mjs",
-        "sha256": "sha256:b63e12846a77e207b13cded0f53dfe05e77d449f024281afeffe0ad2c87d22d6"
-      },
-      {
-        "path": "src/session-normalizer.mjs",
-        "sha256": "sha256:af85146b655e2174de5d367aabef52047b138872bf4b57a11d499a00cf2bf51e"
-      },
-      {
-        "path": "src/session-prompts.mjs",
-        "sha256": "sha256:5c9f0f4593655e129007fb171f67c2df90378f2ec9f0ef67bbc5797fdd16205f"
-      },
-      {
-        "path": "src/session-query.mjs",
-        "sha256": "sha256:06c39e352ab5231d9844ade65b6c88ec57f645364f2311b037c9e289b3b0a43d"
-      },
-      {
-        "path": "src/session-timing.mjs",
-        "sha256": "sha256:80899bce02d42effa6f6c92260fa1b4b2d34390ba623f8fc62bd31c00efda8c5"
-      },
-      {
-        "path": "src/snapshot-budget.mjs",
-        "sha256": "sha256:48c401f760439f88eecfe82e0c826b89fd6d3838bf59bcd699ceccf2aa80938b"
-      },
-      {
-        "path": "src/snapshot-root-commit-coordinator.mjs",
-        "sha256": "sha256:8699600356f6fa784ae7216a6378194bdbe36d31c3f68d8770bf0cf01e156e2b"
-      },
-      {
-        "path": "src/snapshot-share.mjs",
-        "sha256": "sha256:253c145db467cb334e633236e5e4a089918196a5c30eb86a3956b591f0ee9769"
-      },
-      {
-        "path": "src/sqlite-threads.mjs",
-        "sha256": "sha256:55690a948954e3c80b4ffda1fc2f85c0b9e6101eb3c3a13155901074e75482f5"
-      },
-      {
-        "path": "test/codex-goal-http.test.mjs",
-        "sha256": "sha256:43db66f9b20d4d9f6c8da887ab551be1fc8af52cf5359d46277502ee9b064cc9"
-      },
-      {
-        "path": "test/data-sources.test.mjs",
-        "sha256": "sha256:6c3c728bb1e817c4d349f362097f99cbfe05952bd108bf21740b53bdccbaf585"
-      },
-      {
-        "path": "test/e2e/full-content.spec.mjs",
-        "sha256": "sha256:f5ff6ab8405474d2790ec17a8930cf5fd549e40bfe9f4eeb7ca14b8d9d121321"
-      },
-      {
-        "path": "test/prompt-archive-coordinator.test.mjs",
-        "sha256": "sha256:0ced889eca6fd35e929417b48ede65d64aa515de460747b55f8e6f355158f363"
-      },
-      {
-        "path": "test/remote-refresh-http-cancellation.test.mjs",
-        "sha256": "sha256:c8f491429d8c799f1f7e5551b9e3782338e40ec3125cccf2b73dbdef29b6c3b6"
-      },
-      {
-        "path": "test/renderer-config.test.mjs",
-        "sha256": "sha256:41738150420566cb09617484151e2f2ba3a12b4dd787568b3076bfca8b88452b"
-      },
-      {
-        "path": "test/server-access-control.test.mjs",
-        "sha256": "sha256:b7c90b72241648e20ff1fa421a1aae4e40beb1d8af36656a7ee131207cedb8ba"
-      },
-      {
-        "path": "test/session-catalog.test.mjs",
-        "sha256": "sha256:3f68736bddb47150fc25e46d8d1a1e156dd59fb94a0e6eb3860cfeb5466a99ce"
-      },
-      {
-        "path": "test/session-detail-coordinator.test.mjs",
-        "sha256": "sha256:a7ef2409b6b8870f951ff012ac19135945cee0e60b29f5ab63fdc1e38c914748"
-      },
-      {
-        "path": "test/session-normalizer.test.mjs",
-        "sha256": "sha256:7286de7b9c1b54b6df5d1560567c798b7b9456f2c01541708fbfe843a39ac509"
-      },
-      {
-        "path": "test/session-prompts.test.mjs",
-        "sha256": "sha256:d2a7317b13b7924866239f3e2e2b2d102a55a185a2c0dfb4448c36e495ce6b53"
-      },
-      {
-        "path": "test/session-query.test.mjs",
-        "sha256": "sha256:a9f3bc755cef3b68572671a56d4090685b8040aa6894bd23fb9a9f3d9c0a6639"
-      },
-      {
-        "path": "test/session-timing.test.mjs",
-        "sha256": "sha256:2823910ae26a1ffa9426037814a7650b880a80d8cb8271046792963394e80b67"
-      },
-      {
-        "path": "test/snapshot-publication.test.mjs",
-        "sha256": "sha256:28a1668eac91900b7ee3dbc4d524c376505d72054d0e656e883e7c10b57dc5d7"
-      },
-      {
-        "path": "test/snapshot-security.test.mjs",
-        "sha256": "sha256:13bcfc3aca4008408fd6e2fc4e2548ce6a74b137eb48348a43533a7a1a8ed6d4"
-      },
-      {
-        "path": "test/snapshot-share.test.mjs",
-        "sha256": "sha256:67299bf1b4cdf95de92923c508bfcef8e6892f5fdca7861ad8feb1518b50c7e4"
-      },
-      {
-        "path": "test/source-identity-isolation.test.mjs",
-        "sha256": "sha256:9ba501b98c343e6827cac8f8c65aa3efb2eca05306ff8fb55e60658bd19eefa1"
-      }
-    ]
+    "files": []
   },
   "documents": [
     {
@@ -389,7 +196,13 @@
         "test/session-catalog.test.mjs",
         "test/source-identity-isolation.test.mjs",
         "docs/architecture/implementation.md",
-        "docs/architecture/modules/session-projection.md"
+        "docs/architecture/modules/session-projection.md",
+        "public/app.js",
+        "public/index.html",
+        "public/styles.css",
+        "public/app-format.js",
+        "test/server.test.mjs",
+        "test/session-models.test.mjs"
       ]
     },
     {
@@ -433,7 +246,9 @@
         "test/data-sources.test.mjs",
         "test/session-query.test.mjs",
         "test/session-timing.test.mjs",
-        "docs/architecture/modules/session-projection.md"
+        "docs/architecture/modules/session-projection.md",
+        "test/markdown-export.test.mjs",
+        "test/app-format.test.mjs"
       ]
     },
     {
@@ -798,5 +613,203 @@
     }
   ],
   "openQuestions": [],
-  "pendingImpact": null
+  "pendingImpact": {
+    "baseCommit": "90e36ed63617bfcbb501e9c7e815ae59c9dd0577",
+    "changedPaths": [
+      ".agents/architecture/state.json",
+      "README.md",
+      "docs/architecture/modules/session-projection.md",
+      "public/app-format.js",
+      "public/app.js",
+      "public/index.html",
+      "public/styles.css",
+      "server.mjs",
+      "src/markdown-export.mjs",
+      "src/session-models.mjs",
+      "src/session-query.mjs",
+      "test/app-format.test.mjs",
+      "test/markdown-export.test.mjs",
+      "test/server.test.mjs",
+      "test/session-models.test.mjs",
+      "test/session-query.test.mjs"
+    ],
+    "itemIds": [
+      "purpose-readable-session-workbench",
+      "boundary-source-records-and-local-derivatives",
+      "external-boundary-http-authentication",
+      "module-session-projection",
+      "capability-session-discovery-and-view",
+      "flow-stable-session-detail",
+      "module-prompt-archive-and-goal-projection",
+      "capability-bounded-prompt-archive",
+      "flow-remote-refresh-and-publish",
+      "capability-remote-history-index"
+    ],
+    "assessments": [
+      {
+        "itemId": "purpose-readable-session-workbench",
+        "result": "unaffected",
+        "reason": "分叉链展示仍属于只读会话工作台范围，未改变项目目的。",
+        "evidence": {
+          "path": "docs/architecture/README.md",
+          "locator": "目的"
+        }
+      },
+      {
+        "itemId": "boundary-source-records-and-local-derivatives",
+        "result": "unaffected",
+        "reason": "仍从 JSONL 原始记录派生投影，parentSession 仅新增读取字段，未修改原始会话。",
+        "evidence": {
+          "path": "server.mjs",
+          "locator": "parent_session"
+        }
+      },
+      {
+        "itemId": "external-boundary-http-authentication",
+        "result": "unaffected",
+        "reason": "未改 HTTP 边界、鉴权或错误映射。",
+        "evidence": {
+          "path": "docs/architecture/README.md",
+          "locator": "系统边界"
+        }
+      },
+      {
+        "itemId": "module-session-projection",
+        "result": "updated",
+        "reason": "新增 Pi 会话 parentSession 到 parentSessionId 的投影与分叉链 related 字段，前端展示链嵌套与关系行。",
+        "evidence": {
+          "path": "docs/architecture/modules/session-projection.md",
+          "locator": "parentSession"
+        }
+      },
+      {
+        "itemId": "capability-session-discovery-and-view",
+        "result": "updated",
+        "reason": "列表与详情新增分叉链展示能力，Markdown 导出补充分叉父会话行。",
+        "evidence": {
+          "path": "docs/architecture/modules/session-projection.md",
+          "locator": "parentSession"
+        }
+      },
+      {
+        "itemId": "flow-stable-session-detail",
+        "result": "unaffected",
+        "reason": "详情读取仍走共享读取与文件签名闸门，related 字段仅附加摘要，不参与缓存签名。",
+        "evidence": {
+          "path": "server.mjs",
+          "locator": "getSessionDetail"
+        }
+      },
+      {
+        "itemId": "module-prompt-archive-and-goal-projection",
+        "result": "unaffected",
+        "reason": "未改动任务归档与目标投影。",
+        "evidence": {
+          "path": "docs/architecture/modules/prompt-archive-and-goal-projection.md",
+          "locator": "设计结论"
+        }
+      },
+      {
+        "itemId": "capability-bounded-prompt-archive",
+        "result": "unaffected",
+        "reason": "归档提取边界与缓存语义未变。",
+        "evidence": {
+          "path": "docs/architecture/modules/prompt-archive-and-goal-projection.md",
+          "locator": "核心模型"
+        }
+      },
+      {
+        "itemId": "flow-remote-refresh-and-publish",
+        "result": "unaffected",
+        "reason": "远端快照刷新与发布流程未变。",
+        "evidence": {
+          "path": "docs/architecture/modules/remote-snapshot-sharing.md",
+          "locator": "必须保持的规则"
+        }
+      },
+      {
+        "itemId": "capability-remote-history-index",
+        "result": "unaffected",
+        "reason": "远端历史索引模型未变。",
+        "evidence": {
+          "path": "docs/architecture/modules/remote-snapshot-sharing.md",
+          "locator": "核心模型"
+        }
+      }
+    ],
+    "unmappedPaths": [
+      "public/app-format.js",
+      "public/index.html",
+      "public/styles.css",
+      "test/app-format.test.mjs",
+      "test/markdown-export.test.mjs",
+      "test/server.test.mjs",
+      "test/session-models.test.mjs"
+    ],
+    "pathAssessments": [
+      {
+        "path": "public/app-format.js",
+        "result": "mapped",
+        "reason": "nestSessionChains 纯函数属于会话投影前端展示层。",
+        "evidence": {
+          "path": "public/app-format.js",
+          "locator": "nestSessionChains"
+        }
+      },
+      {
+        "path": "public/index.html",
+        "result": "mapped",
+        "reason": "详情头部新增 sessionLineage 节点属于前端展示层。",
+        "evidence": {
+          "path": "public/index.html",
+          "locator": "sessionLineage"
+        }
+      },
+      {
+        "path": "public/styles.css",
+        "result": "mapped",
+        "reason": "分叉徽标、缩进与关系行样式属于前端展示层。",
+        "evidence": {
+          "path": "public/styles.css",
+          "locator": "session-chain-badge"
+        }
+      },
+      {
+        "path": "test/app-format.test.mjs",
+        "result": "mapped",
+        "reason": "nestSessionChains 链、孤儿、循环用例。",
+        "evidence": {
+          "path": "test/app-format.test.mjs",
+          "locator": "nestSessionChains"
+        }
+      },
+      {
+        "path": "test/markdown-export.test.mjs",
+        "result": "mapped",
+        "reason": "Markdown 导出分叉父会话行用例。",
+        "evidence": {
+          "path": "test/markdown-export.test.mjs",
+          "locator": "分叉自会话"
+        }
+      },
+      {
+        "path": "test/server.test.mjs",
+        "result": "mapped",
+        "reason": "列表与详情分叉链 HTTP 端到端用例。",
+        "evidence": {
+          "path": "test/server.test.mjs",
+          "locator": "fork chain relationships"
+        }
+      },
+      {
+        "path": "test/session-models.test.mjs",
+        "result": "mapped",
+        "reason": "parentSessionIdFromMeta 与列表投影用例。",
+        "evidence": {
+          "path": "test/session-models.test.mjs",
+          "locator": "parentSessionIdFromMeta"
+        }
+      }
+    ]
+  }
 }

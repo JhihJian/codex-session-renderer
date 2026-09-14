@@ -114,6 +114,7 @@ const {
   formatShortDate,
   highlight,
   highlightHtmlText,
+  nestSessionChains,
   normalizeMarkdownForRendering,
   prettyMaybeJson,
   sanitizeFileName,
@@ -220,6 +221,7 @@ const els = {
   importantOnlyLabel: document.getElementById("importantOnlyLabel"),
   sessionMetaLabel: document.getElementById("sessionMetaLabel"),
   sessionTitle: document.getElementById("sessionTitle"),
+  sessionLineage: document.getElementById("sessionLineage"),
   sessionHandoff: document.getElementById("sessionHandoff"),
   sessionFilterNotice: document.getElementById("sessionFilterNotice"),
   sessionFilterNoticeText: document.getElementById("sessionFilterNoticeText"),
@@ -3192,7 +3194,7 @@ function renderSessionDirectoryGroups(sessions, query) {
             <span>${group.sessions.length}</span>
           </div>
           <div class="session-directory-list" role="list">
-            ${group.sessions.map((session) => renderSessionRow(session, query)).join("")}
+            ${nestSessionChains(group.sessions).map(({ session, depth }) => renderSessionRow(session, query, depth)).join("")}
           </div>
         </section>
       `,
@@ -3219,9 +3221,10 @@ function groupSessionsByDirectory(sessions) {
   return [...groups.values()].sort((a, b) => b.latestTime - a.latestTime || a.label.localeCompare(b.label, "zh-CN"));
 }
 
-function renderSessionRow(session, query) {
+function renderSessionRow(session, query, chainDepth = 0) {
   const active = sessionKey(session) === state.selectedSessionKey ? " active" : "";
   const indexOnly = session.remoteIndexOnly ? " index-only" : "";
+  const chainChild = chainDepth > 0 ? ` chain-child chain-depth-${Math.min(chainDepth, 4)}` : "";
   const cwd = session.cwd ? shortPath(session.cwd) : "无项目";
   const agentName = session.agentNickname || "Codex";
   const agent = session.agentNickname ? `${session.agentNickname}/${session.agentRole || "agent"}` : "Codex";
@@ -3229,18 +3232,22 @@ function renderSessionRow(session, query) {
   const model = session.model || session.modelProvider || "未记录";
   const status = sessionStatusLabel(session.status);
   const indexLabel = session.remoteIndexOnly ? "仅索引/未同步正文" : "";
-  const title = session.remoteIndexOnly ? remoteIndexOnlyMessage() : "";
+  const chainLabel = chainDepth > 0 ? `分叉链第 ${chainDepth + 1} 节点` : "";
+  const title = session.remoteIndexOnly ? remoteIndexOnlyMessage() : chainLabel;
   const displayTitle = session.displayTitle || "未命名会话";
   const ariaLabel = session.remoteIndexOnly
     ? `${displayTitle}，仅索引，未同步正文，无法直接打开`
-    : `${displayTitle}${active ? "，当前会话" : ""}`;
+    : `${displayTitle}${chainLabel ? `，${chainLabel}` : ""}${active ? "，当前会话" : ""}`;
   const rowSemantics = session.remoteIndexOnly
     ? 'role="listitem"'
     : `role="button" tabindex="0" ${active ? 'aria-current="true"' : ""}`;
   return `
-    <div class="session-row${active}${indexOnly}" ${rowSemantics} data-session-id="${escapeAttr(session.id)}" data-evidence-id="${escapeAttr(sessionEvidenceId(session))}" data-remote-index-only="${session.remoteIndexOnly ? "true" : "false"}" ${title ? `title="${escapeAttr(title)}"` : ""} aria-label="${escapeAttr(ariaLabel)}">
+    <div class="session-row${active}${indexOnly}${chainChild}" ${rowSemantics} data-session-id="${escapeAttr(session.id)}" data-evidence-id="${escapeAttr(sessionEvidenceId(session))}" data-remote-index-only="${session.remoteIndexOnly ? "true" : "false"}" ${title ? `title="${escapeAttr(title)}"` : ""} aria-label="${escapeAttr(ariaLabel)}">
       <span class="agent-dot" data-agent="${escapeAttr(agentName.toLowerCase())}" aria-hidden="true"></span>
-      <span class="session-title markdown-inline-title" data-overflow-tooltip>${renderMarkdownTitle(displayTitle, query)}</span>
+      <span class="session-title-wrap">
+        <span class="session-title markdown-inline-title" data-overflow-tooltip>${renderMarkdownTitle(displayTitle, query)}</span>
+        ${chainDepth > 0 ? `<span class="session-chain-badge" aria-hidden="true">分叉</span>` : ""}
+      </span>
       <span class="session-date">${formatShortDate(session.updatedAt || session.fileModifiedAt)}</span>
       <span class="session-meta">
         <span data-overflow-tooltip>${escapeHtml(agent)}</span>
@@ -3325,13 +3332,51 @@ function renderThreadHeader() {
     const placeholder = sessionPlaceholderState();
     els.sessionTitle.textContent = placeholder?.title || "选择一个会话";
     els.sessionMetaLabel.textContent = placeholder?.subtitle || selectedSource()?.label || "未选择";
+    renderSessionLineage();
     renderSessionHandoff();
     return;
   }
   els.sessionTitle.innerHTML = renderMarkdownTitle(session.title || "未命名会话");
   const parts = [session.sourceLabel || selectedSource()?.label, session.model, session.reasoningEffort, formatDate(session.updatedAt)].filter(Boolean);
   els.sessionMetaLabel.textContent = parts.join(" · ") || session.id;
+  renderSessionLineage();
   renderSessionHandoff();
+}
+
+function renderSessionLineage() {
+  const container = els.sessionLineage;
+  if (!container) return;
+  const related = state.detail?.related;
+  if (!related || (!related.parentId && !related.children?.length)) {
+    container.hidden = true;
+    container.innerHTML = "";
+    return;
+  }
+  const segments = [];
+  if (related.parentId) {
+    const label = related.parent?.title || `${String(related.parentId).slice(0, 8)}…`;
+    segments.push(
+      related.parent
+        ? `<button class="lineage-link" type="button" data-lineage-session="${escapeAttr(related.parent.id)}" title="${escapeAttr(`打开父会话：${label}`)}">⤴ 分叉自 ${escapeHtml(label)}</button>`
+        : `<span class="lineage-plain">⤴ 分叉自 ${escapeHtml(label)}（不在当前目录）</span>`,
+    );
+  }
+  if (related.chain?.length > 0) {
+    segments.push(`<span class="lineage-plain">链上第 ${related.chain.length + 1} 段</span>`);
+  }
+  if (related.children?.length) {
+    const childLinks = related.children
+      .map((child) => `<button class="lineage-link" type="button" data-lineage-session="${escapeAttr(child.id)}" title="${escapeAttr(`打开分叉会话：${child.title}`)}">${escapeHtml(child.title)}</button>`)
+      .join("");
+    segments.push(`<span class="lineage-plain">分叉出 ${related.children.length} 个会话：</span>${childLinks}`);
+  }
+  container.hidden = false;
+  container.innerHTML = segments.join("");
+  container.querySelectorAll("[data-lineage-session]").forEach((button) => {
+    button.addEventListener("click", () => {
+      selectSession(button.dataset.lineageSession, { immediateMobilePanel: true });
+    });
+  });
 }
 
 function renderStats() {

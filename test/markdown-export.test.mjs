@@ -22,3 +22,13 @@ test("markdown export uses localized fallback titles", () => {
   assert.match(markdown, /### 上下文占用统计/);
   assert.equal(markdownItemTitle({ type: "token-count" }), "上下文占用统计");
 });
+
+test("markdown export notes the fork parent when present", () => {
+  const markdown = renderConversationMarkdown(
+    { id: "child-1", title: "分叉会话", parentSessionId: "01a09d90-a529-7352-b1b1-155c3abd07a5" },
+    [],
+  );
+  assert.match(markdown, /- 分叉自会话: `01a09d90-a529-7352-b1b1-155c3abd07a5`/);
+  const withoutParent = renderConversationMarkdown({ id: "root-1", title: "根会话" }, []);
+  assert.doesNotMatch(withoutParent, /分叉自会话/);
+});

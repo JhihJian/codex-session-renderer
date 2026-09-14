@@ -1,6 +1,7 @@
 import path from "node:path";
 import {
   normalizeSlash,
+  sessionIdFromFile,
   sessionStartedFromFile,
   toIso,
 } from "./session-events.mjs";
@@ -100,6 +101,13 @@ function sessionFromThread(thread, codexHome, options = {}) {
   };
 }
 
+function parentSessionIdFromMeta(meta) {
+  const parentPath = meta?.parent_session || meta?.parentSession;
+  if (!parentPath) return null;
+  const sessionId = sessionIdFromFile(parentPath);
+  return sessionId || null;
+}
+
 function compactSessionForList(session) {
   const enriched = withSubagentMeta(session);
   const title = displayTitleForList(enriched.title);
@@ -116,6 +124,7 @@ function compactSessionForList(session) {
     source: enriched.source || null,
     threadSource: enriched.threadSource || null,
     modelProvider: enriched.modelProvider || null,
+    parentSessionId: enriched.parentSessionId || null,
     archived: enriched.archived ?? false,
     agentNickname: enriched.agentNickname || null,
     agentRole: enriched.agentRole || null,
@@ -233,6 +242,7 @@ export {
   displayTitleForList,
 
   mapCodexHomePath,
+  parentSessionIdFromMeta,
   publicThreadMeta,
   relativeCodexPath,
   rootSessionsOnly,

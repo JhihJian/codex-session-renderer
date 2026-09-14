@@ -45,6 +45,7 @@ import { promptProjectKey } from "./src/session-prompts.mjs";
 import { createAbortError, createConcurrencyGate, createPromptArchiveCoordinator, createSharedSubscriptionRegistry, fileSignature, isAbortError } from "./src/prompt-archive-coordinator.mjs";
 import {
   compactSessionForList,
+  parentSessionIdFromMeta,
   parseSessionListType,
   publicThreadMeta,
   relativeCodexPath,
@@ -615,6 +616,11 @@ async function listSessionsFromFiles(context, bounds, options, now, scope) {
 async function listFileSessions(context, bounds = {}, options = {}) {
   const index = await readIndex(context, options);
   const files = await collectSessionFileRecords(context, { ...bounds, ...options });
+  const recordIdBySessionUuid = new Map();
+  for (const record of files) {
+    const uuid = sessionIdFromFile(record.filePath);
+    if (uuid && !recordIdBySessionUuid.has(uuid)) recordIdBySessionUuid.set(uuid, record.id);
+  }
 
   const sessions = [];
   for (const record of files) {
@@ -649,6 +655,7 @@ async function listFileSessions(context, bounds = {}, options = {}) {
         source: meta.source || (context.source.kind === "pi-agent" ? "pi-agent" : null),
         threadSource: meta.thread_source || null,
         modelProvider: meta.model_provider || meta.provider || null,
+        parentSessionId: resolveParentSessionId(meta, recordIdBySessionUuid),
         archived: record.archived,
         archivedAt: null,
         agentNickname: null,
@@ -685,7 +692,14 @@ function sessionMetaFromEvents(events) {
     reasoningEffort: piThinking?.thinkingLevel || null,
     originator: "pi_agent",
     source: "pi-agent",
+    parent_session: piSession?.parentSession || null,
   };
+}
+
+function resolveParentSessionId(meta, recordIdBySessionUuid = null) {
+  const parentUuid = parentSessionIdFromMeta(meta);
+  if (!parentUuid) return null;
+  return recordIdBySessionUuid?.get(parentUuid) || parentUuid;
 }
 
 async function enrichSessionFromFileMeta(session, options = {}) {
@@ -706,6 +720,7 @@ async function enrichSessionFromFileMeta(session, options = {}) {
     source: sourceForExtraction,
     threadSource: session.threadSource || meta.thread_source || null,
     modelProvider: session.modelProvider || meta.model_provider || meta.provider || null,
+    parentSessionId: session.parentSessionId || parentSessionIdFromMeta(meta),
     startedAt: session.startedAt || toIso(meta.timestamp) || null,
   });
   return {
@@ -1103,8 +1118,77 @@ async function getSessionDetail(context, id, options = {}) {
       };
     },
   });
-  if (result.state === "ready") return result.value;
-  return changingSessionDetail(context, session, result.stat, result);
+  if (result.state === "ready") return { ...result.value, related: await getSessionLineage(context, session, options) };
+  const changing = changingSessionDetail(context, session, result.stat, result);
+  return { ...changing, related: await getSessionLineage(context, session, options) };
+}
+
+const maxSessionLineageDepth = 10;
+
+function sessionLineageSummary(session) {
+  if (!session) return null;
+  return {
+    id: session.id,
+    title: session.displayTitle || session.title || "未命名会话",
+    startedAt: session.startedAt || null,
+    updatedAt: session.updatedAt || session.fileModifiedAt || null,
+    archived: Boolean(session.archived),
+  };
+}
+
+function lineageTimeMs(session) {
+  for (const value of [session?.startedAt, session?.updatedAt, session?.fileModifiedAt]) {
+    const ms = value ? new Date(value).getTime() : NaN;
+    if (Number.isFinite(ms)) return ms;
+  }
+  return 0;
+}
+
+async function getSessionLineage(context, session, options = {}) {
+  if (!session?.id) return null;
+  let catalog = [];
+  try {
+    catalog = await listSessions(context, { ...options, scope: "all" });
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    return null;
+  }
+  if (catalog.length === 0) return null;
+  return collectSessionLineage(catalog, session);
+}
+
+function collectSessionLineage(catalog, session) {
+  const byId = new Map(catalog.map((item) => [item.id, item]));
+  const current = byId.get(session.id) || session;
+  const parentId = current.parentSessionId || null;
+  const parent = parentId ? byId.get(parentId) || null : null;
+  const children = lineageChildren(catalog, current);
+  const ancestors = lineageAncestors(byId, parent, current.id);
+  if (!parent && children.length === 0) return null;
+  return {
+    parentId,
+    parent: sessionLineageSummary(parent),
+    children: children.map(sessionLineageSummary),
+    chain: [...ancestors].reverse().map(sessionLineageSummary),
+  };
+}
+
+function lineageChildren(catalog, session) {
+  return catalog
+    .filter((item) => item.id !== session.id && item.parentSessionId === session.id)
+    .sort((left, right) => lineageTimeMs(left) - lineageTimeMs(right));
+}
+
+function lineageAncestors(byId, parent, currentId) {
+  const ancestors = [];
+  const visited = new Set([currentId]);
+  let ancestor = parent;
+  while (ancestor && !visited.has(ancestor.id) && ancestors.length < maxSessionLineageDepth) {
+    ancestors.push(ancestor);
+    visited.add(ancestor.id);
+    ancestor = ancestor.parentSessionId ? byId.get(ancestor.parentSessionId) || null : null;
+  }
+  return ancestors;
 }
 
 function sessionDetailStats(context, session, { stat, rawEvents = [], analysisEvents = [], turns = [], hierarchy = { children: [] } } = {}) {
@@ -1611,6 +1695,7 @@ async function sessionFromFilePath(context, filePath, options = {}) {
       source: meta.source || (context.source.kind === "pi-agent" ? "pi-agent" : null),
       threadSource: meta.thread_source || null,
       modelProvider: meta.model_provider || meta.provider || null,
+      parentSessionId: parentSessionIdFromMeta(meta),
       archived: options.archived ?? false,
       archivedAt: null,
       agentNickname: null,

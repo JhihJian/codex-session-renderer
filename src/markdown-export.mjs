@@ -1,6 +1,7 @@
 function renderConversationMarkdown(session, turns) {
   const lines = [`# ${escapeMd(session.title || "未命名会话")}`, ""];
   lines.push(`- 会话 ID: \`${session.id}\``);
+  if (session.parentSessionId) lines.push(`- 分叉自会话: \`${session.parentSessionId}\``);
   if (session.cwd) lines.push(`- 工作目录: \`${session.cwd}\``);
   if (session.startedAt) lines.push(`- 开始时间: ${session.startedAt}`);
   if (session.updatedAt) lines.push(`- 更新时间: ${session.updatedAt}`);

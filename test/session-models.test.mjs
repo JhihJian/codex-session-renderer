@@ -6,6 +6,7 @@ import {
   displayTitleForList,
 
   mapCodexHomePath,
+  parentSessionIdFromMeta,
   publicThreadMeta,
   rootSessionsOnly,
   sessionFromThread,
@@ -204,4 +205,28 @@ test("withFileStat and publicThreadMeta normalize derived file metadata", () => 
     path: "D:\\codex\\sessions\\child.jsonl",
     relativePath: "sessions/child.jsonl",
   });
+});
+
+test("parentSessionIdFromMeta resolves the parent session id from the pi header path", () => {
+  assert.equal(
+    parentSessionIdFromMeta({
+      parent_session:
+        "/home/dev/.pi/agent/sessions/--data-dev--/2026-09-14T01-38-17-513Z_01a09d90-a529-7352-b1b1-155c3abd07a5.jsonl",
+    }),
+    "01a09d90-a529-7352-b1b1-155c3abd07a5",
+  );
+  assert.equal(parentSessionIdFromMeta({ parentSession: "rollout-2026-07-18T10-00-00-11111111-1111-4111-8111-111111111111.jsonl" }), "11111111-1111-4111-8111-111111111111");
+  assert.equal(parentSessionIdFromMeta({}), null);
+  assert.equal(parentSessionIdFromMeta(null), null);
+});
+
+test("compactSessionForList keeps the parent session link for chain display", () => {
+  const projected = compactSessionForList({
+    id: "child",
+    title: "分叉会话",
+    parentSessionId: "parent-id",
+    cwd: "/data/dev/demo",
+  });
+  assert.equal(projected.parentSessionId, "parent-id");
+  assert.equal(compactSessionForList({ id: "root", title: "根会话" }).parentSessionId, null);
 });

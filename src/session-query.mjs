@@ -125,6 +125,7 @@ function projectSessionForApi(session, query = {}, options = {}) {
     source: enriched.source || null,
     threadSource: enriched.threadSource || null,
     modelProvider: enriched.modelProvider || null,
+    parentSessionId: enriched.parentSessionId || null,
     archived: enriched.archived ?? false,
     archivedAt: enriched.archivedAt || null,
     agentNickname: enriched.agentNickname || null,

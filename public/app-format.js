@@ -126,6 +126,46 @@
     return "earlier";
   }
 
+  function sessionChainTimeMs(session) {
+    for (const value of [session?.startedAt, session?.updatedAt, session?.fileModifiedAt]) {
+      if (!value) continue;
+      const time = new Date(value).getTime();
+      if (Number.isFinite(time)) return time;
+    }
+    return 0;
+  }
+
+  function nestSessionChains(sessions) {
+    const rows = sessions.map((session) => ({ session, depth: 0 }));
+    const byId = new Map(sessions.map((session) => [session.id, session]));
+    const childrenOf = new Map();
+    for (const session of sessions) {
+      const parent = session.parentSessionId ? byId.get(session.parentSessionId) : null;
+      if (!parent || parent.id === session.id) continue;
+      if (!childrenOf.has(parent.id)) childrenOf.set(parent.id, []);
+      childrenOf.get(parent.id).push(session);
+    }
+    if (childrenOf.size === 0) return rows;
+    for (const children of childrenOf.values()) {
+      children.sort((left, right) => sessionChainTimeMs(left) - sessionChainTimeMs(right));
+    }
+    const emitted = new Set();
+    const ordered = [];
+    const walk = (session, depth) => {
+      if (emitted.has(session.id)) return;
+      emitted.add(session.id);
+      ordered.push({ session, depth });
+      for (const child of childrenOf.get(session.id) || []) walk(child, depth + 1);
+    };
+    for (const session of sessions) {
+      const parent = session.parentSessionId ? byId.get(session.parentSessionId) : null;
+      if (parent && parent.id !== session.id) continue;
+      walk(session, 0);
+    }
+    for (const session of sessions) walk(session, 0);
+    return ordered;
+  }
+
   function shortPath(value) {
     const text = String(value || "");
     const parts = text.replace(/^\\\\\?\\/, "").split(/[\\/]+/).filter(Boolean);
@@ -174,6 +214,7 @@
     formatShortDate,
     highlight,
     highlightHtmlText,
+    nestSessionChains,
     normalizeMarkdownForRendering,
     prettyMaybeJson,
     sanitizeFileName,

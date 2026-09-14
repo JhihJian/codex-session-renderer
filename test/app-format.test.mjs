@@ -12,6 +12,7 @@ const {
   formatBytes,
   highlight,
   highlightHtmlText,
+  nestSessionChains,
   normalizeMarkdownForRendering,
   prettyMaybeJson,
   sanitizeFileName,
@@ -72,4 +73,39 @@ test("session time helpers classify list buckets by recency", () => {
   assert.equal(sessionTimeBucket({ updatedAt: "2026-06-24T12:30:00.000Z" }, now), "day");
   assert.equal(sessionTimeBucket({ updatedAt: "2026-06-24T11:59:59.000Z" }, now), "earlier");
   assert.equal(sessionTimeBucket({}, now), "earlier");
+});
+
+test("nestSessionChains nests fork chains under visible parents in fork order", () => {
+  const session = (id, parentSessionId, startedAt) => ({ id, parentSessionId, startedAt, updatedAt: startedAt });
+  const rows = nestSessionChains([
+    session("grandchild", "child", "2026-09-14T03:00:00.000Z"),
+    session("root", null, "2026-09-14T01:00:00.000Z"),
+    session("child", "root", "2026-09-14T02:00:00.000Z"),
+  ]);
+  assert.deepEqual(
+    rows.map((row) => [row.session.id, row.depth]),
+    [
+      ["root", 0],
+      ["child", 1],
+      ["grandchild", 2],
+    ],
+  );
+});
+
+test("nestSessionChains treats orphans, self references and cycles as roots", () => {
+  const session = (id, parentSessionId) => ({ id, parentSessionId, startedAt: `2026-09-14T0${id.length}:00:00.000Z` });
+  const rows = nestSessionChains([
+    session("orphan", "missing-parent"),
+    session("self", "self"),
+    session("a", "b"),
+    session("b", "a"),
+  ]);
+  assert.equal(rows.length, 4);
+  assert.deepEqual(rows.map((row) => row.depth), [0, 0, 0, 1]);
+  assert.deepEqual(rows.map((row) => row.session.id), ["orphan", "self", "a", "b"]);
+});
+
+test("nestSessionChains keeps flat rows when no parent links resolve", () => {
+  const rows = nestSessionChains([{ id: "one" }, { id: "two" }]);
+  assert.deepEqual(rows.map((row) => row.depth), [0, 0]);
 });
