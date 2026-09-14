@@ -8,6 +8,20 @@ test("原始事件详情完整展示大型工具输出", async ({ page }) => {
   await page.locator("#rawViewButton").click();
   const outputEvent = page.locator('[data-raw-event-index="5"]');
   await expect(outputEvent).toBeVisible();
+  const textLayout = await outputEvent.evaluate((row) => {
+    const [kind, title, timestamp, preview] = row.children;
+    const rect = (element) => element.getBoundingClientRect();
+    const metaBottom = Math.max(rect(kind).bottom, rect(timestamp).bottom);
+    return {
+      titleTop: rect(title).top,
+      titleBottom: rect(title).bottom,
+      metaBottom,
+      previewTop: rect(preview).top,
+    };
+  });
+  // Two-line clamping includes a small baseline allowance in Chromium's box metrics.
+  expect(textLayout.metaBottom - textLayout.titleTop).toBeLessThanOrEqual(5);
+  expect(textLayout.titleBottom - textLayout.previewTop).toBeLessThanOrEqual(5);
   await outputEvent.click();
   await expect(page.locator("#rawContent .raw-preview")).toContainText("FULL_TOOL_OUTPUT_END", { timeout: 20_000 });
 });
