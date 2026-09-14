@@ -5403,16 +5403,16 @@ button.compact-replacement-row:focus-visible {
 .raw-view-preview {
   display: grid;
   align-content: start;
-  grid-template-rows: auto auto;
+  grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   background: var(--bg-sunken);
   padding: 12px;
 }
 
 .raw-view-preview.has-insight {
-  grid-template-rows: auto auto auto;
+  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 .raw-preview-title {
@@ -5444,9 +5444,11 @@ button.compact-replacement-row:focus-visible {
 }
 
 .raw-view-preview .raw-preview {
+  width: 100%;
+  height: 100%;
   min-height: 0;
   margin: 0;
-  overflow: visible;
+  overflow: auto;
   border-radius: 0 0 var(--radius-tool) var(--radius-tool);
 }
 

@@ -23,7 +23,15 @@ test("原始事件详情完整展示大型工具输出", async ({ page }) => {
   expect(textLayout.metaBottom - textLayout.titleTop).toBeLessThanOrEqual(5);
   expect(textLayout.titleBottom - textLayout.previewTop).toBeLessThanOrEqual(5);
   await outputEvent.click();
-  await expect(page.locator("#rawContent .raw-preview")).toContainText("FULL_TOOL_OUTPUT_END", { timeout: 20_000 });
+  const preview = page.locator("#rawContent .raw-preview");
+  await expect(preview).toContainText("FULL_TOOL_OUTPUT_END", { timeout: 20_000 });
+  const previewScroll = await preview.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    overflowY: element.ownerDocument.defaultView.getComputedStyle(element).overflowY,
+    scrollHeight: element.scrollHeight,
+  }));
+  expect(previewScroll.overflowY).toBe("auto");
+  expect(previewScroll.scrollHeight).toBeGreaterThan(previewScroll.clientHeight);
 });
 
 test("执行过程展示工具参数和中文执行状态，点击后显示返回结果", async ({ page }) => {
