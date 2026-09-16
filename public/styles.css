@@ -8236,3 +8236,28 @@ mark {
   align-self: start;
   padding-top: 1px;
 }
+
+/* Time is secondary metadata and must not steal title width. */
+.sidebar .session-row {
+  grid-template-columns: 8px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: start;
+}
+
+.sidebar .session-row .agent-dot {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  align-self: center;
+}
+
+.sidebar .session-row .session-title-wrap {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.sidebar .session-row .session-date {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: start;
+  padding-top: 0;
+}
