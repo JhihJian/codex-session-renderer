@@ -8213,3 +8213,26 @@ mark {
     top: 38px;
   }
 }
+
+/* Let session names carry enough context before falling back to an ellipsis. */
+.sidebar .session-directory-head { text-transform: none; }
+
+.sidebar .session-title-wrap {
+  align-items: flex-start;
+  padding: 1px 0;
+}
+
+.sidebar .session-row .session-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: normal;
+}
+
+.sidebar .session-row .session-date {
+  align-self: start;
+  padding-top: 1px;
+}
