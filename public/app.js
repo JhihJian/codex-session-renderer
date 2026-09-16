@@ -55,6 +55,7 @@ const state = {
   rawDiagnostic: null,
   viewMode: "compact",
   diagnosticMode: "stats",
+  analysisOpen: false,
 
   sessionTimeFilter: "realtime",
   visibleEvents: 40,
@@ -199,6 +200,9 @@ const els = {
   sessionsPanel: document.getElementById("sessionsPanel"),
   threadPanel: document.getElementById("threadPanel"),
   detailsPanel: document.getElementById("detailsPanel"),
+  openAnalysisButton: document.getElementById("openAnalysisButton"),
+  closeAnalysisButton: document.getElementById("closeAnalysisButton"),
+  analysisScrim: document.getElementById("analysisScrim"),
   toolDetailsContent: document.getElementById("toolDetailsContent"),
 
 
@@ -426,7 +430,7 @@ function bindEvents() {
     state.visibleThreadItems = 140;
     renderMainContent();
   });
-  els.importantOnly.addEventListener("change", renderMainContent);
+  els.importantOnly?.addEventListener("change", renderMainContent);
   els.compactViewButton.addEventListener("click", () => setViewMode("compact"));
   els.traceViewButton.addEventListener("click", () => setViewMode("trace"));
   els.diagnosticViewButton.addEventListener("click", () => setViewMode("diagnostic"));
@@ -447,6 +451,7 @@ function bindEvents() {
     els.appShell.dataset.left = next;
     syncPanelToggleLabels();
   });
+  bindAnalysisPanelEvents();
   window.addEventListener("resize", () => {
     syncMobilePanelNavigation();
     syncPanelToggleLabels();
@@ -458,6 +463,12 @@ function bindEvents() {
     });
   });
   bindRovingTablist(document.querySelector(".mobile-tabs"), "[data-panel-target]", (button) => setMobilePanel(button.dataset.panelTarget, { userInitiated: true }));
+}
+
+function bindAnalysisPanelEvents() {
+  els.openAnalysisButton.addEventListener("click", () => openAnalysis("trace"));
+  els.closeAnalysisButton.addEventListener("click", closeAnalysis);
+  els.analysisScrim.addEventListener("click", closeAnalysis);
 }
 
 function bindRovingTablist(tablist, selector, activate) {
@@ -537,7 +548,7 @@ function mobilePanelTab(panel) {
 }
 
 function setMobilePanel(panel, { userInitiated = false } = {}) {
-  const next = ["sessions", "thread", "details"].includes(panel) ? panel : "thread";
+  const next = ["sessions", "thread"].includes(panel) ? panel : "thread";
   if (userInitiated) state.mobilePanelNavigationVersion += 1;
   els.appShell.dataset.panel = next;
   syncMobilePanelNavigation();
@@ -560,15 +571,44 @@ function syncPanelVisibilityState() {
   const panels = [
     [els.sessionsPanel, mobile ? activePanel === "sessions" : els.appShell.dataset.left !== "closed", mobile ? mobilePanelTab("sessions") : els.toggleLeft],
     [els.threadPanel, mobile ? activePanel === "thread" : true, mobile ? mobilePanelTab("thread") : null],
-    [els.detailsPanel, mobile ? activePanel === "details" : true, mobile ? mobilePanelTab("details") : null],
-
-
-
   ];
   panels.forEach(([panel, open, fallback]) => {
     moveFocusBeforeHidingPanel(panel, fallback, open);
     setPanelInteractivity(panel, open);
   });
+  syncAnalysisPanel();
+}
+
+function openAnalysis(mode = "trace") {
+  state.analysisOpen = true;
+  if (state.viewMode !== mode) setViewMode(mode);
+  else {
+    syncAnalysisPanel();
+    renderMainContent();
+  }
+  els.closeAnalysisButton?.focus({ preventScroll: true });
+}
+
+function closeAnalysis() {
+  const wasOpen = state.analysisOpen;
+  state.analysisOpen = false;
+  if (state.viewMode !== "compact") setViewMode("compact");
+  else syncAnalysisPanel();
+  if (wasOpen) els.openAnalysisButton?.focus({ preventScroll: true });
+}
+
+function syncAnalysisPanel() {
+  const open = state.analysisOpen && state.sidebarMode !== "prompts";
+  els.appShell.dataset.analysis = open ? "open" : "closed";
+  if (els.openAnalysisButton) {
+    els.openAnalysisButton.setAttribute("aria-expanded", open ? "true" : "false");
+    els.openAnalysisButton.disabled = state.sidebarMode === "prompts";
+  }
+  setPanelInteractivity(els.detailsPanel, open);
+  if (els.analysisScrim) {
+    els.analysisScrim.hidden = !open;
+    els.analysisScrim.inert = !open;
+  }
 }
 
 function moveFocusBeforeHidingPanel(panel, fallback, open) {
@@ -2438,8 +2478,10 @@ function setViewMode(mode) {
     cancelRawEventRequest();
   }
   state.viewMode = nextMode;
+  if (nextMode !== "compact") state.analysisOpen = true;
   if (changed) cancelRemoteRefreshForNavigation();
   syncViewControls();
+  syncAnalysisPanel();
   renderStats();
   renderMainContent();
 }
@@ -2467,8 +2509,10 @@ function setDiagnosticMode(mode) {
   }
   state.diagnosticMode = nextMode;
   state.viewMode = "diagnostic";
+  state.analysisOpen = true;
   cancelRemoteRefreshForNavigation();
   syncViewControls();
+  syncAnalysisPanel();
   renderStats();
   renderMainContent();
 }
@@ -2500,7 +2544,7 @@ function syncViewControls() {
     button.tabIndex = active ? 0 : -1;
   });
   els.threadContent.hidden = true;
-  els.compactContent.hidden = state.viewMode !== "compact";
+  els.compactContent.hidden = false;
   els.terminalContent.hidden = true;
   els.traceContent.hidden = state.viewMode !== "trace";
   els.diagnosticContent.hidden = state.viewMode !== "diagnostic";
@@ -3829,13 +3873,12 @@ function renderMainContent() {
     renderSessionPlaceholder(placeholder.title, placeholder.subtitle);
     return;
   }
+  renderCompact();
   if (state.viewMode === "diagnostic") {
     if (state.diagnosticMode === "raw") renderRawView();
     else renderStatsInfoView();
   } else if (state.viewMode === "trace") {
     renderTrace();
-  } else {
-    renderCompact();
   }
 }
 
@@ -3907,11 +3950,8 @@ function renderCompact() {
   }
   els.compactContent.innerHTML = `
     <div class="compact-shell">
-      <div class="compact-layout">
-        ${renderCompactOutline(filtered, { depth: 0, root: true, path: "root", query })}
-        <div class="compact-main">
-          ${renderCompactThread(filtered, { depth: 0, root: true, path: "root", query })}
-        </div>
+      <div class="compact-main">
+        ${renderCompactThread(filtered, { depth: 0, root: true, path: "root", query })}
       </div>
     </div>
   `;
@@ -4148,6 +4188,8 @@ function compactTurnSearchText(turn) {
   return parts.filter(Boolean).join(" ").toLowerCase();
 }
 
+// The renderer stays isolated while its interaction model is migrated into analysis.
+// eslint-disable-next-line no-unused-vars
 function renderCompactOutline(node, context) {
   const stats = compactOutlineStats(node);
   return `
@@ -5513,6 +5555,7 @@ async function openRawEvent(index) {
   const changed = state.viewMode !== "diagnostic" || state.diagnosticMode !== "raw";
   state.viewMode = "diagnostic";
   state.diagnosticMode = "raw";
+  state.analysisOpen = true;
   if (changed) cancelRemoteRefreshForNavigation();
   state.selectedEventIndex = index;
   syncViewControls();
@@ -5707,9 +5750,11 @@ function traceStatusLabel(status) {
 function renderToolDetails(node = null) {
   if (!els.toolDetailsContent) return;
   if (!node) {
+    els.toolDetailsContent.hidden = true;
     els.toolDetailsContent.innerHTML = emptyState("选择一个执行节点", "点击执行过程中的工具调用，查看参数和返回结果。");
     return;
   }
+  els.toolDetailsContent.hidden = false;
   const item = fullTraceItem(node);
   const task = node.detail?.task;
   const isTool = item?.type === "tool-call" || node.type === "tool" || node.type === "handoff";
@@ -5897,7 +5942,6 @@ function selectTraceNode(id) {
   state.selectedItemRef = null;
   renderTrace();
   renderToolDetails(node);
-  if (mobilePanelLayoutActive()) setMobilePanel("details");
 }
 
 function selectItemRef(ref) {

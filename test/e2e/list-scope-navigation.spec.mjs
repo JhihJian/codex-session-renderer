@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { selectCodexSource } from "./source-helpers.mjs";
+import { openSessionFilters, selectCodexSource } from "./source-helpers.mjs";
 
 const earlierSession = {
   id: "history-scope-session",
@@ -53,6 +53,7 @@ test("过期 recent 列表不会污染更早范围、自动打开详情或提前
   await page.locator("#refreshButton").click();
   await expect(page.locator("#refreshButton")).toBeDisabled();
   await page.locator("[data-panel-target=sessions]").click();
+  await openSessionFilters(page);
   await page.locator("#sessionTimeFilter [data-session-time=earlier]").click();
   await expect(page.locator("#sessionsPanel")).toHaveAttribute("aria-busy", "true");
   releaseRecent();
@@ -93,6 +94,7 @@ test("桌面端切换到更早范围时，过期 recent 响应不会释放当前
   await page.goto("/");
   await selectCodexSource(page);
   await page.locator("#refreshButton").click();
+  await openSessionFilters(page);
   await page.locator("#sessionTimeFilter [data-session-time=earlier]").click();
   releaseRecent();
   await expect(page.locator("#refreshButton")).toBeDisabled();
@@ -114,6 +116,7 @@ test("列表和归档的 scope 响应错配会失败关闭并保留可重试状�
   await expect(page.locator("#sessionList")).toContainText("来源响应校验失败，请重试。");
   await expect(page.locator("#refreshButton")).toBeEnabled();
 
+  await openSessionFilters(page);
   await page.locator("#sessionTimeFilter [data-session-time=earlier]").click();
   await expect(page.locator("#sessionList")).toContainText("历史会话读取失败：来源响应校验失败，请重试。");
   await expect(page.locator("[data-session-empty-action=retry-history]")).toBeEnabled();

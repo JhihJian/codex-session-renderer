@@ -4,6 +4,7 @@ import { selectCodexSource } from "./source-helpers.mjs";
 test("原始事件详情完整展示大型工具输出", async ({ page }) => {
   await page.goto("/");
   await selectCodexSource(page);
+  await page.locator("#openAnalysisButton").click();
   await page.locator("#diagnosticViewButton").click();
   await page.locator("#rawViewButton").click();
   const outputEvent = page.locator('[data-raw-event-index="5"]');
@@ -34,10 +35,15 @@ test("原始事件详情完整展示大型工具输出", async ({ page }) => {
   expect(previewScroll.scrollHeight).toBeGreaterThan(previewScroll.clientHeight);
 });
 
-test("执行过程展示工具参数和中文执行状态，点击后显示返回结果", async ({ page }) => {
+test("分析抽屉按需展示执行过程和工具详情，正文保持可见", async ({ page }) => {
   await page.goto("/");
   await selectCodexSource(page);
-  await page.locator("#traceViewButton").click();
+  await expect(page.locator("#detailsPanel")).toBeHidden();
+  await expect(page.locator("#compactContent")).toBeVisible();
+  await expect(page.locator(".compact-outline")).toHaveCount(0);
+  await page.locator("#openAnalysisButton").click();
+  await expect(page.locator("#detailsPanel")).toBeVisible();
+  await expect(page.locator("#compactContent")).toBeVisible();
   for (let index = 0; index < 8 && await page.locator('.trace-row[data-trace-node-id]', { hasText: "exec_command" }).count() === 0; index += 1) {
     const toggles = page.locator("[data-trace-toggle-id]");
     if (await toggles.count() === 0) break;
@@ -55,16 +61,17 @@ test("执行过程展示工具参数和中文执行状态，点击后显示返�
   await expect(page.locator("#toolDetailsContent .tool-details-status")).toHaveText("执行成功");
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.locator('[data-panel-target="thread"]').click();
   const traceWidth = await page.locator(".trace-shell").evaluate((element) => ({ client: element.clientWidth, scroll: element.scrollWidth }));
   expect(traceWidth.scroll).toBeLessThanOrEqual(traceWidth.client);
-  await page.locator('[data-panel-target="details"]').click();
   await expect(page.locator("#toolDetailsContent .tool-details-status")).toHaveText("执行成功");
+  await page.locator("#closeAnalysisButton").click();
+  await expect(page.locator("#detailsPanel")).toBeHidden();
+  await expect(page.locator("#compactContent")).toBeVisible();
 });
 
 test("Pi 执行过程区分等待输入、完成工具与缺失时长", async ({ page }) => {
   await page.goto("/");
-  await page.locator("#traceViewButton").click();
+  await page.locator("#openAnalysisButton").click();
   await expect(page.locator(".trace-row").first()).toContainText("等待输入");
 
   for (let index = 0; index < 8 && await page.locator('.trace-row[data-trace-node-id]', { hasText: "bash" }).count() === 0; index += 1) {

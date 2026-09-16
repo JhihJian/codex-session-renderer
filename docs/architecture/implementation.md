@@ -31,7 +31,7 @@
 
 ## 浏览器界面
 
-`public/app.js` 负责会话、详情、执行过程、时间、归档、远端来源和 Raw 诊断的浏览器状态与渲染。`public/app-format.js`、`public/tool-summary.js`、`public/raw-event-cache.js` 与 `public/evidence-id.js` 提供展示格式、工具摘要、诊断缓存和稳定定位辅助。浏览器不保存远端令牌，也不直接读取会话来源路径。
+`public/app.js` 负责会话目录、正文阅读、按需分析抽屉、详情、执行过程、时间、归档、远端来源和 Raw 诊断的浏览器状态与渲染。`public/index.html` 与 `public/styles.css` 将默认阅读面限制为目录和正文，筛选与分析能力按需展开。`public/app-format.js`、`public/tool-summary.js`、`public/raw-event-cache.js` 与 `public/evidence-id.js` 提供展示格式、工具摘要、诊断缓存和稳定定位辅助。浏览器不保存远端令牌，也不直接读取会话来源路径。
 
 ## 验证入口
 

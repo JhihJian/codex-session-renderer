@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { selectCodexSource } from "./source-helpers.mjs";
+import { openSessionFilters, selectCodexSource } from "./source-helpers.mjs";
 
 test("严格 Goal 标题在列表、ARIA 与移动端详情保持投影后的同一标题", async ({ page }) => {
   const objective = "Codex Goal 默认阅读只显示这个真实目标";
@@ -70,6 +70,7 @@ test("长标题后段类型筛选由服务端完成，并在本机和远端历�
   const remoteSuffix = "CHROMIUM_REMOTE_LONG_TITLE_ERROR_TOOL_AFTER_DISPLAY_LIMIT";
   await page.goto("/");
   await selectCodexSource(page);
+  await openSessionFilters(page);
   const localTypeRequest = page.waitForRequest((request) => request.url().includes("/api/sources/local/sessions?") && request.url().includes("type=error"));
   await page.locator("#sessionTypeFilter").selectOption("error");
   await localTypeRequest;
@@ -86,6 +87,7 @@ test("长标题后段类型筛选由服务端完成，并在本机和远端历�
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.locator("#sourceSelect").selectOption("office");
+  await openSessionFilters(page);
   await page.locator("#sessionTimeFilter [data-session-time=earlier]").click();
   const remoteRow = page.locator('[data-session-id="00000000-0000-4000-8000-000000000101"]');
   await expect(remoteRow).toBeVisible();

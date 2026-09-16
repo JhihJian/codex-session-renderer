@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div class="app-shell" id="appShell" data-left="open" data-panel="thread">
+    <div class="app-shell" id="appShell" data-left="open" data-panel="thread" data-analysis="closed">
       <header class="topbar">
         <div class="topbar-left">
           <button class="icon-button" id="toggleLeft" type="button" title="隐藏会话列表" aria-label="隐藏会话列表" aria-controls="sessionsPanel" aria-expanded="true">☰</button>
@@ -22,17 +22,20 @@
 
         <nav class="mobile-tabs" role="tablist" aria-label="移动端工作台面板">
           <button class="mobile-tab" id="mobileSessionsTab" data-panel-target="sessions" type="button" role="tab" aria-controls="sessionsPanel" aria-selected="false">会话</button>
-          <button class="mobile-tab" id="mobileThreadTab" data-panel-target="thread" type="button" role="tab" aria-controls="threadPanel" aria-selected="true">内容</button>
-          <button class="mobile-tab" id="mobileDetailsTab" data-panel-target="details" type="button" role="tab" aria-controls="detailsPanel" aria-selected="false">详情</button>
-
+          <button class="mobile-tab" id="mobileThreadTab" data-panel-target="thread" type="button" role="tab" aria-controls="threadPanel" aria-selected="true">正文</button>
         </nav>
 
         <div class="topbar-actions">
           <button class="ghost-button" id="refreshButton" type="button" title="刷新会话列表">刷新列表</button>
-          <button class="ghost-button" id="refreshRemoteButton" type="button" title="拉取远端实时快照到本机缓存，不修改远端" hidden>拉取远端快照</button>
-          <button class="ghost-button" id="copyMarkdownButton" type="button" disabled>复制 Markdown</button>
-          <button class="primary-button" id="downloadMarkdownButton" type="button" disabled>下载 Markdown</button>
-          <button class="icon-button" id="settingsButton" type="button" title="展示规则设置" aria-label="展示规则设置">⚙</button>
+          <details class="topbar-more">
+            <summary aria-label="更多操作">···</summary>
+            <div class="topbar-more-menu">
+              <button class="ghost-button" id="refreshRemoteButton" type="button" title="拉取远端实时快照到本机缓存，不修改远端" hidden>拉取远端快照</button>
+              <button class="ghost-button" id="copyMarkdownButton" type="button" disabled>复制 Markdown</button>
+              <button class="ghost-button" id="downloadMarkdownButton" type="button" disabled>下载 Markdown</button>
+              <button class="ghost-button" id="settingsButton" type="button">展示规则</button>
+            </div>
+          </details>
 
         </div>
       </header>
@@ -62,21 +65,26 @@
           <label class="field-label" for="sessionSearch">搜索会话</label>
           <input class="text-input" id="sessionSearch" type="search" autocomplete="off" placeholder="标题、路径、项目..." />
 
-          <label class="field-label" for="sessionTimeFilter">时间分类</label>
-          <div class="segmented-control" id="sessionTimeFilter" role="radiogroup" aria-label="时间分类">
-            <button class="segment-button active" type="button" role="radio" aria-checked="true" data-session-time="realtime" title="实时：最近 3 小时内已同步到本机快照的会话；首屏会先读取最近 24 小时元数据" aria-label="实时，小于 3 小时">实时 &lt;3h</button>
-            <button class="segment-button" type="button" role="radio" aria-checked="false" tabindex="-1" data-session-time="day" title="近一天：远端数据源显示历史索引，不含正文" aria-label="近一天，历史索引">近一天</button>
-            <button class="segment-button" type="button" role="radio" aria-checked="false" tabindex="-1" data-session-time="earlier" title="更早：远端数据源显示历史索引，不含正文" aria-label="更早，历史索引">更早</button>
-          </div>
+          <details class="session-filters">
+            <summary>筛选</summary>
+            <div class="session-filters-body">
+              <label class="field-label" for="sessionTimeFilter">时间分类</label>
+              <div class="segmented-control" id="sessionTimeFilter" role="radiogroup" aria-label="时间分类">
+                <button class="segment-button active" type="button" role="radio" aria-checked="true" data-session-time="realtime" title="实时：最近 3 小时内已同步到本机快照的会话；首屏会先读取最近 24 小时元数据" aria-label="实时，小于 3 小时">实时 &lt;3h</button>
+                <button class="segment-button" type="button" role="radio" aria-checked="false" tabindex="-1" data-session-time="day" title="近一天：远端数据源显示历史索引，不含正文" aria-label="近一天，历史索引">近一天</button>
+                <button class="segment-button" type="button" role="radio" aria-checked="false" tabindex="-1" data-session-time="earlier" title="更早：远端数据源显示历史索引，不含正文" aria-label="更早，历史索引">更早</button>
+              </div>
 
-          <label class="field-label" for="sessionTypeFilter">会话类型</label>
-          <select class="select-input" id="sessionTypeFilter">
-            <option value="all">全部会话</option>
-            <option value="project">项目会话</option>
-            <option value="projectless">无项目会话</option>
-            <option value="error">标题/路径含错误词</option>
-            <option value="tool">标题/路径含工具词</option>
-          </select>
+              <label class="field-label" for="sessionTypeFilter">会话类型</label>
+              <select class="select-input" id="sessionTypeFilter">
+                <option value="all">全部会话</option>
+                <option value="project">项目会话</option>
+                <option value="projectless">无项目会话</option>
+                <option value="error">标题/路径含错误词</option>
+                <option value="tool">标题/路径含工具词</option>
+              </select>
+            </div>
+          </details>
 
           <div class="prompt-archive-controls" id="promptArchiveControls" hidden>
             <label class="field-label" for="promptArchiveSearch">搜索任务提示词</label>
@@ -113,57 +121,54 @@
             </div>
           </div>
 
-          <div class="thread-controls">
-            <div class="view-switch" role="tablist" aria-label="视图切换">
-              <button class="view-tab active" id="compactViewButton" type="button" role="tab" aria-selected="true" aria-controls="compactContent" data-view-mode="compact" title="会话：先查看可交接结论和阅读正文" aria-label="会话：先查看可交接结论和阅读正文">会话</button>
-              <button class="view-tab" id="traceViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="traceContent" data-view-mode="trace" title="执行过程：查看工具、子代理和时间关系" aria-label="执行过程：查看工具、子代理和时间关系">执行过程</button>
-              <button class="view-tab" id="diagnosticViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="diagnosticContent" data-view-mode="diagnostic" title="诊断：查看会话构成或按需读取原始事件" aria-label="诊断：查看会话构成或按需读取原始事件">诊断</button>
-            </div>
-            <div class="diagnostic-switch" id="diagnosticSwitch" role="tablist" aria-label="诊断视图">
-              <button class="diagnostic-tab active" id="statsViewButton" type="button" role="tab" aria-selected="true" aria-controls="statsContent" data-diagnostic-mode="stats">统计</button>
-              <button class="diagnostic-tab" id="rawViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="rawContent" data-diagnostic-mode="raw">原始事件</button>
-            </div>
-            <input class="text-input compact" id="itemSearch" type="search" autocomplete="off" placeholder="搜索内容、命令、输出..." />
-            <select class="select-input compact" id="itemTypeFilter" aria-label="内容类型筛选">
-              <option value="all">全部内容</option>
-              <option value="message">用户/助手消息</option>
-              <option value="tool">工具与命令</option>
-              <option value="output">工具输出</option>
-              <option value="reasoning">推理摘要</option>
-              <option value="compact">上下文压缩</option>
-              <option value="system">系统事件</option>
-              <option value="error">错误事件</option>
-            </select>
-            <label class="toggle-control" id="importantOnlyControl" hidden>
-              <input id="importantOnly" type="checkbox" />
-              <span id="importantOnlyLabel">重要事件</span>
-            </label>
-          </div>
-          <section class="session-handoff" id="sessionHandoff" aria-label="会话交接摘要" hidden></section>
+          <button class="ghost-button analysis-trigger" id="openAnalysisButton" type="button" aria-controls="detailsPanel" aria-expanded="false">分析</button>
         </section>
 
-        <section class="stats-strip" id="statsStrip" aria-label="会话统计"></section>
+        <section class="stats-strip" id="statsStrip" aria-label="会话统计" hidden></section>
 
         <section class="prompt-archive-content" id="promptArchiveContent" tabindex="-1" hidden></section>
 
         <section class="thread-content" id="threadContent" tabindex="-1" hidden></section>
         <section class="compact-content" id="compactContent" role="tabpanel" aria-labelledby="compactViewButton" tabindex="-1"></section>
         <section class="terminal-content" id="terminalContent" tabindex="-1" hidden></section>
+      </main>
 
+      <button class="analysis-scrim" id="analysisScrim" type="button" tabindex="-1" aria-label="关闭分析" hidden></button>
+      <aside class="details-panel panel" id="detailsPanel" aria-label="会话分析" hidden>
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">按需查看</p>
+            <h2>会话分析</h2>
+          </div>
+          <button class="icon-button" id="closeAnalysisButton" type="button" title="关闭分析" aria-label="关闭分析">×</button>
+        </div>
+        <div class="analysis-controls">
+          <div class="view-switch" role="tablist" aria-label="分析视图">
+            <button class="view-tab active" id="compactViewButton" type="button" role="tab" aria-selected="true" aria-controls="compactContent" data-view-mode="compact" hidden>会话</button>
+            <button class="view-tab" id="traceViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="traceContent" data-view-mode="trace">执行过程</button>
+            <button class="view-tab" id="diagnosticViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="diagnosticContent" data-view-mode="diagnostic">诊断</button>
+          </div>
+          <div class="diagnostic-switch" id="diagnosticSwitch" role="tablist" aria-label="诊断视图">
+            <button class="diagnostic-tab active" id="statsViewButton" type="button" role="tab" aria-selected="true" aria-controls="statsContent" data-diagnostic-mode="stats">统计</button>
+            <button class="diagnostic-tab" id="rawViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="rawContent" data-diagnostic-mode="raw">原始事件</button>
+          </div>
+          <input class="text-input compact" id="itemSearch" type="search" autocomplete="off" placeholder="搜索执行和事件..." />
+          <select class="select-input compact" id="itemTypeFilter" aria-label="分析内容类型筛选">
+            <option value="all">全部内容</option>
+            <option value="message">用户/助手消息</option>
+            <option value="tool">工具与命令</option>
+            <option value="output">工具输出</option>
+            <option value="reasoning">推理摘要</option>
+            <option value="compact">上下文压缩</option>
+            <option value="system">系统事件</option>
+            <option value="error">错误事件</option>
+          </select>
+        </div>
         <section class="diagnostic-content" id="diagnosticContent" role="tabpanel" aria-labelledby="diagnosticViewButton" tabindex="-1" hidden>
           <section class="stats-content" id="statsContent" role="tabpanel" aria-labelledby="statsViewButton" tabindex="-1" hidden></section>
           <section class="raw-content" id="rawContent" role="tabpanel" aria-labelledby="rawViewButton" tabindex="-1" hidden></section>
         </section>
         <section class="trace-content" id="traceContent" tabindex="-1" hidden></section>
-      </main>
-
-      <aside class="details-panel panel" id="detailsPanel" aria-label="工具详情">
-        <div class="panel-header">
-          <div>
-            <p class="eyebrow">执行过程</p>
-            <h2>工具详情</h2>
-          </div>
-        </div>
         <section class="tool-details-content" id="toolDetailsContent" tabindex="-1" aria-live="polite"></section>
       </aside>
 

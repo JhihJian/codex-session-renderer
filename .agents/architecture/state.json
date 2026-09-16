@@ -1,231 +1,10 @@
 {
   "version": 4,
-  "documentStatus": "active",
+  "documentStatus": "candidate",
   "snapshot": {
     "commit": "37b43f4f0a80cb4ab76bc238e4a69bbbc9e70d4d",
     "acceptedAt": "2026-09-14T09:20:40.605Z",
-    "files": [
-      {
-        "path": "README.md",
-        "sha256": "sha256:34ef78a0ac9538415bfd87414b61b34db9d126e487efd10f0c9269e5013a9a77"
-      },
-      {
-        "path": "docs/architecture/README.md",
-        "sha256": "sha256:6ec12dd1608d2ba8766a3175def0a021a702c86936fce9b1be12c5aa1ab8f5a9"
-      },
-      {
-        "path": "docs/architecture/implementation.md",
-        "sha256": "sha256:c05fcf370d534f895e81435c919315b9e03db057840e2a3814e70f8e25a26085"
-      },
-      {
-        "path": "docs/architecture/modules/prompt-archive-and-goal-projection.md",
-        "sha256": "sha256:656e93e0c3e140a637aa0ca4e55ec6f48ac1ac3f6553d41000d23f67dfc457b8"
-      },
-      {
-        "path": "docs/architecture/modules/remote-snapshot-sharing.md",
-        "sha256": "sha256:51b294478ebc1342285b0fd5906bb190183b809576a777ea184543c36e91627f"
-      },
-      {
-        "path": "docs/architecture/modules/session-projection.md",
-        "sha256": "sha256:f4401e046a999ade19b5649df8ab1508b9d9a8979108abc4a1b21fec00b9a039"
-      },
-      {
-        "path": "docs/session-event-normalization.md",
-        "sha256": "sha256:b36149c6e49bf0c0b8ee70e3d49e890ebe40414a40fad87df9e40335b923bfc7"
-      },
-      {
-        "path": "public/app-format.js",
-        "sha256": "sha256:7fc8068b18a2fe1fbeee5860527e4ae7023412c5db377fa585560262c2756542"
-      },
-      {
-        "path": "public/app.js",
-        "sha256": "sha256:b05d07908e3a0ebe9ef7d10e7504f4759e4dcc42b422b6b685d671adabdba5dc"
-      },
-      {
-        "path": "public/index.html",
-        "sha256": "sha256:c64397f69a3ad79c89698b16b4d7763460ca412a41abc241edb8ceaa850b0d0a"
-      },
-      {
-        "path": "public/styles.css",
-        "sha256": "sha256:0396f933f12b56c69abc8ecde462b6e6df87d18dd1d16117324e585ed04a1c7e"
-      },
-      {
-        "path": "server.mjs",
-        "sha256": "sha256:ea3349ec65036556c8dfa2ca8b089cb17e3670146877021f841aed134443d14a"
-      },
-      {
-        "path": "share-server.mjs",
-        "sha256": "sha256:744f9c13af7bc603622d32f3592d6af52c294f749fa510656fe39274073609fb"
-      },
-      {
-        "path": "src/access-control.mjs",
-        "sha256": "sha256:77dd682be1f66b4cea2625d67e5f1aed6804a5d6331dbb8b55c9d3dc6fa950fe"
-      },
-      {
-        "path": "src/data-sources.mjs",
-        "sha256": "sha256:f887cedac1050527a92bb688bdd6dd55cdc3df2b9028c650653db5fce4c629e5"
-      },
-      {
-        "path": "src/jsonl-reader.mjs",
-        "sha256": "sha256:ae209e6def46e9af7135459689789f960a8b28575c734ef2169905529f984c0e"
-      },
-      {
-        "path": "src/markdown-export.mjs",
-        "sha256": "sha256:9093a7c7731c22ef4429b30d7383d510d9ffce9944e4965e490a4373c5079a1f"
-      },
-      {
-        "path": "src/pi-goal-projection.mjs",
-        "sha256": "sha256:9d8ed5049596ef51108702893bffa629bd52ee9afc4dc89f55b12052bdfd5745"
-      },
-      {
-        "path": "src/prompt-archive-coordinator.mjs",
-        "sha256": "sha256:9a1dda2e5bbeb012f658b17e110c159c51af1bf027f3b828076ca2b445650320"
-      },
-      {
-        "path": "src/remote-http.mjs",
-        "sha256": "sha256:59aa0c142056a74038e322fa1c6bdba64925622d22a9c23cd566039c107e13fa"
-      },
-      {
-        "path": "src/remote-session-index.mjs",
-        "sha256": "sha256:3328bc04f069aabdcc683076f6637f0203e67e2fb1d5d5b25da6c043e851bb33"
-      },
-      {
-        "path": "src/renderer-config.mjs",
-        "sha256": "sha256:92df8bbee9dd3c0f29bb02af153cb30c851f8d2f65bb68064fd023e26671b358"
-      },
-      {
-        "path": "src/session-catalog.mjs",
-        "sha256": "sha256:f55a6189486e3f11a5fc0a4c0da1457fe454266151321390a7c62152726d276a"
-      },
-      {
-        "path": "src/session-detail-coordinator.mjs",
-        "sha256": "sha256:c8e0db66948d2be0613a73271c6348291a2038b7b6c58261b6176293bd6b5831"
-      },
-      {
-        "path": "src/session-events.mjs",
-        "sha256": "sha256:dc92da8cdd18703821e9c3a92b674e97a0d7ceffe0fb226392e966e5b4bd6962"
-      },
-      {
-        "path": "src/session-models.mjs",
-        "sha256": "sha256:103cc0f9119b0a6d6aedbabe1b466a4b7d70885761c363473275e0b5788985e4"
-      },
-      {
-        "path": "src/session-normalizer.mjs",
-        "sha256": "sha256:af85146b655e2174de5d367aabef52047b138872bf4b57a11d499a00cf2bf51e"
-      },
-      {
-        "path": "src/session-prompts.mjs",
-        "sha256": "sha256:5c9f0f4593655e129007fb171f67c2df90378f2ec9f0ef67bbc5797fdd16205f"
-      },
-      {
-        "path": "src/session-query.mjs",
-        "sha256": "sha256:35d2886274e9a80f44382cd0563df85da901d10c0548bac455f203dca8894e17"
-      },
-      {
-        "path": "src/session-timing.mjs",
-        "sha256": "sha256:80899bce02d42effa6f6c92260fa1b4b2d34390ba623f8fc62bd31c00efda8c5"
-      },
-      {
-        "path": "src/snapshot-budget.mjs",
-        "sha256": "sha256:48c401f760439f88eecfe82e0c826b89fd6d3838bf59bcd699ceccf2aa80938b"
-      },
-      {
-        "path": "src/snapshot-root-commit-coordinator.mjs",
-        "sha256": "sha256:8699600356f6fa784ae7216a6378194bdbe36d31c3f68d8770bf0cf01e156e2b"
-      },
-      {
-        "path": "src/snapshot-share.mjs",
-        "sha256": "sha256:253c145db467cb334e633236e5e4a089918196a5c30eb86a3956b591f0ee9769"
-      },
-      {
-        "path": "src/sqlite-threads.mjs",
-        "sha256": "sha256:55690a948954e3c80b4ffda1fc2f85c0b9e6101eb3c3a13155901074e75482f5"
-      },
-      {
-        "path": "test/app-format.test.mjs",
-        "sha256": "sha256:1010497e1711d29b79040e7132f838594481ace0231ceb03f3ec740baa6eac1f"
-      },
-      {
-        "path": "test/codex-goal-http.test.mjs",
-        "sha256": "sha256:43db66f9b20d4d9f6c8da887ab551be1fc8af52cf5359d46277502ee9b064cc9"
-      },
-      {
-        "path": "test/data-sources.test.mjs",
-        "sha256": "sha256:6c3c728bb1e817c4d349f362097f99cbfe05952bd108bf21740b53bdccbaf585"
-      },
-      {
-        "path": "test/e2e/full-content.spec.mjs",
-        "sha256": "sha256:f5ff6ab8405474d2790ec17a8930cf5fd549e40bfe9f4eeb7ca14b8d9d121321"
-      },
-      {
-        "path": "test/markdown-export.test.mjs",
-        "sha256": "sha256:f5cabac78cebf70c6be79552de194698396a8b1522b65547b63352eb8c414470"
-      },
-      {
-        "path": "test/prompt-archive-coordinator.test.mjs",
-        "sha256": "sha256:0ced889eca6fd35e929417b48ede65d64aa515de460747b55f8e6f355158f363"
-      },
-      {
-        "path": "test/remote-refresh-http-cancellation.test.mjs",
-        "sha256": "sha256:c8f491429d8c799f1f7e5551b9e3782338e40ec3125cccf2b73dbdef29b6c3b6"
-      },
-      {
-        "path": "test/renderer-config.test.mjs",
-        "sha256": "sha256:41738150420566cb09617484151e2f2ba3a12b4dd787568b3076bfca8b88452b"
-      },
-      {
-        "path": "test/server-access-control.test.mjs",
-        "sha256": "sha256:b7c90b72241648e20ff1fa421a1aae4e40beb1d8af36656a7ee131207cedb8ba"
-      },
-      {
-        "path": "test/server.test.mjs",
-        "sha256": "sha256:3caef2b816fd260ccf5e45b58e2795275a89a68e0b8261864a97c8efc143e5f7"
-      },
-      {
-        "path": "test/session-catalog.test.mjs",
-        "sha256": "sha256:3f68736bddb47150fc25e46d8d1a1e156dd59fb94a0e6eb3860cfeb5466a99ce"
-      },
-      {
-        "path": "test/session-detail-coordinator.test.mjs",
-        "sha256": "sha256:a7ef2409b6b8870f951ff012ac19135945cee0e60b29f5ab63fdc1e38c914748"
-      },
-      {
-        "path": "test/session-models.test.mjs",
-        "sha256": "sha256:7030211b54fc7b8386cbf0491a5ae7114b0a8266e9e636a2951007913f45cfe4"
-      },
-      {
-        "path": "test/session-normalizer.test.mjs",
-        "sha256": "sha256:7286de7b9c1b54b6df5d1560567c798b7b9456f2c01541708fbfe843a39ac509"
-      },
-      {
-        "path": "test/session-prompts.test.mjs",
-        "sha256": "sha256:d2a7317b13b7924866239f3e2e2b2d102a55a185a2c0dfb4448c36e495ce6b53"
-      },
-      {
-        "path": "test/session-query.test.mjs",
-        "sha256": "sha256:4c82274baa0c6d6cec62c3448d98d029bf9d41588e3ff837c12abef827df1498"
-      },
-      {
-        "path": "test/session-timing.test.mjs",
-        "sha256": "sha256:2823910ae26a1ffa9426037814a7650b880a80d8cb8271046792963394e80b67"
-      },
-      {
-        "path": "test/snapshot-publication.test.mjs",
-        "sha256": "sha256:28a1668eac91900b7ee3dbc4d524c376505d72054d0e656e883e7c10b57dc5d7"
-      },
-      {
-        "path": "test/snapshot-security.test.mjs",
-        "sha256": "sha256:13bcfc3aca4008408fd6e2fc4e2548ce6a74b137eb48348a43533a7a1a8ed6d4"
-      },
-      {
-        "path": "test/snapshot-share.test.mjs",
-        "sha256": "sha256:67299bf1b4cdf95de92923c508bfcef8e6892f5fdca7861ad8feb1518b50c7e4"
-      },
-      {
-        "path": "test/source-identity-isolation.test.mjs",
-        "sha256": "sha256:9ba501b98c343e6827cac8f8c65aa3efb2eca05306ff8fb55e60658bd19eefa1"
-      }
-    ]
+    "files": []
   },
   "documents": [
     {
@@ -469,7 +248,10 @@
         "test/session-timing.test.mjs",
         "docs/architecture/modules/session-projection.md",
         "test/markdown-export.test.mjs",
-        "test/app-format.test.mjs"
+        "test/app-format.test.mjs",
+        "test/e2e/list-scope-navigation.spec.mjs",
+        "test/e2e/source-helpers.mjs",
+        "test/e2e/title-consistency.spec.mjs"
       ]
     },
     {
@@ -668,7 +450,8 @@
         "test/data-sources.test.mjs",
         "test/snapshot-share.test.mjs",
         "docs/architecture/implementation.md",
-        "docs/architecture/modules/remote-snapshot-sharing.md"
+        "docs/architecture/modules/remote-snapshot-sharing.md",
+        "test/e2e/remote-index-refresh.spec.mjs"
       ]
     },
     {
@@ -834,5 +617,108 @@
     }
   ],
   "openQuestions": [],
-  "pendingImpact": null
+  "pendingImpact": {
+    "baseCommit": "37b43f4f0a80cb4ab76bc238e4a69bbbc9e70d4d",
+    "changedPaths": [
+      ".agents/architecture/state.json",
+      "README.md",
+      "docs/architecture/README.md",
+      "docs/architecture/implementation.md",
+      "docs/architecture/modules/session-projection.md",
+      "public/app.js",
+      "public/index.html",
+      "public/styles.css",
+      "test/e2e/full-content.spec.mjs",
+      "test/e2e/list-scope-navigation.spec.mjs",
+      "test/e2e/remote-index-refresh.spec.mjs",
+      "test/e2e/source-helpers.mjs",
+      "test/e2e/title-consistency.spec.mjs"
+    ],
+    "itemIds": [
+      "purpose-readable-session-workbench",
+      "boundary-source-records-and-local-derivatives",
+      "external-boundary-http-authentication",
+      "module-session-projection",
+      "capability-session-discovery-and-view",
+      "flow-stable-session-detail",
+      "module-prompt-archive-and-goal-projection",
+      "module-remote-snapshot-sharing"
+    ],
+    "assessments": [
+      {
+        "itemId": "purpose-readable-session-workbench",
+        "result": "updated",
+        "reason": "默认交互改为正文优先并将诊断能力收敛为按需分析，目的文档已同步阅读顺序。",
+        "evidence": {
+          "path": "docs/architecture/README.md",
+          "locator": "浏览器以会话目录和正文构成默认阅读面"
+        }
+      },
+      {
+        "itemId": "boundary-source-records-and-local-derivatives",
+        "result": "unaffected",
+        "reason": "改动仅调整浏览器布局和交互，不改变原始会话、远端定义或私有快照的读写边界。",
+        "evidence": {
+          "path": "src/data-sources.mjs",
+          "locator": "function createDataSourceRegistry(options = {})"
+        }
+      },
+      {
+        "itemId": "external-boundary-http-authentication",
+        "result": "unaffected",
+        "reason": "本次未修改 HTTP 入口、监听策略或认证处理。",
+        "evidence": {
+          "path": "src/access-control.mjs",
+          "locator": "function createAccessControl(options = {})"
+        }
+      },
+      {
+        "itemId": "module-session-projection",
+        "result": "updated",
+        "reason": "浏览器消费既有会话投影的默认方式改为目录加正文，执行和 Raw 转入按需分析抽屉。",
+        "evidence": {
+          "path": "docs/architecture/modules/session-projection.md",
+          "locator": "独立分析抽屉中显示执行、统计、Raw 与工具详情"
+        }
+      },
+      {
+        "itemId": "capability-session-discovery-and-view",
+        "result": "updated",
+        "reason": "会话搜索、筛选和查看入口仍使用同一投影能力，但前端将筛选收起并验证分析抽屉不会替换正文。",
+        "evidence": {
+          "path": "test/e2e/full-content.spec.mjs",
+          "locator": "分析抽屉按需展示执行过程和工具详情，正文保持可见"
+        }
+      },
+      {
+        "itemId": "flow-stable-session-detail",
+        "result": "unaffected",
+        "reason": "详情读取、签名核验、取消和缓存协调器均未修改。",
+        "evidence": {
+          "path": "src/session-detail-coordinator.mjs",
+          "locator": "function createSessionDetailCoordinator(options = {})"
+        }
+      },
+      {
+        "itemId": "module-prompt-archive-and-goal-projection",
+        "result": "unaffected",
+        "reason": "任务归档与 Goal 投影的提取、缓存和失败语义未改变。",
+        "evidence": {
+          "path": "src/prompt-archive-coordinator.mjs",
+          "locator": "function createPromptArchiveCoordinator(options = {})"
+        }
+      },
+      {
+        "itemId": "module-remote-snapshot-sharing",
+        "result": "unaffected",
+        "reason": "远端快照刷新、发布和历史索引的服务端边界未改变，端到端用例只适配筛选与操作收纳位置。",
+        "evidence": {
+          "path": "src/remote-session-index.mjs",
+          "locator": "async function readFileIndexPage({ codexHome, fsApi, query, now, limits, signal })"
+        }
+      }
+    ],
+    "unmappedPaths": [],
+    "pathAssessments": []
+  }
 }
