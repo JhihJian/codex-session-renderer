@@ -1099,7 +1099,9 @@ function sessionListRequestIsCurrent({ requestKey, sourceId, scopeVersion, kind 
 
 function setBusy(isBusy) {
   els.refreshButton.disabled = isBusy;
-  els.refreshButton.textContent = isBusy ? "刷新列表中" : "刷新列表";
+  els.refreshButton.textContent = "↻";
+  els.refreshButton.title = isBusy ? "正在刷新会话列表" : "刷新会话列表";
+  els.refreshButton.setAttribute("aria-label", els.refreshButton.title);
 }
 
 function setWorkbenchStatus(key, message, { announce = false } = {}) {
