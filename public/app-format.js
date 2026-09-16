@@ -166,6 +166,68 @@
     return ordered;
   }
 
+  function buildSessionDirectoryTree(sessions) {
+    const root = createDirectoryNode({ path: "", label: "" });
+    const projectless = createDirectoryNode({ path: "__projectless__", label: "无项目", projectless: true });
+    let hasProjectless = false;
+    for (const session of sessions || []) {
+      const directory = normalizeDirectoryPath(session?.cwd);
+      if (!directory) {
+        projectless.sessions.push(session);
+        hasProjectless = true;
+        continue;
+      }
+      let node = root;
+      for (const segment of directory.segments) {
+        const nextPath = node.path ? `${node.path}/${segment}` : segment;
+        let child = node.children.get(nextPath);
+        if (!child) {
+          child = createDirectoryNode({ path: nextPath, label: segment });
+          node.children.set(nextPath, child);
+        }
+        node = child;
+      }
+      node.sessions.push(session);
+    }
+    finalizeDirectoryNode(root);
+    if (hasProjectless) finalizeDirectoryNode(projectless);
+    const nodes = [...root.children.values()];
+    if (hasProjectless) nodes.push(projectless);
+    return nodes;
+  }
+
+  function createDirectoryNode({ path, label, projectless = false }) {
+    return { path, label, projectless, children: new Map(), sessions: [], sessionCount: 0, latestTime: 0 };
+  }
+
+  function normalizeDirectoryPath(value) {
+    const raw = String(value || "").trim().replace(/^\\\\\?\\/, "").replaceAll("\\", "/");
+    if (!raw) return null;
+    const isAbsolute = raw.startsWith("/");
+    const segments = raw.split("/").filter(Boolean);
+    if (!segments.length) return null;
+    if (isAbsolute) segments[0] = `/${segments[0]}`;
+    return { segments };
+  }
+
+  function finalizeDirectoryNode(node) {
+    let count = node.sessions.length;
+    let latestTime = Math.max(0, ...node.sessions.map(sessionTimeMs).filter(Number.isFinite));
+    for (const child of node.children.values()) {
+      finalizeDirectoryNode(child);
+      count += child.sessionCount;
+      latestTime = Math.max(latestTime, child.latestTime);
+    }
+    node.sessionCount = count;
+    node.latestTime = latestTime;
+    node.children = [...node.children.values()].sort(compareDirectoryNodes);
+  }
+
+  function compareDirectoryNodes(left, right) {
+    if (left.projectless !== right.projectless) return left.projectless ? 1 : -1;
+    return right.latestTime - left.latestTime || left.label.localeCompare(right.label, "zh-CN");
+  }
+
   function shortPath(value) {
     const text = String(value || "");
     const parts = text.replace(/^\\\\\?\\/, "").split(/[\\/]+/).filter(Boolean);
@@ -203,6 +265,7 @@
   }
 
   const api = {
+    buildSessionDirectoryTree,
     compactNumber,
     cssEscape,
     escapeAttr,

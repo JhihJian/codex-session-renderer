@@ -8261,3 +8261,83 @@ mark {
   justify-self: start;
   padding-top: 0;
 }
+
+/* Project directories organize session leaves without duplicating long paths. */
+.sidebar .session-directory-tree {
+  display: grid;
+  gap: 1px;
+}
+
+.sidebar .session-directory-node {
+  min-width: 0;
+}
+
+.sidebar .session-directory-node > summary {
+  display: grid;
+  min-height: 25px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 10px;
+  list-style: none;
+  padding: 3px 5px;
+}
+
+.sidebar .session-directory-node > summary::-webkit-details-marker { display: none; }
+
+.sidebar .session-directory-node > summary:hover {
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+
+.sidebar .session-directory-label {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.sidebar .directory-chevron {
+  width: 11px;
+  flex: 0 0 11px;
+  color: var(--text-2);
+  font-size: 14px;
+  line-height: 1;
+  transform: rotate(0deg);
+}
+
+.sidebar .session-directory-node[open] > summary .directory-chevron { transform: rotate(90deg); }
+
+.sidebar .session-directory-label strong {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar .session-directory-count {
+  min-width: 18px;
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 9px;
+  text-align: right;
+}
+
+.sidebar .session-directory-contents {
+  display: grid;
+  gap: 1px;
+}
+
+.sidebar .session-directory-list { padding-left: 4px; }
+
+.sidebar .session-directory-children {
+  display: grid;
+  gap: 1px;
+  margin-left: 5px;
+  border-left: 1px solid color-mix(in srgb, var(--hair) 68%, transparent);
+  padding-left: 3px;
+}
+
+.sidebar .session-directory-node.projectless > summary { color: var(--text-2); }

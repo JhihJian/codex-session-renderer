@@ -4,6 +4,7 @@ import MarkdownIt from "markdown-it";
 import "../public/app-format.js";
 
 const {
+  buildSessionDirectoryTree,
   compactNumber,
   cssEscape,
   escapeAttr,
@@ -108,4 +109,21 @@ test("nestSessionChains treats orphans, self references and cycles as roots", ()
 test("nestSessionChains keeps flat rows when no parent links resolve", () => {
   const rows = nestSessionChains([{ id: "one" }, { id: "two" }]);
   assert.deepEqual(rows.map((row) => row.depth), [0, 0]);
+});
+
+test("buildSessionDirectoryTree keeps project paths hierarchical and projectless sessions separate", () => {
+  const sessions = [
+    { id: "alpha", cwd: "/data/dev/alpha", updatedAt: "2026-09-16T01:00:00.000Z" },
+    { id: "beta", cwd: "/data/dev/beta/", updatedAt: "2026-09-16T03:00:00.000Z" },
+    { id: "windows", cwd: "C:\\work\\tools", updatedAt: "2026-09-16T02:00:00.000Z" },
+    { id: "none", cwd: "", updatedAt: "2026-09-16T04:00:00.000Z" },
+  ];
+  const tree = buildSessionDirectoryTree(sessions);
+
+  assert.deepEqual(tree.map((node) => [node.label, node.sessionCount]), [["/data", 2], ["C:", 1], ["无项目", 1]]);
+  const dev = tree[0].children[0];
+  assert.equal(dev.label, "dev");
+  assert.deepEqual(dev.children.map((node) => [node.label, node.sessions[0].id]), [["beta", "beta"], ["alpha", "alpha"]]);
+  assert.equal(tree.at(-1).projectless, true);
+  assert.equal(tree.at(-1).sessions[0].id, "none");
 });

@@ -9,6 +9,32 @@ const earlierSession = {
   cwd: "/workspace/history",
 };
 
+test("会话目录按项目路径展开为树，叶子会话不重复", async ({ page }) => {
+  const updatedAt = new Date().toISOString();
+  const sessions = [
+    { id: "tree-alpha", sourceId: "local", displayTitle: "客户端会话", updatedAt, cwd: "/workspace/client/app" },
+    { id: "tree-beta", sourceId: "local", displayTitle: "接口会话", updatedAt, cwd: "/workspace/client/api" },
+    { id: "tree-none", sourceId: "local", displayTitle: "无项目会话", updatedAt, cwd: "" },
+  ];
+  await page.route("**/api/sources/local/sessions?*", async (route) => {
+    const scope = new URL(route.request().url()).searchParams.get("scope") || "recent24h";
+    await route.fulfill({ json: { source: { id: "local", label: "本机 Codex Home", kind: "local" }, scope, sessions } });
+  });
+  await page.goto("/");
+  await selectCodexSource(page);
+  await expect(page.locator('[data-session-id="tree-alpha"]')).toBeVisible();
+  await expect(page.locator(".session-directory-node > summary .session-directory-label strong", { hasText: "/workspace" })).toHaveCount(1);
+  await expect(page.locator(".session-directory-node > summary .session-directory-label strong", { hasText: "client" })).toHaveCount(1);
+  await expect(page.locator(".session-directory-node > summary .session-directory-label strong", { hasText: "app" })).toHaveCount(1);
+  await expect(page.locator('[data-session-id="tree-alpha"]')).toHaveCount(1);
+
+  const projectless = page.locator("details.session-directory-node.projectless");
+  await projectless.locator("summary").click();
+  await expect(projectless).toHaveJSProperty("open", false);
+  await page.locator("#refreshButton").click();
+  await expect(projectless).toHaveJSProperty("open", false);
+});
+
 test("过期 recent 列表不会污染更早范围、自动打开详情或提前释放刷新状态", async ({ page }) => {
   let releaseRecent;
   const recentReleased = new Promise((resolve) => { releaseRecent = resolve; });

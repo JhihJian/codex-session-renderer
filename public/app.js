@@ -13,6 +13,7 @@ const state = {
   sessions: [],
   remoteIndexSessions: [],
   filteredSessions: [],
+  collapsedSessionDirectoryKeys: new Set(),
   sessionsLoading: false,
   sessionsLoadError: "",
   healthLoadError: "",
@@ -104,6 +105,7 @@ const state = {
 };
 
 const {
+  buildSessionDirectoryTree,
   compactNumber,
   cssEscape,
   escapeAttr,
@@ -2894,7 +2896,8 @@ function renderSessionList() {
     syncExportButtons();
     return;
   }
-  els.sessionList.innerHTML = renderSessionDirectoryGroups(sessions, query) + renderRemoteIndexPagination();
+  els.sessionList.innerHTML = renderSessionDirectoryTree(sessions, query) + renderRemoteIndexPagination();
+  bindSessionDirectoryTree();
   const activateSessionRow = (row) => {
     const rowSessionId = row.dataset.sessionId;
     const rowSessionKey = sessionKey({ id: rowSessionId, sourceId: state.selectedSourceId });
@@ -3202,41 +3205,57 @@ function sessionTimeFilterCopy(bucket) {
   };
 }
 
-function renderSessionDirectoryGroups(sessions, query) {
-  return groupSessionsByDirectory(sessions)
-    .map(
-      (group) => `
-        <section class="session-directory-group" role="group" aria-label="${escapeAttr(group.label)}">
-          <div class="session-directory-head">
-            <strong data-overflow-tooltip>${escapeHtml(group.label)}</strong>
-            <span>${group.sessions.length}</span>
-          </div>
-          <div class="session-directory-list" role="list">
-            ${nestSessionChains(group.sessions).map(({ session, depth }) => renderSessionRow(session, query, depth)).join("")}
-          </div>
-        </section>
-      `,
-    )
-    .join("");
+function renderSessionDirectoryTree(sessions, query) {
+  const nodes = buildSessionDirectoryTree(sessions);
+  return `<div class="session-directory-tree">${nodes.map((node) => renderSessionDirectoryNode(node, query)).join("")}</div>`;
 }
 
-function groupSessionsByDirectory(sessions) {
-  const groups = new Map();
-  for (const session of sessions) {
-    const key = session.cwd || "__projectless__";
-    if (!groups.has(key)) {
-      groups.set(key, {
-        key,
-        label: session.cwd ? shortPath(session.cwd) : "无项目",
-        latestTime: 0,
-        sessions: [],
-      });
-    }
-    const group = groups.get(key);
-    group.sessions.push(session);
-    group.latestTime = Math.max(group.latestTime, sessionListTimeMs(session));
-  }
-  return [...groups.values()].sort((a, b) => b.latestTime - a.latestTime || a.label.localeCompare(b.label, "zh-CN"));
+function renderSessionDirectoryNode(node, query) {
+  const key = sessionDirectoryKey(node.path);
+  const forcedOpen = Boolean(query) || directoryContainsSelectedSession(node);
+  const open = forcedOpen || !state.collapsedSessionDirectoryKeys.has(key);
+  const directRows = nestSessionChains(node.sessions).map(({ session, depth }) => renderSessionRow(session, query, depth)).join("");
+  const children = node.children.map((child) => renderSessionDirectoryNode(child, query)).join("");
+  const label = node.projectless ? "无项目" : node.label;
+  const countLabel = `${node.sessionCount} 个会话`;
+  return `
+    <details class="session-directory-node${node.projectless ? " projectless" : ""}" data-directory-key="${escapeAttr(key)}" data-directory-forced="${forcedOpen ? "true" : "false"}" ${open ? "open" : ""}>
+      <summary aria-label="${escapeAttr(`${label}，${countLabel}`)}">
+        <span class="session-directory-label"><span class="directory-chevron" aria-hidden="true">›</span><strong data-overflow-tooltip>${escapeHtml(label)}</strong></span>
+        <span class="session-directory-count" title="${escapeAttr(countLabel)}" aria-label="${escapeAttr(countLabel)}">${node.sessionCount}</span>
+      </summary>
+      <div class="session-directory-contents">
+        ${directRows ? `<div class="session-directory-list">${directRows}</div>` : ""}
+        ${children ? `<div class="session-directory-children">${children}</div>` : ""}
+      </div>
+    </details>
+  `;
+}
+
+function sessionDirectoryKey(path) {
+  return JSON.stringify([state.selectedSourceId, path]);
+}
+
+function directoryContainsSelectedSession(node) {
+  const selectedKey = state.selectedSessionKey;
+  if (!selectedKey) return false;
+  if (node.sessions.some((session) => sessionKey(session) === selectedKey)) return true;
+  return node.children.some((child) => directoryContainsSelectedSession(child));
+}
+
+function bindSessionDirectoryTree() {
+  els.sessionList.querySelectorAll("details[data-directory-key]").forEach((directory) => {
+    directory.addEventListener("toggle", () => {
+      const key = directory.dataset.directoryKey;
+      if (!key) return;
+      if (directory.dataset.directoryForced === "true") {
+        if (!directory.open) directory.open = true;
+        return;
+      }
+      if (directory.open) state.collapsedSessionDirectoryKeys.delete(key);
+      else state.collapsedSessionDirectoryKeys.add(key);
+    });
+  });
 }
 
 function renderSessionRow(session, query, chainDepth = 0) {
@@ -3327,15 +3346,6 @@ function sessionStatusLabel(status) {
   if (status === "waiting") return "等待输入";
   if (status === "running") return "运行中";
   return "";
-}
-
-function sessionListTimeMs(session) {
-  for (const value of [session.updatedAt, session.fileModifiedAt, session.startedAt]) {
-    if (!value) continue;
-    const time = new Date(value).getTime();
-    if (Number.isFinite(time)) return time;
-  }
-  return 0;
 }
 
 function renderThreadHeader() {
