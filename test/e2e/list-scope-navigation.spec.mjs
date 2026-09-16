@@ -130,6 +130,7 @@ test("列表和归档的 scope 响应错配会失败关闭并保留可重试状�
       page: { candidateFrom: 0, candidateTo: 0, candidatesScanned: 0, entriesReturned: 0, hasMoreCandidates: false, nextPageToken: null },
     } });
   });
+  await page.locator(".topbar-more > summary").click();
   await page.locator("#promptsModeButton").click();
   await expect(page.locator("#promptArchiveContent")).toContainText("任务归档读取失败");
   await expect(page.locator("#promptArchiveContent")).toContainText("来源响应校验失败，请重试。");

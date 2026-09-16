@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div class="app-shell" id="appShell" data-left="open" data-panel="thread" data-analysis="closed">
+    <div class="app-shell" id="appShell" data-left="open" data-panel="thread" data-view="compact">
       <header class="topbar">
         <div class="topbar-left">
           <button class="icon-button" id="toggleLeft" type="button" title="隐藏会话列表" aria-label="隐藏会话列表" aria-controls="sessionsPanel" aria-expanded="true">☰</button>
@@ -31,6 +31,9 @@
             <summary aria-label="更多操作">···</summary>
             <div class="topbar-more-menu">
               <button class="ghost-button" id="refreshRemoteButton" type="button" title="拉取远端实时快照到本机缓存，不修改远端" hidden>拉取远端快照</button>
+              <button class="ghost-button" id="managePeersButton" type="button">管理数据源</button>
+              <button class="ghost-button" id="promptsModeButton" type="button" aria-pressed="false" data-sidebar-mode="prompts">任务归档</button>
+              <button class="ghost-button" id="sessionsModeButton" type="button" aria-pressed="true" data-sidebar-mode="sessions" hidden>返回会话</button>
               <button class="ghost-button" id="copyMarkdownButton" type="button" disabled>复制 Markdown</button>
               <button class="ghost-button" id="downloadMarkdownButton" type="button" disabled>下载 Markdown</button>
               <button class="ghost-button" id="settingsButton" type="button">展示规则</button>
@@ -43,27 +46,20 @@
       <aside class="sidebar panel" id="sessionsPanel" aria-label="会话列表">
         <div class="panel-header">
           <div>
-            <p class="eyebrow">会话</p>
-            <h1>会话列表</h1>
+            <h1>会话</h1>
           </div>
           <span class="count-pill" id="sessionCount">0</span>
         </div>
 
-        <div class="sidebar-mode-switch" role="toolbar" aria-label="工作台模块">
-          <button class="sidebar-mode-tab active" id="sessionsModeButton" type="button" aria-pressed="true" data-sidebar-mode="sessions">会话</button>
-          <button class="sidebar-mode-tab" id="promptsModeButton" type="button" aria-pressed="false" data-sidebar-mode="prompts">任务归档</button>
-        </div>
-
         <div class="control-stack">
-          <label class="field-label" for="sourceSelect">数据源</label>
+          <label class="sr-only" for="sourceSelect">数据源</label>
           <div class="source-row">
             <select class="select-input" id="sourceSelect"></select>
-            <button class="ghost-button small" id="managePeersButton" type="button">远端数据源</button>
           </div>
           <div class="source-status" id="sourceStatus">读取数据源状态中</div>
 
-          <label class="field-label" for="sessionSearch">搜索会话</label>
-          <input class="text-input" id="sessionSearch" type="search" autocomplete="off" placeholder="标题、路径、项目..." />
+          <label class="sr-only" for="sessionSearch">搜索会话</label>
+          <input class="text-input" id="sessionSearch" type="search" autocomplete="off" placeholder="搜索会话" />
 
           <details class="session-filters">
             <summary>筛选</summary>
@@ -121,7 +117,31 @@
             </div>
           </div>
 
-          <button class="ghost-button analysis-trigger" id="openAnalysisButton" type="button" aria-controls="detailsPanel" aria-expanded="false">分析</button>
+          <div class="workspace-controls">
+            <div class="view-switch" role="tablist" aria-label="会话视图">
+              <button class="view-tab active" id="compactViewButton" type="button" role="tab" aria-selected="true" aria-controls="compactContent" data-view-mode="compact">正文</button>
+              <button class="view-tab" id="traceViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="executionWorkspace" data-view-mode="trace">执行</button>
+              <button class="view-tab" id="diagnosticViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="diagnosticContent" data-view-mode="diagnostic">诊断</button>
+            </div>
+            <div class="analysis-query-controls" aria-label="分析筛选">
+              <label class="sr-only" for="itemSearch">搜索执行和事件</label>
+              <input class="text-input compact" id="itemSearch" type="search" autocomplete="off" placeholder="搜索" />
+              <select class="select-input compact" id="itemTypeFilter" aria-label="分析内容类型筛选">
+                <option value="all">全部内容</option>
+                <option value="message">用户/助手消息</option>
+                <option value="tool">工具与命令</option>
+                <option value="output">工具输出</option>
+                <option value="reasoning">推理摘要</option>
+                <option value="compact">上下文压缩</option>
+                <option value="system">系统事件</option>
+                <option value="error">错误事件</option>
+              </select>
+            </div>
+            <div class="diagnostic-switch" id="diagnosticSwitch" role="tablist" aria-label="诊断视图">
+              <button class="diagnostic-tab active" id="statsViewButton" type="button" role="tab" aria-selected="true" aria-controls="statsContent" data-diagnostic-mode="stats">统计</button>
+              <button class="diagnostic-tab" id="rawViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="rawContent" data-diagnostic-mode="raw">原始事件</button>
+            </div>
+          </div>
         </section>
 
         <section class="stats-strip" id="statsStrip" aria-label="会话统计" hidden></section>
@@ -131,46 +151,15 @@
         <section class="thread-content" id="threadContent" tabindex="-1" hidden></section>
         <section class="compact-content" id="compactContent" role="tabpanel" aria-labelledby="compactViewButton" tabindex="-1"></section>
         <section class="terminal-content" id="terminalContent" tabindex="-1" hidden></section>
-      </main>
-
-      <button class="analysis-scrim" id="analysisScrim" type="button" tabindex="-1" aria-label="关闭分析" hidden></button>
-      <aside class="details-panel panel" id="detailsPanel" aria-label="会话分析" hidden>
-        <div class="panel-header">
-          <div>
-            <p class="eyebrow">按需查看</p>
-            <h2>会话分析</h2>
-          </div>
-          <button class="icon-button" id="closeAnalysisButton" type="button" title="关闭分析" aria-label="关闭分析">×</button>
-        </div>
-        <div class="analysis-controls">
-          <div class="view-switch" role="tablist" aria-label="分析视图">
-            <button class="view-tab active" id="compactViewButton" type="button" role="tab" aria-selected="true" aria-controls="compactContent" data-view-mode="compact" hidden>会话</button>
-            <button class="view-tab" id="traceViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="traceContent" data-view-mode="trace">执行过程</button>
-            <button class="view-tab" id="diagnosticViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="diagnosticContent" data-view-mode="diagnostic">诊断</button>
-          </div>
-          <div class="diagnostic-switch" id="diagnosticSwitch" role="tablist" aria-label="诊断视图">
-            <button class="diagnostic-tab active" id="statsViewButton" type="button" role="tab" aria-selected="true" aria-controls="statsContent" data-diagnostic-mode="stats">统计</button>
-            <button class="diagnostic-tab" id="rawViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="rawContent" data-diagnostic-mode="raw">原始事件</button>
-          </div>
-          <input class="text-input compact" id="itemSearch" type="search" autocomplete="off" placeholder="搜索执行和事件..." />
-          <select class="select-input compact" id="itemTypeFilter" aria-label="分析内容类型筛选">
-            <option value="all">全部内容</option>
-            <option value="message">用户/助手消息</option>
-            <option value="tool">工具与命令</option>
-            <option value="output">工具输出</option>
-            <option value="reasoning">推理摘要</option>
-            <option value="compact">上下文压缩</option>
-            <option value="system">系统事件</option>
-            <option value="error">错误事件</option>
-          </select>
-        </div>
+        <section class="execution-workspace" id="executionWorkspace" role="tabpanel" aria-labelledby="traceViewButton" tabindex="-1" hidden>
+          <section class="trace-content" id="traceContent" tabindex="-1"></section>
+          <section class="tool-details-content" id="toolDetailsContent" tabindex="-1" aria-live="polite"></section>
+        </section>
         <section class="diagnostic-content" id="diagnosticContent" role="tabpanel" aria-labelledby="diagnosticViewButton" tabindex="-1" hidden>
           <section class="stats-content" id="statsContent" role="tabpanel" aria-labelledby="statsViewButton" tabindex="-1" hidden></section>
           <section class="raw-content" id="rawContent" role="tabpanel" aria-labelledby="rawViewButton" tabindex="-1" hidden></section>
         </section>
-        <section class="trace-content" id="traceContent" tabindex="-1" hidden></section>
-        <section class="tool-details-content" id="toolDetailsContent" tabindex="-1" aria-live="polite"></section>
-      </aside>
+      </main>
 
       <footer class="statusbar" id="statusbar" aria-label="工作台状态">
         <span id="statusSource" data-overflow-tooltip>数据源：读取中</span>

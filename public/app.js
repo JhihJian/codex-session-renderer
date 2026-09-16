@@ -55,7 +55,6 @@ const state = {
   rawDiagnostic: null,
   viewMode: "compact",
   diagnosticMode: "stats",
-  analysisOpen: false,
 
   sessionTimeFilter: "realtime",
   visibleEvents: 40,
@@ -199,10 +198,6 @@ const els = {
   healthStatus: document.getElementById("healthStatus"),
   sessionsPanel: document.getElementById("sessionsPanel"),
   threadPanel: document.getElementById("threadPanel"),
-  detailsPanel: document.getElementById("detailsPanel"),
-  openAnalysisButton: document.getElementById("openAnalysisButton"),
-  closeAnalysisButton: document.getElementById("closeAnalysisButton"),
-  analysisScrim: document.getElementById("analysisScrim"),
   toolDetailsContent: document.getElementById("toolDetailsContent"),
 
 
@@ -236,6 +231,7 @@ const els = {
   threadContent: document.getElementById("threadContent"),
   compactContent: document.getElementById("compactContent"),
   terminalContent: document.getElementById("terminalContent"),
+  executionWorkspace: document.getElementById("executionWorkspace"),
 
   statsContent: document.getElementById("statsContent"),
   diagnosticContent: document.getElementById("diagnosticContent"),
@@ -438,7 +434,6 @@ function bindEvents() {
   els.rawViewButton.addEventListener("click", () => setDiagnosticMode("raw"));
 
   bindRovingTablist(els.sessionTimeFilter, "[data-session-time]", (button) => selectSessionTimeFilter(button.dataset.sessionTime || "realtime"));
-  bindRovingTablist(document.querySelector(".sidebar-mode-switch"), "[data-sidebar-mode]", (button) => selectSidebarMode(button.dataset.sidebarMode || "sessions"));
   bindRovingTablist(els.viewSwitch, "[data-view-mode]", (button) => setViewMode(button.dataset.viewMode || "compact"));
   bindRovingTablist(els.diagnosticSwitch, "[data-diagnostic-mode]", (button) => setDiagnosticMode(button.dataset.diagnosticMode || "stats"));
 
@@ -451,7 +446,6 @@ function bindEvents() {
     els.appShell.dataset.left = next;
     syncPanelToggleLabels();
   });
-  bindAnalysisPanelEvents();
   window.addEventListener("resize", () => {
     syncMobilePanelNavigation();
     syncPanelToggleLabels();
@@ -463,12 +457,6 @@ function bindEvents() {
     });
   });
   bindRovingTablist(document.querySelector(".mobile-tabs"), "[data-panel-target]", (button) => setMobilePanel(button.dataset.panelTarget, { userInitiated: true }));
-}
-
-function bindAnalysisPanelEvents() {
-  els.openAnalysisButton.addEventListener("click", () => openAnalysis("trace"));
-  els.closeAnalysisButton.addEventListener("click", closeAnalysis);
-  els.analysisScrim.addEventListener("click", closeAnalysis);
 }
 
 function bindRovingTablist(tablist, selector, activate) {
@@ -576,39 +564,6 @@ function syncPanelVisibilityState() {
     moveFocusBeforeHidingPanel(panel, fallback, open);
     setPanelInteractivity(panel, open);
   });
-  syncAnalysisPanel();
-}
-
-function openAnalysis(mode = "trace") {
-  state.analysisOpen = true;
-  if (state.viewMode !== mode) setViewMode(mode);
-  else {
-    syncAnalysisPanel();
-    renderMainContent();
-  }
-  els.closeAnalysisButton?.focus({ preventScroll: true });
-}
-
-function closeAnalysis() {
-  const wasOpen = state.analysisOpen;
-  state.analysisOpen = false;
-  if (state.viewMode !== "compact") setViewMode("compact");
-  else syncAnalysisPanel();
-  if (wasOpen) els.openAnalysisButton?.focus({ preventScroll: true });
-}
-
-function syncAnalysisPanel() {
-  const open = state.analysisOpen && state.sidebarMode !== "prompts";
-  els.appShell.dataset.analysis = open ? "open" : "closed";
-  if (els.openAnalysisButton) {
-    els.openAnalysisButton.setAttribute("aria-expanded", open ? "true" : "false");
-    els.openAnalysisButton.disabled = state.sidebarMode === "prompts";
-  }
-  setPanelInteractivity(els.detailsPanel, open);
-  if (els.analysisScrim) {
-    els.analysisScrim.hidden = !open;
-    els.analysisScrim.inert = !open;
-  }
 }
 
 function moveFocusBeforeHidingPanel(panel, fallback, open) {
@@ -670,6 +625,7 @@ function renderSourceControls() {
 function renderSourceStatus() {
   if (state.healthLoadError) {
     els.sourceStatus.textContent = `接口不可用：${state.healthLoadError}`;
+    els.sourceStatus.hidden = false;
     els.refreshRemoteButton.hidden = true;
     renderStatusbar();
     return;
@@ -677,6 +633,7 @@ function renderSourceStatus() {
   const source = selectedSource();
   if (!source) {
     els.sourceStatus.textContent = "数据源不存在";
+    els.sourceStatus.hidden = false;
     els.refreshRemoteButton.hidden = true;
     renderStatusbar();
     return;
@@ -708,6 +665,17 @@ function renderSourceStatus() {
     else if (state.historyLoadError) parts.push(`历史会话失败：${state.historyLoadError}`);
   }
   els.sourceStatus.textContent = parts.join(" · ");
+  els.sourceStatus.hidden = !(
+    status.refreshing
+    || status.needsRefresh
+    || status.stale
+    || status.error?.message
+    || state.remoteRefreshCancelled
+    || state.remoteRefreshError
+    || (source.kind === "remote" && !status.snapshotAvailable)
+    || state.remoteIndexError
+    || state.historyLoadError
+  );
   renderStatusbar();
 }
 
@@ -751,6 +719,8 @@ function selectSidebarMode(mode) {
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", active ? "true" : "false");
   });
+  if (els.sessionsModeButton) els.sessionsModeButton.hidden = next !== "prompts";
+  if (els.promptsModeButton) els.promptsModeButton.hidden = next === "prompts";
   if (next === "prompts") void loadPromptArchive({ announce: true });
   syncPanelToggleLabels();
   renderAll();
@@ -2478,10 +2448,9 @@ function setViewMode(mode) {
     cancelRawEventRequest();
   }
   state.viewMode = nextMode;
-  if (nextMode !== "compact") state.analysisOpen = true;
   if (changed) cancelRemoteRefreshForNavigation();
+  if (mobilePanelLayoutActive()) setMobilePanel("thread");
   syncViewControls();
-  syncAnalysisPanel();
   renderStats();
   renderMainContent();
 }
@@ -2509,16 +2478,16 @@ function setDiagnosticMode(mode) {
   }
   state.diagnosticMode = nextMode;
   state.viewMode = "diagnostic";
-  state.analysisOpen = true;
   cancelRemoteRefreshForNavigation();
+  if (mobilePanelLayoutActive()) setMobilePanel("thread");
   syncViewControls();
-  syncAnalysisPanel();
   renderStats();
   renderMainContent();
 }
 
 function syncViewControls() {
   state.viewMode = normalizeViewMode(state.viewMode);
+  els.appShell.dataset.view = state.viewMode;
   const diagnosticVisible = state.viewMode === "diagnostic";
   if (!diagnosticVisible && els.diagnosticSwitch?.contains(document.activeElement)) {
     [els.compactViewButton, els.traceViewButton, els.diagnosticViewButton]
@@ -2544,8 +2513,9 @@ function syncViewControls() {
     button.tabIndex = active ? 0 : -1;
   });
   els.threadContent.hidden = true;
-  els.compactContent.hidden = false;
+  els.compactContent.hidden = state.viewMode !== "compact";
   els.terminalContent.hidden = true;
+  els.executionWorkspace.hidden = state.viewMode !== "trace";
   els.traceContent.hidden = state.viewMode !== "trace";
   els.diagnosticContent.hidden = state.viewMode !== "diagnostic";
   els.statsContent.hidden = state.viewMode !== "diagnostic" || state.diagnosticMode !== "stats";
@@ -2799,6 +2769,8 @@ function syncSidebarModeTabs() {
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", active ? "true" : "false");
   });
+  if (els.sessionsModeButton) els.sessionsModeButton.hidden = state.sidebarMode !== "prompts";
+  if (els.promptsModeButton) els.promptsModeButton.hidden = state.sidebarMode === "prompts";
 }
 
 function renderSessionList() {
@@ -3861,7 +3833,7 @@ function renderMainContent() {
   if (state.sidebarMode === "prompts") {
     els.promptArchiveContent.hidden = false;
     renderPromptArchive();
-    [els.threadContent, els.compactContent, els.terminalContent, els.diagnosticContent, els.statsContent, els.traceContent, els.rawContent]
+    [els.threadContent, els.compactContent, els.terminalContent, els.executionWorkspace, els.diagnosticContent, els.statsContent, els.traceContent, els.rawContent]
       .filter(Boolean)
       .forEach((container) => { container.hidden = true; });
     return;
@@ -5555,8 +5527,8 @@ async function openRawEvent(index) {
   const changed = state.viewMode !== "diagnostic" || state.diagnosticMode !== "raw";
   state.viewMode = "diagnostic";
   state.diagnosticMode = "raw";
-  state.analysisOpen = true;
   if (changed) cancelRemoteRefreshForNavigation();
+  if (mobilePanelLayoutActive()) setMobilePanel("thread");
   state.selectedEventIndex = index;
   syncViewControls();
   renderStats();

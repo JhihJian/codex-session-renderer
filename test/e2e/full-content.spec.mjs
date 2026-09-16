@@ -4,7 +4,6 @@ import { selectCodexSource } from "./source-helpers.mjs";
 test("原始事件详情完整展示大型工具输出", async ({ page }) => {
   await page.goto("/");
   await selectCodexSource(page);
-  await page.locator("#openAnalysisButton").click();
   await page.locator("#diagnosticViewButton").click();
   await page.locator("#rawViewButton").click();
   const outputEvent = page.locator('[data-raw-event-index="5"]');
@@ -35,15 +34,16 @@ test("原始事件详情完整展示大型工具输出", async ({ page }) => {
   expect(previewScroll.scrollHeight).toBeGreaterThan(previewScroll.clientHeight);
 });
 
-test("分析抽屉按需展示执行过程和工具详情，正文保持可见", async ({ page }) => {
+test("正文、执行和诊断作为完整主工作区互斥切换", async ({ page }) => {
   await page.goto("/");
   await selectCodexSource(page);
-  await expect(page.locator("#detailsPanel")).toBeHidden();
   await expect(page.locator("#compactContent")).toBeVisible();
+  await expect(page.locator("#executionWorkspace")).toBeHidden();
+  await expect(page.locator("#diagnosticContent")).toBeHidden();
   await expect(page.locator(".compact-outline")).toHaveCount(0);
-  await page.locator("#openAnalysisButton").click();
-  await expect(page.locator("#detailsPanel")).toBeVisible();
-  await expect(page.locator("#compactContent")).toBeVisible();
+  await page.locator("#traceViewButton").click();
+  await expect(page.locator("#compactContent")).toBeHidden();
+  await expect(page.locator("#executionWorkspace")).toBeVisible();
   for (let index = 0; index < 8 && await page.locator('.trace-row[data-trace-node-id]', { hasText: "exec_command" }).count() === 0; index += 1) {
     const toggles = page.locator("[data-trace-toggle-id]");
     if (await toggles.count() === 0) break;
@@ -53,7 +53,6 @@ test("分析抽屉按需展示执行过程和工具详情，正文保持可见",
   await expect(tool).toContainText("npm test");
   await expect(tool).toContainText("执行成功");
   await tool.click();
-  await expect(page.locator("#detailsPanel")).toBeVisible();
   await expect(page.locator("#toolDetailsContent")).toContainText("调用参数");
   await expect(page.locator("#toolDetailsContent")).toContainText('"cmd": "npm test"');
   await expect(page.locator("#toolDetailsContent")).toContainText("返回结果");
@@ -64,14 +63,16 @@ test("分析抽屉按需展示执行过程和工具详情，正文保持可见",
   const traceWidth = await page.locator(".trace-shell").evaluate((element) => ({ client: element.clientWidth, scroll: element.scrollWidth }));
   expect(traceWidth.scroll).toBeLessThanOrEqual(traceWidth.client);
   await expect(page.locator("#toolDetailsContent .tool-details-status")).toHaveText("执行成功");
-  await page.locator("#closeAnalysisButton").click();
-  await expect(page.locator("#detailsPanel")).toBeHidden();
+  await page.locator("#diagnosticViewButton").click();
+  await expect(page.locator("#executionWorkspace")).toBeHidden();
+  await expect(page.locator("#diagnosticContent")).toBeVisible();
+  await page.locator("#compactViewButton").click();
   await expect(page.locator("#compactContent")).toBeVisible();
 });
 
 test("Pi 执行过程区分等待输入、完成工具与缺失时长", async ({ page }) => {
   await page.goto("/");
-  await page.locator("#openAnalysisButton").click();
+  await page.locator("#traceViewButton").click();
   await expect(page.locator(".trace-row").first()).toContainText("等待输入");
 
   for (let index = 0; index < 8 && await page.locator('.trace-row[data-trace-node-id]', { hasText: "bash" }).count() === 0; index += 1) {
