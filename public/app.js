@@ -4100,25 +4100,46 @@ function filterCompactTurn(turn, query, typeFilter) {
 }
 
 function compactTurnMatches(turn, query, typeFilter) {
+  const special = compactSpecialTurnMatch(turn, query, typeFilter);
+  return special == null ? compactStandardTurnMatch(turn, query, typeFilter) : special;
+}
+
+function compactSpecialTurnMatch(turn, query, typeFilter) {
+  if (typeFilter === "tool") return Boolean(turn.children?.length);
+  const { hasCompact, hasContext } = compactContextEventFlags(turn);
+  if (typeFilter === "compact") return hasCompact && compactTurnQueryMatches(turn, query);
+  if (typeFilter === "system") return hasContext && compactTurnQueryMatches(turn, query);
+  return null;
+}
+
+function compactStandardTurnMatch(turn, query, typeFilter) {
+  if (![
+    "all",
+    "message",
+    "error",
+  ].includes(typeFilter)) return false;
   const hasMessage = turn.userMessages?.length || compactAssistantMessages(turn).length;
-  const hasChild = turn.children?.length;
-  const hasCompact = compactEventsForTurn(turn).length > 0;
-  if (typeFilter === "tool") return Boolean(hasChild);
-  if (typeFilter === "compact") return hasCompact && (!query || compactTurnSearchText(turn).includes(query));
-  if (typeFilter === "system") return hasCompact && (!query || compactTurnSearchText(turn).includes(query));
-  if (!["all", "message", "error"].includes(typeFilter)) return false;
   if (typeFilter === "message" && !hasMessage) return false;
   const haystack = compactTurnSearchText(turn);
   if (typeFilter === "error" && !/error|failed|失败|错误/i.test(haystack)) return false;
   return !query || haystack.includes(query);
 }
 
+function compactTurnQueryMatches(turn, query) {
+  return !query || compactTurnSearchText(turn).includes(query);
+}
+
+function compactContextEventFlags(turn) {
+  const events = contextEventsForTurn(turn);
+  return { hasCompact: events.some((event) => event.contextKind === "compaction"), hasContext: events.length > 0 };
+}
+
 function compactNodeMatchesType(node, typeFilter) {
   if (typeFilter === "all") return true;
   if (typeFilter === "message") return Boolean(node.turns?.some((turn) => turn.userMessages?.length || compactAssistantMessages(turn).length));
   if (typeFilter === "tool") return !node.session || Boolean(node.edgeStatus || node.spawnEvent || node.notificationEvent);
-  if (typeFilter === "compact") return Boolean(node.turns?.some((turn) => compactEventsForTurn(turn).length > 0));
-  if (typeFilter === "system") return Boolean(node.turns?.some((turn) => compactEventsForTurn(turn).length > 0));
+  if (typeFilter === "compact") return Boolean(node.turns?.some((turn) => contextEventsForTurn(turn).some((event) => event.contextKind === "compaction")));
+  if (typeFilter === "system") return Boolean(node.turns?.some((turn) => contextEventsForTurn(turn).length > 0));
   if (typeFilter === "error") return /error|failed|失败|错误/i.test(compactSearchText(node));
   return false;
 }
@@ -4149,27 +4170,37 @@ function compactTurnSearchText(turn) {
     turn.status,
     ...(turn.userMessages || []).flatMap((message) => compactMessageSearchParts(message)),
     ...compactAssistantMessages(turn).flatMap((message) => compactMessageSearchParts(message)),
-    ...compactEventsForTurn(turn).flatMap((event) => [
-      event.eventType,
-      event.text,
-      event.compact?.kind,
-      event.compact?.phase,
-      event.compact?.windowNumber,
-      event.compact?.windowId,
-      event.compact?.previousWindowId,
-      event.compact?.firstWindowId,
-      ...(event.compact?.replacementHistoryPreview || []).flatMap((entry) => [
-        entry.type,
-        entry.role,
-        entry.name,
-        entry.turnId,
-        entry.messageId,
-        entry.preview,
-      ]),
-    ]),
+    ...contextEventsForTurn(turn).flatMap(compactContextEventSearchParts),
     ...(turn.children || []).map(compactSearchText),
   ];
   return parts.filter(Boolean).join(" ").toLowerCase();
+}
+
+function compactContextEventSearchParts(event = {}) {
+  return [
+    event.contextKind,
+    event.eventType,
+    event.text,
+    event.instruction?.text,
+    event.userText?.text,
+    event.skill?.name,
+    event.skill?.sourceFile,
+    event.state,
+    event.compact?.kind,
+    event.compact?.phase,
+    event.compact?.windowNumber,
+    event.compact?.windowId,
+    event.compact?.previousWindowId,
+    event.compact?.firstWindowId,
+    ...(event.compact?.replacementHistoryPreview || []).flatMap((entry) => [
+      entry.type,
+      entry.role,
+      entry.name,
+      entry.turnId,
+      entry.messageId,
+      entry.preview,
+    ]),
+  ];
 }
 
 // The renderer stays isolated while its interaction model is migrated into analysis.
@@ -4536,7 +4567,7 @@ function renderCompactTurn(turn, context) {
   const assistant = assistantMessages.length
     ? assistantMessages.map((message, index) => renderCompactMessage("assistant", compactAssistantMessageLabel(message, index, assistantMessages.length), message, context.query, `${path}-assistant-${index}`)).join("")
     : `<div class="compact-missing">本轮没有助手消息。</div>`;
-  const compactEvents = compactEventsForTurn(turn)
+  const contextEvents = contextEventsForTurn(turn)
     .map((event, index) => renderCompactContextEvent(event, context.query, `${path}-compact-${index}`))
     .join("");
   const embeddedSubagents = renderCompactEmbeddedSubagents(turn.embeddedSubagents || [], context.query, compactEmbeddedSubagentTargetId(path));
@@ -4555,7 +4586,7 @@ function renderCompactTurn(turn, context) {
         ${users}
         ${assistant}
       </div>
-      ${compactEvents ? `<div class="compact-system-group">${compactEvents}</div>` : ""}
+      ${contextEvents ? `<div class="compact-system-group">${contextEvents}</div>` : ""}
       ${embeddedSubagents ? `<div class="compact-embedded-subagents">${embeddedSubagents}</div>` : ""}
       ${children ? `<div class="compact-child-group">${children}</div>` : ""}
     </section>
@@ -4623,6 +4654,11 @@ function compactEmbeddedSubagentStatusLabel(status) {
 
 function compactEventsForTurn(turn) {
   return Array.isArray(turn?.compactEvents) ? turn.compactEvents : (turn?.items || []).filter((item) => item.type === "context-compact");
+}
+
+function contextEventsForTurn(turn) {
+  if (Array.isArray(turn?.contextEvents)) return turn.contextEvents;
+  return compactEventsForTurn(turn).map((event) => ({ ...event, contextKind: "compaction" }));
 }
 
 function compactAssistantMessages(turn) {
@@ -4733,15 +4769,21 @@ function compactMessageSearchParts(message = {}) {
 }
 
 function renderCompactContextEvent(event, query, path) {
+  if (event.contextKind === "skill-declaration" || event.contextKind === "skill-read") {
+    return renderCompactSkillContextEvent(event, query, path);
+  }
   const compact = event.compact || {};
   const eventPath = path || `event-${event.sourceIndex ?? event.id ?? "compact"}`;
   const targetId = compactElementId("event", eventPath);
   const sourceAttr = event.sourceIndex != null ? ` data-compact-source-index="${escapeAttr(String(event.sourceIndex))}"` : "";
-  const isSummary = compact.kind === "compacted" || event.eventType === "compacted";
-  const label = isSummary ? "上下文压缩摘要" : "上下文压缩完成";
+  const isPiCompaction = compact.source === "pi" || compact.kind === "pi_compaction";
+  const isSummary = isPiCompaction || compact.kind === "compacted" || event.eventType === "compacted";
+  const label = isPiCompaction ? "Pi 上下文压缩" : isSummary ? "上下文压缩摘要" : "上下文压缩完成";
   const meta = [
     formatDate(event.timestamp),
+    compact.tokensBefore != null ? `压缩前 ${compactNumber(compact.tokensBefore)} tokens` : "",
     compact.windowNumber != null ? `窗口 ${compact.windowNumber}` : "",
+    compact.retainedTailCount != null ? `保留 ${compact.retainedTailCount} 条` : "",
     compact.replacementHistoryCount ? `替换历史 ${compact.replacementHistoryCount}` : "",
     event.truncated ? `已截断 ${compactNumber(event.textLength || 0)} 字符` : "",
   ]
@@ -4769,6 +4811,74 @@ function renderCompactContextEvent(event, query, path) {
       ${renderCompactReplacementHistory(compact, query, "compact")}
     </section>
   `;
+}
+
+function renderCompactSkillContextEvent(event, query, path) {
+  if (event.contextKind === "skill-declaration") return renderCompactSkillDeclaration(event, query, path);
+  return renderCompactSkillRead(event, query, path);
+}
+
+function renderCompactSkillDeclaration(event, query, path) {
+  const targetId = compactElementId("context", path || `${event.contextKind}-${event.sourceIndex ?? "x"}`);
+  const sourceAttr = contextSourceAttribute(event.sourceIndex);
+  const rawButton = contextRawButton(event.sourceIndex);
+  const meta = [formatDate(event.timestamp), event.skill?.sourceFile || "SKILL.md"].filter(Boolean).join(" · ");
+  const instruction = event.instruction?.text
+    ? `<details class="compact-skill-instruction"><summary>Skill 指令</summary><div>${renderMarkdownMessage(event.instruction.text, query)}</div></details>`
+    : "";
+  const userText = event.userText?.text ? `<div class="compact-skill-user-text">${renderMarkdownMessage(event.userText.text, query)}</div>` : "";
+  return `
+    <section class="compact-context-event phase-skill" id="${escapeAttr(targetId)}" tabindex="-1"${sourceAttr}>
+      <div class="compact-context-head">
+        <span class="compact-context-icon" aria-hidden="true">S</span>
+        <span class="compact-context-title"><strong>检测到 Skill 指令块</strong><em>${escapeHtml(meta)}</em></span>
+        ${rawButton}
+      </div>
+      <div class="compact-skill-name">${highlight(escapeHtml(event.skill?.name || "未命名 Skill"), query)}</div>
+      ${instruction}
+      ${userText}
+    </section>
+  `;
+}
+
+function renderCompactSkillRead(event, query, path) {
+  const targetId = compactElementId("context", path || `${event.contextKind}-${event.sourceIndex ?? "x"}`);
+  const sourceIndex = event.outputSourceIndex ?? event.sourceIndex;
+  const state = skillReadStateLabel(event.state);
+  const meta = [formatDate(event.timestamp), event.completedAt ? `结束 ${formatDate(event.completedAt)}` : "", event.skill?.sourceFile || "SKILL.md", skillReadResultLabel(event.state)].filter(Boolean).join(" · ");
+  const name = event.skill?.name ? `：${event.skill.name}` : "";
+  return `
+    <section class="compact-context-event phase-skill-read state-${escapeAttr(event.state || "attempted")}" id="${escapeAttr(targetId)}" tabindex="-1"${contextSourceAttribute(sourceIndex)}>
+      <div class="compact-context-head">
+        <span class="compact-context-icon" aria-hidden="true">S</span>
+        <span class="compact-context-title"><strong>${escapeHtml(state)}</strong><em>${escapeHtml(meta)}</em></span>
+        ${contextRawButton(sourceIndex)}
+      </div>
+      <div class="compact-skill-name">${highlight(escapeHtml(`${event.skill?.sourceFile || "SKILL.md"}${name}`), query)}</div>
+    </section>
+  `;
+}
+
+function contextSourceAttribute(sourceIndex) {
+  return sourceIndex != null ? ` data-compact-source-index="${escapeAttr(String(sourceIndex))}"` : "";
+}
+
+function contextRawButton(sourceIndex) {
+  return sourceIndex != null
+    ? `<button class="ghost-button small" type="button" title="查看原始记录" aria-label="查看原始记录" data-compact-event-index="${escapeAttr(String(sourceIndex))}">原始记录</button>`
+    : "";
+}
+
+function skillReadStateLabel(state) {
+  if (state === "confirmed") return "检测到 Skill 定义读取记录";
+  if (state === "failed") return "检测到 Skill 定义读取失败记录";
+  return "检测到未完成的 Skill 定义读取记录";
+}
+
+function skillReadResultLabel(state) {
+  if (state === "confirmed") return "工具结果成功";
+  if (state === "failed") return "工具结果失败";
+  return "未见工具结果";
 }
 
 function renderCompactContextMeta(compact = {}) {

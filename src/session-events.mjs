@@ -22,6 +22,7 @@ import { coalesceNormalizedEvents, normalizeSessionEvent, safeStringifyRedacted 
 import { cleanUserMessageText, isUsefulUserMessageText } from "./user-message-cleanup.mjs";
 import { classifyPiGoalUserMessages } from "./pi-goal-projection.mjs";
 import { piEmbeddedSubagentCall, piEmbeddedSubagentResult } from "./embedded-subagents.mjs";
+import { piSkillDeclarationFromEvent, piSkillReadFromToolCall } from "./pi-context-events.mjs";
 import {
   mergeToolOutput,
   toolArgumentsFromPayload,
@@ -141,10 +142,8 @@ function compactTurnForView(turn, turnIndex, children, context = {}) {
     )
     .filter(Boolean);
   const assistant = assistantMessages.at(-1) || null;
-  const compactEvents = turn.items
-    .filter((item) => item.type === "context-compact")
-    .map((item) => compactContextEventForView(item, { turnLookup, turns: context.turns }))
-    .filter(Boolean);
+  const contextEvents = compactContextEventsForTurn(turn, { turnLookup, turns: context.turns });
+  const compactEvents = contextEvents.filter((event) => event.contextKind === "compaction");
   const embeddedSubagents = turn.items
     .map((item, itemIndex) => (item.embeddedSubagents ? compactEmbeddedSubagentsForView(item, turnIndex, itemIndex) : null))
     .filter(Boolean);
@@ -158,8 +157,46 @@ function compactTurnForView(turn, turnIndex, children, context = {}) {
     assistantMessages,
     assistantMessage: assistant,
     compactEvents,
+    contextEvents,
     embeddedSubagents,
     children,
+  };
+}
+
+function compactContextEventsForTurn(turn, context = {}) {
+  return (turn.items || []).flatMap((item) => {
+    if (item.type === "context-compact") {
+      return [{ ...compactContextEventForView(item, context), contextKind: "compaction" }];
+    }
+    if (item.skillDeclaration) return [compactSkillDeclarationForView(item)];
+    if (item.skillRead) return [compactSkillReadForView(item)];
+    return [];
+  });
+}
+
+function compactSkillDeclarationForView(item) {
+  const declaration = item.skillDeclaration || {};
+  return {
+    contextKind: "skill-declaration",
+    timestamp: item.timestamp || null,
+    sourceIndex: item.sourceIndex ?? null,
+    skill: { name: declaration.name || "未命名 Skill", sourceFile: declaration.sourceFile || "SKILL.md" },
+    instruction: limitText(declaration.instruction || ""),
+    userText: limitText(declaration.userText || ""),
+  };
+}
+
+function compactSkillReadForView(item) {
+  const read = item.skillRead || {};
+  const state = item.output == null ? "attempted" : item.status === "failed" ? "failed" : "confirmed";
+  return {
+    contextKind: "skill-read",
+    timestamp: item.timestamp || null,
+    completedAt: item.completedAt || null,
+    sourceIndex: item.sourceIndex ?? null,
+    outputSourceIndex: item.outputSourceIndex ?? null,
+    state,
+    skill: { name: read.skillNameHint || null, sourceFile: read.sourceFile || "SKILL.md" },
   };
 }
 
@@ -183,7 +220,7 @@ function compactEmbeddedSubagentsForView(item, turnIndex, itemIndex) {
 }
 
 function compactUserMessageForView(item, options = {}) {
-  const text = cleanCompactUserText(item.text);
+  const text = cleanCompactUserText(item.skillDeclaration?.userText || item.text);
   if (!isUsefulCompactUserText(text)) return null;
   return compactMessageForView({ ...item, text }, options);
 }
@@ -1590,6 +1627,7 @@ function buildTurns(events) {
     if (isUserMessage) {
       const projectedGoalObjective = goalProjection?.kind === "objective";
       const text = projectedGoalObjective ? goalProjection.text : cleanUserMessageText(event.text);
+      const skillDeclaration = piSkillDeclarationFromEvent(event);
       if (!event.attachments?.length && (projectedGoalObjective ? !String(text).trim() : !isUsefulUserMessageText(text))) continue;
       if (!event.attachments?.length && isKnownUserEcho(current, event, text)) continue;
       current.items.push({
@@ -1603,6 +1641,7 @@ function buildTurns(events) {
         eventKind: event.kind,
         rawType: event.rawType,
         projectedGoalObjective,
+        skillDeclaration,
       });
       continue;
     }
@@ -1830,6 +1869,7 @@ function deriveSessionStatusFromEvents(events) {
 function registerToolCall(turn, activeCall, event, sourceIndex) {
   const payload = event.payload ?? {};
   const callId = event.callId || payload.call_id || `item-${turn.items.length}`;
+  const argumentsText = event.toolInput ?? toolArgumentsFromPayload(payload);
   const item = {
     id: callId,
     type: "tool-call",
@@ -1838,15 +1878,17 @@ function registerToolCall(turn, activeCall, event, sourceIndex) {
     name: event.toolName || toolNameFromPayload(payload),
     callId,
     status: payload.status || "started",
-    arguments: event.toolInput ?? toolArgumentsFromPayload(payload),
+    arguments: argumentsText,
     output: null,
   };
+  item.skillRead = piSkillReadFromToolCall(item.name, argumentsText);
   activeCall.set(callId, item);
   turn.items.push(item);
 }
 
 function registerEmbeddedToolCall(turn, activeCall, event, toolCall, sourceIndex) {
   const callId = toolCall.callId || `${event.messageId || sourceIndex}:tool-${turn.items.length}`;
+  const argumentsText = toolCall.arguments ?? null;
   const item = {
     id: callId,
     type: "tool-call",
@@ -1855,9 +1897,10 @@ function registerEmbeddedToolCall(turn, activeCall, event, toolCall, sourceIndex
     name: toolCall.name || "tool",
     callId,
     status: "started",
-    arguments: toolCall.arguments ?? null,
+    arguments: argumentsText,
     output: null,
   };
+  item.skillRead = piSkillReadFromToolCall(item.name, argumentsText);
   if (item.name === "subagent") item.embeddedSubagents = piEmbeddedSubagentCall(item.arguments);
   activeCall.set(callId, item);
   turn.items.push(item);
@@ -1877,7 +1920,8 @@ function registerToolOutput(turn, activeCall, event, sourceIndex) {
     return;
   }
 
-  turn.items.push({
+  const argumentsText = event.toolInput ?? toolArgumentsFromPayload(payload);
+  const item = {
     id: callId,
     type: "tool-call",
     sourceIndex,
@@ -1885,9 +1929,11 @@ function registerToolOutput(turn, activeCall, event, sourceIndex) {
     name: event.toolName || toolNameFromPayload(payload),
     callId,
     status: payload.status || (payload.success === false ? "failed" : "completed"),
-    arguments: event.toolInput ?? toolArgumentsFromPayload(payload),
+    arguments: argumentsText,
     output,
-  });
+  };
+  item.skillRead = piSkillReadFromToolCall(item.name, argumentsText);
+  turn.items.push(item);
 }
 
 export {

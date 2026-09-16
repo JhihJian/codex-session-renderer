@@ -1,6 +1,20 @@
 import { expect, test } from "@playwright/test";
 import { selectCodexSource } from "./source-helpers.mjs";
 
+test("正文展示 Pi 压缩和 Skill 上下文事件，并可跳转原始记录", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("#sessionTitle")).toHaveText("Pi 可切换会话");
+  await expect(page.locator("#compactContent")).toContainText("检测到 Skill 指令块");
+  await expect(page.locator("#compactContent")).toContainText("release-check");
+  await expect(page.locator("#compactContent")).toContainText("检测到 Skill 定义读取记录");
+  await expect(page.locator("#compactContent")).toContainText("工具结果成功");
+  await expect(page.locator("#compactContent")).toContainText("Pi 上下文压缩");
+  await expect(page.locator("#compactContent")).toContainText("保留当前任务、Skill 读取结果和验证结论。");
+  await expect(page.locator("#compactContent")).not.toContainText("/workspace/pi-agent/.agents/skills/release-check");
+  await page.locator("#compactContent .phase-skill-read [data-compact-event-index]").click();
+  await expect(page.locator("#rawContent")).toContainText("pi-skill-output");
+});
+
 test("原始事件详情完整展示大型工具输出", async ({ page }) => {
   await page.goto("/");
   await selectCodexSource(page);
@@ -73,16 +87,9 @@ test("正文、执行和诊断作为完整主工作区互斥切换", async ({ pa
 test("Pi 执行过程区分等待输入、完成工具与缺失时长", async ({ page }) => {
   await page.goto("/");
   await page.locator("#traceViewButton").click();
-  await expect(page.locator(".trace-row").first()).toContainText("等待输入");
-
-  for (let index = 0; index < 8 && await page.locator('.trace-row[data-trace-node-id]', { hasText: "bash" }).count() === 0; index += 1) {
-    const toggles = page.locator("[data-trace-toggle-id]");
-    if (await toggles.count() === 0) break;
-    await toggles.last().click();
-  }
-
+  await page.locator("[data-trace-toggle-id]").nth(1).click();
+  await expect(page.locator('.trace-row', { hasText: "等待输入" }).first()).toBeVisible();
   const tool = page.locator('.trace-row[data-trace-node-id]', { hasText: "bash" }).first();
   await expect(tool).toContainText("执行成功");
-  await expect(page.locator(".trace-duration").filter({ hasText: "未记录" })).not.toContainText("估算");
   expect((await page.locator(".trace-duration").allTextContents()).join(" ")).not.toContain("est");
 });

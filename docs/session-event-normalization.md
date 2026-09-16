@@ -15,7 +15,7 @@
 - `toolCalls`：Pi Agent 把工具调用嵌入到助手消息的 `message.content[].type = "toolCall"` 中时，规范化层会提取调用 ID、名称和参数，Turn 聚合再把它们展开成独立 `tool-call` item。
 - `attachments`：图片和附件的安全摘要。
 - `reasoning`：reasoning 摘要和加密状态。
-- `compact`：Codex 上下文压缩事件的摘要、窗口 ID、替换历史数量、被替换对话短预览和阶段。
+- `compact`：Codex 与 Pi 上下文压缩事件的摘要、来源、窗口或保留上下文计数，以及可用的替换历史短预览和阶段。
 - `raw`、`payload`、`rawSize`、`payloadSize`：原始事件引用和体积信息。
 - `diagnostic`：JSONL 解析失败行的行号、错误类别和安全预览。
 
@@ -51,6 +51,8 @@ Pi Agent 本机数据源默认扫描 `~/.pi/agent/sessions/**/*.jsonl`，在 API
 
 Pi Agent 没有 Codex 的 `state_5.sqlite` 时，会直接走 JSONL 文件扫描路径。阅读模型会把连续聊天记录按用户新输入拆分成多轮；助手消息里的 `toolCall` 会展开成工具调用，后续 `toolResult` 会合并为该工具调用的输出。Raw event 接口仍返回原始 Pi Agent JSONL 行。
 
+Pi `type: "compaction"` 会投影为 `compact.kind = "pi_compaction"`：保留 `summary`、`tokensBefore`、`retainedTail` 条数和 `firstKeptEntryId`，但不把 `retainedTail` 正文或扩展 `details` 复制到阅读模型。Pi 用户消息中严格匹配的 `<skill name="…" location="…">` 块投影为 Skill 指令证据；`read` 工具读取 `SKILL.md` 投影为读取记录，并从工具结果标记成功、失败或未见结果。二者不证明 Pi 启动时发现或注册了该 Skill，当前磁盘扫描的 Skills、系统提示和可用工具 schema 不进入历史会话投影。
+
 ## Delta 合并
 
 规范化层提供 `coalesceNormalizedEvents`。当事件带有 `delta`、`chunk` 或 `delta_index`，且存在同一 `messageId` 时，会把同一消息的文本 chunk 合并为连续内容，同时保留 `sourceIndexes` 和 `rawEvents` 供诊断回溯。
@@ -67,6 +69,8 @@ Codex 在上下文压缩时会写入两类事件：
 - `event_msg.payload.type: "context_compacted"`：标记压缩流程完成，通常不包含摘要正文。
 
 规范化层会把这两类事件标记为重要事件，并生成 `compact` 字段。`replacementHistoryCount` 表示 `replacement_history` 的总条数；`replacementHistoryPreview` 只保留最多 30 条可扫描短预览，每条包含序号、role、type、turn/message 定位字段、内容类型、预览文本、原始字符数和截断标记，不把完整正文塞进轻量模型。精简视图会再用 `turn_id` 关联当前会话的 Turn，补充 `turnNumber`、Turn 时间、用户问题和最后回复摘要，让“被替换的对话”优先回答 compact 摘要覆盖了哪些 Turn 和原始问题；字符数与短 ID 只作为辅助定位信息。精简视图还会为被 `replacement_history` 命中的原始消息生成 `compressionRefs` 和 replacement 条目跳转目标，用户消息只统计自身替换条目，助手消息统计自身以及按 Audit 执行层级挂到该助手消息下的工具/执行条目，标签显示为“被替换 N 条 / event #”；点击该回标会保持在精简视图并定位到对应 `context-compact` 系统块，点击“被替换的对话”里的具体条目会跳回原始消息或对应助手消息组。Raw 来源通过该系统块里的“查看 Raw”进入。Turn 聚合会把 compact 事件保留为 `context-compact` item；Raw 视图和 Review Dock 会显示摘要正文、窗口字段、替换历史数量和同一份短预览。完整原始 payload 仍通过单事件接口按需读取。
+
+Pi 标准会话的顶层 `type: "compaction"` 也会标记为重要事件并进入同一 `context-compact` 阅读位置。正文显示发生时间、完整 `summary`、`tokensBefore` 和 `retainedTail` 条数；不显示 `retainedTail` 内容、`firstKeptEntryId` 或扩展 details。Skill 指令块与 Skill 文件读取证据和压缩事件一同按原始事件顺序出现在正文的“上下文事件”区域，均可跳转 Raw。绝对 Skill 路径不进入轻量阅读模型或搜索索引。
 
 ## Codex Goal 控制包安全投影
 

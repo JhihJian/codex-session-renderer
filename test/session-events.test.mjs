@@ -543,6 +543,44 @@ test("buildTurns renders Pi Agent messages, embedded tool calls and explicit ses
   assert.equal(turns[1].items[0].text, "继续验证。");
 });
 
+test("Pi compaction and Skill evidence project into ordered reading context events", () => {
+  const events = [
+    { type: "session", id: "pi-context", timestamp: "2026-09-16T01:00:00.000Z", cwd: "/data/dev/project" },
+    {
+      type: "message",
+      id: "skill-user",
+      timestamp: "2026-09-16T01:00:01.000Z",
+      message: { role: "user", content: [{ type: "text", text: '<skill name="release-check" location="/data/dev/project/.agents/skills/release-check/SKILL.md">执行检查。</skill>\n\n检查当前分支。' }] },
+    },
+    {
+      type: "message",
+      id: "skill-read",
+      parentId: "skill-user",
+      timestamp: "2026-09-16T01:00:02.000Z",
+      message: { role: "assistant", content: [{ type: "toolCall", id: "read-skill", name: "read", arguments: { path: "/data/dev/project/.agents/skills/release-check/SKILL.md" } }] },
+    },
+    {
+      type: "message",
+      id: "skill-output",
+      parentId: "skill-read",
+      timestamp: "2026-09-16T01:00:03.000Z",
+      message: { role: "toolResult", toolCallId: "read-skill", toolName: "read", content: [{ type: "text", text: "# release-check" }], isError: false },
+    },
+    { type: "compaction", id: "compact", parentId: "skill-output", timestamp: "2026-09-16T01:00:04.000Z", summary: "保留发布检查结果。", tokensBefore: 90000, retainedTail: [{ role: "user" }] },
+  ];
+
+  const turns = buildTurns(events);
+  const view = compactTurnForView(turns[0], 0, [], { turns });
+  assert.deepEqual(view.contextEvents.map((event) => event.contextKind), ["skill-declaration", "skill-read", "compaction"]);
+  assert.equal(view.contextEvents[0].skill.name, "release-check");
+  assert.equal(view.contextEvents[0].userText.text, "检查当前分支。");
+  assert.equal(view.contextEvents[1].state, "confirmed");
+  assert.equal(view.contextEvents[1].skill.name, "release-check");
+  assert.equal(view.contextEvents[2].text, "保留发布检查结果。");
+  assert.equal(view.contextEvents[2].compact.tokensBefore, 90000);
+  assert.equal(JSON.stringify(view.contextEvents).includes("/data/dev/project"), false);
+});
+
 test("compactTurnsForClient exposes attachment summary without inline data", () => {
   const dataUri = "data:image/png;base64," + Buffer.from("abc").toString("base64");
   const turns = buildTurns([

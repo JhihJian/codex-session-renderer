@@ -1,0 +1,63 @@
+# 正文上下文事件设计
+
+## 目标
+
+正文视图在对话主线中展示可由 Pi Agent 会话 JSONL 直接证明的上下文变化：Pi `compaction` 的发生时间和结果，以及会话中出现的 Skill 指令块和 Skill 文件读取证据。
+
+## 事实边界
+
+Pi 的标准会话 JSONL 持久化 `type: "compaction"`，其中的 `summary`、`tokensBefore`、`retainedTail` 和 `firstKeptEntryId` 可作为历史事实展示。Codex 已有的 `compacted` 与 `context_compacted` 事件继续沿用既有投影。
+
+Pi 不持久化启动时的完整系统提示、可用工具 schema 或 Skills 索引。因此正文不展示“启动时加载的全部 Skill”，也不从当前磁盘扫描结果推断历史状态。
+
+Skill 只投影两种会话内证据：
+
+- 用户消息中严格匹配的 `<skill name="…" location="…">…</skill>` 指令块，显示为“检测到 Skill 指令块”。该文本可以被用户伪造，不能表述为系统已经确认的命令执行。
+- `read` 工具读取的 `SKILL.md`，显示为“检测到 Skill 定义读取记录”，并明确工具结果为成功、失败或未见。该证据说明会话记录了文件读取，不说明 Pi 启动时发现或注册了该 Skill。
+
+## 阅读投影
+
+每轮正文的用户和助手内容之后显示“上下文事件”区域，按会话记录的原始顺序排列。
+
+### 上下文压缩
+
+卡片显示发生时间、来源、压缩前 token 数和完整 `summary`。`retainedTail` 只显示条目数量，`firstKeptEntryId` 仅作为原始诊断定位信息，不在正文中展示。卡片保留“原始记录”入口。
+
+### Skill 指令块
+
+卡片显示时间、Skill 名称、会话文本中的指令正文和用户附加参数。绝对 `location` 不进入正文或搜索索引。原始记录保留完整证据。
+
+### Skill 文件读取
+
+卡片显示开始时间、结束时间、从工具结果得到的成功或失败状态，以及从 `SKILL.md` 的父目录派生的受限标签。它不显示绝对路径，也不将读取行为解释为 Skill 启动加载。
+
+## 数据模型
+
+归一化事件扩展 Pi `compaction`：
+
+```text
+compact = {
+  kind: "pi_compaction",
+  source: "pi",
+  phase: "summary",
+  message: summary,
+  tokensBefore,
+  retainedTailCount,
+  firstKeptEntryId
+}
+```
+
+独立的 Pi 上下文投影器解析 Skill 指令块和读取证据。正文模型将上下文事件统一为 `contextEvents`，包含 `contextKind`、时间、原始事件索引、证据等级和受限展示数据。既有 `compactEvents` 保留为兼容字段。
+
+## 兼容与安全
+
+- 没有上下文事件的旧会话保持原样。
+- 压缩发生在首个用户消息之前时，创建只包含上下文事件的阅读段，不伪造用户输入。
+- 正文不复制 `retainedTail`、扩展 `details` 或绝对路径，避免重复暴露大量上下文和本机目录。
+- 所有卡片都可跳转到 Raw 诊断查看可访问的原始证据。
+
+## 验证
+
+- 单元测试覆盖 Pi compaction 的字段提取、Skill 指令块的严格识别、成功/失败/缺失读取结果和非 Skill 文件排除。
+- 会话投影测试覆盖事件顺序、首轮前压缩、旧 Codex compaction 回归和正文不泄露绝对路径。
+- 浏览器测试覆盖正文卡片、全文摘要、原始记录跳转、搜索和移动端布局。

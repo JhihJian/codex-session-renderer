@@ -58,6 +58,7 @@ function isImportantEvent(event) {
     "turn_aborted",
     "compacted",
     "context_compacted",
+    "compaction",
     "jsonl_parse_error",
   ].includes(kind);
 }
@@ -132,6 +133,8 @@ function knownKindTitle(kind) {
       return "上下文已压缩";
     case "context_compacted":
       return "上下文压缩完成";
+    case "compaction":
+      return "Pi 上下文压缩";
     case "jsonl_parse_error":
       return "事件解析失败";
     default:
@@ -157,6 +160,7 @@ function summarizeEventTitle(event) {
   if (normalized.semanticKind === "diagnostic") return "事件解析失败";
   if (normalized.compact?.kind === "compacted") return "上下文已压缩";
   if (normalized.compact?.kind === "context_compacted") return "上下文压缩完成";
+  if (normalized.compact?.kind === "pi_compaction") return "Pi 上下文压缩";
   if (normalized.semanticKind === "tool_call") return summarizeToolCallTitle(normalized.toolName);
   if (normalized.semanticKind === "tool_result") return summarizeToolOutputTitle(normalized.toolName || normalized.callId);
   if (normalized.rawType !== "event_msg" && normalized.rawType !== "response_item") {
@@ -195,6 +199,10 @@ function summarizeEventPreview(event) {
     return firstLine([prefix, normalized.compact.message].filter(Boolean).join("："));
   }
   if (normalized.compact?.kind === "context_compacted") return "上下文压缩完成，后续轮次将使用已压缩事件写入的替换摘要。";
+  if (normalized.compact?.kind === "pi_compaction") {
+    const prefix = normalized.compact.tokensBefore != null ? `压缩前 ${normalized.compact.tokensBefore} tokens` : "Pi 上下文压缩";
+    return firstLine([prefix, normalized.compact.message].filter(Boolean).join("："));
+  }
   if (normalized.role === "user" || normalized.kind === "user_message") {
     const text = cleanUserMessageText(normalized.text);
     if (text) return firstLine(text);

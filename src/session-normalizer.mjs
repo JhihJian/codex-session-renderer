@@ -18,7 +18,7 @@ function normalizeSessionEvent(rawEvent, index = null) {
   const attachments = extractAttachments(payload, raw);
   const reasoning = extractReasoning(payload, raw, semanticKind);
   const tokenUsage = extractTokenUsage(payload, raw);
-  const compact = extractCompact(payload, raw, kind);
+  const compact = extractCompact(payload, raw, kind, rawType);
   const toolCalls = extractEmbeddedToolCalls(payload, raw);
   const toolName = semanticKind === "tool_call" || semanticKind === "tool_result" ? toolNameFromPayload(payload) : null;
   const toolInput = semanticKind === "tool_call" ? stringifyMaybe(toolArgumentsFromPayload(payload)) : null;
@@ -369,7 +369,8 @@ function extractReasoning(payload, raw, semanticKind) {
   };
 }
 
-function extractCompact(payload, raw, kind) {
+function extractCompact(payload, raw, kind, rawType) {
+  if (rawType === "compaction") return extractPiCompaction(raw);
   if (kind !== "compacted" && kind !== "context_compacted") return null;
   const source = isObject(payload) ? payload : {};
   const fallback = isObject(raw) ? raw : {};
@@ -395,6 +396,23 @@ function extractCompact(payload, raw, kind) {
     previousWindowId: stringOrNull(source.previous_window_id ?? source.previousWindowId ?? fallback.previous_window_id ?? fallback.previousWindowId),
     windowId: stringOrNull(source.window_id ?? source.windowId ?? fallback.window_id ?? fallback.windowId),
   };
+}
+
+function extractPiCompaction(raw) {
+  const source = isObject(raw) ? raw : {};
+  const message = stringOrNull(source.summary);
+  const retainedTail = Array.isArray(source.retainedTail) ? source.retainedTail : [];
+  return compactObject({
+    kind: "pi_compaction",
+    source: "pi",
+    phase: "summary",
+    message,
+    messageLength: message ? message.length : 0,
+    tokensBefore: numberOrNull(source.tokensBefore),
+    retainedTailCount: retainedTail.length,
+    firstKeptEntryId: stringOrNull(source.firstKeptEntryId),
+    fromHook: source.fromHook === true,
+  });
 }
 
 function compactReplacementHistoryPreview(entry, index) {

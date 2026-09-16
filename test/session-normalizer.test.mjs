@@ -108,6 +108,27 @@ test("normalizer maps Pi Agent message records to stable message and tool fields
   assert.equal(toolResult.toolOutput, "Successfully wrote file");
 });
 
+test("normalizer preserves Pi compaction summary without materializing retained context", () => {
+  const normalized = normalizeSessionEvent({
+    type: "compaction",
+    id: "compact-1",
+    timestamp: "2026-09-16T01:00:00.000Z",
+    summary: "保留当前任务和验证结果。",
+    tokensBefore: 123456,
+    retainedTail: [{ role: "user", content: "secret retained context" }, { role: "assistant", content: [] }],
+    firstKeptEntryId: "entry-42",
+  });
+
+  assert.equal(normalized.kind, "compaction");
+  assert.equal(normalized.compact.kind, "pi_compaction");
+  assert.equal(normalized.compact.source, "pi");
+  assert.equal(normalized.compact.message, "保留当前任务和验证结果。");
+  assert.equal(normalized.compact.tokensBefore, 123456);
+  assert.equal(normalized.compact.retainedTailCount, 2);
+  assert.equal(normalized.compact.firstKeptEntryId, "entry-42");
+  assert.equal(JSON.stringify(normalized.compact).includes("secret retained context"), false);
+});
+
 test("normalizer extracts generated token usage from Codex and Pi records", () => {
   const codex = normalizeSessionEvent({
     type: "event_msg",
