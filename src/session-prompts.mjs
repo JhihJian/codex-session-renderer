@@ -78,7 +78,6 @@ function buildPromptArchiveEntry(session, prompt, options = {}) {
     status: session?.status || null,
     archived: Boolean(session?.archived),
     available: Boolean(session?.path),
-    remoteIndexOnly: Boolean(session?.remoteIndexOnly),
   };
 }
 

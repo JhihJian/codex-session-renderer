@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import path from "node:path";
+
 import {
   compactSessionForList,
   displayTitleForList,
@@ -127,46 +127,8 @@ test("JSONL subagent metadata supplies child relation and display name", () => {
   assert.deepEqual(rootSessionsOnly([{ id: "root", title: "根会话" }, session]).map((item) => item.id), ["root"]);
 });
 
-test("sessionFromThread maps remote rollout paths into the local snapshot source", () => {
-  const session = sessionFromThread(
-    {
-      id: "same-id",
-      title: "远程会话",
-      path: "/root/.codex/sessions/2026/06/25/rollout-2026-06-25T01-02-03-same-id.jsonl",
-    },
-    "/tmp/snapshots/remote/current",
-    {
-      sourceId: "remote",
-      sourceLabel: "远程设备",
-      dataSourceKind: "remote",
-      originalCodexHome: "/root/.codex",
-    },
-  );
-
-  assert.equal(
-    session.path,
-    path.join("/tmp/snapshots/remote/current", "sessions", "2026", "06", "25", "rollout-2026-06-25T01-02-03-same-id.jsonl"),
-  );
-  assert.equal(session.relativePath, "sessions/2026/06/25/rollout-2026-06-25T01-02-03-same-id.jsonl");
-  assert.equal(session.sourceId, "remote");
-  assert.equal(session.sourceLabel, "远程设备");
-  assert.equal(session.dataSourceKind, "remote");
-});
-
 test("mapCodexHomePath leaves unrelated paths untouched", () => {
   assert.equal(mapCodexHomePath("/var/log/session.jsonl", "/tmp/current", "/root/.codex"), "/var/log/session.jsonl");
-});
-
-test("remote SQLite rollout paths fail closed unless they map to snapshot sessions JSONL", () => {
-  const options = { dataSourceKind: "remote" };
-  assert.equal(mapCodexHomePath("/var/log/session.jsonl", "/tmp/current", "/root/.codex", options), "");
-  assert.equal(mapCodexHomePath("/root/.codex/archived_sessions/old.jsonl", "/tmp/current", "/root/.codex", options), "");
-  assert.equal(mapCodexHomePath("/root/.codex/sessions/../state_5.sqlite", "/tmp/current", "/root/.codex", options), "");
-  assert.equal(mapCodexHomePath("/root/.codex/sessions/2026/07/session.txt", "/tmp/current", "/root/.codex", options), "");
-  assert.equal(
-    sessionFromThread({ id: "unsafe", path: "/var/log/session.jsonl" }, "/tmp/current", { ...options, originalCodexHome: "/root/.codex" }).path,
-    null,
-  );
 });
 
 test("withFileStat and publicThreadMeta normalize derived file metadata", () => {

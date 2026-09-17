@@ -1,15 +1,11 @@
 import { createServer } from "node:http";
 import { createHash, randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertSecureListenConfig, createAccessControl, requireAuthorizedRequest } from "./src/access-control.mjs";
 import { createDataSourceRegistry, sanitizeErrorMessage } from "./src/data-sources.mjs";
 import { sendError, sendJson, sendText, serveStaticFile } from "./src/http-response.mjs";
-import { createRendererConfigStore } from "./src/renderer-config.mjs";
-import { createSnapshotRootCommitCoordinator } from "./src/snapshot-root-commit-coordinator.mjs";
-import { createDeadlineSignal, fetchWithDeadline, isAbortError as isRemoteAbortError, readLimitedResponseText } from "./src/remote-http.mjs";
 import { createSessionDetailCoordinator } from "./src/session-detail-coordinator.mjs";
 import { readJsonl, readJsonlLineWithDiagnostics, readJsonlRange, readJsonlWithDiagnostics } from "./src/jsonl-reader.mjs";
 import {
@@ -42,7 +38,7 @@ import { normalizeSessionEvent } from "./src/session-normalizer.mjs";
 import { buildSessionTiming } from "./src/session-timing.mjs";
 import { createPiGoalMessageProjector, isLikelyCodexGoalControlText } from "./src/pi-goal-projection.mjs";
 import { promptProjectKey } from "./src/session-prompts.mjs";
-import { createAbortError, createConcurrencyGate, createPromptArchiveCoordinator, createSharedSubscriptionRegistry, fileSignature, isAbortError } from "./src/prompt-archive-coordinator.mjs";
+import { createAbortError, createConcurrencyGate, createPromptArchiveCoordinator, fileSignature, isAbortError } from "./src/prompt-archive-coordinator.mjs";
 import {
   compactSessionForList,
   parentSessionIdFromMeta,
@@ -79,25 +75,8 @@ const listTitleProbeMaxBytes = 96 * 1024;
 const port = Number(process.env.PORT || 4789);
 const host = process.env.HOST || "127.0.0.1";
 const accessToken = process.env.CODEX_SESSION_RENDERER_TOKEN || "";
-const remoteHttpLimits = {
-  deadlineMs: readPositiveEnv("CODEX_REMOTE_HTTP_DEADLINE_MS", 30_000, 300_000),
-  indexMaxBytes: readPositiveEnv("CODEX_REMOTE_INDEX_MAX_BYTES", 2 * 1024 * 1024, 32 * 1024 * 1024),
-  healthMaxBytes: readPositiveEnv("CODEX_REMOTE_HEALTH_MAX_BYTES", 256 * 1024, 4 * 1024 * 1024),
-};
 const sessionReadGate = createConcurrencyGate(readPositiveEnv("CODEX_SESSION_DETAIL_MAX_CONCURRENT_READS", 4, 32));
-const remoteRefreshGate = createConcurrencyGate(readPositiveEnv("CODEX_REMOTE_MAX_CONCURRENT_REFRESHES", 2, 16));
-const remoteRefreshSubscriptions = createSharedSubscriptionRegistry();
-const sourceIdentityRegistry = new Map();
-const snapshotCommitCoordinator = createSnapshotRootCommitCoordinator();
-const configStore = createRendererConfigStore({ onCommittedMutation: invalidateChangedManagedSourceVersions });
-let rendererConfig = await configStore.readConfig();
-let dataSources = createDataSourceRegistry({
-  config: rendererConfig,
-  refreshGate: remoteRefreshGate,
-  refreshSubscriptions: remoteRefreshSubscriptions,
-  sourceIdentityRegistry,
-  snapshotCommitCoordinator,
-});
+const dataSources = createDataSourceRegistry();
 const sourceContexts = new Map();
 
 function readPositiveEnv(name, fallback, maximum) {
@@ -117,54 +96,6 @@ function sessionDetailCoordinatorOptions() {
   };
 }
 
-async function reloadDataSources() {
-  rendererConfig = await configStore.readConfig();
-  dataSources = createDataSourceRegistry({
-    config: rendererConfig,
-    refreshGate: remoteRefreshGate,
-    refreshSubscriptions: remoteRefreshSubscriptions,
-    sourceIdentityRegistry,
-    snapshotCommitCoordinator,
-  });
-  sourceContexts.clear();
-}
-
-function invalidateChangedManagedSourceVersions({ previous = {}, next = {} } = {}) {
-  const previousPeers = new Map((previous.peers || []).map((peer) => [peer.id, peer]));
-  const nextPeers = new Map((next.peers || []).map((peer) => [peer.id, peer]));
-  const sourceIds = new Set([...previousPeers.keys(), ...nextPeers.keys()]);
-  for (const sourceId of sourceIds) {
-    const before = previousPeers.get(sourceId);
-    const after = nextPeers.get(sourceId);
-    if (!before || !after || before.url !== after.url || before.enabled !== after.enabled) {
-      const source = dataSources.getSource(sourceId);
-      const fallbackRoot = path.join(
-        process.env.CODEX_REMOTE_SNAPSHOT_ROOT || path.join(os.homedir(), ".codex-session-renderer", "remote-snapshots"),
-        sourceId,
-      );
-      snapshotCommitCoordinator.run(source?.snapshotRoot || fallbackRoot, () => sourceIdentityRegistry.delete(sourceId));
-    }
-  }
-}
-
-function remoteSourceVersions() {
-  return new Map(
-    dataSources.listSources()
-      .filter((source) => source.kind === "remote")
-      .map((source) => [source.id, source.status?.sourceVersion || null]),
-  );
-}
-
-function sourceConfigurationChange(previousVersion, source, { deleted = false } = {}) {
-  const sourceVersion = source?.status?.sourceVersion || null;
-  const sourceChanged = deleted || previousVersion == null || sourceVersion == null || previousVersion !== sourceVersion;
-  return {
-    result: deleted ? "source_removed" : sourceChanged ? "source_changed" : "source_unchanged",
-    sourceChanged,
-    sourceVersion,
-    snapshotRefreshRequired: source?.status?.needsRefresh === true,
-  };
-}
 
 function getSourceContext(sourceId = "local") {
   const source = dataSources.getSource(sourceId || "local");
@@ -178,11 +109,7 @@ function getSourceContext(sourceId = "local") {
     sessionsRoot: source.sessionsRoot,
     sessionIndexPath: source.sessionIndexPath,
     stateDbPath: source.stateDbPath,
-    threadStore: createSqliteThreadStore({
-      stateDbPath: source.stateDbPath,
-      maxListSessions,
-      beforeRead: (signal) => assertSourceStateDbReadable(source, signal),
-    }),
+    threadStore: createSqliteThreadStore({ stateDbPath: source.stateDbPath, maxListSessions }),
     sessionCache: null,
     sessionCacheTime: 0,
     sessionCacheByScope: new Map(),
@@ -213,84 +140,12 @@ function sourceModelOptions(context) {
   };
 }
 
-function assertSourceSnapshotReadable(context) {
-  const source = context?.source;
-  if (source?.kind !== "remote") return;
-  if (source.isCurrent?.() && source.status?.snapshotAvailable) return;
-  const sourceChanged = source.isCurrent?.() === false || source.status?.error?.code === "snapshot_source_changed";
-  const error = new Error(sourceChanged ? "远端来源已变更，需要拉取新快照。" : "尚未拉取远端快照。");
-  error.status = 409;
-  error.code = sourceChanged ? "source_snapshot_changed" : "snapshot_refresh_required";
-  throw error;
-}
-
-function pathIsInside(rootPath, candidatePath) {
-  const relative = path.relative(rootPath, candidatePath);
-  return Boolean(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
-}
-
-function pathPartsInside(rootPath, candidatePath) {
-  const relative = path.relative(rootPath, candidatePath);
-  if (!pathIsInside(rootPath, candidatePath)) return null;
-  const parts = relative.split(path.sep);
-  return parts.every((part) => part && part !== "." && part !== "..") ? parts : null;
-}
-
-async function remoteSnapshotFileStat(context, filePath, { sessionFile = false, expectedId = null } = {}) {
-  const rootPath = sessionFile ? context.sessionsRoot : context.codexHome;
-  const parts = remoteSnapshotPathParts(rootPath, filePath, sessionFile, expectedId);
-  if (!parts) return null;
-  try {
-    if (sessionFile && !await remoteSnapshotDirectoryStat(context, rootPath)) return null;
-    const rootRealPath = await fs.realpath(rootPath);
-    if (!await pathPartsAreRegular(rootPath, parts)) return null;
-    const stat = await regularFileStat(filePath);
-    if (!stat) return null;
-    const fileRealPath = await fs.realpath(filePath);
-    return pathIsInside(rootRealPath, fileRealPath) ? stat : null;
-  } catch {
-    return null;
-  }
-}
-
-async function remoteSnapshotDirectoryStat(context, directoryPath) {
-  const parts = pathPartsInside(context.codexHome, directoryPath);
-  if (!parts) return null;
-  try {
-    const homeRealPath = await fs.realpath(context.codexHome);
-    if (!await pathPartsAreRegular(context.codexHome, parts)) return null;
-    const stat = await fs.stat(directoryPath);
-    if (!stat.isDirectory()) return null;
-    const directoryRealPath = await fs.realpath(directoryPath);
-    return pathIsInside(homeRealPath, directoryRealPath) ? stat : null;
-  } catch {
-    return null;
-  }
-}
-
-function remoteSnapshotPathParts(rootPath, filePath, sessionFile, expectedId) {
-  const parts = pathPartsInside(rootPath, filePath);
-  if (!parts || (sessionFile && !filePath.endsWith(".jsonl"))) return null;
-  if (sessionFile && expectedId && sessionIdFromFile(filePath) !== expectedId) return null;
-  return parts;
-}
-
-async function pathPartsAreRegular(rootPath, parts) {
-  let candidatePath = rootPath;
-  for (const part of parts) {
-    candidatePath = path.join(candidatePath, part);
-    if ((await fs.lstat(candidatePath)).isSymbolicLink()) return false;
-  }
-  return true;
-}
-
 async function regularFileStat(filePath) {
   const stat = await fs.stat(filePath);
   return stat.isFile() ? stat : null;
 }
 
 async function sourceFileStat(context, filePath) {
-  if (context.source.kind === "remote") return remoteSnapshotFileStat(context, filePath);
   try {
     return await regularFileStat(filePath);
   } catch {
@@ -299,11 +154,15 @@ async function sourceFileStat(context, filePath) {
 }
 
 async function sourceSessionRootIsReadable(context, rootPath) {
-  return context.source.kind !== "remote" || Boolean(await remoteSnapshotDirectoryStat(context, rootPath));
+  try {
+    return (await fs.stat(rootPath)).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 async function sessionFileStat(context, filePath, expectedId = null) {
-  if (context.source.kind === "remote") return remoteSnapshotFileStat(context, filePath, { sessionFile: true, expectedId });
+  if (expectedId && sessionIdFromFile(filePath) !== expectedId) return null;
   return sourceFileStat(context, filePath);
 }
 
@@ -315,15 +174,6 @@ async function requireReadableSessionFile(context, filePath) {
   throw error;
 }
 
-async function assertSourceStateDbReadable(source, signal) {
-  if (signal?.aborted) throw createAbortError();
-  if (source.kind !== "remote") return;
-  const stat = await remoteSnapshotFileStat(source, source.stateDbPath);
-  if (stat) return;
-  const error = new Error("远端快照 SQLite 文件不可安全读取。");
-  error.code = "unsafe_remote_snapshot_file";
-  throw error;
-}
 
 function throwIfRequestAborted(signal) {
   if (signal?.aborted) throw createAbortError();
@@ -356,17 +206,6 @@ function analysisEventFromRaw(event, index) {
   return analysis;
 }
 
-function invalidateSourceContext(sourceId) {
-  const context = sourceContexts.get(sourceId || "local");
-  if (!context) return;
-  context.sessionCache = null;
-  context.sessionCacheTime = 0;
-  context.sessionCacheByScope.clear();
-  context.allSessionCache = null;
-  context.allSessionCacheTime = 0;
-  context.sessionDetailCoordinator.cache.clear();
-  context.promptArchiveCoordinator = createPromptArchiveCoordinator({ readGate: sessionReadGate });
-}
 
 async function* walkJsonl(dir, options = {}) {
   if (options.signal?.aborted) throw createAbortError();
@@ -426,7 +265,7 @@ async function* walkSourceSessionFiles(context, options = {}) {
     yield* walkPiTaskSessions(context.source.taskSessionsRoot, options);
     return;
   }
-  for (const entry of sessionFileRoots(context.codexHome, context.sessionsRoot, context.source.kind !== "remote")) {
+  for (const entry of sessionFileRoots(context.codexHome, context.sessionsRoot, true)) {
     if (!await sourceSessionRootIsReadable(context, entry.root)) continue;
     for await (const filePath of walkJsonl(entry.root, options)) {
       yield { filePath, taskId: null, archived: entry.archived };
@@ -518,7 +357,6 @@ function sessionMatchesCatalogBounds(session, bounds) {
 }
 
 async function listSessions(context, options = {}) {
-  assertSourceSnapshotReadable(context);
   throwIfRequestAborted(options.signal);
   const scope = normalizeSessionCatalogScope(options.scope || "all");
   const bounds = sessionCatalogBounds(scope);
@@ -755,7 +593,6 @@ async function enrichThreadRowsFromFiles(context, threads, options = {}) {
 }
 
 async function getSessionById(context, id, options = {}) {
-  assertSourceSnapshotReadable(context);
   throwIfRequestAborted(options.signal);
   const thread = (await context.threadStore.readThreadRowsByIds([id], { signal: options.signal })).get(id);
   if (thread) {
@@ -782,7 +619,6 @@ async function getSessionById(context, id, options = {}) {
 }
 
 async function listAllSessionsForQuery(context) {
-  assertSourceSnapshotReadable(context);
   const now = Date.now();
   if (context.allSessionCache && now - context.allSessionCacheTime < 3000) return context.allSessionCache;
 
@@ -918,16 +754,10 @@ async function queryPromptArchive(context, params, options = {}) {
 }
 
 async function promptArchiveSnapshot(context, scope) {
-  const paths = context.source.kind === "remote"
-    ? [context.stateDbPath, context.sessionsRoot]
-    : [context.stateDbPath, context.sessionsRoot, path.join(context.codexHome, "archived_sessions")];
+  const paths = [context.stateDbPath, context.sessionsRoot, path.join(context.codexHome, "archived_sessions")];
   const signatures = await Promise.all(paths.map(async (target) => {
     try {
-      const stat = context.source.kind !== "remote"
-        ? await fs.stat(target)
-        : target === context.sessionsRoot
-          ? await remoteSnapshotDirectoryStat(context, target)
-          : await sourceFileStat(context, target);
+      const stat = await fs.stat(target);
       return stat ? fileSignature(target, stat) : `${target}:missing`;
     } catch {
       return `${target}:missing`;
@@ -978,7 +808,7 @@ async function promptArchiveCandidates(context, scope, cursor, limit, options = 
       if (!stat) continue;
       candidates.push({
         session,
-        // Keep this in SQLite's remote rollout_path namespace. session.path is the validated local snapshot mapping.
+        // SQLite paths are mapped into the selected local source before reading the session file.
         cursor: { kind: "sqlite", path: thread.path, id: thread.id },
       });
     }
@@ -1010,11 +840,10 @@ async function promptArchiveFileCandidates(context, bounds, cursor, limit, optio
     })));
     return candidates.filter((candidate) => candidate.session?.path);
   }
-  const roots = sessionFileRoots(context.codexHome, context.sessionsRoot, context.source.kind !== "remote");
+  const roots = sessionFileRoots(context.codexHome, context.sessionsRoot, true);
   const startRoot = cursor?.kind === "file" ? cursor.rootIndex : 0;
   for (let rootIndex = startRoot; rootIndex < roots.length && records.length < limit; rootIndex += 1) {
     const root = roots[rootIndex];
-    if (context.source.kind === "remote" && !await remoteSnapshotDirectoryStat(context, root.root)) continue;
     for await (const filePath of walkJsonl(root.root, options)) {
       if (records.length >= limit) break;
       if (rootIndex === startRoot && cursor?.kind === "file" && filePath >= cursor.filePath) continue;
@@ -1208,7 +1037,7 @@ function sessionDetailStats(context, session, { stat, rawEvents = [], analysisEv
       stale: context.source.status?.stale ?? false,
       lastSuccessfulRefreshAt: context.source.status?.lastSuccessfulRefreshAt ?? null,
     },
-    codexHome: context.source.kind === "remote" ? null : context.codexHome,
+    codexHome: context.codexHome,
     dataPath: session.path,
   };
 }
@@ -1399,175 +1228,6 @@ async function getSessionEvent(context, id, index, options = {}) {
 }
 
 
-function createRemoteServiceError(code, message, status = 502, cause = null) {
-  const error = new Error(sanitizeRemoteMessage(message));
-  error.name = "RemoteServiceError";
-  error.status = status;
-  error.code = code;
-  error.expose = true;
-  if (cause) error.cause = cause;
-  return error;
-}
-
-function sanitizeRemoteMessage(message) {
-  return sanitizeErrorMessage(message || "远端请求失败。");
-}
-
-function isRemoteServiceError(error) {
-  return error?.expose === true && typeof error?.code === "string";
-}
-
-function remoteFailurePayload(error) {
-  const message = sanitizeRemoteMessage(error?.message || "远端请求失败。");
-  return {
-    ok: false,
-    status: error?.status || 502,
-    code: error?.code || "remote_request_failed",
-    error: message,
-    message,
-  };
-}
-
-function remoteHttpFailureStatus(status) {
-  return status === 401 || status === 403 || status === 409 ? status : 502;
-}
-
-async function readRemoteJson(response, { code, message, status = 502, maxBytes, signal }) {
-  try {
-    return JSON.parse(await readLimitedResponseText(response, { maxBytes, code, signal }));
-  } catch (error) {
-    if (isRemoteAbortError(error)) throw error;
-    throw createRemoteServiceError(code, message, status, error);
-  }
-}
-
-async function queryRemoteSessionIndex(source, params, options = {}) {
-  if (source.kind !== "remote" || !source.definition?.indexUrl) {
-    throw createRemoteServiceError("remote_index_not_configured", "远端索引不可用。", 404);
-  }
-  if (!source.definition.token) {
-    throw createRemoteServiceError("remote_index_missing_token", `缺少 ${source.definition.tokenEnv}。`, 400);
-  }
-  let indexUrl;
-  try {
-    indexUrl = new URL(source.definition.indexUrl);
-  } catch (error) {
-    throw createRemoteServiceError("remote_index_invalid_url", "远端索引地址无效。", 400, error);
-  }
-  for (const [key, value] of params) indexUrl.searchParams.set(key, value);
-  const deadline = createDeadlineSignal(options.signal, remoteHttpLimits.deadlineMs, "remote_index_deadline_exceeded");
-  let response;
-  try {
-    response = await fetchWithDeadline(fetch, indexUrl, {
-      headers: {
-        authorization: `Bearer ${source.definition.token}`,
-      },
-    }, { signal: deadline.signal }).catch((error) => {
-      if (isRemoteAbortError(error)) throw error;
-      if (error?.code === "remote_index_deadline_exceeded") throw createRemoteServiceError(error.code, "远端索引请求超时。", 502, error);
-      throw createRemoteServiceError("remote_index_unreachable", `远端索引不可达：${error?.message || "连接失败"}`, 502, error);
-    });
-  if (response.status === 401 || response.status === 403) {
-    throw createRemoteServiceError("remote_index_auth_failed", "远端索引认证失败。", response.status);
-  }
-  if (response.status === 409) {
-    throw createRemoteServiceError("index_snapshot_changed", "远端历史索引已变化，请重新开始定位。", 409);
-  }
-  if (!response.ok) {
-    throw createRemoteServiceError(
-      "remote_index_http_failed",
-      `远端索引请求失败：HTTP ${response.status}`,
-      remoteHttpFailureStatus(response.status),
-    );
-  }
-    const data = await readRemoteJson(response, {
-      code: "remote_index_non_json",
-      message: "远端索引返回非 JSON。",
-      maxBytes: remoteHttpLimits.indexMaxBytes,
-      signal: deadline.signal,
-    });
-    return {
-      ok: true,
-      status: 200,
-      page: data.page,
-      sessions: (data.sessions || []).map((session) => ({
-        ...session,
-        sourceId: source.id,
-        sourceLabel: source.label,
-        dataSourceKind: "remote",
-        remoteIndexOnly: true,
-        availableInSnapshot: false,
-      })),
-    };
-  } finally {
-    deadline.dispose();
-  }
-}
-
-async function testRemotePeer(source, options = {}) {
-  try {
-    return await testRemotePeerOrThrow(source, options);
-  } catch (error) {
-    if (isRemoteServiceError(error)) return remoteFailurePayload(error);
-    throw error;
-  }
-}
-
-async function testRemotePeerOrThrow(source, options = {}) {
-  if (source.kind !== "remote" || !source.definition?.indexUrl) {
-    throw createRemoteServiceError("remote_health_not_configured", "远端索引不可用。", 404);
-  }
-  if (!source.definition.token) {
-    throw createRemoteServiceError("remote_health_missing_token", "缺少远端访问令牌。", 400);
-  }
-  let healthUrl;
-  try {
-    healthUrl = new URL(source.definition.indexUrl);
-  } catch (error) {
-    throw createRemoteServiceError("remote_health_invalid_url", "远端健康检查地址无效。", 400, error);
-  }
-  healthUrl.pathname = healthUrl.pathname.replace(/\/api\/codex-session-index$/, "/api/share-health");
-  const deadline = createDeadlineSignal(options.signal, remoteHttpLimits.deadlineMs, "remote_health_deadline_exceeded");
-  let response;
-  try {
-    response = await fetchWithDeadline(fetch, healthUrl, {
-      headers: {
-        authorization: `Bearer ${source.definition.token}`,
-      },
-    }, { signal: deadline.signal }).catch((error) => {
-      if (isRemoteAbortError(error)) throw error;
-      if (error?.code === "remote_health_deadline_exceeded") throw createRemoteServiceError(error.code, "远端健康检查超时。", 502, error);
-      throw createRemoteServiceError("remote_health_unreachable", `远端健康检查不可达：${error?.message || "连接失败"}`, 502, error);
-    });
-  if (response.status === 401 || response.status === 403) {
-    throw createRemoteServiceError("remote_health_auth_failed", "远端认证失败。", response.status);
-  }
-  if (!response.ok) {
-    throw createRemoteServiceError(
-      "remote_health_http_failed",
-      `远端健康检查失败：HTTP ${response.status}`,
-      remoteHttpFailureStatus(response.status),
-    );
-  }
-    const data = await readRemoteJson(response, {
-      code: "remote_health_non_json",
-      message: "远端健康检查返回非 JSON。",
-      maxBytes: remoteHttpLimits.healthMaxBytes,
-      signal: deadline.signal,
-    });
-    return {
-      ok: true,
-      status: response.status,
-      remote: {
-        codexHome: data.codexHome || null,
-        requiresAuth: data.requiresAuth !== false,
-        time: data.time || null,
-      },
-    };
-  } finally {
-    deadline.dispose();
-  }
-}
 
 async function buildCompactView(context, { session, normalizedEvents, turns, hierarchy, timing = null, options = {} }) {
   throwIfRequestAborted(options.signal);
@@ -1770,27 +1430,6 @@ async function serveStatic(req, res, pathname) {
   return serveStaticFile(res, publicDir, pathname);
 }
 
-async function readJsonBody(req, maxBytes = 64 * 1024) {
-  const chunks = [];
-  let size = 0;
-  for await (const chunk of req) {
-    size += chunk.length;
-    if (size > maxBytes) {
-      const error = new Error("Request body too large");
-      error.status = 413;
-      throw error;
-    }
-    chunks.push(chunk);
-  }
-  if (chunks.length === 0) return {};
-  try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-  } catch {
-    const error = new Error("Invalid JSON body");
-    error.status = 400;
-    throw error;
-  }
-}
 
 function allowMethod(req, res, methods) {
   if (methods.includes(req.method)) return true;
@@ -1825,7 +1464,6 @@ function isReadOnlyApiPath(pathname) {
     pathname === "/api/sessions" ||
     pathname.startsWith("/api/sessions/") ||
     pathname.startsWith("/api/query/") ||
-    /^\/api\/sources\/[^/]+\/index$/.test(pathname) ||
     /^\/api\/sources\/[^/]+\/prompts$/.test(pathname) ||
     /^\/api\/sources\/[^/]+\/sessions(?:\/.*)?$/.test(pathname) ||
     /^\/api\/sources\/[^/]+\/query\/.*$/.test(pathname)
@@ -1856,72 +1494,6 @@ async function route(req, res) {
     if (pathname === "/api/sources") {
       return sendJson(res, 200, { sources: dataSources.listSources() });
     }
-    if (pathname === "/api/peers") {
-      if (req.method === "GET") {
-        return sendJson(res, 200, { peers: await configStore.listPeers(), sources: dataSources.listSources() });
-      }
-      if (req.method === "POST") {
-        const previousVersions = remoteSourceVersions();
-        const peer = await configStore.upsertPeer(await readJsonBody(req));
-        await reloadDataSources();
-        const source = dataSources.getSource(peer.id);
-        return sendJson(res, 200, {
-          peer,
-          peers: await configStore.listPeers(),
-          sources: dataSources.listSources(),
-          configuration: sourceConfigurationChange(previousVersions.get(peer.id), source),
-        });
-      }
-      return sendError(res, 405, "Method not allowed");
-    }
-    const peerMatch = pathname.match(/^\/api\/peers\/([^/]+)$/);
-    if (peerMatch) {
-      const peerId = decodeURIComponent(peerMatch[1]);
-      if (req.method === "PUT") {
-        const previousVersions = remoteSourceVersions();
-        const peer = await configStore.upsertPeer({ ...(await readJsonBody(req)), id: peerId });
-        await reloadDataSources();
-        const source = dataSources.getSource(peer.id);
-        return sendJson(res, 200, {
-          peer,
-          peers: await configStore.listPeers(),
-          sources: dataSources.listSources(),
-          configuration: sourceConfigurationChange(previousVersions.get(peer.id), source),
-        });
-      }
-      if (req.method === "DELETE") {
-        const previousVersions = remoteSourceVersions();
-        const deleted = await configStore.deletePeer(peerId);
-        await reloadDataSources();
-        return sendJson(res, deleted ? 200 : 404, {
-          ok: deleted,
-          peers: await configStore.listPeers(),
-          sources: dataSources.listSources(),
-          configuration: deleted ? sourceConfigurationChange(previousVersions.get(peerId), null, { deleted: true }) : null,
-        });
-      }
-      return sendError(res, 405, "Method not allowed");
-    }
-    const peerTestMatch = pathname.match(/^\/api\/peers\/([^/]+)\/test$/);
-    if (peerTestMatch) {
-      if (req.method !== "POST") return sendError(res, 405, "Method not allowed");
-      const source = dataSources.getSource(decodeURIComponent(peerTestMatch[1]));
-      if (!source) return sendError(res, 404, "Peer not found");
-      return sendJson(res, 200, await testRemotePeer(source, { signal: requestSubscription.signal }));
-    }
-    const sourceIndexMatch = pathname.match(/^\/api\/sources\/([^/]+)\/index$/);
-    if (sourceIndexMatch) {
-      const source = dataSources.getSource(decodeURIComponent(sourceIndexMatch[1]));
-      if (!source) return sendError(res, 404, "Data source not found");
-      const result = await queryRemoteSessionIndex(source, url.searchParams, { signal: requestSubscription.signal });
-      if (!result.ok) return sendError(res, result.status || 502, result.error || "Remote index is not available");
-      return sendJson(res, 200, {
-        source: dataSources.listSources().find((item) => item.id === source.id),
-        page: result.page,
-        sessions: result.sessions,
-      });
-    }
-    const sourceRefreshMatch = pathname.match(/^\/api\/sources\/([^/]+)\/refresh$/);
     const sourcePromptsMatch = pathname.match(/^\/api\/sources\/([^/]+)\/prompts$/);
     if (sourcePromptsMatch) {
       const context = getSourceContext(decodeURIComponent(sourcePromptsMatch[1]));
@@ -1935,21 +1507,7 @@ async function route(req, res) {
         subscription.dispose();
       }
     }
-    if (sourceRefreshMatch) {
-      if (req.method !== "POST") return sendError(res, 405, "Method not allowed");
-      const sourceId = decodeURIComponent(sourceRefreshMatch[1]);
-      const result = await dataSources.refreshSource(sourceId, { signal: requestSubscription.signal });
-      invalidateSourceContext(sourceId);
-      if (!result.ok) {
-        const status = result.status || 502;
-        return sendJson(res, status, {
-          ok: false,
-          source: result.source,
-          error: result.error || result.source?.status?.error || { code: "refresh_failed", message: "刷新失败。" },
-        });
-      }
-      return sendJson(res, 200, { ok: true, source: result.source });
-    }
+
     if (pathname === "/api/sessions") {
       const context = resolveRequestSource(url);
       if (!context) return sendError(res, 404, "Data source not found");
@@ -2062,7 +1620,7 @@ async function route(req, res) {
   } catch (error) {
     if (isAbortError(error) || res.destroyed) return undefined;
     const status = error?.status || 500;
-    const publicMessage = status >= 500 && !isRemoteServiceError(error) ? "Internal server error" : sanitizeErrorMessage(error?.message || "Bad request");
+    const publicMessage = status >= 500 ? "Internal server error" : sanitizeErrorMessage(error?.message || "Bad request");
     return sendError(res, status, publicMessage, {
       name: error?.name,
       code: error?.code,
@@ -2105,7 +1663,7 @@ function startServer(options = {}) {
   return server.listen(listenPort, listenHost, () => {
     console.log(`Codex session renderer: http://${listenHost}:${listenPort}/`);
     for (const source of dataSources.listSources()) {
-      console.log(`Read-only data source [${source.id}]: ${source.kind === "local" ? source.codexHome : source.snapshotPath}`);
+      console.log(`Read-only data source [${source.id}]: ${source.codexHome}`);
     }
   });
 }

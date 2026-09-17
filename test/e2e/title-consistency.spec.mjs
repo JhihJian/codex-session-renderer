@@ -65,9 +65,8 @@ test("被截断的会话标题保留完整原文提示", async ({ page }) => {
   await expect(title).toContainText(suffix);
 });
 
-test("长标题后段类型筛选由服务端完成，并在本机和远端历史完整展示", async ({ page }) => {
+test("长标题后段类型筛选由服务端完成", async ({ page }) => {
   const localSuffix = "CHROMIUM_LONG_TITLE_ERROR_TOOL_AFTER_DISPLAY_LIMIT";
-  const remoteSuffix = "CHROMIUM_REMOTE_LONG_TITLE_ERROR_TOOL_AFTER_DISPLAY_LIMIT";
   await page.goto("/");
   await selectCodexSource(page);
   await openSessionFilters(page);
@@ -85,20 +84,4 @@ test("长标题后段类型筛选由服务端完成，并在本机和远端历�
   await expect(localRow).toContainText(localSuffix);
   await expect(localRow).toHaveAttribute("aria-label", new RegExp(localSuffix));
 
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.locator("#sourceSelect").selectOption("office");
-  await openSessionFilters(page);
-  await page.locator("#sessionTimeFilter [data-session-time=earlier]").click();
-  const remoteRow = page.locator('[data-session-id="00000000-0000-4000-8000-000000000101"]');
-  await expect(remoteRow).toBeVisible();
-  await expect(page.locator("#sessionCount")).toHaveText("1");
-  await expect(remoteRow).toContainText(remoteSuffix);
-  await expect(remoteRow).toHaveAttribute("aria-label", new RegExp(remoteSuffix));
-
-  const remoteToolRequest = page.waitForRequest((request) => request.url().includes("/api/sources/office/index?") && request.url().includes("type=tool") && request.url().includes("cursor=0"));
-  await page.locator("#sessionTypeFilter").selectOption("tool");
-  await remoteToolRequest;
-  await expect(remoteRow).toBeVisible();
-  await expect(page.locator("#sessionCount")).toHaveText("1");
-  await expect(remoteRow).toContainText(remoteSuffix);
 });

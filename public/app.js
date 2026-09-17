@@ -7,11 +7,8 @@ const { createRawEventCache } = window.RawEventCache;
 
 const state = {
   sources: [],
-  peers: [],
-  selectedPeerId: null,
   selectedSourceId: "local",
   sessions: [],
-  remoteIndexSessions: [],
   filteredSessions: [],
   collapsedSessionDirectoryKeys: new Set(),
   sessionsLoading: false,
@@ -27,14 +24,7 @@ const state = {
   historyRequestSeq: 0,
   historyAbortController: null,
   sessionListScopeVersion: 0,
-  remoteIndexLoading: false,
-  remoteIndexError: "",
-  remoteIndexRequestKey: "",
-  remoteIndexRequestSeq: 0,
-  remoteIndexAbortController: null,
-  remoteIndexFilterKey: "",
-  remoteIndexPage: null,
-  remoteIndexPages: new Map(),
+
   mobilePanelNavigationVersion: 0,
   sessionLoading: false,
   sessionLoadError: "",
@@ -71,14 +61,6 @@ const state = {
   settingsFeedbackMessage: "",
   settingsFeedbackStatus: "",
   settingsDialogOpener: null,
-  peerFormSnapshot: null,
-  peerLoading: false,
-  peerLoadError: "",
-  peerLoadRequestSeq: 0,
-  peerLoadRequestKey: "",
-  peerSaving: false,
-  peerTesting: false,
-  peerDeleting: false,
 
   sidebarMode: "sessions",
   promptArchive: [],
@@ -93,11 +75,7 @@ const state = {
   promptArchiveLoaded: false,
   promptArchiveProject: "all",
   promptArchivePage: null,
-  remoteRefreshLoading: false,
-  remoteRefreshCancelled: false,
-  remoteRefreshError: "",
-  remoteRefreshRequestKey: "",
-  remoteRefreshAbortController: null,
+
   alternateLocalSource: null,
   alternateLocalSourceLoading: false,
   alternateLocalSourceRequestKey: "",
@@ -138,8 +116,7 @@ let sessionSearchTimer = null;
 let compactTimelineObserver = null;
 let compactTimelineJumpTarget = "";
 const markdownCacheLimit = 700;
-const remoteIndexPageCacheLimit = 6;
-const remoteIndexPageLimit = 100;
+
 const visibleViewModes = new Set(["compact", "trace", "diagnostic"]);
 let overflowTooltipFrame = 0;
 const markdownRenderer = window.markdownit?.({
@@ -247,10 +224,8 @@ const els = {
   toast: document.getElementById("toast"),
 
   refreshButton: document.getElementById("refreshButton"),
-  refreshRemoteButton: document.getElementById("refreshRemoteButton"),
   sourceSelect: document.getElementById("sourceSelect"),
   sourceStatus: document.getElementById("sourceStatus"),
-  managePeersButton: document.getElementById("managePeersButton"),
   settingsButton: document.getElementById("settingsButton"),
   settingsDialog: document.getElementById("settingsDialog"),
   settingsForm: document.getElementById("settingsForm"),
@@ -266,20 +241,7 @@ const els = {
   saveSettingsButton: document.getElementById("saveSettingsButton"),
   cancelSettingsButton: document.getElementById("cancelSettingsButton"),
   settingsStatus: document.getElementById("settingsStatus"),
-  peerDialog: document.getElementById("peerDialog"),
-  peerForm: document.getElementById("peerForm"),
-  peerList: document.getElementById("peerList"),
-  peerId: document.getElementById("peerId"),
-  peerLabel: document.getElementById("peerLabel"),
-  peerUrl: document.getElementById("peerUrl"),
-  peerToken: document.getElementById("peerToken"),
-  peerEnabled: document.getElementById("peerEnabled"),
-  peerEditorStatus: document.getElementById("peerEditorStatus"),
-  savePeerButton: document.getElementById("savePeerButton"),
-  newPeerButton: document.getElementById("newPeerButton"),
-  testPeerButton: document.getElementById("testPeerButton"),
-  deletePeerButton: document.getElementById("deletePeerButton"),
-  closePeerDialogButton: document.getElementById("closePeerDialogButton"),
+
   statusSource: document.getElementById("statusSource"),
   statusSession: document.getElementById("statusSession"),
   statusEvents: document.getElementById("statusEvents"),
@@ -347,9 +309,7 @@ function bindEvents() {
     void handleMarkdownCodeCopy(event).catch((error) => console.warn("复制代码失败", error));
   });
   document.addEventListener("keydown", handleDialogEscapeKey);
-  els.refreshRemoteButton.addEventListener("click", refreshSelectedSource);
   els.sourceSelect.addEventListener("change", () => selectSource(els.sourceSelect.value));
-  els.managePeersButton.addEventListener("click", openPeerDialog);
   els.settingsButton?.addEventListener("click", openSettingsDialog);
   els.closeSettingsDialogButton?.addEventListener("click", requestCloseSettingsDialog);
   els.cancelSettingsButton?.addEventListener("click", requestCloseSettingsDialog);
@@ -373,24 +333,8 @@ function bindEvents() {
     renderSettingsDialog();
   });
 
-  els.closePeerDialogButton.addEventListener("click", requestClosePeerDialog);
-  els.peerDialog.addEventListener("cancel", (event) => {
-    event.preventDefault();
-    requestClosePeerDialog();
-  });
-  els.newPeerButton.addEventListener("click", () => requestSelectPeerForEdit(null, { force: true }));
-  els.peerForm.addEventListener("submit", savePeerFromForm);
-  els.testPeerButton.addEventListener("click", testSelectedPeer);
-  els.deletePeerButton.addEventListener("click", deleteSelectedPeer);
-  [els.peerLabel, els.peerUrl, els.peerToken, els.peerEnabled].forEach((input) => {
-    input?.addEventListener("input", handlePeerFormInput);
-    input?.addEventListener("change", handlePeerFormInput);
-  });
   els.sessionSearch.addEventListener("input", () => {
     invalidateSessionListRequests();
-    cancelRemoteRefreshForNavigation();
-    void loadRemoteIndexForCurrentFilter();
-    if (isRemoteHistoryIndexMode()) return;
     clearTimeout(sessionSearchTimer);
     sessionSearchTimer = setTimeout(() => {
       if (state.sessionTimeFilter === "earlier") void loadHistoricalSessions({ announce: true });
@@ -404,11 +348,6 @@ function bindEvents() {
   });
   els.sessionTypeFilter.addEventListener("change", () => {
     invalidateSessionListRequests();
-    cancelRemoteRefreshForNavigation();
-    if (isRemoteHistoryIndexMode()) {
-      void loadRemoteIndexForCurrentFilter({ reset: true, announce: true });
-      return;
-    }
     if (state.sessionTimeFilter === "earlier") {
       state.sessions = state.sessions.filter((session) => sessionTimeBucket(session) !== "earlier");
       state.historyLoaded = false;
@@ -594,7 +533,6 @@ async function loadHealthAndSources({ announce = false } = {}) {
     state.sessionsLoadError = "";
     renderSourceControls();
     els.healthStatus.textContent = health.sources?.length > 1 ? `数据源 ${health.sources.length} 个` : `只读数据源 ${health.codexHome}`;
-    await reloadPeers();
     await loadSessions({ announce });
   } catch (error) {
     const message = healthUnavailableMessage(error);
@@ -603,7 +541,6 @@ async function loadHealthAndSources({ announce = false } = {}) {
     state.selectedSourceId = "local";
     state.sessions = [];
     state.filteredSessions = [];
-    resetRemoteIndexState();
     state.sessionsLoading = false;
     state.sessionsLoadError = message;
     setWorkbenchStatus("health:error", `接口不可用：${message}。点击刷新列表重试。`, { announce: true });
@@ -632,7 +569,6 @@ function renderSourceStatus() {
   if (state.healthLoadError) {
     els.sourceStatus.textContent = `接口不可用：${state.healthLoadError}`;
     els.sourceStatus.hidden = false;
-    els.refreshRemoteButton.hidden = true;
     renderStatusbar();
     return;
   }
@@ -640,48 +576,18 @@ function renderSourceStatus() {
   if (!source) {
     els.sourceStatus.textContent = "数据源不存在";
     els.sourceStatus.hidden = false;
-    els.refreshRemoteButton.hidden = true;
     renderStatusbar();
     return;
   }
   const status = source.status || {};
-  els.refreshRemoteButton.hidden = !status.refreshable;
-  els.refreshRemoteButton.disabled = Boolean(status.refreshing);
-  const refreshLabel = status.refreshing ? "正在拉取快照" : "拉取远端快照";
-  els.refreshRemoteButton.textContent = refreshLabel;
-  els.refreshRemoteButton.title = "拉取远端实时快照到本机缓存；默认只补最近 3 小时，不修改远端";
-  els.refreshRemoteButton.setAttribute("aria-label", `${refreshLabel}（默认只补最近 3 小时，写入本机缓存，不修改远端）`);
-  const parts = [source.kind === "remote" ? "远端快照（本机缓存）" : "本机"];
-  if (source.kind === "remote") parts.push("实时快照默认只补最近 3 小时，拉取会写入本机缓存");
-  if (status.refreshing) parts.push("正在拉取远端快照");
-  if (status.lastSuccessfulRefreshAt) parts.push(`最近成功 ${formatDate(status.lastSuccessfulRefreshAt)}`);
-  if (source.kind === "remote" && status.needsRefresh) parts.push("需要拉取新快照；旧快照不会用于当前来源");
-  if (status.stale) parts.push("正在浏览旧快照");
+  const parts = [source.kind === "pi-agent" ? "Pi Agent 本机目录" : "本机 Codex 目录"];
   if (status.error?.message) parts.push(status.error.message);
-  if (state.remoteRefreshCancelled && source.kind === "remote") parts.push("拉取已取消，可再次拉取");
-  if (state.remoteRefreshError && source.kind === "remote") parts.push(`拉取失败：${state.remoteRefreshError.replace(/[。.]$/, "")}。可再次拉取`);
-  if (source.kind === "remote" && !status.snapshotAvailable) parts.push("尚无可用快照");
-  if (source.kind === "remote" && state.sessionTimeFilter !== "realtime") {
-    const bucket = state.sessionTimeFilter === "day" ? "近一天" : "更早";
-    parts.push(state.remoteIndexLoading ? `${bucket}历史索引检索中` : `${bucket}为历史索引，不含正文；历史正文需扩大共享窗口或额外同步`);
-    if (state.remoteIndexError) parts.push(`历史索引失败：${state.remoteIndexError}`);
-  }
-  if (source.kind !== "remote" && state.sessionTimeFilter === "earlier") {
+  if (state.sessionTimeFilter === "earlier") {
     if (state.historyLoading) parts.push("历史会话读取中");
     else if (state.historyLoadError) parts.push(`历史会话失败：${state.historyLoadError}`);
   }
   els.sourceStatus.textContent = parts.join(" · ");
-  els.sourceStatus.hidden = !(
-    status.refreshing
-    || status.needsRefresh
-    || status.stale
-    || status.error?.message
-    || state.remoteRefreshCancelled
-    || state.remoteRefreshError
-    || (source.kind === "remote" && !status.snapshotAvailable)
-    || state.remoteIndexError
-    || state.historyLoadError
-  );
+  els.sourceStatus.hidden = !(status.error?.message || state.historyLoadError);
   renderStatusbar();
 }
 
@@ -690,15 +596,11 @@ function selectSessionTimeFilter(bucket) {
   const changed = next !== state.sessionTimeFilter;
   if (changed) invalidateSessionListRequests();
   state.sessionTimeFilter = next;
-  if (changed) cancelRemoteRefreshForNavigation();
   if (state.sidebarMode === "prompts") {
     void loadPromptArchive({ announce: true });
     return;
   }
-  if (selectedSource()?.kind === "remote") {
-    if (state.sessionTimeFilter === "realtime") void loadSessions({ announce: true });
-    else void loadRemoteIndexForCurrentFilter({ announce: true });
-  } else if (state.sessionTimeFilter === "earlier" && !state.historyLoaded) {
+  if (state.sessionTimeFilter === "earlier" && !state.historyLoaded) {
     renderSessionList();
     void loadHistoricalSessions({ announce: true });
   } else {
@@ -715,7 +617,6 @@ function selectSidebarMode(mode) {
   }
   if (next !== "prompts") cancelPromptArchiveRequest();
   state.sidebarMode = next;
-  cancelRemoteRefreshForNavigation();
   els.appShell.dataset.mode = next;
   setMobilePanel(next === "prompts" ? "thread" : "sessions");
   if (els.promptArchiveControls) els.promptArchiveControls.hidden = next !== "prompts";
@@ -876,7 +777,6 @@ async function loadSessions({ announce = false } = {}) {
   const controller = new AbortController();
   state.sessionsAbortController?.abort();
   state.sessionsAbortController = controller;
-  resetRemoteIndexState();
   const requestKey = `sessions:${++state.sessionsRequestSeq}:${sourceId}:recent24h:${scopeVersion}`;
   state.sessionsRequestKey = requestKey;
   state.sessionsLoading = true;
@@ -900,9 +800,6 @@ async function loadSessions({ announce = false } = {}) {
     if (data.source) upsertSource(data.source);
     state.sessions = data.sessions || [];
     state.historyLoaded = false;
-    state.remoteIndexSessions = [];
-    state.remoteIndexError = "";
-    state.remoteIndexLoading = false;
     state.sessionsLoading = false;
     state.sessionsLoadError = "";
     setWorkbenchStatus(operationKey, `会话列表已加载：${state.sessions.length} 个会话`, { announce });
@@ -912,14 +809,13 @@ async function loadSessions({ announce = false } = {}) {
     void discoverAlternateLocalSource();
     const nextSession = state.selectedSessionKey ? null : state.filteredSessions[0];
     if (!sessionListRequestIsCurrent({ requestKey, sourceId, scopeVersion, kind: "sessions" })) return;
-    if (nextSession && !nextSession.remoteIndexOnly) {
+    if (nextSession) {
       await selectSession(nextSession.id, { announce: false });
     } else if (!state.selectedSessionKey) {
       clearSelectedSession();
       renderAll();
     }
     if (!sessionListRequestIsCurrent({ requestKey, sourceId, scopeVersion, kind: "sessions" })) return;
-    await loadRemoteIndexForCurrentFilter();
     reloadInvalidatedPromptArchive(promptArchiveInvalidated, sourceId);
   } catch (error) {
     if (isAbortError(error) || !sessionListRequestIsCurrent({ requestKey, sourceId, scopeVersion, kind: "sessions" })) return;
@@ -930,9 +826,6 @@ async function loadSessions({ announce = false } = {}) {
     }
     state.sessions = [];
     state.filteredSessions = [];
-    state.remoteIndexSessions = [];
-    state.remoteIndexLoading = false;
-    state.remoteIndexError = "";
     state.sessionsLoading = false;
     state.sessionsLoadError = error.message;
     setWorkbenchStatus(operationKey, `会话列表加载失败：${error.message}。点击刷新列表重试。`, { announce: true });
@@ -951,7 +844,7 @@ async function loadSessions({ announce = false } = {}) {
 
 function selectFirstVisibleSession() {
   const nextSession = state.filteredSessions[0];
-  if (state.selectedSessionKey || !nextSession || nextSession.remoteIndexOnly) return;
+  if (state.selectedSessionKey || !nextSession) return;
   void selectSession(nextSession.id);
 }
 
@@ -1075,11 +968,7 @@ async function loadHistoricalSessions({ announce = false } = {}) {
 function refreshCurrentSessionList({ announce = false } = {}) {
   cancelRawDiagnosticRequest({ clear: true });
   cancelRawEventRequest();
-  if (selectedSource()?.kind === "remote" && state.sessionTimeFilter !== "realtime") {
-    void loadRemoteIndexForCurrentFilter({ reset: true, force: true, preserve: true, announce });
-    return;
-  }
-  if (selectedSource()?.kind !== "remote" && state.sessionTimeFilter === "earlier") {
+  if (state.sessionTimeFilter === "earlier") {
     void loadHistoricalSessions({ announce });
     return;
   }
@@ -1123,7 +1012,7 @@ function setWorkbenchStatus(key, message, { announce = false } = {}) {
 
 function syncAsyncAccessibility() {
   const promptLoading = state.sidebarMode === "prompts" && state.promptArchiveLoading;
-  setAriaBusy(els.sessionsPanel, state.sessionsLoading || state.historyLoading || state.remoteIndexLoading || promptLoading || state.remoteRefreshLoading);
+  setAriaBusy(els.sessionsPanel, state.sessionsLoading || state.historyLoading || promptLoading);
   setAriaBusy(els.threadPanel, state.sessionLoading || promptLoading);
   setAriaBusy(els.promptArchiveContent, promptLoading);
 }
@@ -1146,7 +1035,6 @@ async function selectSession(id, { announce = true, focusMobilePanel = true, imm
   if (immediateMobilePanel) setMobilePanel("thread");
   state.selectedSessionId = id;
   state.selectedSessionKey = sessionKey({ id, sourceId });
-  cancelRemoteRefreshForNavigation();
   state.sessionRequestKey = requestKey;
   const operationKey = `${requestKey}:status`;
   state.sessionLoading = true;
@@ -1230,7 +1118,6 @@ function clearSelectedSession() {
   markdownAbortController = null;
   state.selectedSessionId = null;
   state.selectedSessionKey = null;
-  cancelRemoteRefreshForNavigation();
   state.sessionLoading = false;
   state.sessionLoadError = "";
   state.sessionRequestKey = "";
@@ -1252,16 +1139,10 @@ async function selectSource(sourceId) {
   invalidateSessionListRequests();
   cancelAlternateLocalSourceDiscovery();
   state.selectedSourceId = sourceId;
-  cancelRemoteRefreshForNavigation();
-  state.remoteRefreshLoading = false;
-  state.remoteRefreshCancelled = false;
-  state.remoteRefreshError = "";
-  state.remoteRefreshRequestKey = `inactive:${Date.now()}`;
   state.sessions = [];
   state.filteredSessions = [];
   state.sessionsLoadError = "";
   state.sessionsLoading = true;
-  resetRemoteIndexState();
   state.promptArchive = [];
   state.promptArchiveProjects = [];
   state.promptArchiveLoaded = false;
@@ -1274,503 +1155,6 @@ async function selectSource(sourceId) {
   renderAll();
   await loadSessions({ announce: true });
   if (state.sidebarMode === "prompts") await loadPromptArchive({ announce: true });
-}
-
-async function refreshSelectedSource() {
-  const source = selectedSource();
-  if (!source?.status?.refreshable) return;
-  const sourceId = source.id;
-  cancelPromptArchiveRequest();
-  cancelRawDiagnosticRequest({ clear: true });
-  cancelRawEventRequest();
-  state.remoteRefreshAbortController?.abort();
-  const controller = new AbortController();
-  const refreshContext = selectedSourceRefreshContext(sourceId, controller);
-  state.remoteRefreshAbortController = controller;
-  const operationKey = `refresh:${sourceId}:${Date.now()}`;
-  state.remoteRefreshRequestKey = operationKey;
-  state.remoteRefreshLoading = true;
-  state.remoteRefreshCancelled = false;
-  state.remoteRefreshError = "";
-  let requestState = "current";
-  setWorkbenchStatus(operationKey, `正在拉取${source.label || "远端"}快照`, { announce: true });
-  els.refreshRemoteButton.disabled = true;
-  els.refreshRemoteButton.textContent = "正在拉取快照";
-  try {
-    const result = await fetchJson(`/api/sources/${encodeURIComponent(sourceId)}/refresh`, { method: "POST", signal: controller.signal });
-    requestState = selectedSourceRefreshRequestState({ sourceId, operationKey, refreshContext });
-    if (requestState !== "current") return;
-    await applySelectedSourceRefresh(result, { sourceId, operationKey, refreshContext });
-    requestState = selectedSourceRefreshRequestState({ sourceId, operationKey, refreshContext });
-  } catch (error) {
-    requestState = selectedSourceRefreshRequestState({ sourceId, operationKey, refreshContext });
-    if (requestState !== "current") return;
-    await handleSelectedSourceRefreshFailure(error, { sourceId, operationKey, refreshContext });
-    requestState = selectedSourceRefreshRequestState({ sourceId, operationKey, refreshContext });
-  } finally {
-    finishSelectedSourceRefresh({ controller, sourceId, operationKey, requestState });
-  }
-}
-
-function selectedSourceRefreshContext(sourceId, controller) {
-  return {
-    navigation: sourceNavigationContext(),
-    remoteIndexFilterKey: remoteIndexFilterKey(sourceId),
-    remoteHistoryIndex: isRemoteHistoryIndexMode(),
-    sidebarMode: state.sidebarMode,
-    controller,
-  };
-}
-
-function selectedSourceRefreshRequestState({ sourceId, operationKey, refreshContext }) {
-  const requestState = sourceRequestState({
-    requestKey: operationKey,
-    expectedRequestKey: state.remoteRefreshRequestKey,
-    sourceId,
-    context: refreshContext.navigation,
-  });
-  if (requestState !== "current") return requestState;
-  if (refreshContext.controller.signal.aborted || remoteIndexFilterKey(sourceId) !== refreshContext.remoteIndexFilterKey) return "navigation-changed";
-  return "current";
-}
-
-function selectedSourceRefreshIsCurrent(options) {
-  return selectedSourceRefreshRequestState(options) === "current";
-}
-
-async function applySelectedSourceRefresh(result, { sourceId, operationKey, refreshContext }) {
-  requireSourceResponse(result, sourceId, "refresh");
-  invalidatePromptArchiveCache(sourceId, promptArchiveScope());
-  state.remoteRefreshError = "";
-  if (result.source) upsertSource(result.source);
-  renderSourceControls();
-  const refreshIsCurrent = () => selectedSourceRefreshIsCurrent({ sourceId, operationKey, refreshContext });
-  if (refreshContext.sidebarMode === "sessions" && refreshContext.remoteHistoryIndex) {
-    const entry = await loadRemoteIndexForCurrentFilter({
-      reset: true,
-      force: true,
-      preserve: true,
-      announce: false,
-      signal: refreshContext.controller.signal,
-      isCurrent: refreshIsCurrent,
-    });
-    if (!entry || !refreshIsCurrent()) return;
-  } else {
-    await loadSessions();
-    if (!refreshIsCurrent()) return;
-  }
-  if (state.sidebarMode === "prompts") await loadPromptArchive({ force: true });
-  if (!refreshIsCurrent()) return;
-  setWorkbenchStatus(operationKey, "远端快照已拉取到本机缓存；未修改远端", { announce: true });
-  showToast("远端快照已拉取到本机缓存；未修改远端");
-}
-
-async function handleSelectedSourceRefreshFailure(error, { sourceId, operationKey, refreshContext }) {
-  state.remoteRefreshError = error.message;
-  const refreshIsCurrent = () => selectedSourceRefreshIsCurrent({ sourceId, operationKey, refreshContext });
-  await reloadSources({ isCurrent: refreshIsCurrent });
-  if (!refreshIsCurrent()) return;
-  setWorkbenchStatus(operationKey, `拉取远端快照失败：${error.message}。可再次拉取。`, { announce: true });
-  showToast(`拉取远端快照失败：${error.message}；远端未修改`);
-  if (!refreshContext.remoteHistoryIndex) await loadSessions();
-  if (state.sidebarMode === "prompts") await loadPromptArchive({ force: true });
-}
-
-function finishSelectedSourceRefresh({ controller, sourceId, operationKey, requestState }) {
-  if (state.remoteRefreshAbortController === controller) state.remoteRefreshAbortController = null;
-  if (!sourceRequestOwnsState({ requestKey: operationKey, expectedRequestKey: state.remoteRefreshRequestKey, sourceId })) return;
-  state.remoteRefreshLoading = false;
-  if (requestState === "navigation-changed") {
-    state.remoteRefreshCancelled = true;
-    if (state.workbenchStatus.key === operationKey) setWorkbenchStatus(operationKey, "远端快照拉取已取消，可再次拉取");
-  }
-  renderSourceControls();
-  renderAll();
-}
-
-function cancelRemoteRefreshForNavigation() {
-  if (!state.remoteRefreshAbortController || state.remoteRefreshAbortController.signal.aborted) return;
-  state.remoteRefreshAbortController.abort();
-}
-
-async function reloadSources({ isCurrent = () => true } = {}) {
-  const data = await fetchJson("/api/sources").catch(() => null);
-  if (!data?.sources || !isCurrent()) return;
-  state.sources = data.sources;
-  renderSourceControls();
-}
-
-async function reloadPeers({ showLoading = false } = {}) {
-  const requestKey = `peers:${++state.peerLoadRequestSeq}`;
-  state.peerLoadRequestKey = requestKey;
-  const preserveDraftAtStart = peerDraftShouldBePreserved();
-  if (showLoading || els.peerDialog?.open) {
-    state.peerLoading = true;
-    state.peerLoadError = "";
-    if (els.peerEditorStatus) els.peerEditorStatus.dataset.sticky = "false";
-    renderPeerManager({ preserveDraft: preserveDraftAtStart });
-  }
-  let data;
-  try {
-    data = await fetchJson("/api/peers");
-  } catch (error) {
-    if (state.peerLoadRequestKey !== requestKey) return;
-    state.peerLoading = false;
-    state.peerLoadError = error.message;
-    if (els.peerEditorStatus) els.peerEditorStatus.dataset.sticky = "false";
-    renderPeerManager({ preserveDraft: true });
-    return;
-  }
-  if (state.peerLoadRequestKey !== requestKey) return;
-  if (!data?.peers) {
-    state.peerLoading = false;
-    state.peerLoadError = "远端数据源响应缺少 peers 字段";
-    if (els.peerEditorStatus) els.peerEditorStatus.dataset.sticky = "false";
-    renderPeerManager({ preserveDraft: true });
-    return;
-  }
-  const preserveDraft = preserveDraftAtStart || peerDraftShouldBePreserved();
-  state.peers = data.peers;
-  if (data.sources) state.sources = data.sources;
-  state.peerLoading = false;
-  state.peerLoadError = "";
-  if (!preserveDraft) {
-    if (!state.selectedPeerId && state.peers.length > 0) state.selectedPeerId = state.peers[0].id;
-    if (state.selectedPeerId && !state.peers.some((peer) => peer.id === state.selectedPeerId)) {
-      state.selectedPeerId = state.peers[0]?.id || null;
-    }
-  }
-  renderSourceControls();
-  renderPeerManager({ preserveDraft });
-}
-
-function openPeerDialog() {
-  if (!els.peerDialog.open) els.peerDialog.showModal();
-  void reloadPeers({ showLoading: true });
-}
-
-function renderPeerManager(options = {}) {
-  if (!els.peerList) return;
-  const selected = state.peers.find((peer) => peer.id === state.selectedPeerId) || null;
-  if (state.peerLoading) {
-    els.peerList.innerHTML = `<div class="peer-empty">读取远端数据源中</div>`;
-  } else if (state.peerLoadError) {
-    els.peerList.innerHTML = `<div class="peer-empty">读取远端数据源失败：${escapeHtml(state.peerLoadError)}</div>`;
-  } else if (state.peers.length === 0) {
-    els.peerList.innerHTML = `<div class="peer-empty">暂无远端数据源</div>`;
-  } else {
-    els.peerList.innerHTML = state.peers.map(renderPeerRow).join("");
-  }
-  els.peerList.querySelectorAll("[data-peer-id]").forEach((row) => {
-    row.addEventListener("click", () => requestSelectPeerForEdit(row.dataset.peerId));
-  });
-  if (options.preserveDraft && peerDraftShouldBePreserved()) {
-    syncPeerEditorState();
-    return;
-  }
-  fillPeerForm(selected);
-}
-
-function renderPeerRow(peer) {
-  const active = peer.id === state.selectedPeerId ? " active" : "";
-  const status = peer.enabled ? (peer.hasToken ? "已配置" : "缺访问令牌") : "停用";
-  return `
-    <button class="peer-row${active}" type="button" data-peer-id="${escapeAttr(peer.id)}">
-      <span>
-        <strong>${escapeHtml(peer.label || peer.id)}</strong>
-        <em>${escapeHtml(peer.url || "")}</em>
-      </span>
-      <small>${escapeHtml(status)}</small>
-    </button>
-  `;
-}
-
-function selectPeerForEdit(id) {
-  state.selectedPeerId = id;
-  renderPeerManager();
-}
-
-function confirmDiscardPeerChanges() {
-  if (!peerFormDirty()) return true;
-  const confirmed = window.confirm("放弃远端数据源未保存更改？");
-  if (!confirmed) syncPeerEditorState();
-  return confirmed;
-}
-
-function requestClosePeerDialog() {
-  if (!els.peerDialog?.open) return true;
-  if (!confirmDiscardPeerChanges()) return false;
-  els.peerDialog.close();
-  return true;
-}
-
-function requestSelectPeerForEdit(id, { force = false } = {}) {
-  if (!force && id === state.selectedPeerId) return;
-  if (!confirmDiscardPeerChanges()) return;
-  selectPeerForEdit(id);
-}
-
-function fillPeerForm(peer) {
-  els.peerId.value = peer?.id || "";
-  els.peerLabel.value = peer?.label || "";
-  els.peerUrl.value = peer?.url || "";
-  els.peerToken.value = "";
-  els.peerToken.placeholder = peer?.hasToken ? "已保存；留空表示保留原访问令牌" : "粘贴远端访问令牌";
-  els.peerEnabled.checked = peer?.enabled !== false;
-  state.peerFormSnapshot = peerSnapshotFromPeer(peer);
-  els.peerEditorStatus.dataset.sticky = "false";
-  syncPeerEditorState();
-}
-
-function peerDraftShouldBePreserved() {
-  return Boolean(els.peerDialog?.open && peerFormDirty());
-}
-
-async function savePeerFromForm(event) {
-  event.preventDefault();
-  const blockedReason = peerSaveBlockedReason();
-  if (blockedReason) {
-    setPeerStatus(blockedReason);
-    syncPeerEditorState();
-    return;
-  }
-  const existingId = els.peerId.value.trim();
-  const token = els.peerToken.value.trim();
-  const body = {
-    id: existingId || undefined,
-    label: els.peerLabel.value.trim(),
-    url: els.peerUrl.value.trim(),
-    token,
-    enabled: els.peerEnabled.checked,
-  };
-  if (existingId && !token) delete body.token;
-  state.peerSaving = true;
-  setPeerStatus("保存中...");
-  syncPeerEditorState();
-  try {
-    const url = existingId ? `/api/peers/${encodeURIComponent(existingId)}` : "/api/peers";
-    const method = existingId ? "PUT" : "POST";
-    const data = await fetchJson(url, {
-      method,
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    state.peers = data.peers || [];
-    state.sources = data.sources || state.sources;
-    state.peerLoadError = "";
-    state.peerLoading = false;
-    state.selectedPeerId = data.peer?.id || existingId || null;
-    renderSourceControls();
-    renderPeerManager();
-    await finishPeerSave(data);
-  } catch (error) {
-    setPeerStatus(`保存失败：${error.message}`);
-  } finally {
-    state.peerSaving = false;
-    syncPeerEditorState();
-  }
-}
-
-async function finishPeerSave(data) {
-  const sourceChanged = data.configuration?.sourceChanged === true;
-  const selectedSourceChanged = sourceChanged && state.selectedSourceId === state.selectedPeerId;
-  if (selectedSourceChanged) {
-    state.sessions = [];
-    state.filteredSessions = [];
-    resetRemoteIndexState();
-    clearSelectedSession();
-  }
-  if (!sourceChanged) {
-    setPeerStatus("已保存；实际来源未变更，现有快照可继续使用");
-    showToast("远端数据源配置已保存；实际来源未变更，访问令牌只保存在本机");
-    return;
-  }
-  setPeerStatus("来源已变更；旧快照已隔离，需要拉取新快照");
-  showToast("远端来源已变更，旧快照已隔离；请拉取新快照");
-  if (selectedSourceChanged) await loadSessions();
-}
-
-async function testSelectedPeer() {
-  const blockedReason = peerTestBlockedReason();
-  if (blockedReason) {
-    setPeerStatus(blockedReason);
-    syncPeerEditorState();
-    return;
-  }
-  const id = els.peerId.value.trim();
-  if (!id) return;
-  state.peerTesting = true;
-  setPeerStatus("测试已保存连接中：正在使用已保存配置向远端发起只读健康检查；表单草稿不会被测试，不保存配置、不拉取快照。");
-  syncPeerEditorState();
-  try {
-    const result = await fetchJson(`/api/peers/${encodeURIComponent(id)}/test`, { method: "POST" });
-    setPeerStatus(result.ok ? `已保存连接正常 · ${formatDate(result.remote?.time) || "远端已响应"}` : `已保存连接失败：${result.error || "未知错误"}`);
-  } catch (error) {
-    setPeerStatus(`已保存连接失败：${error.message}`);
-  } finally {
-    state.peerTesting = false;
-    syncPeerEditorState();
-  }
-}
-
-async function deleteSelectedPeer() {
-  const blockedReason = peerDeleteBlockedReason();
-  if (blockedReason) {
-    setPeerStatus(blockedReason);
-    syncPeerEditorState();
-    return;
-  }
-  const peer = currentSavedPeer();
-  const id = peer.id;
-  const label = peerDeleteLabel(peer);
-  const confirmed = window.confirm(
-    `移除本机配置「${label}」？\n\n这只会移除本机保存的远端数据源配置和访问令牌，不会删除远端会话或远端快照，也不会修改远端数据源；本机已拉取的缓存快照不会随此操作删除。`,
-  );
-  if (!confirmed) {
-    setPeerStatus("已取消移除本机配置");
-    return;
-  }
-  state.peerDeleting = true;
-  setPeerStatus("移除本机配置中...");
-  syncPeerEditorState();
-  try {
-    const data = await fetchJson(`/api/peers/${encodeURIComponent(id)}`, { method: "DELETE" });
-    state.peers = data.peers || [];
-    state.sources = data.sources || state.sources.filter((source) => source.id !== id);
-    state.peerLoadError = "";
-    state.peerLoading = false;
-    if (state.selectedSourceId === id) {
-      state.selectedSourceId = "local";
-      cancelRemoteRefreshForNavigation();
-      clearSelectedSession();
-    }
-    state.selectedPeerId = state.peers[0]?.id || null;
-    renderSourceControls();
-    renderPeerManager();
-    await loadSessions();
-    showToast("已移除本机保存的远端配置和访问令牌；未删除远端会话、远端快照或本机已拉取的缓存快照");
-  } catch (error) {
-    setPeerStatus(`移除本机配置失败：${error.message}`);
-  } finally {
-    state.peerDeleting = false;
-    syncPeerEditorState();
-  }
-}
-
-function setPeerStatus(message) {
-  els.peerEditorStatus.textContent = message;
-  els.peerEditorStatus.dataset.sticky = "true";
-}
-
-function handlePeerFormInput() {
-  els.peerEditorStatus.dataset.sticky = "false";
-  syncPeerEditorState();
-}
-
-function currentSavedPeer() {
-  const id = els.peerId.value.trim();
-  return id ? state.peers.find((peer) => peer.id === id) || null : null;
-}
-
-function peerSnapshotFromPeer(peer) {
-  return {
-    id: peer?.id || "",
-    label: peer?.label || "",
-    url: peer?.url || "",
-    enabled: peer?.enabled !== false,
-    hasToken: Boolean(peer?.hasToken),
-  };
-}
-
-function peerFormModel() {
-  return {
-    id: els.peerId.value.trim(),
-    label: els.peerLabel.value.trim(),
-    url: els.peerUrl.value.trim(),
-    token: els.peerToken.value.trim(),
-    enabled: els.peerEnabled.checked,
-  };
-}
-
-function peerFormDirty() {
-  const model = peerFormModel();
-  const snapshot = state.peerFormSnapshot || peerSnapshotFromPeer(null);
-  if (!model.id) return Boolean(model.label || model.url || model.token || model.enabled !== snapshot.enabled);
-  return model.label !== snapshot.label || model.url !== snapshot.url || model.enabled !== snapshot.enabled || Boolean(model.token);
-}
-
-function peerSaveBlockedReason() {
-  const model = peerFormModel();
-  const saved = currentSavedPeer();
-  if (state.peerSaving) return "正在保存远端数据源配置";
-  if (state.peerDeleting) return "正在移除本机配置";
-  if (!model.id) {
-    if (!model.url || !model.token) return "新建远端数据源需要填写地址和访问令牌";
-    return "";
-  }
-  if (!saved) return "请选择已保存的远端数据源";
-  if (!model.url) return "地址不能为空";
-  if (model.enabled && !saved.hasToken && !model.token) return "该数据源尚未保存访问令牌，需要填写访问令牌";
-  if (!peerFormDirty()) return "没有未保存更改";
-  return "";
-}
-
-function peerTestBlockedReason() {
-  const saved = currentSavedPeer();
-  if (state.peerTesting) return "正在测试已保存连接";
-  if (state.peerSaving) return "正在保存，保存完成后再测试";
-  if (state.peerDeleting) return "正在移除本机配置";
-  if (!saved) return "请先保存该远端数据源后再测试";
-  if (peerFormDirty()) return "当前表单有未保存更改；测试只使用已保存配置，请先保存后再测试";
-  if (!saved.enabled) return "该数据源已停用，启用并保存后再测试";
-  if (!saved.hasToken) return "该数据源缺少已保存访问令牌，填写并保存后再测试";
-  return "";
-}
-
-function peerDeleteBlockedReason() {
-  if (state.peerDeleting) return "正在移除本机配置";
-  if (state.peerSaving) return "正在保存，保存完成后再移除";
-  if (!currentSavedPeer()) return "请选择已保存的远端数据源";
-  return "";
-}
-
-function peerDeleteLabel(peer) {
-  return [peer.label || peer.id, peer.id && peer.label ? peer.id : "", peer.url].filter(Boolean).join(" · ");
-}
-
-function syncPeerEditorState() {
-  const saveReason = peerSaveBlockedReason();
-  const testReason = peerTestBlockedReason();
-  const deleteReason = peerDeleteBlockedReason();
-  const model = peerFormModel();
-  const saved = currentSavedPeer();
-  els.savePeerButton.disabled = Boolean(saveReason);
-  els.savePeerButton.title = saveReason || (model.id ? "保存远端数据源更改" : "保存新远端数据源");
-  els.testPeerButton.disabled = Boolean(testReason);
-  els.testPeerButton.title = testReason || "使用已保存配置和访问令牌向远端发起只读健康检查；当前表单草稿不会被测试，不保存配置，不拉取快照";
-  els.testPeerButton.setAttribute("aria-label", els.testPeerButton.title);
-  els.deletePeerButton.disabled = Boolean(deleteReason);
-  els.deletePeerButton.title = deleteReason || `移除本机保存的配置：${peerDeleteLabel(saved)}；不会删除远端会话、远端快照或本机已拉取的缓存快照`;
-  if (els.peerEditorStatus.dataset.sticky === "true") return;
-  if (state.peerLoading) {
-    els.peerEditorStatus.textContent = "读取远端数据源中...";
-    return;
-  }
-  if (state.peerLoadError) {
-    els.peerEditorStatus.textContent = `读取远端数据源失败：${state.peerLoadError}`;
-    return;
-  }
-  if (testReason && (!saveReason || saveReason === "没有未保存更改")) {
-    els.peerEditorStatus.textContent = `测试不可用：${testReason}`;
-  } else if (saveReason) {
-    els.peerEditorStatus.textContent = saveReason;
-  } else if (model.id) {
-    els.peerEditorStatus.textContent = model.token
-      ? "输入的新访问令牌只有保存后才会用于测试已保存连接，并会替换已保存访问令牌。"
-      : "测试已保存连接只使用已保存配置；访问令牌留空会保留已保存访问令牌，输入新值需保存后生效。";
-  } else {
-    els.peerEditorStatus.textContent = "可保存新远端数据源；保存后才能测试已保存连接；访问令牌只保存在本机配置文件。";
-  }
 }
 
 function openSettingsDialog() {
@@ -2175,171 +1559,6 @@ function newSummaryRule() {
   };
 }
 
-async function loadRemoteIndexForCurrentFilter(options = {}) {
-  const source = selectedSource();
-  if (source?.kind !== "remote" || state.sessionTimeFilter === "realtime") {
-    return deactivateRemoteIndex();
-  }
-  if (options.isCurrent && !options.isCurrent()) return null;
-  const request = prepareRemoteIndexRequest(options);
-  if (request.cached) return showCachedRemoteIndexPage(request.cursor, request.cached, request.options.announce === true);
-  return requestRemoteIndexPage(request);
-}
-
-function deactivateRemoteIndex() {
-  const changed = state.remoteIndexLoading || state.remoteIndexSessions.length || state.remoteIndexError || state.remoteIndexPage;
-  resetRemoteIndexState();
-  renderSourceStatus();
-  if (changed) renderSessionList();
-}
-
-function prepareRemoteIndexRequest(options) {
-  const sourceId = state.selectedSourceId;
-  const filterKey = remoteIndexFilterKey(sourceId);
-  if (options.reset || state.remoteIndexFilterKey !== filterKey) {
-    resetRemoteIndexState({ preserve: options.preserve === true });
-    state.remoteIndexFilterKey = filterKey;
-  }
-  const cursor = String(options.cursor ?? "0");
-  return { sourceId, filterKey, cursor, options, cached: options.force ? null : state.remoteIndexPages.get(cursor) };
-}
-
-function showCachedRemoteIndexPage(cursor, entry, announce = false) {
-  if (entry.sourceId !== state.selectedSourceId) return loadRemoteIndexForCurrentFilter({ cursor, force: true, announce });
-  state.remoteIndexPages.delete(cursor);
-  state.remoteIndexPages.set(cursor, entry);
-  state.remoteIndexPage = entry;
-  state.remoteIndexSessions = entry.sessions;
-  state.remoteIndexError = "";
-  state.remoteIndexLoading = false;
-  setWorkbenchStatus(`remote-index:cached:${cursor}`, `${remoteHistoryBucketLabel()}已加载：${entry.page?.total || 0} 条`, { announce });
-  renderSourceStatus();
-  renderSessionList();
-}
-
-async function requestRemoteIndexPage({ sourceId, filterKey, cursor, options }) {
-  state.remoteIndexAbortController?.abort();
-  const controller = new AbortController();
-  const abortFromRefresh = () => controller.abort();
-  options.signal?.addEventListener("abort", abortFromRefresh, { once: true });
-  if (options.signal?.aborted || (options.isCurrent && !options.isCurrent())) {
-    options.signal?.removeEventListener("abort", abortFromRefresh);
-    return null;
-  }
-  const requestKey = startRemoteIndexRequest({ filterKey, cursor, options, controller });
-  const operationKey = `${requestKey}:status`;
-  setWorkbenchStatus(operationKey, `正在检索${remoteHistoryBucketLabel()}`, { announce: options.announce === true });
-  renderSourceStatus();
-  renderSessionList();
-  try {
-    return await fetchRemoteIndexPage({ sourceId, filterKey, cursor, options, controller, requestKey, operationKey });
-  } finally {
-    finishRemoteIndexRequest({ sourceId, filterKey, options, controller, abortFromRefresh, requestKey });
-  }
-}
-
-function startRemoteIndexRequest({ filterKey, cursor, options, controller }) {
-  state.remoteIndexAbortController = controller;
-  const requestKey = [++state.remoteIndexRequestSeq, filterKey, cursor].join("\n");
-  state.remoteIndexRequestKey = requestKey;
-  state.remoteIndexLoading = true;
-  if (!options.preserve) {
-    state.remoteIndexSessions = [];
-    state.remoteIndexPage = null;
-  }
-  state.remoteIndexError = "";
-  return requestKey;
-}
-
-function finishRemoteIndexRequest({ sourceId, filterKey, options, controller, abortFromRefresh, requestKey }) {
-  options.signal?.removeEventListener("abort", abortFromRefresh);
-  if (state.remoteIndexAbortController === controller) state.remoteIndexAbortController = null;
-  if (!remoteIndexRequestOwnsState({ requestKey, sourceId, filterKey })) return;
-  state.remoteIndexLoading = false;
-  renderSourceStatus();
-  renderSessionList();
-}
-
-async function fetchRemoteIndexPage({ sourceId, filterKey, cursor, options, controller, requestKey, operationKey }) {
-  try {
-    const data = await fetchJson(remoteIndexUrl(sourceId, cursor, options.snapshot || ""), { signal: controller.signal });
-    if (!remoteIndexRequestIsCurrent({ requestKey, sourceId, filterKey, isCurrent: options.isCurrent })) return null;
-    requireSourceResponse(data, sourceId, "remote-index");
-    const entry = applyRemoteIndexResponse({ data, sourceId, cursor, options });
-    setWorkbenchStatus(operationKey, `${remoteHistoryBucketLabel()}已加载：${entry.page.total || 0} 条`, { announce: options.announce === true });
-    return entry;
-  } catch (error) {
-    return handleRemoteIndexPageFailure({ error, sourceId, filterKey, options, requestKey, operationKey });
-  }
-}
-
-async function handleRemoteIndexPageFailure({ error, sourceId, filterKey, options, requestKey, operationKey }) {
-  if (isAbortError(error) || !remoteIndexRequestIsCurrent({ requestKey, sourceId, filterKey, isCurrent: options.isCurrent })) return null;
-  if (error.status === 409 && error.code === "index_snapshot_changed") {
-    resetRemoteIndexState();
-    showToast("远端历史索引已更新，已从第一页重新开始定位。");
-    setWorkbenchStatus(operationKey, "远端历史索引已变化，正在从第一页重新开始定位", { announce: true });
-    return loadRemoteIndexForCurrentFilter({ reset: true, signal: options.signal, isCurrent: options.isCurrent });
-  }
-  restoreRemoteIndexAfterFailedRequest(options);
-  state.remoteIndexError = error.message;
-  setWorkbenchStatus(operationKey, `远端历史索引失败：${error.message}。可重试或返回实时。`, { announce: true });
-  showToast(`远端索引检索失败：${error.message}`);
-  return null;
-}
-
-function remoteIndexRequestIsCurrent({ requestKey, sourceId, filterKey, isCurrent }) {
-  return remoteIndexRequestOwnsState({ requestKey, sourceId, filterKey }) && (!isCurrent || isCurrent());
-}
-
-function remoteIndexRequestOwnsState({ requestKey, sourceId, filterKey }) {
-  return state.remoteIndexRequestKey === requestKey && state.remoteIndexFilterKey === filterKey && state.selectedSourceId === sourceId;
-}
-
-function applyRemoteIndexResponse({ data, sourceId, cursor, options }) {
-  if (data.source) upsertSource(data.source);
-  const entry = {
-    sourceId,
-    cursor,
-    previousCursor: options.previousCursor ?? null,
-    pageNumber: options.pageNumber || 1,
-    page: data.page || { total: 0, limit: remoteIndexPageLimit, cursor, nextCursor: null },
-    sessions: (data.sessions || []).map((session) => ({ ...session, remoteIndexOnly: true, availableInSnapshot: false })),
-  };
-  cacheRemoteIndexPage(entry);
-  state.remoteIndexPage = entry;
-  state.remoteIndexSessions = entry.sessions;
-  state.remoteIndexError = "";
-  return entry;
-}
-
-function restoreRemoteIndexAfterFailedRequest(options) {
-  if (options.preserve && state.remoteIndexPage) {
-    state.remoteIndexSessions = state.remoteIndexPage.sessions;
-    return;
-  }
-  state.remoteIndexSessions = [];
-  state.remoteIndexPage = null;
-}
-
-function resetRemoteIndexState({ preserve = false } = {}) {
-  const preservedEntry = preserve ? state.remoteIndexPage : null;
-  const preservedSessions = preserve ? state.remoteIndexSessions : [];
-  state.remoteIndexAbortController?.abort();
-  state.remoteIndexAbortController = null;
-  state.remoteIndexRequestKey = `inactive:${++state.remoteIndexRequestSeq}`;
-  state.remoteIndexFilterKey = "";
-  state.remoteIndexSessions = preservedSessions;
-  state.remoteIndexLoading = false;
-  state.remoteIndexError = "";
-  state.remoteIndexPage = preservedEntry;
-  state.remoteIndexPages = new Map();
-}
-
-function remoteIndexFilterKey(sourceId) {
-  return [sourceId, state.sessionTimeFilter, els.sessionSearch.value.trim(), els.sessionTypeFilter.value].join("\n");
-}
-
 function sourceNavigationContext() {
   return JSON.stringify({
     sourceId: state.selectedSourceId,
@@ -2369,7 +1588,7 @@ function sourceResponseMatches(data, sourceId, responseKind) {
   if (responseKind === "detail") return data?.session?.sourceId === sourceId;
   if (data?.source?.id !== sourceId) return false;
   if (!responseScopeMatches(data, expectedScope)) return false;
-  const collectionKey = responseKind === "prompts" ? "entries" : responseKind === "sessions" || responseKind === "remote-index" ? "sessions" : "";
+  const collectionKey = responseKind === "prompts" ? "entries" : responseKind === "sessions" ? "sessions" : "";
   const entries = collectionKey ? data?.[collectionKey] : null;
   return !Array.isArray(entries) || entries.every((entry) => !entry?.sourceId || entry.sourceId === sourceId);
 }
@@ -2383,15 +1602,6 @@ function requireSourceResponse(data, sourceId, responseKind, expectedScope = "")
   const error = new Error("来源响应校验失败，请重试。");
   error.code = "source_response_mismatch";
   throw error;
-}
-
-function cacheRemoteIndexPage(entry) {
-  state.remoteIndexPages.delete(entry.cursor);
-  state.remoteIndexPages.set(entry.cursor, entry);
-  while (state.remoteIndexPages.size > remoteIndexPageCacheLimit) {
-    const oldestCursor = state.remoteIndexPages.keys().next().value;
-    state.remoteIndexPages.delete(oldestCursor);
-  }
 }
 
 function renderAll() {
@@ -2456,7 +1666,6 @@ function setViewMode(mode) {
     cancelRawEventRequest();
   }
   state.viewMode = nextMode;
-  if (changed) cancelRemoteRefreshForNavigation();
   if (mobilePanelLayoutActive()) setMobilePanel("thread");
   syncViewControls();
   renderStats();
@@ -2486,7 +1695,6 @@ function setDiagnosticMode(mode) {
   }
   state.diagnosticMode = nextMode;
   state.viewMode = "diagnostic";
-  cancelRemoteRefreshForNavigation();
   if (mobilePanelLayoutActive()) setMobilePanel("thread");
   syncViewControls();
   renderStats();
@@ -2567,10 +1775,7 @@ function renderPromptArchiveSidebar() {
     return;
   }
   if (!projects.length) {
-    const message = isRemoteHistoryIndexMode()
-      ? "远端历史只返回索引元数据，未同步正文，无法提取首个提示词。"
-      : promptArchiveRangeNote("当前批没有可显示的任务归档。", page);
-    els.sessionList.innerHTML = emptyState("暂无任务归档", message, []);
+    els.sessionList.innerHTML = emptyState("暂无任务归档", promptArchiveRangeNote("当前批没有可显示的任务归档。", page), []);
     return;
   }
   const active = state.promptArchiveProject;
@@ -2631,10 +1836,6 @@ function renderPromptArchive() {
     return;
   }
   const page = state.promptArchivePage || {};
-  if (!entries.length && isRemoteHistoryIndexMode()) {
-    els.promptArchiveContent.innerHTML = emptyState("历史正文未同步", "远端历史时间分类只有索引元数据，不含正文；切回实时或先扩大远端快照范围后再归档。", []);
-    return;
-  }
   const groups = groupPromptArchiveEntries(entries);
   const empty = !entries.length;
   const emptyMessage = query || status !== "all" || state.promptArchiveProject !== "all"
@@ -2682,10 +1883,10 @@ function renderPromptArchivePagination(page = {}) {
   const hasMore = page.hasMoreCandidates === true && Boolean(page.nextPageToken);
   const completion = hasMore ? "更早候选尚未扫描" : "已扫描到当前时间范围最早任务";
   return `
-    <nav class="remote-index-pagination prompt-archive-pagination" aria-label="任务归档候选分页">
-      <span class="remote-index-page-info" data-prompt-archive-page-info>${escapeHtml(promptArchiveRangeLabel(page))} · 本批 ${Number(page.entriesReturned) || 0} 条归档</span>
-      <span class="remote-index-page-status" data-prompt-archive-page-status>${escapeHtml(completion)}</span>
-      <div class="remote-index-page-actions">
+    <nav class="pagination prompt-archive-pagination" aria-label="任务归档候选分页">
+      <span class="pagination-info" data-prompt-archive-page-info>${escapeHtml(promptArchiveRangeLabel(page))} · 本批 ${Number(page.entriesReturned) || 0} 条归档</span>
+      <span class="pagination-status" data-prompt-archive-page-status>${escapeHtml(completion)}</span>
+      <div class="pagination-actions">
         <button class="ghost-button small" type="button" data-prompt-archive-page-action="next" ${hasMore && !state.promptArchiveLoading ? "" : "disabled"}>${state.promptArchiveLoading ? "正在定位更早任务" : "继续定位更早任务"}</button>
       </div>
     </nav>
@@ -2755,7 +1956,6 @@ function openPromptArchiveSession(entry) {
   if (!entry?.sessionId) return;
   cancelPromptArchiveRequest();
   state.sidebarMode = "sessions";
-  cancelRemoteRefreshForNavigation();
   state.promptArchiveProject = entry.projectKey || "all";
   els.appShell.dataset.mode = "sessions";
   if (els.promptArchiveControls) els.promptArchiveControls.hidden = true;
@@ -2791,30 +1991,15 @@ function renderSessionList() {
   const query = els.sessionSearch.value.trim().toLowerCase();
   const filter = els.sessionTypeFilter.value;
   syncSessionTimeFilter();
-  const remoteHistory = isRemoteHistoryIndexMode();
-  const source = selectedSource();
-  if (source?.kind === "remote" && source.status?.needsRefresh && !remoteHistory) {
+  if (state.sessionsLoading && state.sessions.length === 0) {
     state.filteredSessions = [];
     els.sessionCount.textContent = "0";
-    els.sessionList.innerHTML = renderSessionListActionEmptyState(
-      "需要拉取新快照",
-      "远端来源已变更或尚未完成首次拉取。旧来源的会话、归档和导出不会用于当前来源。",
-      [{ action: "refresh-remote", label: "拉取远端快照" }],
-    );
-    bindSessionListEmptyActions();
+    els.sessionList.innerHTML = emptyState("正在加载会话列表", (selectedSource()?.label || "当前数据源") + " · 请稍候。");
     renderStatusbar();
     syncExportButtons();
     return;
   }
-  if (!remoteHistory && state.sessionsLoading && state.sessions.length === 0 && state.remoteIndexSessions.length === 0) {
-    state.filteredSessions = [];
-    els.sessionCount.textContent = "0";
-    els.sessionList.innerHTML = emptyState("正在加载会话列表", `${selectedSource()?.label || "当前数据源"} · 请稍候。`);
-    renderStatusbar();
-    syncExportButtons();
-    return;
-  }
-  if (!remoteHistory && state.healthLoadError && state.sessions.length === 0 && state.remoteIndexSessions.length === 0) {
+  if (state.healthLoadError && state.sessions.length === 0) {
     state.filteredSessions = [];
     els.sessionCount.textContent = "0";
     els.sessionList.innerHTML = emptyState("接口不可用", state.healthLoadError);
@@ -2822,15 +2007,15 @@ function renderSessionList() {
     syncExportButtons();
     return;
   }
-  if (!remoteHistory && state.sessionsLoadError && state.sessions.length === 0 && state.remoteIndexSessions.length === 0) {
+  if (state.sessionsLoadError && state.sessions.length === 0) {
     state.filteredSessions = [];
     els.sessionCount.textContent = "0";
-    els.sessionList.innerHTML = emptyState("无法加载会话列表", `${selectedSource()?.label || "当前数据源"} · ${state.sessionsLoadError}`);
+    els.sessionList.innerHTML = emptyState("无法加载会话列表", (selectedSource()?.label || "当前数据源") + " · " + state.sessionsLoadError);
     renderStatusbar();
     syncExportButtons();
     return;
   }
-  const sessions = (remoteHistory ? state.remoteIndexSessions : mergedVisibleSessions()).filter((session) => {
+  const sessions = state.sessions.filter((session) => {
     if (sessionTimeBucket(session) !== state.sessionTimeFilter) return false;
     if (filter === "project" && !session.cwd) return false;
     if (filter === "projectless" && session.cwd) return false;
@@ -2838,154 +2023,33 @@ function renderSessionList() {
   });
   state.filteredSessions = sessions;
   renderSessionFilterNotice();
-  els.sessionCount.textContent = String(remoteHistory && state.remoteIndexPage ? state.remoteIndexPage.page.total : sessions.length);
-  if (sessions.length === 0) {
-    if (!remoteHistory && state.sessionTimeFilter === "earlier" && state.historyLoading) {
+  els.sessionCount.textContent = String(sessions.length);
+  if (!sessions.length) {
+    if (state.sessionTimeFilter === "earlier" && state.historyLoading) {
       els.sessionList.innerHTML = renderSessionListActionEmptyState("正在读取更早会话", "历史会话仅在切换到该分类后读取。", []);
-      renderStatusbar();
-      syncExportButtons();
-      return;
-    }
-    if (!remoteHistory && state.sessionTimeFilter === "earlier" && state.historyLoadError) {
-      els.sessionList.innerHTML = renderSessionListActionEmptyState(
-        `历史会话读取失败：${state.historyLoadError}`,
-        "可重试更早会话，或点击刷新列表重试。",
-        [{ action: "retry-history", label: "重试更早会话" }],
-      );
+    } else if (state.sessionTimeFilter === "earlier" && state.historyLoadError) {
+      els.sessionList.innerHTML = renderSessionListActionEmptyState("历史会话读取失败：" + state.historyLoadError, "可重试更早会话，或点击刷新列表重试。", [{ action: "retry-history", label: "重试更早会话" }]);
       bindSessionListEmptyActions();
-      renderStatusbar();
-      syncExportButtons();
-      return;
+    } else {
+      els.sessionList.innerHTML = emptyState("没有匹配的会话", "调整搜索或过滤条件。");
     }
-    if (remoteHistory && state.remoteIndexLoading) {
-      els.sessionList.innerHTML = renderSessionListActionEmptyState(
-        "正在检索远端历史索引",
-        `${remoteHistoryBucketLabel()}只返回标题、时间、路径等索引元数据，正文不会随历史索引同步。`,
-        [{ action: "return-realtime", label: "返回实时" }],
-      );
-      bindSessionListEmptyActions();
-      renderStatusbar();
-      syncExportButtons();
-      return;
-    }
-    if (remoteHistory && state.remoteIndexError) {
-      els.sessionList.innerHTML = renderSessionListActionEmptyState(
-        `历史索引失败：${state.remoteIndexError}`,
-        "可以重试远端历史索引，或返回实时查看已同步到本机快照的会话正文。",
-        [
-          { action: "retry-remote-index", label: "重试历史索引" },
-          { action: "return-realtime", label: "返回实时" },
-        ],
-      );
-      bindSessionListEmptyActions();
-      renderStatusbar();
-      syncExportButtons();
-      return;
-    }
-    const hint =
-      remoteHistory
-        ? "近一天/更早为远端历史索引，不含正文；实时快照默认只补最近 3 小时，历史正文需远端扩大共享窗口/额外同步，或切回已有本地快照。"
-        : "调整搜索或过滤条件。";
-    const actions = [];
-    if (canDiscoverAlternateLocalSource() && state.alternateLocalSource) {
-      actions.push({ action: "select-alternate-local-source", label: `切换查看 ${state.alternateLocalSource.label}` });
-    }
-    const emptyStateHtml = actions.length
-      ? renderSessionListActionEmptyState("没有匹配的会话", `当前本机 Codex 来源没有可显示会话。检测到 ${state.alternateLocalSource.label} 有可读会话，可切换查看。`, actions)
-      : emptyState("没有匹配的会话", hint);
-    els.sessionList.innerHTML = emptyStateHtml + renderRemoteIndexPagination();
-    bindSessionListEmptyActions();
-    bindRemoteIndexPagination();
     renderStatusbar();
     syncExportButtons();
     return;
   }
-  els.sessionList.innerHTML = renderSessionDirectoryTree(sessions, query) + renderRemoteIndexPagination();
+  els.sessionList.innerHTML = renderSessionDirectoryTree(sessions, query);
   bindSessionDirectoryTree();
-  const activateSessionRow = (row) => {
-    const rowSessionId = row.dataset.sessionId;
-    const rowSessionKey = sessionKey({ id: rowSessionId, sourceId: state.selectedSourceId });
-    const loadedSessionKey = state.detail?.session ? sessionKey(state.detail.session) : "";
-    if (rowSessionKey === state.selectedSessionKey && loadedSessionKey === rowSessionKey && !state.sessionLoading) {
-      row.focus();
-      return;
-    }
-    selectSession(rowSessionId, { immediateMobilePanel: true });
-  };
-  els.sessionList.querySelectorAll('[data-session-id]:not([data-remote-index-only="true"])').forEach((row) => {
-    row.addEventListener("click", (event) => {
-      if (event.target.closest("a")) return;
-      activateSessionRow(row);
-    });
+  els.sessionList.querySelectorAll("[data-session-id]").forEach((row) => {
+    const activate = () => selectSession(row.dataset.sessionId, { immediateMobilePanel: true });
+    row.addEventListener("click", (event) => { if (!event.target.closest("a")) activate(); });
     row.addEventListener("keydown", (event) => {
-      if (event.target.closest("a")) return;
-      if (event.key !== "Enter" && event.key !== " ") return;
+      if (event.target.closest("a") || (event.key !== "Enter" && event.key !== " ")) return;
       event.preventDefault();
-      activateSessionRow(row);
+      activate();
     });
   });
-  bindRemoteIndexPagination();
   renderStatusbar();
   syncExportButtons();
-}
-
-function isRemoteHistoryIndexMode() {
-  return selectedSource()?.kind === "remote" && state.sessionTimeFilter !== "realtime";
-}
-
-function remoteHistoryBucketLabel() {
-  if (state.sessionTimeFilter === "day") return "近一天历史索引";
-  if (state.sessionTimeFilter === "earlier") return "更早历史索引";
-  return "历史索引";
-}
-
-function renderRemoteIndexPagination() {
-  const entry = state.remoteIndexPage;
-  if (!isRemoteHistoryIndexMode() || !entry) return "";
-  const page = entry.page || {};
-  const total = Math.max(0, Number(page.total) || 0);
-  const cursor = Math.max(0, Number(page.cursor));
-  const start = total === 0 ? 0 : cursor + 1;
-  const end = total === 0 ? 0 : Math.min(total, start + entry.sessions.length - 1);
-  const hasPrevious = entry.previousCursor != null;
-  const hasNext = page.nextCursor != null;
-  const range = total === 0 ? "当前范围 0 条" : `当前范围第 ${start}-${end} 条`;
-  const completion = hasNext ? "可继续定位更早结果" : "已到末页，无更多索引结果";
-  return `
-    <nav class="remote-index-pagination" aria-label="远端历史索引分页">
-      <span class="remote-index-page-info" data-remote-index-page-info>第 ${entry.pageNumber} 页 · ${range} / 共 ${total} 条</span>
-      <span class="remote-index-page-status" data-remote-index-page-status>${completion}</span>
-      <div class="remote-index-page-actions">
-        <button class="ghost-button small" type="button" data-remote-index-page-action="previous" title="上一页" aria-label="上一页" ${hasPrevious && !state.remoteIndexLoading ? "" : "disabled"}>←</button>
-        <button class="ghost-button small" type="button" data-remote-index-page-action="next" title="下一页" aria-label="下一页" ${hasNext && !state.remoteIndexLoading ? "" : "disabled"}>→</button>
-      </div>
-    </nav>
-  `;
-}
-
-function bindRemoteIndexPagination(container = els.sessionList) {
-  container.querySelectorAll("[data-remote-index-page-action]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const entry = state.remoteIndexPage;
-      if (!entry || state.remoteIndexLoading) return;
-      if (button.dataset.remoteIndexPageAction === "previous" && entry.previousCursor != null) {
-        void loadRemoteIndexForCurrentFilter({
-          cursor: entry.previousCursor,
-          pageNumber: Math.max(1, entry.pageNumber - 1),
-          announce: true,
-        });
-      }
-      if (button.dataset.remoteIndexPageAction === "next" && entry.page.nextCursor != null) {
-        void loadRemoteIndexForCurrentFilter({
-          cursor: entry.page.nextCursor,
-          previousCursor: entry.cursor,
-          pageNumber: entry.pageNumber + 1,
-          snapshot: entry.page.snapshot || "",
-          announce: true,
-        });
-      }
-    });
-  });
 }
 
 function renderSessionListActionEmptyState(title, subtitle, actions = []) {
@@ -3003,12 +2067,8 @@ function bindSessionListEmptyActions(container = els.sessionList) {
       const action = button.dataset.sessionEmptyAction;
       if (action === "return-realtime") {
         returnToRealtimeSessions();
-      } else if (action === "retry-remote-index") {
-        void loadRemoteIndexForCurrentFilter();
       } else if (action === "retry-history") {
         void loadHistoricalSessions({ announce: true });
-      } else if (action === "refresh-remote") {
-        void refreshSelectedSource();
       } else if (action === "retry-prompts") {
         void loadPromptArchive();
       } else if (action === "select-alternate-local-source" && state.alternateLocalSource) {
@@ -3023,23 +2083,12 @@ function bindSessionListEmptyActions(container = els.sessionList) {
 }
 
 function mergedVisibleSessions() {
-  const byKey = new Map();
-  for (const session of state.sessions) byKey.set(sessionKey(session), session);
-  for (const session of state.remoteIndexSessions) {
-    const key = sessionKey(session);
-    if (!byKey.has(key)) byKey.set(key, session);
-  }
-  return [...byKey.values()];
+  return state.sessions;
 }
 
 function findSessionSummary(id, sourceId = state.selectedSourceId) {
   const key = sessionKey({ id, sourceId });
-  return (
-    mergedVisibleSessions().find((session) => sessionKey(session) === key) ||
-    state.sessions.find((session) => session.id === id) ||
-    state.remoteIndexSessions.find((session) => session.id === id) ||
-    null
-  );
+  return state.sessions.find((session) => sessionKey(session) === key) || state.sessions.find((session) => session.id === id) || null;
 }
 
 function currentSessionFilteredOut() {
@@ -3055,7 +2104,6 @@ function clearSessionFiltersForSelectedSession() {
   if (state.detail?.session) {
     state.sessionTimeFilter = sessionTimeBucket(state.detail.session);
   }
-  if (state.sessionTimeFilter !== previousTimeFilter) cancelRemoteRefreshForNavigation();
   reloadCurrentSessionListForFilters();
 }
 
@@ -3063,15 +2111,10 @@ function returnToRealtimeSessions() {
   const changed = state.sessionTimeFilter !== "realtime";
   if (changed) invalidateSessionListRequests();
   state.sessionTimeFilter = "realtime";
-  if (changed) cancelRemoteRefreshForNavigation();
   reloadCurrentSessionListForFilters();
 }
 
 function reloadCurrentSessionListForFilters() {
-  if (isRemoteHistoryIndexMode()) {
-    void loadRemoteIndexForCurrentFilter({ reset: true, announce: true });
-    return;
-  }
   if (state.sessionTimeFilter === "earlier") {
     state.sessions = state.sessions.filter((session) => sessionTimeBucket(session) !== "earlier");
     state.historyLoaded = false;
@@ -3085,17 +2128,10 @@ function renderSessionFilterNotice(filteredOut = currentSessionFilteredOut()) {
   if (!els.sessionFilterNotice) return;
   els.sessionFilterNotice.hidden = !filteredOut;
   if (!filteredOut) return;
-  const source = selectedSource();
-  const remoteHistory = source?.kind === "remote" && state.sessionTimeFilter !== "realtime";
-  els.sessionFilterNoticeText.textContent = remoteHistory
-    ? "左侧正在显示远端历史索引，索引不含正文；中间仍是当前已打开正文。可清除筛选回到当前会话，或返回实时查看已同步快照。"
-    : "左侧列表不再包含当前正文；清除搜索、类型和时间筛选后，可重新对齐左侧索引与中间正文。";
+  els.sessionFilterNoticeText.textContent = "左侧列表不再包含当前正文；清除搜索、类型和时间筛选后，可重新对齐左侧索引与中间正文。";
   els.clearSessionFiltersButton.title = "清除搜索和类型筛选，并切回当前会话所属时间分类";
   els.clearSessionFiltersButton.setAttribute("aria-label", els.clearSessionFiltersButton.title);
-  const showRealtime = state.sessionTimeFilter !== "realtime";
-  els.returnRealtimeButton.hidden = !showRealtime;
-  els.returnRealtimeButton.title = "切回实时 <3h 分类";
-  els.returnRealtimeButton.setAttribute("aria-label", els.returnRealtimeButton.title);
+  els.returnRealtimeButton.hidden = state.sessionTimeFilter === "realtime";
 }
 
 function markdownExportBlockedReason() {
@@ -3177,36 +2213,9 @@ function syncSessionTimeFilter() {
 }
 
 function sessionTimeFilterCopy(bucket) {
-  const isRemote = selectedSource()?.kind === "remote";
-  if (isRemote) {
-    if (bucket === "realtime") {
-      return {
-        title: "远端数据源：已同步到本机实时快照的最近 3 小时会话，可打开正文；拉取实时快照默认只补最近 3 小时",
-        ariaLabel: "远端实时，小于 3 小时，已同步正文",
-      };
-    }
-    const label = bucket === "day" ? "近一天" : "更早";
-    return {
-      title: `远端数据源：${label}为历史索引入口，只含标题、时间、路径等元数据，不含正文`,
-      ariaLabel: `远端${label}，历史索引，不含正文`,
-    };
-  }
-  if (bucket === "realtime") {
-    return {
-      title: "本机数据源：最近 3 小时内的本机会话，可直接打开正文",
-      ariaLabel: "本机实时，小于 3 小时，可打开正文",
-    };
-  }
-  if (bucket === "day") {
-    return {
-      title: "本机数据源：3 小时到 1 天内的本机会话，可直接打开正文",
-      ariaLabel: "本机近一天，可打开正文",
-    };
-  }
-  return {
-    title: "本机数据源：1 天前或未知时间的本机会话，可直接打开正文",
-    ariaLabel: "本机更早，可打开正文",
-  };
+  if (bucket === "realtime") return { title: "最近 3 小时内的本机会话，可直接打开正文", ariaLabel: "本机实时，小于 3 小时，可打开正文" };
+  if (bucket === "day") return { title: "3 小时到 1 天内的本机会话，可直接打开正文", ariaLabel: "本机近一天，可打开正文" };
+  return { title: "1 天前或未知时间的本机会话，可直接打开正文", ariaLabel: "本机更早，可打开正文" };
 }
 
 function renderSessionDirectoryTree(sessions, query) {
@@ -3264,46 +2273,22 @@ function bindSessionDirectoryTree() {
 
 function renderSessionRow(session, query, chainDepth = 0) {
   const active = sessionKey(session) === state.selectedSessionKey ? " active" : "";
-  const indexOnly = session.remoteIndexOnly ? " index-only" : "";
-  const chainChild = chainDepth > 0 ? ` chain-child chain-depth-${Math.min(chainDepth, 4)}` : "";
+  const chainChild = chainDepth > 0 ? " chain-child chain-depth-" + Math.min(chainDepth, 4) : "";
   const cwd = session.cwd ? shortPath(session.cwd) : "无项目";
   const agentName = session.agentNickname || "Codex";
-  const agent = session.agentNickname ? `${session.agentNickname}/${session.agentRole || "agent"}` : "Codex";
-  const source = session.remoteIndexOnly ? `${session.sourceLabel || selectedSource()?.label || ""} · 仅索引` : session.sourceLabel || selectedSource()?.label || "";
+  const agent = session.agentNickname ? session.agentNickname + "/" + (session.agentRole || "agent") : "Codex";
   const model = session.model || session.modelProvider || "";
   const status = sessionStatusLabel(session.status);
-  const indexLabel = session.remoteIndexOnly ? "仅索引/未同步正文" : "";
-  const chainLabel = chainDepth > 0 ? `分叉链第 ${chainDepth + 1} 节点` : "";
-  const title = session.remoteIndexOnly ? remoteIndexOnlyMessage() : chainLabel;
+  const chainLabel = chainDepth > 0 ? "分叉链第 " + String(chainDepth + 1) + " 节点" : "";
   const displayTitle = session.displayTitle || "未命名会话";
-  const ariaLabel = session.remoteIndexOnly
-    ? `${displayTitle}，仅索引，未同步正文，无法直接打开`
-    : `${displayTitle}${chainLabel ? `，${chainLabel}` : ""}${active ? "，当前会话" : ""}`;
-  const rowSemantics = session.remoteIndexOnly
-    ? 'role="listitem"'
-    : `role="button" tabindex="0" ${active ? 'aria-current="true"' : ""}`;
-  return `
-    <div class="session-row${active}${indexOnly}${chainChild}" ${rowSemantics} data-session-id="${escapeAttr(session.id)}" data-evidence-id="${escapeAttr(sessionEvidenceId(session))}" data-remote-index-only="${session.remoteIndexOnly ? "true" : "false"}" ${title ? `title="${escapeAttr(title)}"` : ""} aria-label="${escapeAttr(ariaLabel)}">
-      <span class="agent-dot" data-agent="${escapeAttr(agentName.toLowerCase())}" aria-hidden="true"></span>
-      <span class="session-title-wrap">
-        <span class="session-title markdown-inline-title" data-overflow-tooltip>${renderMarkdownTitle(displayTitle, query)}</span>
-        ${chainDepth > 0 ? `<span class="session-chain-badge" aria-hidden="true">分叉</span>` : ""}
-      </span>
-      <span class="session-date">${formatShortDate(session.updatedAt || session.fileModifiedAt)}</span>
-      <span class="session-meta">
-        <span data-overflow-tooltip>${escapeHtml(agent)}</span>
-        ${model ? `<span data-overflow-tooltip>${escapeHtml(model)}</span>` : ""}
-        ${indexLabel ? `<span data-overflow-tooltip>${escapeHtml(indexLabel)}</span>` : ""}
-        ${status ? `<span data-overflow-tooltip>${escapeHtml(status)}</span>` : ""}
-        <span data-overflow-tooltip>${escapeHtml(cwd)}</span>
-      </span>
-      <span class="session-source" data-overflow-tooltip>${escapeHtml(source)}</span>
-    </div>
-  `;
-}
-
-function remoteIndexOnlyMessage() {
-  return "这是远端历史索引结果，仅含标题、时间、路径等元数据，未同步正文。拉取远端实时快照默认只补最近 3 小时；历史正文需要远端扩大共享窗口或额外同步后再拉取，或切回已有本地快照查看已同步会话。";
+  const ariaLabel = displayTitle + (chainLabel ? "，" + chainLabel : "") + (active ? "，当前会话" : "");
+  const title = chainLabel ? ' title="' + escapeAttr(chainLabel) + '"' : "";
+  return '<div class="session-row' + active + chainChild + '" role="button" tabindex="0"' + (active ? ' aria-current="true"' : "") + ' data-session-id="' + escapeAttr(session.id) + '" data-evidence-id="' + escapeAttr(sessionEvidenceId(session)) + '"' + title + ' aria-label="' + escapeAttr(ariaLabel) + '">'
+    + '<span class="agent-dot" data-agent="' + escapeAttr(agentName.toLowerCase()) + '" aria-hidden="true"></span>'
+    + '<span class="session-title-wrap"><span class="session-title markdown-inline-title" data-overflow-tooltip>' + renderMarkdownTitle(displayTitle, query) + '</span>' + (chainDepth > 0 ? '<span class="session-chain-badge" aria-hidden="true">分叉</span>' : "") + '</span>'
+    + '<span class="session-date">' + formatShortDate(session.updatedAt || session.fileModifiedAt) + '</span>'
+    + '<span class="session-meta"><span data-overflow-tooltip>' + escapeHtml(agent) + '</span>' + (model ? '<span data-overflow-tooltip>' + escapeHtml(model) + '</span>' : "") + (status ? '<span data-overflow-tooltip>' + escapeHtml(status) + '</span>' : "") + '<span data-overflow-tooltip>' + escapeHtml(cwd) + '</span></span>'
+    + '<span class="session-source" data-overflow-tooltip>' + escapeHtml(session.sourceLabel || selectedSource()?.label || "") + '</span></div>';
 }
 
 function evidenceScopeForSession(session = {}, inherited = {}) {
@@ -3974,83 +2959,26 @@ function renderStatusbar() {
     els.statusSession.textContent = "无法连接本机服务";
     els.statusEvents.textContent = "0 个会话";
     els.statusUpdated.textContent = "点击刷新列表重试";
-    syncExportButtons();
     return;
   }
-  if (state.sidebarMode === "prompts") {
-    els.statusSource.textContent = `数据源：${source?.label || source?.id || "未选择"} · 任务归档`;
-    const page = state.promptArchivePage || {};
-    els.statusSession.textContent = state.promptArchiveLoading ? "正在整理当前批首个任务提示词" : "首个任务提示词只读归档";
-    els.statusEvents.textContent = `${promptArchiveRangeLabel(page)} · 本批 ${state.promptArchive.length || 0} 条归档`;
-    els.statusUpdated.textContent = state.promptArchiveCancelled
-      ? "归档读取已取消，可重新整理"
-      : state.promptArchiveError
-        ? "归档读取失败，可重试"
-        : page.hasMoreCandidates ? "更早候选尚未扫描，可继续定位" : "已扫描到当前时间范围最早任务";
-    syncExportButtons();
-    return;
-  }
-  const sourceKind = source?.kind === "remote" ? "远端快照" : "本机只读";
-  const sourceLabelText = source?.label || source?.id || "未选择";
-  els.statusSource.textContent = `数据源：${sourceLabelText} · ${sourceKind}`;
-  if (state.sessionLoading) {
-    els.statusSession.textContent = `正在读取：${selectedSessionDisplayTitle()}`;
-  } else if (state.sessionLoadError) {
-    els.statusSession.textContent = `读取失败：${selectedSessionDisplayTitle()}`;
-  } else if (state.sessionsLoadError && !session) {
-    els.statusSession.textContent = "会话列表加载失败";
-  } else if (filteredOut) {
-    els.statusSession.textContent = "当前会话已被筛选隐藏";
-  } else {
-    els.statusSession.textContent = session ? `当前：${selectedSessionDisplayTitle()}` : "未选择会话";
-  }
-  if (isRemoteHistoryIndexMode()) {
-    if (state.remoteIndexLoading) {
-      els.statusEvents.textContent = "正在检索远端历史索引";
-    } else if (state.remoteIndexError) {
-      els.statusEvents.textContent = `历史索引失败：${state.remoteIndexError}`;
-    } else {
-      const page = state.remoteIndexPage?.page;
-      const total = page ? Math.max(0, Number(page.total) || 0) : 0;
-      const pageLabel = state.remoteIndexPage ? `第 ${state.remoteIndexPage.pageNumber} 页` : "未加载";
-      els.statusEvents.textContent = `历史索引 ${total} 条 · ${pageLabel} · 正文未同步`;
-    }
-  } else {
-    els.statusEvents.textContent = `${state.filteredSessions.length || 0}/${state.sessions.length || 0} 个会话`;
-  }
+  els.statusSource.textContent = "数据源：" + (source?.label || source?.id || "未选择") + " · 本机只读";
+  els.statusSession.textContent = state.sessionLoading ? "正在读取：" + selectedSessionDisplayTitle() : state.sessionLoadError ? "读取失败：" + selectedSessionDisplayTitle() : filteredOut ? "当前会话已被筛选隐藏" : session ? "当前：" + selectedSessionDisplayTitle() : "未选择会话";
+  els.statusEvents.textContent = String(state.filteredSessions.length || 0) + "/" + String(state.sessions.length || 0) + " 个会话";
   const updated = session?.updatedAt || session?.fileModifiedAt || session?.startedAt;
-  if (filteredOut) {
-    els.statusUpdated.textContent = "清除搜索或筛选后可复制/下载";
-  } else if (state.sessionsLoadError && !session) {
-    els.statusUpdated.textContent = "刷新列表或检查数据源后再导出";
-  } else {
-    els.statusUpdated.textContent = stats
-      ? `${stats.eventCount || 0} 个事件 · ${stats.turnCount || 0} 轮次 · ${formatDate(updated) || "未知时间"}`
-      : "只读浏览";
-  }
+  els.statusUpdated.textContent = filteredOut ? "清除搜索或筛选后可复制/下载" : stats ? String(stats.eventCount || 0) + " 个事件 · " + String(stats.turnCount || 0) + " 轮次 · " + (formatDate(updated) || "未知时间") : "只读浏览";
   syncExportButtons();
 }
 
 function syncStatusbarDataStatus(source = selectedSource()) {
   if (!els.statusbar) return;
   const status = source?.status || {};
-  let value = source?.kind === "remote" ? "remote" : "local";
-  let label = source?.kind === "remote" ? "远端快照" : "本机只读";
-  if (state.healthLoadError) {
-    value = "error";
-    label = "接口不可用";
-  } else if (state.sessionsLoading || state.sessionLoading || state.remoteIndexLoading || state.promptArchiveLoading || state.remoteRefreshLoading || status.refreshing) {
-    value = "loading";
-    label = "加载中";
-  } else if (state.sessionsLoadError || state.sessionLoadError || state.remoteIndexError || state.promptArchiveError || state.remoteRefreshError || status.error?.message) {
-    value = "error";
-    label = "错误";
-  } else if (source?.kind === "remote" && status.stale) {
-    value = "stale";
-    label = "旧远端快照";
-  }
+  let value = "local";
+  let label = "本机只读";
+  if (state.healthLoadError) { value = "error"; label = "接口不可用"; }
+  else if (state.sessionsLoading || state.sessionLoading || state.promptArchiveLoading) { value = "loading"; label = "加载中"; }
+  else if (state.sessionsLoadError || state.sessionLoadError || state.promptArchiveError || status.error?.message) { value = "error"; label = "错误"; }
   els.statusbar.dataset.status = value;
-  els.statusbar.title = `数据状态：${label}`;
+  els.statusbar.title = "数据状态：" + label;
 }
 
 function renderMainContent() {
@@ -6038,7 +4966,6 @@ async function openRawEvent(index) {
   const changed = state.viewMode !== "diagnostic" || state.diagnosticMode !== "raw";
   state.viewMode = "diagnostic";
   state.diagnosticMode = "raw";
-  if (changed) cancelRemoteRefreshForNavigation();
   if (mobilePanelLayoutActive()) setMobilePanel("thread");
   state.selectedEventIndex = index;
   syncViewControls();
@@ -6822,7 +5749,7 @@ function selectedSource() {
 
 function sourceLabel(source) {
   const status = source.status || {};
-  const suffix = source.kind === "remote" && status.stale ? "旧远端快照" : source.kind === "remote" ? "远端快照" : "本机";
+  const suffix = source.kind === "pi-agent" ? "Pi Agent" : "本机";
   return [source.label || source.id, suffix ? `(${suffix})` : ""].filter(Boolean).join(" ");
 }
 
@@ -6849,19 +5776,6 @@ function promptArchiveUrl(sourceId = state.selectedSourceId, scope = promptArchi
   const params = new URLSearchParams({ scope });
   if (pageToken) params.set("pageToken", pageToken);
   return `/api/sources/${encodeURIComponent(sourceId)}/prompts?${params.toString()}`;
-}
-
-function remoteIndexUrl(sourceId = state.selectedSourceId, cursor = "0", snapshot = "") {
-  const params = new URLSearchParams({
-    bucket: state.sessionTimeFilter,
-    limit: String(remoteIndexPageLimit),
-    cursor: String(cursor),
-  });
-  const query = els.sessionSearch.value.trim();
-  if (query) params.set("q", query);
-  params.set("type", sessionListServerType());
-  if (snapshot) params.set("snapshot", snapshot);
-  return `/api/sources/${encodeURIComponent(sourceId)}/index?${params.toString()}`;
 }
 
 function sessionListServerType() {

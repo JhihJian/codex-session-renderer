@@ -30,7 +30,7 @@ function displayTitleForList(title) {
   return { displayTitle: normalized, titleTruncated: false };
 }
 
-function mapCodexHomePath(filePath, codexHome, originalCodexHome = codexHome, options = {}) {
+function mapCodexHomePath(filePath, codexHome, originalCodexHome = codexHome) {
   const normalized = stripLongPathPrefix(filePath || "");
   if (!normalized) return "";
   const normalizedOriginal = stripLongPathPrefix(originalCodexHome || codexHome || "");
@@ -38,11 +38,10 @@ function mapCodexHomePath(filePath, codexHome, originalCodexHome = codexHome, op
     const pathApi = pathApiFor(normalizedOriginal, normalized);
     const relative = pathApi.relative(normalizedOriginal, normalized);
     if (isRelativeInside(relative, pathApi)) {
-      if (options.dataSourceKind === "remote" && !isRemoteSessionRelativePath(relative)) return "";
       return joinRelativePath(codexHome, relative);
     }
   }
-  return options.dataSourceKind === "remote" ? "" : normalized;
+  return normalized;
 }
 
 function relativeCodexPath(codexHome, filePath) {
@@ -65,10 +64,6 @@ function isRelativeInside(relative, pathApi = path) {
   return Boolean(relative) && relative !== ".." && !relative.startsWith(`..${pathApi.sep}`) && !pathApi.isAbsolute(relative);
 }
 
-function isRemoteSessionRelativePath(relative) {
-  const parts = String(relative || "").split(/[\\/]+/);
-  return parts.length >= 2 && parts[0] === "sessions" && parts.every((part) => part && part !== "." && part !== "..") && parts.at(-1).endsWith(".jsonl");
-}
 
 function sessionFromThread(thread, codexHome, options = {}) {
   const filePath = mapCodexHomePath(thread.path || "", codexHome, options.originalCodexHome, options);

@@ -47,8 +47,7 @@ async function assertProtectedRoutes(baseUrl) {
   const unauthorized = await Promise.all([
     fetch(`${baseUrl}/`),
     fetch(`${baseUrl}/api/health`),
-    fetch(`${baseUrl}/api/peers`, { method: "POST", body: "{}" }),
-    fetch(`${baseUrl}/api/sources/local/refresh`, { method: "POST" }),
+    fetch(`${baseUrl}/api/sources/local/sessions`),
   ]);
   for (const response of unauthorized) assert.equal(response.status, 401);
   const [staticUnauthorized, readUnauthorized] = unauthorized;
@@ -66,20 +65,6 @@ async function assertProtectedRoutes(baseUrl) {
   const healthAuthorized = await fetch(`${baseUrl}/api/health`, { headers: { authorization: `Bearer ${token}` } });
   assert.equal(healthAuthorized.status, 200);
   assert.doesNotMatch(await healthAuthorized.text(), new RegExp(token));
-  await assertAuthorizedWriteRoutes(baseUrl);
-}
-
-async function assertAuthorizedWriteRoutes(baseUrl) {
-  const peerAuthorized = await fetch(`${baseUrl}/api/peers`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ id: "office", label: "Office", url: "127.0.0.1:4791", token: "peer-token" }),
-  });
-  assert.equal(peerAuthorized.status, 200);
-  assert.doesNotMatch(await peerAuthorized.text(), /peer-token/);
-  const refreshAuthorized = await fetch(`${baseUrl}/api/sources/local/refresh`, { method: "POST", headers: { authorization: `Bearer ${token}` } });
-  assert.equal(refreshAuthorized.status, 400);
-  assertSecurityHeaders(refreshAuthorized);
 }
 
 test("non-loopback renderer requires credentials for static, read, and write routes", async () => {

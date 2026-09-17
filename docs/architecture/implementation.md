@@ -4,17 +4,12 @@
 
 ## 服务装配
 
-- `server.mjs` 是主 HTTP 服务入口。它装配访问控制、来源注册表、来源上下文、会话读取、任务归档、远端管理、静态资源和浏览器 API。
-- `share-server.mjs` 只装配快照共享服务。缺少 `CODEX_SHARE_TOKEN` 时进程以失败状态退出，不启动监听。
+- `server.mjs` 是主 HTTP 服务入口。它装配访问控制、来源注册表、来源上下文、会话读取、任务归档、静态资源和浏览器 API。
 - `src/access-control.mjs` 对主服务的非 loopback 监听强制令牌，并支持 Basic 或 Bearer 请求认证；`src/http-response.mjs` 统一 HTTP 响应与错误输出。
 
-## 数据源与远端发布
+## 数据源
 
-- `src/data-sources.mjs` 创建本机、Pi Agent 和远端来源，定义来源版本、私有快照、刷新、验证及发布。
-- `src/renderer-config.mjs` 将远端连接定义原子写入用户私有配置，并在公开视图删除令牌。
-- `src/remote-http.mjs`、`src/snapshot-budget.mjs`、`src/snapshot-build-coordinator.mjs` 和 `src/snapshot-root-commit-coordinator.mjs` 负责期限、取消、资源预算、共享构建和当前快照提交。
-- `src/snapshot-share.mjs` 与 `src/remote-session-index.mjs` 分别提供受保护的快照归档和历史索引。历史索引返回紧凑元数据，正文读取使用当前已发布快照。
-- 远端刷新在私有暂存区完成内容、来源和资源预算验证，并在提交协调器内替换当前快照。`src/data-sources.mjs` 负责允许文件集和私有权限，`src/snapshot-budget.mjs` 负责传输与展开预算。
+`src/data-sources.mjs` 创建本机 Codex 与可选 Pi Agent 来源。Pi Agent 会话根存在时成为默认来源，否则使用本机 Codex；来源均只读，不保存远端连接、令牌或快照。
 
 ## 会话与阅读投影
 
@@ -39,4 +34,4 @@
 - `npm test` 执行语法检查、Node 单元测试和 HTTP 冒烟测试。
 - `npm run test:e2e` 执行 Playwright 端到端测试。
 
-关键验证包括：`test/session-detail-coordinator.test.mjs` 覆盖稳定详情读取，`test/prompt-archive-coordinator.test.mjs` 覆盖归档预算与取消，`test/codex-goal-http.test.mjs` 覆盖 Goal 投影与 Raw 保留，`test/snapshot-publication.test.mjs` 和 `test/snapshot-security.test.mjs` 覆盖快照发布与安全边界，`test/remote-refresh-http-cancellation.test.mjs` 覆盖刷新取消不发布暂存数据。
+关键验证包括：`test/session-detail-coordinator.test.mjs` 覆盖稳定详情读取，`test/prompt-archive-coordinator.test.mjs` 覆盖归档预算与取消，`test/codex-goal-http.test.mjs` 覆盖 Goal 投影与 Raw 保留，`test/server-access-control.test.mjs` 覆盖非 loopback 服务的认证边界。

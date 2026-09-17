@@ -1,12 +1,10 @@
 import { mkdtemp, mkdir, rm, utimes, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { sessionEvents, sessionId, sessionTitle } from "../test/e2e/fixture-session.mjs";
 import { piGoalArchivePrefix, piGoalPrompt, piGoalState, piGoalStateEvent, piGoalUserEvent } from "../test/helpers/pi-goal-fixture.mjs";
 import { knownCodexGoalControlText } from "../src/pi-goal-projection.mjs";
-import { createSnapshotShareHandler } from "../src/snapshot-share.mjs";
 
 const tempRoot = await mkdtemp(path.join(os.tmpdir(), "csr-e2e-"));
 const codexHome = path.join(tempRoot, ".codex");
@@ -30,11 +28,6 @@ const piGoalSessionPath = path.join(piSessionsRoot, `2026-07-18T00-00-00-000Z_${
 const piLargeSessionId = "55555555-5555-4555-8555-555555555555";
 const piLargePrompt = "Pi 大会话前缀任务可被归档";
 const piLargeSessionPath = path.join(piSessionsRoot, "e2e-pi-large-session.jsonl");
-const remoteCodexHome = path.join(tempRoot, "remote", ".codex");
-const remoteSessionDir = path.join(remoteCodexHome, "sessions", "isolated");
-const remoteToken = "e2e-remote-index-token";
-const remoteLongTitleSuffix = "CHROMIUM_REMOTE_LONG_TITLE_ERROR_TOOL_AFTER_DISPLAY_LIMIT";
-
 await mkdir(sessionDir, { recursive: true });
 await writeFile(sessionPath, `${sessionEvents.map((event) => JSON.stringify(event)).join("\n")}\n`, "utf8");
 await writeFile(
@@ -96,55 +89,11 @@ await writeFile(
 );
 await utimes(piLargeSessionPath, new Date(), new Date());
 await utimes(piSessionPath, new Date(Date.now() + 1000), new Date(Date.now() + 1000));
-await mkdir(remoteSessionDir, { recursive: true });
-const remoteIndexRows = [];
-for (let index = 1; index <= 101; index += 1) {
-  const id = `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
-  const filePath = path.join(remoteSessionDir, `rollout-2026-06-27T01-00-00-${id}.jsonl`);
-  await writeFile(filePath, "{}\n", "utf8");
-  await utimes(filePath, new Date("2026-06-27T01:00:00.000Z"), new Date("2026-06-27T01:00:00.000Z"));
-  const title = index === 101
-    ? `远端标题 ${"x".repeat(1000)} ${remoteLongTitleSuffix}`
-    : `远端历史分页任务 ${String(index).padStart(3, "0")}`;
-  remoteIndexRows.push(JSON.stringify({ id, thread_name: title, updated_at: "2026-06-27T01:00:00.000Z" }));
-}
-await writeFile(path.join(remoteCodexHome, "session_index.jsonl"), `${remoteIndexRows.join("\n")}\n`, "utf8");
-const remoteServer = createServer(createSnapshotShareHandler({
-  config: { codexHome: remoteCodexHome, token: remoteToken },
-}));
-await new Promise((resolve, reject) => {
-  remoteServer.once("error", reject);
-  remoteServer.listen(0, "127.0.0.1", () => {
-    remoteServer.off("error", reject);
-    resolve();
-  });
-});
-const remoteAddress = remoteServer.address();
-const slowRemoteServer = createServer((req, res) => {
-  if (req.url?.startsWith("/api/codex-snapshot.tar")) {
-    res.writeHead(200, { "content-type": "application/x-tar" });
-    res.write("slow snapshot response");
-    return;
-  }
-  res.writeHead(404).end();
-});
-await new Promise((resolve, reject) => {
-  slowRemoteServer.once("error", reject);
-  slowRemoteServer.listen(0, "127.0.0.1", () => {
-    slowRemoteServer.off("error", reject);
-    resolve();
-  });
-});
-const slowRemoteAddress = slowRemoteServer.address();
-
 process.env.CODEX_HOME = codexHome;
 process.env.HOME = tempRoot;
 process.env.USERPROFILE = tempRoot;
 process.env.PI_AGENT_SESSIONS_ROOT = piSessionsRoot;
 
-process.env.CODEX_REMOTE_PEERS = `office|E2E 远端索引=http://127.0.0.1:${remoteAddress.port},slow-office|E2E 慢速远端=http://127.0.0.1:${slowRemoteAddress.port}`;
-process.env.CODEX_REMOTE_TOKEN = remoteToken;
-process.env.CODEX_REMOTE_SOURCES = "";
 process.env.HOST = "127.0.0.1";
 process.env.PORT = process.env.PORT || "4799";
 
@@ -156,8 +105,6 @@ async function stop() {
   if (stopped) return;
   stopped = true;
   await new Promise((resolve) => server.close(resolve));
-  await new Promise((resolve) => remoteServer.close(resolve));
-  await new Promise((resolve) => slowRemoteServer.close(resolve));
   await rm(tempRoot, { recursive: true, force: true });
 }
 

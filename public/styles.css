@@ -995,7 +995,7 @@ button {
   text-align: center;
 }
 
-.remote-index-pagination {
+.pagination {
   display: grid;
   gap: 5px 8px;
   border-top: 1px solid var(--hair);
@@ -1005,27 +1005,27 @@ button {
   padding: 9px 6px 4px;
 }
 
-.remote-index-page-info,
-.remote-index-page-status {
+.pagination-info,
+.pagination-status {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.remote-index-page-info {
+.pagination-info {
   color: var(--text);
   font-weight: 680;
 }
 
-.remote-index-page-status {
+.pagination-status {
   color: var(--text-3);
 }
 
-.remote-index-page-actions {
+.pagination-actions {
   display: flex;
   gap: 5px;
 }
 
-.remote-index-page-actions .ghost-button {
+.pagination-actions .ghost-button {
   width: 32px;
   padding: 0;
 }

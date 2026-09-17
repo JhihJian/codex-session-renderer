@@ -6,19 +6,19 @@
   },
   "public/app.js": {
     "complexity": {
-      "count": 27
+      "count": 24
     },
     "max-lines": {
       "count": 1
     },
     "max-lines-per-function": {
-      "count": 2
+      "count": 1
     },
     "max-statements": {
-      "count": 5
+      "count": 3
     },
     "no-unused-vars": {
-      "count": 18
+      "count": 23
     }
   },
   "public/tool-summary.js": {
@@ -35,11 +35,6 @@
       "count": 2
     }
   },
-  "scripts/sync-71-sessions.mjs": {
-    "complexity": {
-      "count": 1
-    }
-  },
   "server.mjs": {
     "complexity": {
       "count": 6
@@ -51,14 +46,6 @@
       "count": 1
     },
     "max-statements": {
-      "count": 1
-    }
-  },
-  "src/data-sources.mjs": {
-    "complexity": {
-      "count": 1
-    },
-    "max-lines": {
       "count": 1
     }
   },
@@ -114,21 +101,11 @@
       "count": 4
     }
   },
-  "src/snapshot-share.mjs": {
-    "complexity": {
-      "count": 1
-    }
-  },
   "src/sqlite-threads.mjs": {
     "complexity": {
       "count": 2
     },
     "max-lines-per-function": {
-      "count": 1
-    }
-  },
-  "test/data-sources.test.mjs": {
-    "max-statements": {
       "count": 1
     }
   },

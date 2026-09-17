@@ -30,8 +30,6 @@
           <details class="topbar-more">
             <summary aria-label="更多操作">···</summary>
             <div class="topbar-more-menu">
-              <button class="ghost-button" id="refreshRemoteButton" type="button" title="拉取远端实时快照到本机缓存，不修改远端" hidden>拉取远端快照</button>
-              <button class="ghost-button" id="managePeersButton" type="button">管理数据源</button>
               <button class="ghost-button" id="promptsModeButton" type="button" aria-pressed="false" data-sidebar-mode="prompts">任务归档</button>
               <button class="ghost-button" id="sessionsModeButton" type="button" aria-pressed="true" data-sidebar-mode="sessions" hidden>返回会话</button>
               <button class="ghost-button" id="copyMarkdownButton" type="button" disabled>复制 Markdown</button>
@@ -66,9 +64,9 @@
             <div class="session-filters-body">
               <label class="field-label" for="sessionTimeFilter">时间分类</label>
               <div class="segmented-control" id="sessionTimeFilter" role="radiogroup" aria-label="时间分类">
-                <button class="segment-button active" type="button" role="radio" aria-checked="true" data-session-time="realtime" title="实时：最近 3 小时内已同步到本机快照的会话；首屏会先读取最近 24 小时元数据" aria-label="实时，小于 3 小时">实时 &lt;3h</button>
-                <button class="segment-button" type="button" role="radio" aria-checked="false" tabindex="-1" data-session-time="day" title="近一天：远端数据源显示历史索引，不含正文" aria-label="近一天，历史索引">近一天</button>
-                <button class="segment-button" type="button" role="radio" aria-checked="false" tabindex="-1" data-session-time="earlier" title="更早：远端数据源显示历史索引，不含正文" aria-label="更早，历史索引">更早</button>
+                <button class="segment-button active" type="button" role="radio" aria-checked="true" data-session-time="realtime" title="最近 3 小时内的本机会话" aria-label="实时，小于 3 小时">实时 &lt;3h</button>
+                <button class="segment-button" type="button" role="radio" aria-checked="false" tabindex="-1" data-session-time="day" title="3 小时到 1 天内的本机会话" aria-label="近一天">近一天</button>
+                <button class="segment-button" type="button" role="radio" aria-checked="false" tabindex="-1" data-session-time="earlier" title="1 天前或未知时间的本机会话" aria-label="更早">更早</button>
               </div>
 
               <label class="field-label" for="sessionTypeFilter">会话类型</label>
@@ -173,46 +171,6 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <div class="sr-only" id="workbenchAnnouncements" role="status" aria-live="polite" aria-atomic="true"></div>
 
-    <dialog class="peer-dialog" id="peerDialog" aria-labelledby="peerDialogTitle">
-      <form class="peer-panel" id="peerForm" method="dialog">
-        <div class="peer-panel-header">
-          <div>
-            <p class="eyebrow">数据源</p>
-            <h2 id="peerDialogTitle">远端数据源</h2>
-          </div>
-          <button class="icon-button" id="closePeerDialogButton" type="button" title="关闭" aria-label="关闭">×</button>
-        </div>
-
-        <div class="peer-panel-body">
-          <div class="peer-list" id="peerList"></div>
-
-          <div class="peer-editor">
-            <input id="peerId" type="hidden" />
-            <label class="field-label" for="peerLabel">名称</label>
-            <input class="text-input" id="peerLabel" type="text" autocomplete="off" placeholder="office" />
-
-            <label class="field-label" for="peerUrl">地址</label>
-            <input class="text-input" id="peerUrl" type="text" autocomplete="off" placeholder="192.168.1.20:4791" />
-
-            <label class="field-label" for="peerToken">访问令牌</label>
-            <input class="text-input" id="peerToken" type="password" autocomplete="new-password" placeholder="保存后不会回显" />
-
-            <label class="toggle-control peer-toggle">
-              <input id="peerEnabled" type="checkbox" checked />
-              <span>启用数据源</span>
-            </label>
-
-            <div class="peer-actions">
-              <button class="primary-button" id="savePeerButton" type="submit">保存</button>
-              <button class="ghost-button" id="newPeerButton" type="button">新建</button>
-              <button class="ghost-button" id="testPeerButton" type="button" title="使用已保存配置和访问令牌向远端发起只读健康检查；当前表单草稿不会被测试，不保存配置，不拉取快照">测试已保存连接</button>
-              <button class="ghost-button danger" id="deletePeerButton" type="button">移除本机配置</button>
-            </div>
-            <div class="source-status" id="peerEditorStatus">本机保存配置；访问令牌只保存在本机配置文件。</div>
-          </div>
-        </div>
-      </form>
-    </dialog>
 
     <dialog class="peer-dialog settings-dialog" id="settingsDialog" aria-labelledby="settingsDialogTitle">
       <form class="peer-panel settings-panel" id="settingsForm" method="dialog" novalidate>
