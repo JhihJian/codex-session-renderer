@@ -1,0 +1,133 @@
+:root {
+  color-scheme: light;
+  --bg: #fbfbfd;
+  --bg-elev: #ffffff;
+  --bg-sunken: #f5f5f7;
+  --toolbar: rgb(255 255 255 / 0.86);
+  --text: #1d1d1f;
+  --text-2: #6e6e73;
+  --text-3: #6b6b70;
+  --hair: rgb(0 0 0 / 0.08);
+  --hair-strong: rgb(0 0 0 / 0.14);
+  --blue: #087a78;
+  --blue-press: #056f6d;
+  --blue-soft: rgb(8 122 120 / 0.12);
+  --green: #168253;
+  --green-soft: rgb(22 130 83 / 0.12);
+  --orange: #b56a00;
+  --orange-soft: rgb(224 134 0 / 0.14);
+  --red: #d70015;
+  --red-soft: rgb(215 0 21 / 0.12);
+  --purple: #7c3aed;
+  --purple-soft: rgb(124 58 237 / 0.12);
+  --teal: #0a7f83;
+  --teal-soft: rgb(10 127 131 / 0.12);
+  --role-user: #2563eb;
+  --role-user-soft: rgb(37 99 235 / 0.12);
+  --role-assistant: #1f4f99;
+  --role-assistant-soft: rgb(31 79 153 / 0.12);
+  --role-tool-call: #7c3aed;
+  --role-tool-call-soft: rgb(124 58 237 / 0.12);
+  --role-tool-output: #15803d;
+  --role-tool-output-soft: rgb(21 128 61 / 0.12);
+  --role-error: #dc2626;
+  --role-error-soft: rgb(220 38 38 / 0.12);
+  --role-meta: #6b7280;
+  --role-meta-soft: rgb(107 114 128 / 0.12);
+  --role-plan: #0f766e;
+  --role-code: #4f46e5;
+  --role-diff: #ea580c;
+  --code-bg: #111827;
+  --code-text: #e5e7eb;
+  --radius-tool: 8px;
+  --radius-small: 6px;
+  --shadow-1: 0 1px 1px rgb(0 0 0 / 0.04);
+  --shadow-2: 0 10px 30px rgb(0 0 0 / 0.08);
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Monaco, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #000000;
+    --bg-elev: #1c1c1e;
+    --bg-sunken: #0e0e10;
+    --toolbar: rgb(28 28 30 / 0.84);
+    --text: #f5f5f7;
+    --text-2: #aeaeb2;
+    --text-3: #8e8e93;
+    --hair: rgb(255 255 255 / 0.1);
+    --hair-strong: rgb(255 255 255 / 0.18);
+    --blue: #5dd4cf;
+    --blue-press: #7be3dd;
+    --blue-soft: rgb(93 212 207 / 0.18);
+    --green: #30d158;
+    --green-soft: rgb(48 209 88 / 0.16);
+    --orange: #ffb340;
+    --orange-soft: rgb(255 179 64 / 0.16);
+    --red: #ff453a;
+    --red-soft: rgb(255 69 58 / 0.16);
+    --purple: #bf8cff;
+    --purple-soft: rgb(191 140 255 / 0.16);
+    --teal: #64d2ff;
+    --teal-soft: rgb(100 210 255 / 0.16);
+    --role-user: #2997ff;
+    --role-user-soft: rgb(41 151 255 / 0.18);
+    --role-assistant: #7aa7ff;
+    --role-assistant-soft: rgb(122 167 255 / 0.16);
+    --role-tool-call: #bf8cff;
+    --role-tool-call-soft: rgb(191 140 255 / 0.16);
+    --role-tool-output: #30d158;
+    --role-tool-output-soft: rgb(48 209 88 / 0.16);
+    --role-error: #ff453a;
+    --role-error-soft: rgb(255 69 58 / 0.16);
+    --role-meta: #8e8e93;
+    --role-meta-soft: rgb(142 142 147 / 0.16);
+    --role-plan: #64d2ff;
+    --role-code: #8e8cff;
+    --role-diff: #ffb340;
+    --code-bg: #050507;
+    --code-text: #f5f5f7;
+    --shadow-1: 0 1px 1px rgb(0 0 0 / 0.4);
+    --shadow-2: 0 12px 36px rgb(0 0 0 / 0.46);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+/* Metadata and summary fields opt in to native full-text tooltips when clipped. */
+[data-overflow-tooltip] {
+  min-width: 0;
+}
+
+button {
+  border: 0;
+}

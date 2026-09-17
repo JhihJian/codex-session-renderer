@@ -1,0 +1,215 @@
+.terminal-shell,
+.raw-view-shell {
+  width: 100%;
+  min-width: 0;
+}
+
+.raw-view-shell {
+  display: grid;
+  min-height: 0;
+  height: 100%;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.terminal-head,
+.raw-view-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid var(--hair);
+  background: var(--bg-elev);
+}
+
+.terminal-head > div:first-child,
+.raw-view-head > div:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.terminal-head h3,
+.raw-view-head h3 {
+  margin: 0;
+  overflow: hidden;
+  max-width: 100%;
+  font-size: 15px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-role-nav,
+.raw-view-actions {
+  display: flex;
+  min-width: 0;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.terminal-role-button {
+  display: inline-grid;
+  min-width: 78px;
+  height: 30px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--hair-strong);
+  border-radius: var(--radius-small);
+  background: var(--bg-elev);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 680;
+  padding: 0 8px;
+}
+
+.terminal-role-button:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.terminal-role-button span,
+.terminal-role-button strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-role-button strong {
+  font-family: var(--mono);
+}
+
+.terminal-role-button.user {
+  border-color: color-mix(in srgb, var(--role-user) 30%, var(--hair));
+}
+
+.terminal-role-button.assistant {
+  border-color: color-mix(in srgb, var(--role-assistant) 30%, var(--hair));
+}
+
+.terminal-role-button.tool {
+  border-color: color-mix(in srgb, var(--role-tool-call) 30%, var(--hair));
+}
+
+.terminal-role-button.error {
+  border-color: color-mix(in srgb, var(--role-error) 34%, var(--hair));
+}
+
+.terminal-blocks {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 14px 16px 24px;
+}
+
+.terminal-block {
+  --role-color: var(--role-meta);
+  --role-soft: var(--role-meta-soft);
+  display: grid;
+  grid-template-columns: 4px minmax(0, 1fr);
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--role-color) 20%, var(--hair));
+  border-radius: var(--radius-tool);
+  background: color-mix(in srgb, var(--role-soft) 42%, var(--bg-elev));
+  box-shadow: var(--shadow-1);
+  cursor: pointer;
+  scroll-margin-top: 12px;
+}
+
+.terminal-block:hover,
+.terminal-block.selected {
+  border-color: color-mix(in srgb, var(--role-color) 58%, var(--hair));
+  box-shadow:
+    var(--shadow-1),
+    0 0 0 2px color-mix(in srgb, var(--role-color) 16%, transparent);
+}
+
+.terminal-block.role-user {
+  --role-color: var(--role-user);
+  --role-soft: var(--role-user-soft);
+}
+
+.terminal-block.role-assistant {
+  --role-color: var(--role-assistant);
+  --role-soft: var(--role-assistant-soft);
+}
+
+.terminal-block.role-tool {
+  --role-color: var(--role-tool-call);
+  --role-soft: var(--role-tool-call-soft);
+}
+
+.terminal-block.role-output {
+  --role-color: var(--role-tool-output);
+  --role-soft: var(--role-tool-output-soft);
+}
+
+.terminal-block.role-error {
+  --role-color: var(--role-error);
+  --role-soft: var(--role-error-soft);
+}
+
+.terminal-block-strip {
+  background: var(--role-color);
+}
+
+.terminal-block-main {
+  min-width: 0;
+  background: color-mix(in srgb, var(--bg-elev) 78%, transparent);
+}
+
+.terminal-block-head {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--role-color) 18%, var(--hair));
+  padding: 7px 10px;
+}
+
+.terminal-block-head strong,
+.terminal-block-head span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-block-head strong {
+  font-size: 12px;
+}
+
+.terminal-block-head span {
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.terminal-block-body {
+  min-width: 0;
+  padding: 10px;
+}
+
+.terminal-block-body pre {
+  max-height: 420px;
+  margin: 0;
+  overflow: auto;
+  border-radius: var(--radius-small);
+  background: var(--code-bg);
+  color: var(--code-text);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  padding: 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

@@ -69,4 +69,5 @@ npm run test:e2e
 - `server.mjs`：只读 HTTP API、数据源和详情协调。
 - `src/session-*.mjs`：会话发现、规范化、查询、事件聚合和执行时间。
 - `public/app.js`：会话阅读、执行过程、统计和原始事件界面。
+- `public/styles.css`：浏览器样式入口，按原有层叠顺序导入 `public/styles/` 下的基础、工作区、阅读、视图与响应式样式。
 - `public/tool-summary.js`：可配置的工具调用可读摘要。
