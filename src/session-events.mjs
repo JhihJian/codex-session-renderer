@@ -175,7 +175,7 @@ function compactTurnMetrics(items = [], timing = null) {
     return Number.isFinite(value) ? total + value : total;
   }, 0);
   const metrics = { endingContextUsage, generatedTokens: generatedTokens || null };
-  if (Number.isFinite(timing?.activeRunMs)) {
+  if (Number.isFinite(timing?.activeRunMs) && timing.confidence !== "unavailable") {
     metrics.activeRunMs = timing.activeRunMs;
     metrics.executionConfidence = timing.confidence || "unavailable";
   }
@@ -1198,7 +1198,7 @@ function embeddedSubagentTraceTasks(batch, turnIndex, itemIndex) {
         type: "embedded-subagent-task",
         icon: "agent",
         label: `子代理：${task.agent}`,
-        title: firstLine(task.task || task.summary || "未记录任务详情"),
+        title: firstLine(task.task || task.summary || "任务详情"),
         subtitle: [task.agentSource, task.exitCode != null ? `退出 ${task.exitCode}` : "", task.stopReason].filter(Boolean).join(" · "),
         timestamp: null,
         completedAt: null,

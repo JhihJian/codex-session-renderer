@@ -169,10 +169,10 @@ test("诊断统计按工具目标汇总上下文占用", async ({ page }) => {
 
   const contextStats = page.locator(".tool-context-stats");
   await expect(contextStats).toContainText("工具上下文占用");
-  await expect(contextStats).toContainText("最近上下文窗口");
+  await expect(contextStats).not.toContainText("最近上下文窗口");
   await expect(contextStats).toContainText("返回结果");
-  await expect(contextStats).toContainText("累计 / 窗口");
-  await expect(contextStats).toContainText("最大返回 / 窗口");
+  await expect(contextStats).not.toContainText("累计 / 窗口");
+  await expect(contextStats).not.toContainText("最大返回 / 窗口");
   await expect(contextStats).toContainText("读取文件内容");
   await expect(contextStats).toContainText("README.md");
   const verification = contextStats.locator(".tool-context-row", { hasText: "运行验证" });
@@ -180,13 +180,37 @@ test("诊断统计按工具目标汇总上下文占用", async ({ page }) => {
   await expect(verification.locator(".tool-context-number").nth(1)).toContainText("KB");
   await page.locator("#toolContextQuery").fill("npm test");
   await expect(contextStats.locator(".tool-context-row:not(.header)")).toHaveCount(1);
-  await page.locator("#toolContextSort").selectOption("context-share");
-  await expect(page.locator("#toolContextSort")).toHaveValue("context-share");
+  await expect(page.locator('#toolContextSort option[value="context-share"]')).toHaveCount(0);
+  await page.locator("#toolContextSort").selectOption("max-output");
+  await expect(page.locator("#toolContextSort")).toHaveValue("max-output");
   await page.setViewportSize({ width: 390, height: 844 });
   const layout = await contextStats.locator(".tool-context-table").evaluate((element) => ({ client: element.clientWidth, scroll: element.scrollWidth }));
   expect(layout.scroll).toBeLessThanOrEqual(layout.client);
   await verification.locator("[data-tool-context-event-index]").click();
   await expect(page.locator("#rawContent .raw-preview")).toContainText("FULL_TOOL_OUTPUT_END");
+});
+
+test("缺失窗口或轮次指标时不保留未记录占位", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("#compactContent")).not.toContainText("轮末上下文");
+  await expect(page.locator("#compactContent")).not.toContainText("生成 Token");
+  await expect(page.locator("#compactContent")).not.toContainText("未记录");
+
+  await page.locator("#diagnosticViewButton").click();
+  const contextStats = page.locator(".tool-context-stats");
+  await expect(contextStats).toContainText("工具上下文占用");
+  await expect(contextStats).not.toContainText("最近上下文窗口");
+  await expect(contextStats).not.toContainText("累计 / 窗口");
+  await expect(contextStats).not.toContainText("最大返回 / 窗口");
+  await expect(contextStats).not.toContainText("未记录");
+  await expect(page.locator('#toolContextSort option[value="context-share"]')).toHaveCount(0);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const layout = await contextStats.locator(".tool-context-table").evaluate((element) => ({ client: element.clientWidth, scroll: element.scrollWidth }));
+  expect(layout.scroll).toBeLessThanOrEqual(layout.client);
+
+  await page.locator("#traceViewButton").click();
+  await expect(page.locator(".trace-tree")).not.toContainText("未记录");
 });
 
 test("Pi 执行过程区分等待输入、完成工具与缺失时长", async ({ page }) => {
@@ -196,5 +220,6 @@ test("Pi 执行过程区分等待输入、完成工具与缺失时长", async ({
   await expect(page.locator('.trace-row', { hasText: "等待输入" }).first()).toBeVisible();
   const tool = page.locator('.trace-row[data-trace-node-id]', { hasText: "bash" }).first();
   await expect(tool).toContainText("执行成功");
+  await expect(page.locator(".trace-tree")).not.toContainText("未记录");
   expect((await page.locator(".trace-duration").allTextContents()).join(" ")).not.toContain("est");
 });

@@ -3270,7 +3270,7 @@ function renderSessionRow(session, query, chainDepth = 0) {
   const agentName = session.agentNickname || "Codex";
   const agent = session.agentNickname ? `${session.agentNickname}/${session.agentRole || "agent"}` : "Codex";
   const source = session.remoteIndexOnly ? `${session.sourceLabel || selectedSource()?.label || ""} · 仅索引` : session.sourceLabel || selectedSource()?.label || "";
-  const model = session.model || session.modelProvider || "未记录";
+  const model = session.model || session.modelProvider || "";
   const status = sessionStatusLabel(session.status);
   const indexLabel = session.remoteIndexOnly ? "仅索引/未同步正文" : "";
   const chainLabel = chainDepth > 0 ? `分叉链第 ${chainDepth + 1} 节点` : "";
@@ -3292,7 +3292,7 @@ function renderSessionRow(session, query, chainDepth = 0) {
       <span class="session-date">${formatShortDate(session.updatedAt || session.fileModifiedAt)}</span>
       <span class="session-meta">
         <span data-overflow-tooltip>${escapeHtml(agent)}</span>
-        <span data-overflow-tooltip>${escapeHtml(model)}</span>
+        ${model ? `<span data-overflow-tooltip>${escapeHtml(model)}</span>` : ""}
         ${indexLabel ? `<span data-overflow-tooltip>${escapeHtml(indexLabel)}</span>` : ""}
         ${status ? `<span data-overflow-tooltip>${escapeHtml(status)}</span>` : ""}
         <span data-overflow-tooltip>${escapeHtml(cwd)}</span>
@@ -3425,10 +3425,11 @@ function renderStats() {
   }
   els.statsStrip.hidden = false;
   const tokenUsage = latestTokenUsage(state.detail.turns);
+  const contextTokens = tokenUsageTotal(tokenUsage);
   const rows = [
     ["事件", stats.eventCount, "事件流"],
     ["工具", countItems("tool-call"), "工具调用"],
-    ["占用", tokenUsage ? compactNumber(tokenUsage.total_tokens || tokenUsage.totalTokens || 0) : "未记录", "上下文占用"],
+    ...(Number.isFinite(contextTokens) ? [["占用", compactNumber(contextTokens), "上下文占用"]] : []),
   ];
   els.statsStrip.innerHTML = rows
     .map(
@@ -3469,9 +3470,9 @@ function sessionHandoffFacts(detail) {
   const lastAssistant = [...items].reverse().find((item) => item.type === "assistant-message" && String(item.text || "").trim());
   const tools = items.filter((item) => item.type === "tool-call");
   return [
-    handoffFact("目标", firstUser?.text || "未记录用户目标", "compact"),
-    handoffFact("当前状态", handoffSessionStatus(detail), "compact"),
-    handoffFact("最新回复", lastAssistant?.text || "尚无助手回复", "compact"),
+    ...(firstUser ? [handoffFact("目标", firstUser.text, "compact")] : []),
+    ...(handoffSessionStatus(detail) ? [handoffFact("当前状态", handoffSessionStatus(detail), "compact")] : []),
+    ...(lastAssistant ? [handoffFact("最新回复", lastAssistant.text, "compact")] : []),
     handoffFact("执行", tools.length ? String(tools.length) + " 次工具调用" : "没有工具调用", "trace"),
     handoffFact("轮次", String(turns.length) + " 轮对话", "compact"),
     handoffFact("子代理", handoffChildText(detail), "trace"),
@@ -3480,7 +3481,7 @@ function sessionHandoffFacts(detail) {
 
 function handoffSessionStatus(detail) {
   const latestTurn = detail.turns?.at(-1) || {};
-  return sessionStatusLabel(latestTurn.status || detail.session?.status) || "状态未记录";
+  return sessionStatusLabel(latestTurn.status || detail.session?.status);
 }
 
 function handoffChildText(detail) {
@@ -3493,6 +3494,14 @@ function handoffChildText(detail) {
 
 function handoffFact(label, value, target) {
   return { label, value: String(value || ""), target };
+}
+
+function tokenUsageTotal(usage) {
+  for (const value of [usage?.total_tokens, usage?.totalTokens]) {
+    const total = Number(value);
+    if (Number.isFinite(total)) return total;
+  }
+  return null;
 }
 
 function renderHandoffFact(fact, index) {
@@ -3542,7 +3551,7 @@ function buildToolContextStats(detail, query, typeFilter, toolQuery, sort) {
     contextWindowShare: ratioPercent(group.contextTokens, contextWindow),
     maxOutputWindowShare: ratioPercent(group.maxOutputTokens, contextWindow),
   }));
-  values.sort(toolContextComparator(sort));
+  values.sort(toolContextComparator(contextWindow ? sort : sort === "context-share" ? "output-bytes" : sort));
   return {
     outputBytes: values.reduce((count, group) => count + group.outputBytes, 0),
     contextTokens: values.reduce((count, group) => count + group.contextTokens, 0),
@@ -3554,7 +3563,7 @@ function buildToolContextStats(detail, query, typeFilter, toolQuery, sort) {
 function addToolContextItem(groups, item, query) {
   const readable = readableToolItem(item);
   if (!readable.matched || !readable.ruleId) return;
-  const target = readable.summary || readable.path || readable.command || item.name || "未生成目标";
+  const target = readable.summary || readable.path || readable.command || item.name || "工具调用";
   const key = `${readable.ruleId}\u0000${target}`;
   const argument = String(item.arguments || "");
   const output = String(item.output || "");
@@ -3617,7 +3626,7 @@ function ratioPercent(value, total) {
 }
 
 function formatContextRatio(value) {
-  if (!Number.isFinite(value)) return "未记录";
+  if (!Number.isFinite(value)) return "";
   return `${value >= 10 ? value.toFixed(1) : value.toFixed(2)}%`;
 }
 
@@ -3764,10 +3773,10 @@ function renderStatsInfoView() {
 
 function renderToolContextStats(detail, query, typeFilter) {
   const stats = buildToolContextStats(detail, query, typeFilter, state.toolContextQuery, state.toolContextSort);
-  const windowLabel = stats.contextWindow ? `${compactNumber(stats.contextWindow)} tok` : "未记录";
+  const hasContextWindow = stats.contextWindow > 0;
   const totalShare = formatContextRatio(ratioPercent(stats.contextTokens, stats.contextWindow));
   return `
-    <section class="tool-context-stats" aria-labelledby="toolContextStatsHeading">
+    <section class="tool-context-stats${hasContextWindow ? " has-context-window" : ""}" aria-labelledby="toolContextStatsHeading">
       <div class="tool-context-stats-head">
         <div>
           <p class="eyebrow">工具诊断</p>
@@ -3777,17 +3786,17 @@ function renderToolContextStats(detail, query, typeFilter) {
           <input class="text-input compact" id="toolContextQuery" type="search" autocomplete="off" value="${escapeAttr(state.toolContextQuery)}" placeholder="检索目标或返回结果" />
           <select class="select-input compact" id="toolContextSort" aria-label="工具返回结果排序">
             <option value="output-bytes" ${state.toolContextSort === "output-bytes" ? "selected" : ""}>返回结果大小</option>
-            <option value="context-share" ${state.toolContextSort === "context-share" ? "selected" : ""}>上下文占用比例</option>
+            ${hasContextWindow ? `<option value="context-share" ${state.toolContextSort === "context-share" ? "selected" : ""}>上下文占用比例</option>` : ""}
             <option value="max-output" ${state.toolContextSort === "max-output" ? "selected" : ""}>最大单次返回</option>
             <option value="target" ${state.toolContextSort === "target" ? "selected" : ""}>操作与目标</option>
           </select>
         </div>
       </div>
       <div class="tool-context-kpis" aria-label="工具上下文占用概览">
-        <span><strong>${escapeHtml(windowLabel)}</strong>最近上下文窗口</span>
+        ${hasContextWindow ? `<span><strong>${escapeHtml(`${compactNumber(stats.contextWindow)} tok`)}</strong>最近上下文窗口</span>` : ""}
         <span><strong>${escapeHtml(formatBytes(stats.outputBytes))}</strong>返回结果</span>
         <span><strong>约 ${escapeHtml(compactNumber(stats.contextTokens))} tok</strong>累计参数与返回</span>
-        <span><strong>${escapeHtml(totalShare)}</strong>累计 / 窗口</span>
+        ${hasContextWindow ? `<span><strong>${escapeHtml(totalShare)}</strong>累计 / 窗口</span>` : ""}
       </div>
       ${
         stats.groups.length
@@ -3796,10 +3805,9 @@ function renderToolContextStats(detail, query, typeFilter) {
                 <span role="columnheader">操作与目标</span>
                 <span role="columnheader">调用参数</span>
                 <span role="columnheader">返回结果</span>
-                <span role="columnheader">累计 / 窗口</span>
-                <span role="columnheader">最大返回 / 窗口</span>
+                ${hasContextWindow ? `<span role="columnheader">累计 / 窗口</span><span role="columnheader">最大返回 / 窗口</span>` : ""}
               </div>
-              ${stats.groups.slice(0, 30).map((group) => renderToolContextStatRow(group)).join("")}
+              ${stats.groups.slice(0, 30).map((group) => renderToolContextStatRow(group, hasContextWindow)).join("")}
             </div>`
           : `<div class="tool-context-empty">当前筛选范围没有可按规则归类的工具调用。</div>`
       }
@@ -3807,7 +3815,7 @@ function renderToolContextStats(detail, query, typeFilter) {
   `;
 }
 
-function renderToolContextStatRow(group) {
+function renderToolContextStatRow(group, hasContextWindow) {
   const repeated = group.count > 1 ? `同一目标 ${group.count} 次` : group.label;
   const rawCount = group.rawEventIndexes.length;
   const rawAction = group.primaryEventIndex != null
@@ -3818,8 +3826,7 @@ function renderToolContextStatRow(group) {
       <span class="tool-context-target" role="cell"><strong data-overflow-tooltip title="${escapeAttr(group.title)}">${escapeHtml(group.title)}</strong><em data-overflow-tooltip title="${escapeAttr(group.target)}">${escapeHtml(group.target)}</em><span class="tool-context-target-actions"><small>${escapeHtml(rawCount ? `${repeated} · 原始 ${rawCount} 条` : repeated)}</small>${rawAction}</span></span>
       <span class="tool-context-number" role="cell">${escapeHtml(formatBytes(group.argumentBytes))}</span>
       <span class="tool-context-number" role="cell">${escapeHtml(formatBytes(group.outputBytes))}</span>
-      <span class="tool-context-number" role="cell">约 ${escapeHtml(compactNumber(group.contextTokens))} tok · ${escapeHtml(formatContextRatio(group.contextWindowShare))}</span>
-      <span class="tool-context-number" role="cell">${escapeHtml(formatBytes(group.maxOutputBytes))} · ${escapeHtml(formatContextRatio(group.maxOutputWindowShare))}</span>
+      ${hasContextWindow ? `<span class="tool-context-number" role="cell">约 ${escapeHtml(compactNumber(group.contextTokens))} tok · ${escapeHtml(formatContextRatio(group.contextWindowShare))}</span><span class="tool-context-number" role="cell">${escapeHtml(formatBytes(group.maxOutputBytes))} · ${escapeHtml(formatContextRatio(group.maxOutputWindowShare))}</span>` : ""}
     </div>
   `;
 }
@@ -3852,15 +3859,11 @@ function renderTimingView(timing) {
   const session = timing.session;
   const composition = session.executionComposition || [];
   const quality = timing.quality || {};
+  const metrics = renderTimingMetrics(session);
   return `
     <section class="timing-section" aria-labelledby="timingHeading">
       <div class="timing-heading"><div><p class="eyebrow">时间投入</p><h3 id="timingHeading">会话时间花在哪里</h3></div><span class="timing-confidence">${escapeHtml(timingKindLabel(session.durationKind))}</span></div>
-      <div class="timing-metrics" aria-label="会话时间概览">
-        ${renderStatsMetric("总墙钟时长", formatTimingDuration(session.durationMs), "会话开始至最后事件")}
-        ${renderStatsMetric("等待输入时长", formatTimingDuration(session.waitingForInputMs), `${session.waitingForInputCount || 0} 段可确认等待`)}
-        ${renderStatsMetric("实际运行时长", formatTimingDuration(session.activeRunMs), "工具与 LLM 时间并集")}
-        ${renderStatsMetric("并行峰值", `${session.parallelism?.peak || 0} 路`, formatTimingDuration(session.parallelism?.overlapMs, "重叠"))}
-      </div>
+      ${metrics.length ? `<div class="timing-metrics" aria-label="会话时间概览">${metrics.join("")}</div>` : ""}
       <p class="timing-note">等待输入仅统计助手最后回复到下一次用户消息的间隔。实际运行时长只统计工具与 LLM 的可关联区间；两者并行时按时间并集计一次。</p>
       <div class="timing-composition" aria-label="实际运行时长构成">
         ${composition.length ? renderTimingComposition(composition) : `<div class="timing-empty"><strong>暂无可关联执行时长</strong><span>会话事件中尚未发现具有完整起止时间的工具或 LLM 记录。</span></div>`}
@@ -3869,6 +3872,15 @@ function renderTimingView(timing) {
       <div class="timing-quality"><strong>时间数据质量</strong><span>估算 ${quality.estimatedCount || 0} 项 · 缺少开始 ${quality.missingStartCount || 0} 项 · 缺少结束 ${quality.missingEndCount || 0} 项 · 未关联 ${quality.unlinkedCount || 0} 项</span></div>
     </section>
   `;
+}
+
+function renderTimingMetrics(session) {
+  return [
+    Number.isFinite(session.durationMs) ? renderStatsMetric("总墙钟时长", formatTimingDuration(session.durationMs), "会话开始至最后事件") : "",
+    Number.isFinite(session.waitingForInputMs) ? renderStatsMetric("等待输入时长", formatTimingDuration(session.waitingForInputMs), `${session.waitingForInputCount || 0} 段可确认等待`) : "",
+    Number.isFinite(session.activeRunMs) ? renderStatsMetric("实际运行时长", formatTimingDuration(session.activeRunMs), "工具与 LLM 时间并集") : "",
+    Number.isFinite(session.parallelism?.peak) ? renderStatsMetric("并行峰值", `${session.parallelism.peak} 路`, formatTimingDuration(session.parallelism?.overlapMs, "重叠")) : "",
+  ].filter(Boolean);
 }
 
 function renderTimingComposition(composition) {
@@ -3890,15 +3902,18 @@ function renderTimingComposition(composition) {
 
 function renderTimingTurns(turns = []) {
   if (!turns.length) return "";
-  return `<div class="timing-turns"><h4>按轮次查看</h4>${turns.map((turn) => `<div class="timing-turn"><div class="timing-turn-head"><strong>第 ${turn.turnNumber} 轮</strong><span>${escapeHtml(formatTimingDuration(turn.durationMs))} · ${escapeHtml(timingKindLabel(turn.confidence))}</span></div><div class="timing-turn-bars">${(turn.buckets || []).map((bucket) => `<span class="timing-turn-bar timing-${escapeAttr(bucket.id)}" style="--bar:${Math.max(3, Math.min(100, bucket.sharePercent || 0))}%" title="${escapeAttr(`${bucket.label} ${formatTimingDuration(bucket.coverageMs)}`)}"><i></i></span>`).join("")}</div></div>`).join("")}</div>`;
+  return `<div class="timing-turns"><h4>按轮次查看</h4>${turns.map((turn) => {
+    const meta = [Number.isFinite(turn.durationMs) ? formatTimingDuration(turn.durationMs) : "", timingKindLabel(turn.confidence)].filter(Boolean).join(" · ");
+    return `<div class="timing-turn"><div class="timing-turn-head"><strong>第 ${turn.turnNumber} 轮</strong>${meta ? `<span>${escapeHtml(meta)}</span>` : ""}</div><div class="timing-turn-bars">${(turn.buckets || []).map((bucket) => `<span class="timing-turn-bar timing-${escapeAttr(bucket.id)}" style="--bar:${Math.max(3, Math.min(100, bucket.sharePercent || 0))}%" title="${escapeAttr(`${bucket.label} ${formatTimingDuration(bucket.coverageMs)}`.trim())}"><i></i></span>`).join("")}</div></div>`;
+  }).join("")}</div>`;
 }
 
 function timingKindLabel(kind) {
-  return { observed: "实测", mixed: "混合", estimated: "估算", partial: "部分区间", unavailable: "未记录" }[kind] || "未记录";
+  return { observed: "实测", mixed: "混合", estimated: "估算", partial: "部分区间" }[kind] || "";
 }
 
 function formatTimingDuration(ms, prefix = "") {
-  if (ms == null) return "未记录";
+  if (ms == null) return "";
   return `${prefix ? `${prefix} ` : ""}${formatDuration(ms)}`;
 }
 
@@ -4297,8 +4312,8 @@ function renderCompactTimelineEntry(entry, index, total) {
     entry.subagentCount ? `含 ${entry.subagentCount} 次子代理调用` : "",
   ].filter(Boolean);
   const range = entry.grouped ? `第 ${entry.startTurn} 至 ${entry.endTurn} 轮，共 ${entry.endTurn - entry.startTurn + 1} 轮` : `第 ${entry.startTurn} 轮`;
-  const duration = entry.durationMs ? `记录时长 ${formatTimingDuration(entry.durationMs)}` : "未记录时长";
-  const ariaLabel = [range, duration, ...signals].join("，");
+  const duration = entry.durationMs ? `记录时长 ${formatTimingDuration(entry.durationMs)}` : "";
+  const ariaLabel = [range, duration, ...signals].filter(Boolean).join("，");
   return `
     <button class="${classes}" type="button" style="--timeline-weight:${escapeAttr(String(entry.timelineWeight))}" data-compact-timeline-target="${escapeAttr(entry.targetId)}" aria-label="${escapeAttr(ariaLabel)}" title="${escapeAttr(ariaLabel)}" tabindex="${index === 0 ? "0" : "-1"}">
       <span class="compact-timeline-label">${escapeHtml(label)}</span>
@@ -4952,20 +4967,19 @@ function renderCompactTurn(turn, context) {
 function renderCompactTurnMetrics(metrics = {}) {
   const usage = metrics.endingContextUsage;
   const usagePercent = contextUsagePercent(usage);
-  const contextValue = Number.isFinite(usagePercent)
-    ? `${usage?.used != null && usage?.limit != null ? `${compactNumber(usage.used)} / ${compactNumber(usage.limit)} · ` : ""}${usagePercent}%`
-    : "未记录";
-  const tokenValue = Number.isFinite(metrics.generatedTokens) ? compactNumber(metrics.generatedTokens) : "未记录";
   const runtime = metrics.activeRunMs;
-  const runtimeValue = Number.isFinite(runtime) ? formatTimingDuration(runtime) : "未记录";
-  const runtimeKind = Number.isFinite(runtime) && metrics.executionConfidence !== "observed" ? timingKindLabel(metrics.executionConfidence) : "";
-  return `
-    <section class="compact-turn-metrics" aria-label="本轮结束指标">
-      <div><span>轮末上下文</span><strong>${escapeHtml(contextValue)}</strong></div>
-      <div><span>生成 Token</span><strong>${escapeHtml(tokenValue)}</strong></div>
-      <div title="工具与 LLM 可关联区间的并集"><span>实际执行</span><strong>${escapeHtml(runtimeValue)}</strong>${runtimeKind ? `<em>${escapeHtml(runtimeKind)}</em>` : ""}</div>
-    </section>
-  `;
+  const rows = [
+    Number.isFinite(usagePercent)
+      ? `<div><span>轮末上下文</span><strong>${escapeHtml(`${usage?.used != null && usage?.limit != null ? `${compactNumber(usage.used)} / ${compactNumber(usage.limit)} · ` : ""}${usagePercent}%`)}</strong></div>`
+      : "",
+    Number.isFinite(metrics.generatedTokens)
+      ? `<div><span>生成 Token</span><strong>${escapeHtml(compactNumber(metrics.generatedTokens))}</strong></div>`
+      : "",
+    Number.isFinite(runtime) && metrics.executionConfidence !== "unavailable"
+      ? `<div title="工具与 LLM 可关联区间的并集"><span>实际执行</span><strong>${escapeHtml(formatTimingDuration(runtime))}</strong>${metrics.executionConfidence !== "observed" && timingKindLabel(metrics.executionConfidence) ? `<em>${escapeHtml(timingKindLabel(metrics.executionConfidence))}</em>` : ""}</div>`
+      : "",
+  ].filter(Boolean);
+  return rows.length ? `<section class="compact-turn-metrics" aria-label="本轮结束指标">${rows.join("")}</section>` : "";
 }
 
 function compactEmbeddedSubagentTargetId(path) {
@@ -4986,7 +5000,7 @@ function renderCompactEmbeddedRun(batch, index, query) {
     : "";
   const tasks = compactEmbeddedTaskViews(batch);
   const taskRows = tasks.map((task) => renderCompactEmbeddedTask(task, batch, index, query, tasks.length > 1)).join("");
-  return `<li class="compact-embedded-run status-${escapeAttr(status)}"><div class="compact-embedded-run-head"><span class="compact-embedded-run-index">调用 ${index + 1}</span><span class="compact-embedded-status">${escapeHtml(compactEmbeddedSubagentStatusLabel(status))}</span>${rawButton}</div><div class="compact-embedded-task-list">${taskRows || `<div class="compact-embedded-empty">未记录可展示任务。</div>`}</div></li>`;
+  return `<li class="compact-embedded-run status-${escapeAttr(status)}"><div class="compact-embedded-run-head"><span class="compact-embedded-run-index">调用 ${index + 1}</span><span class="compact-embedded-status">${escapeHtml(compactEmbeddedSubagentStatusLabel(status))}</span>${rawButton}</div><div class="compact-embedded-task-list">${taskRows || `<div class="compact-embedded-empty">本次调用没有可展示任务。</div>`}</div></li>`;
 }
 
 function renderCompactEmbeddedTask(task, batch, runIndex, query, showTaskStatus) {
@@ -6150,8 +6164,9 @@ function traceSearchText(node) {
 function renderTraceNode(node, context) {
   const selected = node.id === state.selectedTraceNodeId ? " selected" : "";
   const depth = Math.min(context.depth ?? 0, 8);
-  const durationLabel = node.durationMs == null ? "未记录" : formatDuration(node.durationMs);
-  const width = node.durationMs == null ? 2 : Math.max(2, Math.min(100, (node.durationMs / context.maxDuration) * 100));
+  const hasDuration = Number.isFinite(node.durationMs);
+  const durationLabel = hasDuration ? formatDuration(node.durationMs) : "";
+  const width = hasDuration ? Math.max(2, Math.min(100, (node.durationMs / context.maxDuration) * 100)) : 0;
   const children = node.children || [];
   const expanded = state.expandedTraceNodeIds.has(node.id);
   const item = fullTraceItem(node);
@@ -6160,7 +6175,7 @@ function renderTraceNode(node, context) {
   const argumentPreview = isTool ? traceArgumentPreview(item) : "";
   return `
     <div class="trace-node" style="--depth:${depth}">
-      <button class="trace-row${selected}" type="button" data-trace-node-id="${escapeAttr(node.id)}">
+      <button class="trace-row${hasDuration ? " has-duration" : ""}${selected}" type="button" data-trace-node-id="${escapeAttr(node.id)}">
         <span class="trace-indent" aria-hidden="true"></span>
         ${
           children.length
@@ -6173,9 +6188,8 @@ function renderTraceNode(node, context) {
           <span class="trace-title" data-overflow-tooltip>${escapeHtml(title)}</span>
           ${argumentPreview ? `<span class="trace-arguments" data-overflow-tooltip title="${escapeAttr(argumentPreview)}">${escapeHtml(argumentPreview)}</span>` : ""}
         </span>
-        <span class="trace-status status-${escapeAttr(traceStatusKind(node.status || item?.status))}" data-overflow-tooltip>${escapeHtml(traceStatusLabel(node.status || item?.status))}</span>
-        <span class="trace-duration" data-overflow-tooltip>${escapeHtml(durationLabel)}${node.durationEstimated && node.durationMs != null ? " · 估算" : ""}</span>
-        <span class="trace-bar" aria-hidden="true"><i style="width:${width}%"></i></span>
+        ${node.status || item?.status ? `<span class="trace-status status-${escapeAttr(traceStatusKind(node.status || item?.status))}" data-overflow-tooltip>${escapeHtml(traceStatusLabel(node.status || item?.status))}</span>` : ""}
+        ${hasDuration ? `<span class="trace-duration" data-overflow-tooltip>${escapeHtml(durationLabel)}${node.durationEstimated ? " · 估算" : ""}</span><span class="trace-bar" aria-hidden="true"><i style="width:${width}%"></i></span>` : ""}
       </button>
       ${children.length && expanded ? `<div class="trace-children">${children.map((child) => renderTraceNode(child, { ...context, depth: depth + 1 })).join("")}</div>` : ""}
     </div>
@@ -6219,7 +6233,7 @@ function traceStatusLabel(status) {
   if (kind === "waiting") return "等待输入";
   if (kind === "pending") return "等待执行";
   if (String(status || "").toLowerCase() === "open") return "记录未闭合";
-  return status ? String(status) : "状态未记录";
+  return status ? String(status) : "";
 }
 
 function renderToolDetails(node = null) {
@@ -6234,17 +6248,19 @@ function renderToolDetails(node = null) {
   const task = node.detail?.task;
   const isTool = item?.type === "tool-call" || node.type === "tool" || node.type === "handoff";
   const title = item?.name || node.title || node.label || "执行节点";
-  const argumentsText = item?.arguments ? prettyMaybeJson(item.arguments) : task?.task || "未记录参数";
-  const outputText = item?.output == null || item.output === "" ? "未返回内容" : String(item.output);
-  const status = traceStatusLabel(node.status || item?.status || task?.status);
+  const argumentsText = item?.arguments ? prettyMaybeJson(item.arguments) : task?.task || "";
+  const outputText = item?.output == null || item.output === "" ? "" : String(item.output);
+  const statusValue = node.status || item?.status || task?.status;
+  const status = traceStatusLabel(statusValue);
+  const metadata = [formatDate(node.timestamp), node.durationMs != null ? formatDuration(node.durationMs) : ""].filter(Boolean).join(" · ");
   els.toolDetailsContent.innerHTML = `
     <div class="tool-details-head">
       <span class="tool-details-icon ${escapeAttr(node.icon || node.type)}">${traceIcon(node)}</span>
-      <div><p class="eyebrow">${escapeHtml(node.label || "执行节点")}</p><h3>${escapeHtml(title)}</h3><span class="tool-details-status status-${escapeAttr(traceStatusKind(node.status || item?.status || task?.status))}">${escapeHtml(status)}</span></div>
+      <div><p class="eyebrow">${escapeHtml(node.label || "执行节点")}</p><h3>${escapeHtml(title)}</h3>${status ? `<span class="tool-details-status status-${escapeAttr(traceStatusKind(statusValue))}">${escapeHtml(status)}</span>` : ""}</div>
     </div>
-    <div class="tool-details-meta">${escapeHtml([formatDate(node.timestamp), node.durationMs != null ? formatDuration(node.durationMs) : "未记录耗时"].filter(Boolean).join(" · "))}</div>
-    <section class="tool-details-section"><h4>${isTool ? "调用参数" : "节点信息"}</h4><pre>${escapeHtml(argumentsText)}</pre></section>
-    <section class="tool-details-section"><h4>返回结果</h4><pre>${escapeHtml(outputText)}</pre></section>
+    ${metadata ? `<div class="tool-details-meta">${escapeHtml(metadata)}</div>` : ""}
+    ${argumentsText ? `<section class="tool-details-section"><h4>${isTool ? "调用参数" : "节点信息"}</h4><pre>${escapeHtml(argumentsText)}</pre></section>` : ""}
+    ${outputText ? `<section class="tool-details-section"><h4>返回结果</h4><pre>${escapeHtml(outputText)}</pre></section>` : ""}
   `;
 }
 
@@ -6604,7 +6620,7 @@ function traceIcon(node) {
 
 function formatDuration(ms) {
   const value = Number(ms);
-  if (!Number.isFinite(value)) return "未记录";
+  if (!Number.isFinite(value)) return "";
   if (value < 1000) return `${Math.round(value)} ms`;
   if (value < 60_000) return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)} s`;
   const minutes = Math.floor(value / 60_000);
@@ -7080,7 +7096,7 @@ function renderMarkdownTitle(text, query = "") {
 }
 
 function renderDetailValue(key, value) {
-  const text = value || "未记录";
+  const text = value || "";
   if (key === "标题") return `<span class="markdown-inline-title">${renderMarkdownTitle(text)}</span>`;
   return escapeHtml(text);
 }

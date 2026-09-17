@@ -302,6 +302,20 @@ test("compactTurnForView keeps all assistant messages", () => {
   assert.deepEqual(view.metrics, { endingContextUsage: { used: 96000, limit: 128000, percent: 75 }, generatedTokens: 750 });
 });
 
+test("compactTurnForView omits unavailable runtime metrics", () => {
+  const view = compactTurnForView(
+    {
+      id: "turn-1",
+      items: [{ id: "call-1", type: "tool-call", name: "bash", arguments: "pwd" }],
+    },
+    0,
+    [],
+    { timing: { activeRunMs: 0, confidence: "unavailable" } },
+  );
+
+  assert.deepEqual(view.metrics, { endingContextUsage: null, generatedTokens: null });
+});
+
 test("compactTurnsForClient exposes assistant context usage", () => {
   const compact = compactTurnsForClient([
     {

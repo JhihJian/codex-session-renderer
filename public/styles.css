@@ -2790,7 +2790,7 @@ button:disabled {
 
 .compact-turn-metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   border-bottom: 1px solid var(--hair);
   background: color-mix(in srgb, var(--bg-sunken) 64%, var(--bg-elev));
 }
@@ -3921,11 +3921,12 @@ button.compact-replacement-row:focus-visible {
 .tool-context-controls { display: flex; min-width: 0; gap: 6px; }
 .tool-context-controls .text-input.compact { width: 210px; }
 .tool-context-controls .select-input.compact { width: 132px; }
-.tool-context-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.tool-context-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
 .tool-context-kpis span { display: grid; min-width: 0; gap: 2px; color: var(--text-3); font-size: 10.5px; }
 .tool-context-kpis strong { overflow: hidden; color: var(--text); font-family: var(--mono); font-size: 12px; font-weight: 760; text-overflow: ellipsis; white-space: nowrap; }
 .tool-context-table { display: grid; overflow: hidden; border: 1px solid var(--hair); border-radius: var(--radius-tool); background: var(--bg-sunken); }
 .tool-context-row { display: grid; grid-template-columns: minmax(220px, 2fr) 92px 92px 108px 92px; align-items: center; gap: 10px; min-width: 0; min-height: 42px; border-bottom: 1px solid var(--hair); padding: 7px 10px; }
+.tool-context-stats:not(.has-context-window) .tool-context-row { grid-template-columns: minmax(220px, 2fr) 92px 92px; }
 .tool-context-row:last-child { border-bottom: 0; }
 .tool-context-row.header { min-height: 30px; background: color-mix(in srgb, var(--bg-elev) 72%, var(--bg-sunken)); color: var(--text-3); font-size: 10px; font-weight: 760; }
 .tool-context-target { display: grid; min-width: 0; gap: 1px; }
@@ -5935,7 +5936,7 @@ button.compact-replacement-row:focus-visible {
 .trace-row {
   display: grid;
   width: 100%;
-  grid-template-columns: calc(var(--depth) * 22px) 18px 23px minmax(220px, 1fr) 78px 78px minmax(140px, 230px);
+  grid-template-columns: calc(var(--depth) * 22px) 18px 23px minmax(220px, 1fr) 78px;
   align-items: center;
   gap: 7px;
   min-height: 38px;
@@ -5945,6 +5946,10 @@ button.compact-replacement-row:focus-visible {
   cursor: pointer;
   padding: 0 16px;
   text-align: left;
+}
+
+.trace-row.has-duration {
+  grid-template-columns: calc(var(--depth) * 22px) 18px 23px minmax(220px, 1fr) 78px 78px minmax(140px, 230px);
 }
 
 .trace-row:hover,
@@ -7662,6 +7667,13 @@ mark {
   .tool-context-row:not(.header) > :nth-child(4) { grid-area: context; }
   .tool-context-row:not(.header) > :nth-child(5) { grid-area: max; }
 
+  .tool-context-stats:not(.has-context-window) .tool-context-row:not(.header) {
+    grid-template-areas:
+      "target output"
+      "args output";
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
   .audit-turn-summary-button {
     grid-template-columns: minmax(0, 1fr);
     gap: 7px;
@@ -7927,7 +7939,8 @@ mark {
 
   .trace-shell { min-width: 0; }
 
-  .trace-row {
+  .trace-row,
+  .trace-row.has-duration {
     grid-template-columns: 18px 23px minmax(0, 1fr) auto;
     grid-template-rows: auto auto;
     gap: 4px 7px;
@@ -8313,7 +8326,8 @@ mark {
   min-height: 0;
 }
 
-.details-panel .trace-row {
+.details-panel .trace-row,
+.details-panel .trace-row.has-duration {
   grid-template-columns: 18px 23px minmax(0, 1fr) auto;
   grid-template-rows: auto auto;
   gap: 4px 7px;
