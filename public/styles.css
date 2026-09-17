@@ -5852,11 +5852,18 @@ button.compact-replacement-row:focus-visible {
   background: var(--bg-elev);
 }
 
-.trace-head h3 {
-  margin: 0;
-  font-size: 15px;
-  line-height: 1.25;
+.trace-session-title {
+  display: -webkit-box;
+  max-width: min(720px, 56vw);
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 520;
+  line-height: 1.4;
   overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .trace-legend {

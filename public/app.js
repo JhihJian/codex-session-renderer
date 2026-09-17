@@ -5874,7 +5874,7 @@ function renderTrace() {
       <div class="trace-head">
         <div>
           <p class="eyebrow">执行过程</p>
-          <h3 class="markdown-inline-title" data-overflow-tooltip>${renderMarkdownTitle(detail.session.title || "未命名会话")}</h3>
+          <p class="trace-session-title" data-overflow-tooltip>${escapeHtml(detail.session.title || "未命名会话")}</p>
         </div>
         <div class="trace-legend">
           <span><i class="legend-dot agent"></i>子代理</span>
@@ -6211,11 +6211,12 @@ function selectTraceNode(id) {
   const node = findTraceNode(state.detail?.trace?.root, id);
   if (!node) return;
   state.selectedTraceNodeId = id;
-  state.selectedDetailsNodeId = id;
+  const showDetails = node.type !== "thread";
+  state.selectedDetailsNodeId = showDetails ? id : null;
   state.selectedEventIndex = null;
   state.selectedItemRef = null;
   renderTrace();
-  renderToolDetails(node);
+  renderToolDetails(showDetails ? node : null);
 }
 
 function selectItemRef(ref) {

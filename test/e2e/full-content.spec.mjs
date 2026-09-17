@@ -105,6 +105,13 @@ test("正文、执行和诊断作为完整主工作区互斥切换", async ({ pa
   await page.locator("#traceViewButton").click();
   await expect(page.locator("#compactContent")).toBeHidden();
   await expect(page.locator("#executionWorkspace")).toBeVisible();
+  const rootTraceNode = page.locator('.trace-row[data-trace-node-id]', { hasText: "根会话" }).first();
+  await rootTraceNode.click();
+  await expect(page.locator("#toolDetailsContent")).toBeHidden();
+  const traceTitle = page.locator(".trace-session-title");
+  await expect(traceTitle).toBeVisible();
+  expect(await traceTitle.evaluate((element) => element.ownerDocument.defaultView.getComputedStyle(element).fontWeight)).toBe("520");
+  await expect(traceTitle.locator("strong")).toHaveCount(0);
   for (let index = 0; index < 8 && await page.locator('.trace-row[data-trace-node-id]', { hasText: "exec_command" }).count() === 0; index += 1) {
     const toggles = page.locator("[data-trace-toggle-id]");
     if (await toggles.count() === 0) break;
