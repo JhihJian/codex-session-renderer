@@ -2788,6 +2788,41 @@ button:disabled {
   display: grid;
 }
 
+.compact-turn-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-bottom: 1px solid var(--hair);
+  background: color-mix(in srgb, var(--bg-sunken) 64%, var(--bg-elev));
+}
+
+.compact-turn-metrics > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  padding: 8px 10px;
+}
+
+.compact-turn-metrics > div + div {
+  border-left: 1px solid var(--hair);
+}
+
+.compact-turn-metrics span,
+.compact-turn-metrics em {
+  color: var(--text-3);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.compact-turn-metrics strong {
+  overflow: hidden;
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .compact-message {
   display: grid;
   grid-template-columns: minmax(84px, 122px) minmax(0, 1fr);
@@ -7448,6 +7483,15 @@ mark {
   .compact-message {
     grid-template-columns: minmax(0, 1fr);
     gap: 6px;
+  }
+
+  .compact-turn-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .compact-turn-metrics > div + div {
+    border-top: 1px solid var(--hair);
+    border-left: 0;
   }
 
   .compact-replacement-coverage {

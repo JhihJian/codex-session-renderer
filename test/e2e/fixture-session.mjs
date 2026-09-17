@@ -27,6 +27,11 @@ const sessionEvents = [
     payload: { type: "agent_message", message: "已使用固定隔离样本加载工作台。" },
   },
   {
+    timestamp: "2025-01-02T03:04:08.500Z",
+    type: "event_msg",
+    payload: { type: "token_count", info: { total_token_usage: { total_tokens: 64000 }, model_context_window: 128000, last_token_usage: { output_tokens: 320, reasoning_output_tokens: 80 } } },
+  },
+  {
     timestamp: "2025-01-02T03:04:09.000Z",
     type: "response_item",
     payload: { type: "function_call", name: "exec_command", call_id: "e2e-check", arguments: "{\"cmd\":\"npm test\"}" },

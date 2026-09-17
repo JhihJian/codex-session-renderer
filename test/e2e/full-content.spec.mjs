@@ -15,6 +15,25 @@ test("正文展示 Pi 压缩和 Skill 上下文事件，并可跳转原始记录
   await expect(page.locator("#rawContent")).toContainText("pi-skill-output");
 });
 
+test("正文在每轮末尾展示上下文、生成 Token 和实际执行时长", async ({ page }) => {
+  await page.goto("/");
+  await selectCodexSource(page);
+  const metrics = page.locator("#compactContent .compact-turn-metrics").first();
+  await expect(metrics).toContainText("轮末上下文");
+  await expect(metrics).toContainText("64.0K / 128.0K · 50%");
+  await expect(metrics).toContainText("生成 Token");
+  await expect(metrics).toContainText("400");
+  await expect(metrics).toContainText("实际执行");
+  await expect(metrics).toContainText("2.5 s");
+  await page.setViewportSize({ width: 390, height: 844 });
+  const metricLayout = await metrics.locator(":scope > div").evaluateAll((items) => items.map((item) => {
+    const rect = item.getBoundingClientRect();
+    return { top: rect.top, right: rect.right, parentRight: item.parentElement.getBoundingClientRect().right };
+  }));
+  expect(metricLayout[1].top).toBeGreaterThan(metricLayout[0].top);
+  expect(metricLayout.every((item) => item.right <= item.parentRight + 1)).toBe(true);
+});
+
 test("正文左侧固定高度时间线定位轮次并标记压缩和子代理调用", async ({ page }) => {
   await page.goto("/");
   const timeline = page.locator(".compact-timeline");
@@ -41,7 +60,7 @@ test("原始事件详情完整展示大型工具输出", async ({ page }) => {
   await selectCodexSource(page);
   await page.locator("#diagnosticViewButton").click();
   await page.locator("#rawViewButton").click();
-  const outputEvent = page.locator('[data-raw-event-index="5"]');
+  const outputEvent = page.locator('[data-raw-event-index="6"]');
   await expect(outputEvent).toBeVisible();
   const textLayout = await outputEvent.evaluate((row) => {
     const [kind, title, timestamp, preview] = row.children;

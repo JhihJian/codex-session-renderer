@@ -284,10 +284,10 @@ test("compactTurnForView keeps all assistant messages", () => {
       items: [
         { id: "user-1", type: "user-message", timestamp: "2026-06-24T10:00:00.000Z", text: "请检查实现" },
         { id: "assistant-1", type: "assistant-message", timestamp: "2026-06-24T10:00:01.000Z", text: "我先看代码。" },
-        { id: "tokens-1", type: "token-count", timestamp: "2026-06-24T10:00:01.500Z", info: { total_token_usage: { total_tokens: 64000 }, context_window: 128000 } },
+        { id: "tokens-1", type: "token-count", timestamp: "2026-06-24T10:00:01.500Z", info: { total_token_usage: { total_tokens: 64000 }, context_window: 128000 }, tokenUsage: { generatedTokens: 250 } },
         { id: "call-1", type: "tool-call", name: "exec_command", arguments: "rg audit" },
         { id: "assistant-2", type: "assistant-message", timestamp: "2026-06-24T10:00:02.000Z", phase: "final", text: "检查完成。" },
-        { id: "tokens-2", type: "token-count", timestamp: "2026-06-24T10:00:02.500Z", info: { total_token_usage: { total_tokens: 96000 }, context_window: 128000 } },
+        { id: "tokens-2", type: "token-count", timestamp: "2026-06-24T10:00:02.500Z", info: { total_token_usage: { total_tokens: 96000 }, context_window: 128000 }, tokenUsage: { generatedTokens: 500 } },
       ],
     },
     0,
@@ -299,6 +299,7 @@ test("compactTurnForView keeps all assistant messages", () => {
   assert.equal(view.assistantMessages[0].contextUsage.percent, 50);
   assert.equal(view.assistantMessage.text, "检查完成。");
   assert.equal(view.assistantMessage.contextUsage.percent, 75);
+  assert.deepEqual(view.metrics, { endingContextUsage: { used: 96000, limit: 128000, percent: 75 }, generatedTokens: 750 });
 });
 
 test("compactTurnsForClient exposes assistant context usage", () => {

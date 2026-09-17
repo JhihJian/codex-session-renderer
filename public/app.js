@@ -4729,6 +4729,7 @@ function renderCompactTurn(turn, context) {
     .map((event, index) => renderCompactContextEvent(event, context.query, `${path}-compact-${index}`))
     .join("");
   const embeddedSubagents = renderCompactEmbeddedSubagents(turn.embeddedSubagents || [], context.query, compactEmbeddedSubagentTargetId(path));
+  const metrics = renderCompactTurnMetrics(turn.metrics);
   const children = (turn.children || [])
     .map((child, index) =>
       renderCompactThread(child, { depth: context.depth + 1, path: `${path}-child-${index}`, query: context.query }),
@@ -4744,9 +4745,29 @@ function renderCompactTurn(turn, context) {
         ${users}
         ${assistant}
       </div>
+      ${metrics}
       ${contextEvents ? `<div class="compact-system-group">${contextEvents}</div>` : ""}
       ${embeddedSubagents ? `<div class="compact-embedded-subagents">${embeddedSubagents}</div>` : ""}
       ${children ? `<div class="compact-child-group">${children}</div>` : ""}
+    </section>
+  `;
+}
+
+function renderCompactTurnMetrics(metrics = {}) {
+  const usage = metrics.endingContextUsage;
+  const usagePercent = contextUsagePercent(usage);
+  const contextValue = Number.isFinite(usagePercent)
+    ? `${usage?.used != null && usage?.limit != null ? `${compactNumber(usage.used)} / ${compactNumber(usage.limit)} · ` : ""}${usagePercent}%`
+    : "未记录";
+  const tokenValue = Number.isFinite(metrics.generatedTokens) ? compactNumber(metrics.generatedTokens) : "未记录";
+  const runtime = metrics.activeRunMs;
+  const runtimeValue = Number.isFinite(runtime) ? formatTimingDuration(runtime) : "未记录";
+  const runtimeKind = Number.isFinite(runtime) && metrics.executionConfidence !== "observed" ? timingKindLabel(metrics.executionConfidence) : "";
+  return `
+    <section class="compact-turn-metrics" aria-label="本轮结束指标">
+      <div><span>轮末上下文</span><strong>${escapeHtml(contextValue)}</strong></div>
+      <div><span>生成 Token</span><strong>${escapeHtml(tokenValue)}</strong></div>
+      <div title="工具与 LLM 可关联区间的并集"><span>实际执行</span><strong>${escapeHtml(runtimeValue)}</strong>${runtimeKind ? `<em>${escapeHtml(runtimeKind)}</em>` : ""}</div>
     </section>
   `;
 }

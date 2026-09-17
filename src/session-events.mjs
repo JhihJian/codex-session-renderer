@@ -147,6 +147,7 @@ function compactTurnForView(turn, turnIndex, children, context = {}) {
   const embeddedSubagents = turn.items
     .map((item, itemIndex) => (item.embeddedSubagents ? compactEmbeddedSubagentsForView(item, turnIndex, itemIndex) : null))
     .filter(Boolean);
+  const metrics = compactTurnMetrics(turn.items, context.timing);
   return {
     id: turn.id,
     turnNumber: turnIndex + 1,
@@ -159,8 +160,26 @@ function compactTurnForView(turn, turnIndex, children, context = {}) {
     compactEvents,
     contextEvents,
     embeddedSubagents,
+    metrics,
     children,
   };
+}
+
+function compactTurnMetrics(items = [], timing = null) {
+  const endingContextUsage = [...items]
+    .reverse()
+    .map((item) => item.type === "token-count" ? contextUsageFromTokenInfo(item.info) : null)
+    .find(Boolean) || null;
+  const generatedTokens = items.reduce((total, item) => {
+    const value = Number(item.tokenUsage?.generatedTokens);
+    return Number.isFinite(value) ? total + value : total;
+  }, 0);
+  const metrics = { endingContextUsage, generatedTokens: generatedTokens || null };
+  if (Number.isFinite(timing?.activeRunMs)) {
+    metrics.activeRunMs = timing.activeRunMs;
+    metrics.executionConfidence = timing.confidence || "unavailable";
+  }
+  return metrics;
 }
 
 function compactContextEventsForTurn(turn, context = {}) {

@@ -1104,7 +1104,7 @@ async function getSessionDetail(context, id, options = {}) {
       const sessionForDetail = { ...sessionWithStat, status: deriveSessionStatusFromTurns(turns) };
       const trace = buildTrace(sessionForDetail, rawEvents, analysisEvents, turns, hierarchy);
       const timing = buildSessionTiming(trace);
-      const compact = await buildCompactView(context, { session: sessionForDetail, normalizedEvents: analysisEvents, turns, hierarchy, options: { maxDepth, signal } });
+      const compact = await buildCompactView(context, { session: sessionForDetail, normalizedEvents: analysisEvents, turns, hierarchy, timing, options: { maxDepth, signal } });
       return {
         complete: true,
         readState: { state: "ready", code: "session_read_complete" },
@@ -1569,7 +1569,7 @@ async function testRemotePeerOrThrow(source, options = {}) {
   }
 }
 
-async function buildCompactView(context, { session, normalizedEvents, turns, hierarchy, options = {} }) {
+async function buildCompactView(context, { session, normalizedEvents, turns, hierarchy, timing = null, options = {} }) {
   throwIfRequestAborted(options.signal);
   const depth = options.depth ?? 0;
   const maxDepth = options.maxDepth ?? 3;
@@ -1622,7 +1622,7 @@ async function buildCompactView(context, { session, normalizedEvents, turns, hie
       }
     }
 
-    return compactTurnForView(turn, turnIndex, children, { turns });
+    return compactTurnForView(turn, turnIndex, children, { turns, timing: timing?.turns?.[turnIndex] || null });
   });
 
   const unplacedChildren = hierarchy.children
@@ -1655,11 +1655,14 @@ async function buildCompactChildNode(sourceContext, child, context) {
       derive: async (rawEvents, stat, signal) => {
         const childSessionWithStat = withFileStat(childSession, stat);
         const childHierarchy = await getThreadHierarchy(sourceContext, thread.id, { signal });
+        const childTurns = buildTurns(rawEvents);
+        const childTiming = buildSessionTiming(buildTrace(childSessionWithStat, rawEvents, rawEvents.map(analysisEventFromRaw), childTurns, childHierarchy));
         return buildCompactView(sourceContext, {
           session: childSessionWithStat,
           normalizedEvents: rawEvents.map(analysisEventFromRaw),
-          turns: buildTurns(rawEvents),
+          turns: childTurns,
           hierarchy: childHierarchy,
+          timing: childTiming,
           options: { depth: context.depth + 1, maxDepth: context.maxDepth, signal },
         });
       },

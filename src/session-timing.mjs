@@ -264,6 +264,7 @@ function buildSessionTiming(trace) {
   const llmBucket = buckets.find((bucket) => bucket.id === "llm_wait");
   const turns = (trace?.root?.children || []).filter((node) => node.type === "turn").map((turn, turnIndex) => {
     const turnIntervals = intervals.filter((item) => item.turnIndex === turnIndex);
+    const completeTurnIntervals = turnIntervals.filter((item) => item.durationMs != null);
     const turnStart = Date.parse(turn.timestamp || "");
     const turnEnd = Date.parse(turn.completedAt || "");
     const turnDuration = Number.isFinite(turnStart) && Number.isFinite(turnEnd) && turnEnd >= turnStart ? turnEnd - turnStart : null;
@@ -274,7 +275,8 @@ function buildSessionTiming(trace) {
       completedAt: turn.completedAt || null,
       durationMs: turnDuration,
       durationKind: turnDuration == null ? "partial" : turn.durationEstimated ? "estimated" : "observed",
-      confidence: confidenceFor(turnIntervals.filter((item) => item.durationMs != null)),
+      confidence: confidenceFor(completeTurnIntervals),
+      activeRunMs: coveredMs(completeTurnIntervals.map((item) => ({ startMs: item.startMs, endMs: item.endMs }))),
       buckets: bucketDefinitions
         .map(([id, label]) => buildBucket(id, label, turnIntervals.filter((item) => item.bucketId === id), turnDuration || 0))
         .filter((bucket) => bucket.count > 0),
