@@ -169,14 +169,19 @@ test("诊断统计按工具目标汇总上下文占用", async ({ page }) => {
 
   const contextStats = page.locator(".tool-context-stats");
   await expect(contextStats).toContainText("工具上下文占用");
+  await expect(contextStats).toContainText("最近上下文窗口");
   await expect(contextStats).toContainText("返回结果");
-  await expect(contextStats).toContainText("约上下文");
-  await expect(contextStats).toContainText("最大返回");
+  await expect(contextStats).toContainText("累计 / 窗口");
+  await expect(contextStats).toContainText("最大返回 / 窗口");
   await expect(contextStats).toContainText("读取文件内容");
   await expect(contextStats).toContainText("README.md");
   const verification = contextStats.locator(".tool-context-row", { hasText: "运行验证" });
   await expect(verification).toContainText("npm test");
   await expect(verification.locator(".tool-context-number").nth(1)).toContainText("KB");
+  await page.locator("#toolContextQuery").fill("npm test");
+  await expect(contextStats.locator(".tool-context-row:not(.header)")).toHaveCount(1);
+  await page.locator("#toolContextSort").selectOption("context-share");
+  await expect(page.locator("#toolContextSort")).toHaveValue("context-share");
   await page.setViewportSize({ width: 390, height: 844 });
   const layout = await contextStats.locator(".tool-context-table").evaluate((element) => ({ client: element.clientWidth, scroll: element.scrollWidth }));
   expect(layout.scroll).toBeLessThanOrEqual(layout.client);

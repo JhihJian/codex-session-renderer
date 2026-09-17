@@ -3916,7 +3916,11 @@ button.compact-replacement-row:focus-visible {
 .timing-empty strong { color: var(--text-2); font-size: 12px; }
 
 .tool-context-stats { display: grid; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--hair); background: var(--bg-elev); }
+.tool-context-stats-head { display: flex; min-width: 0; align-items: end; justify-content: space-between; gap: 12px; }
 .tool-context-stats-head h3 { margin: 0; font-size: 14px; }
+.tool-context-controls { display: flex; min-width: 0; gap: 6px; }
+.tool-context-controls .text-input.compact { width: 210px; }
+.tool-context-controls .select-input.compact { width: 132px; }
 .tool-context-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .tool-context-kpis span { display: grid; min-width: 0; gap: 2px; color: var(--text-3); font-size: 10.5px; }
 .tool-context-kpis strong { overflow: hidden; color: var(--text); font-family: var(--mono); font-size: 12px; font-weight: 760; text-overflow: ellipsis; white-space: nowrap; }
@@ -7618,6 +7622,17 @@ mark {
 
   .tool-context-stats {
     padding: 12px;
+  }
+
+  .tool-context-stats-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .tool-context-controls,
+  .tool-context-controls .text-input.compact,
+  .tool-context-controls .select-input.compact {
+    width: 100%;
   }
 
   .tool-context-kpis {

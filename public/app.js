@@ -56,6 +56,8 @@ const state = {
   rawDiagnostic: null,
   viewMode: "compact",
   diagnosticMode: "stats",
+  toolContextQuery: "",
+  toolContextSort: "output-bytes",
 
   sessionTimeFilter: "realtime",
   visibleEvents: 40,
@@ -3528,46 +3530,97 @@ function buildEventTypeStats(detail) {
   );
 }
 
-function buildToolContextStats(detail, query, typeFilter) {
+function buildToolContextStats(detail, query, typeFilter, toolQuery, sort) {
   const tools = (detail?.turns || []).flatMap((turn) => turn.items || []).filter((item) => item.type === "tool-call");
   const visibleTools = tools.filter((item) => itemMatches(item, query, typeFilter));
+  const normalizedToolQuery = String(toolQuery || "").trim().toLowerCase();
+  const contextWindow = latestContextWindow(detail);
   const groups = new Map();
-  for (const item of visibleTools) {
-    const readable = readableToolItem(item);
-    if (!readable.matched || !readable.ruleId) continue;
-    const target = readable.summary || readable.path || readable.command || item.name || "未生成目标";
-    const key = `${readable.ruleId}\u0000${target}`;
-    const argument = String(item.arguments || "");
-    const output = String(item.output || "");
-    const current = groups.get(key) || {
-      id: key,
-      title: readable.title,
-      label: readable.ruleLabel,
-      target,
-      count: 0,
-      argumentBytes: 0,
-      outputBytes: 0,
-      contextTokens: 0,
-      maxOutputBytes: 0,
-    };
-    current.count += 1;
-    current.argumentBytes += utf8ByteLength(argument);
-    const outputBytes = utf8ByteLength(output);
-    current.outputBytes += outputBytes;
-    current.contextTokens += approxTokensFromValue(argument) + approxTokensFromValue(output);
-    current.maxOutputBytes = Math.max(current.maxOutputBytes, outputBytes);
-    groups.set(key, current);
-  }
-  const values = [...groups.values()].sort(
-    (left, right) => right.contextTokens - left.contextTokens || right.outputBytes - left.outputBytes || right.maxOutputBytes - left.maxOutputBytes || left.target.localeCompare(right.target, "zh-Hans-CN"),
-  );
+  for (const item of visibleTools) addToolContextItem(groups, item, normalizedToolQuery);
+  const values = [...groups.values()].map((group) => ({
+    ...group,
+    contextWindowShare: ratioPercent(group.contextTokens, contextWindow),
+    maxOutputWindowShare: ratioPercent(group.maxOutputTokens, contextWindow),
+  }));
+  values.sort(toolContextComparator(sort));
   return {
     outputBytes: values.reduce((count, group) => count + group.outputBytes, 0),
     contextTokens: values.reduce((count, group) => count + group.contextTokens, 0),
-    repeatedTargets: values.filter((group) => group.count > 1).length,
-    largest: values[0] || null,
+    contextWindow,
     groups: values,
   };
+}
+
+function addToolContextItem(groups, item, query) {
+  const readable = readableToolItem(item);
+  if (!readable.matched || !readable.ruleId) return;
+  const target = readable.summary || readable.path || readable.command || item.name || "未生成目标";
+  const key = `${readable.ruleId}\u0000${target}`;
+  const argument = String(item.arguments || "");
+  const output = String(item.output || "");
+  if (!toolContextQueryMatches(query, readable.title, target, output)) return;
+  const current = groups.get(key) || createToolContextGroup(key, readable, target);
+  const outputBytes = utf8ByteLength(output);
+  const outputTokens = approxTokensFromValue(output);
+  current.count += 1;
+  current.argumentBytes += utf8ByteLength(argument);
+  current.outputBytes += outputBytes;
+  current.contextTokens += approxTokensFromValue(argument) + outputTokens;
+  current.maxOutputBytes = Math.max(current.maxOutputBytes, outputBytes);
+  current.maxOutputTokens = Math.max(current.maxOutputTokens, outputTokens);
+  groups.set(key, current);
+}
+
+function toolContextQueryMatches(query, title, target, output) {
+  return !query || `${title}\n${target}\n${output}`.toLowerCase().includes(query);
+}
+
+function createToolContextGroup(id, readable, target) {
+  return {
+    id,
+    title: readable.title,
+    label: readable.ruleLabel,
+    target,
+    count: 0,
+    argumentBytes: 0,
+    outputBytes: 0,
+    contextTokens: 0,
+    maxOutputBytes: 0,
+    maxOutputTokens: 0,
+  };
+}
+
+function latestContextWindow(detail) {
+  const tokenItems = (detail?.turns || []).flatMap((turn) => turn.items || []).filter((item) => item.type === "token-count");
+  for (const item of [...tokenItems].reverse()) {
+    const info = item.info || {};
+    for (const value of [info.context_window, info.contextWindow, info.contextWindowTokens, info.model_context_window]) {
+      const window = Number(value);
+      if (Number.isFinite(window) && window > 0) return Math.round(window);
+    }
+  }
+  return 0;
+}
+
+function ratioPercent(value, total) {
+  if (!total) return null;
+  return (Number(value || 0) / total) * 100;
+}
+
+function formatContextRatio(value) {
+  if (!Number.isFinite(value)) return "未记录";
+  return `${value >= 10 ? value.toFixed(1) : value.toFixed(2)}%`;
+}
+
+function toolContextComparator(sort) {
+  const comparisons = {
+    "context-share": (left, right) => (right.contextWindowShare ?? -1) - (left.contextWindowShare ?? -1),
+    "max-output": (left, right) => right.maxOutputBytes - left.maxOutputBytes,
+    target: (left, right) => left.target.localeCompare(right.target, "zh-Hans-CN"),
+    "output-bytes": (left, right) => right.outputBytes - left.outputBytes,
+  };
+  const compare = comparisons[sort] || comparisons["output-bytes"];
+  return (left, right) => compare(left, right) || right.contextTokens - left.contextTokens || left.target.localeCompare(right.target, "zh-Hans-CN");
 }
 
 function eventTypeKey(event) {
@@ -3697,11 +3750,13 @@ function renderStatsInfoView() {
     </div>
   `;
   bindTimingActions();
+  bindToolContextControls();
 }
 
 function renderToolContextStats(detail, query, typeFilter) {
-  const stats = buildToolContextStats(detail, query, typeFilter);
-  const largest = stats.largest ? `${stats.largest.title} · ${stats.largest.target}` : "无";
+  const stats = buildToolContextStats(detail, query, typeFilter, state.toolContextQuery, state.toolContextSort);
+  const windowLabel = stats.contextWindow ? `${compactNumber(stats.contextWindow)} tok` : "未记录";
+  const totalShare = formatContextRatio(ratioPercent(stats.contextTokens, stats.contextWindow));
   return `
     <section class="tool-context-stats" aria-labelledby="toolContextStatsHeading">
       <div class="tool-context-stats-head">
@@ -3709,12 +3764,21 @@ function renderToolContextStats(detail, query, typeFilter) {
           <p class="eyebrow">工具诊断</p>
           <h3 id="toolContextStatsHeading">工具上下文占用</h3>
         </div>
+        <div class="tool-context-controls" aria-label="工具上下文统计筛选和排序">
+          <input class="text-input compact" id="toolContextQuery" type="search" autocomplete="off" value="${escapeAttr(state.toolContextQuery)}" placeholder="检索目标或返回结果" />
+          <select class="select-input compact" id="toolContextSort" aria-label="工具返回结果排序">
+            <option value="output-bytes" ${state.toolContextSort === "output-bytes" ? "selected" : ""}>返回结果大小</option>
+            <option value="context-share" ${state.toolContextSort === "context-share" ? "selected" : ""}>上下文占用比例</option>
+            <option value="max-output" ${state.toolContextSort === "max-output" ? "selected" : ""}>最大单次返回</option>
+            <option value="target" ${state.toolContextSort === "target" ? "selected" : ""}>操作与目标</option>
+          </select>
+        </div>
       </div>
       <div class="tool-context-kpis" aria-label="工具上下文占用概览">
+        <span><strong>${escapeHtml(windowLabel)}</strong>最近上下文窗口</span>
         <span><strong>${escapeHtml(formatBytes(stats.outputBytes))}</strong>返回结果</span>
-        <span><strong>约 ${escapeHtml(compactNumber(stats.contextTokens))}</strong>上下文 token</span>
-        <span><strong>${escapeHtml(String(stats.repeatedTargets))}</strong>重复目标</span>
-        <span data-overflow-tooltip title="${escapeAttr(largest)}"><strong>${escapeHtml(largest)}</strong>最大上下文目标</span>
+        <span><strong>约 ${escapeHtml(compactNumber(stats.contextTokens))} tok</strong>累计参数与返回</span>
+        <span><strong>${escapeHtml(totalShare)}</strong>累计 / 窗口</span>
       </div>
       ${
         stats.groups.length
@@ -3723,8 +3787,8 @@ function renderToolContextStats(detail, query, typeFilter) {
                 <span role="columnheader">操作与目标</span>
                 <span role="columnheader">调用参数</span>
                 <span role="columnheader">返回结果</span>
-                <span role="columnheader">约上下文</span>
-                <span role="columnheader">最大返回</span>
+                <span role="columnheader">累计 / 窗口</span>
+                <span role="columnheader">最大返回 / 窗口</span>
               </div>
               ${stats.groups.slice(0, 30).map((group) => renderToolContextStatRow(group)).join("")}
             </div>`
@@ -3735,16 +3799,36 @@ function renderToolContextStats(detail, query, typeFilter) {
 }
 
 function renderToolContextStatRow(group) {
-  const repeated = group.count > 1 ? `重复 ${group.count} 次` : group.label;
+  const repeated = group.count > 1 ? `同一目标 ${group.count} 次` : group.label;
   return `
     <div class="tool-context-row" role="row">
       <span class="tool-context-target" role="cell"><strong data-overflow-tooltip title="${escapeAttr(group.title)}">${escapeHtml(group.title)}</strong><em data-overflow-tooltip title="${escapeAttr(group.target)}">${escapeHtml(group.target)}</em><small>${escapeHtml(repeated)}</small></span>
       <span class="tool-context-number" role="cell">${escapeHtml(formatBytes(group.argumentBytes))}</span>
       <span class="tool-context-number" role="cell">${escapeHtml(formatBytes(group.outputBytes))}</span>
-      <span class="tool-context-number" role="cell">约 ${escapeHtml(compactNumber(group.contextTokens))}</span>
-      <span class="tool-context-number" role="cell">${escapeHtml(formatBytes(group.maxOutputBytes))}</span>
+      <span class="tool-context-number" role="cell">约 ${escapeHtml(compactNumber(group.contextTokens))} tok · ${escapeHtml(formatContextRatio(group.contextWindowShare))}</span>
+      <span class="tool-context-number" role="cell">${escapeHtml(formatBytes(group.maxOutputBytes))} · ${escapeHtml(formatContextRatio(group.maxOutputWindowShare))}</span>
     </div>
   `;
+}
+
+function bindToolContextControls() {
+  const queryInput = els.statsContent.querySelector("#toolContextQuery");
+  const sortInput = els.statsContent.querySelector("#toolContextSort");
+  queryInput?.addEventListener("input", () => {
+    const selectionStart = queryInput.selectionStart;
+    const selectionEnd = queryInput.selectionEnd;
+    state.toolContextQuery = queryInput.value;
+    renderStatsInfoView();
+    requestAnimationFrame(() => {
+      const next = els.statsContent.querySelector("#toolContextQuery");
+      next?.focus();
+      if (next && selectionStart != null && selectionEnd != null) next.setSelectionRange(selectionStart, selectionEnd);
+    });
+  });
+  sortInput?.addEventListener("change", () => {
+    state.toolContextSort = sortInput.value;
+    renderStatsInfoView();
+  });
 }
 
 function renderTimingView(timing) {
