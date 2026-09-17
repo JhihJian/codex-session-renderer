@@ -190,6 +190,21 @@ test("诊断统计按工具目标汇总上下文占用", async ({ page }) => {
   await expect(page.locator("#rawContent .raw-preview")).toContainText("FULL_TOOL_OUTPUT_END");
 });
 
+test("事件统计在工具输出下按摘要规则汇总操作", async ({ page }) => {
+  await page.goto("/");
+  await selectCodexSource(page);
+  await page.locator("#diagnosticViewButton").click();
+
+  const table = page.locator(".stats-event-table");
+  const toolOutput = table.locator(".stats-event-row", { hasText: "工具输出" }).first();
+  await expect(toolOutput).toContainText("3");
+  const operationRows = table.locator(".stats-event-operation-row");
+  await expect(operationRows).toHaveCount(3);
+  await expect(operationRows.filter({ hasText: "读取文件内容" })).toHaveCount(1);
+  await expect(operationRows.filter({ hasText: "搜索文本" })).toHaveCount(1);
+  await expect(operationRows.filter({ hasText: "运行验证" })).toHaveCount(1);
+});
+
 test("缺失窗口或轮次指标时不保留未记录占位", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#compactContent")).not.toContainText("轮末上下文");

@@ -52,6 +52,16 @@ const sessionEvents = [
     payload: { type: "function_call_output", call_id: "e2e-read", output: "# fixture README" },
   },
   {
+    timestamp: "2025-01-02T03:04:10.000Z",
+    type: "response_item",
+    payload: { type: "function_call", name: "exec_command", call_id: "e2e-search", arguments: "{\"cmd\":\"rg -n \\\"fixture\\\" public\"}" },
+  },
+  {
+    timestamp: "2025-01-02T03:04:10.000Z",
+    type: "response_item",
+    payload: { type: "function_call_output", call_id: "e2e-search", output: "public/index.html:1:fixture" },
+  },
+  {
     timestamp: "2025-01-02T03:04:11.000Z",
     type: "event_msg",
     payload: { type: "task_complete", last_agent_message: "验证完成。" },

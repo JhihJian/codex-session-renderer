@@ -2024,9 +2024,57 @@ function buildEventTypeStats(detail) {
     current.approxBytes += estimateEventBytes(event);
     groups.set(kind, current);
   }
+  addToolOutputOperationStats(groups, detail);
   return [...groups.values()].sort(
     (left, right) => right.count - left.count || right.approxTokens - left.approxTokens || left.kind.localeCompare(right.kind),
   );
+}
+
+function addToolOutputOperationStats(groups, detail) {
+  const eventsByIndex = new Map((detail?.events || []).map((event) => [event.index, event]));
+  for (const item of (detail?.turns || []).flatMap((turn) => turn.items || [])) {
+    addToolOutputOperationStat(groups, eventsByIndex, item);
+
+  }
+  for (const group of groups.values()) {
+    if (!group.operations) continue;
+    group.operations = [...group.operations.values()].sort(
+      (left, right) => right.count - left.count || right.approxTokens - left.approxTokens || left.title.localeCompare(right.title, "zh-Hans-CN"),
+    );
+  }
+}
+
+function addToolOutputOperationStat(groups, eventsByIndex, item) {
+  if (item.type !== "tool-call") return;
+  const outputEvent = toolOutputEventForItem(item, eventsByIndex);
+  if (!outputEvent) return;
+  const parent = groups.get(eventTypeKey(outputEvent));
+  if (!parent || eventTypeLabel(parent.kind) !== "工具输出") return;
+  const readable = readableToolItem(item);
+  if (!readable.matched || !readable.ruleId) return;
+  const operations = parent.operations || new Map();
+  const current = operations.get(readable.ruleId) || createToolOutputOperation(readable);
+  current.count += 1;
+  current.approxTokens += estimateEventTokens(outputEvent);
+  current.approxBytes += estimateEventBytes(outputEvent);
+  operations.set(readable.ruleId, current);
+  parent.operations = operations;
+}
+
+function toolOutputEventForItem(item, eventsByIndex) {
+  const index = item.outputSourceIndex ?? (item.output != null ? item.sourceIndex : null);
+  return eventsByIndex.get(index) || null;
+}
+
+function createToolOutputOperation(readable) {
+  return {
+    ruleId: readable.ruleId,
+    ruleLabel: readable.ruleLabel,
+    title: readable.title,
+    count: 0,
+    approxTokens: 0,
+    approxBytes: 0,
+  };
 }
 
 function buildToolContextStats(detail, query, typeFilter, toolQuery, sort) {
@@ -2215,7 +2263,7 @@ function renderStatsInfoView() {
   const typeFilter = els.itemTypeFilter.value;
   const allEvents = detail.events || [];
   const filteredEvents = allEvents.filter((event) => rawEventMatches(event, query, typeFilter));
-  const eventTypeStats = buildEventTypeStats({ events: filteredEvents });
+  const eventTypeStats = buildEventTypeStats({ ...detail, events: filteredEvents });
   const totalEventTypeStats = buildEventTypeStats(detail);
   const filtered = filteredEvents.length !== allEvents.length;
   const approxTokens = eventTypeStats.reduce((sum, stat) => sum + stat.approxTokens, 0);
@@ -2251,7 +2299,7 @@ function renderStatsInfoView() {
                 <span role="columnheader">占比</span>
                 <span role="columnheader">体积</span>
               </div>
-              ${eventTypeStats.map((stat) => renderStatsEventRow(stat, filteredEvents.length, maxCount, query)).join("")}
+              ${eventTypeStats.map((stat) => renderStatsEventRows(stat, filteredEvents.length, maxCount, query)).join("")}
             </div>`
           : emptyState("没有匹配的事件统计", "调整内容搜索或类型过滤。")
       }
@@ -2429,6 +2477,12 @@ function renderStatsMetric(label, value, hint) {
   `;
 }
 
+function renderStatsEventRows(stat, totalEvents, maxCount, query) {
+  const rows = [renderStatsEventRow(stat, totalEvents, maxCount, query)];
+  for (const operation of stat.operations || []) rows.push(renderStatsOperationRow(operation, totalEvents, maxCount, query));
+  return rows.join("");
+}
+
 function renderStatsEventRow(stat, totalEvents, maxCount, query) {
   const percent = totalEvents ? Math.round((stat.count / totalEvents) * 1000) / 10 : 0;
   const average = stat.count ? Math.round(stat.approxTokens / stat.count) : 0;
@@ -2447,6 +2501,28 @@ function renderStatsEventRow(stat, totalEvents, maxCount, query) {
         <em>${escapeHtml(`${percent}%`)}</em>
       </span>
       <span role="cell" data-overflow-tooltip>${escapeHtml(formatBytes(stat.approxBytes))}</span>
+    </div>
+  `;
+}
+
+function renderStatsOperationRow(operation, totalEvents, maxCount, query) {
+  const percent = totalEvents ? Math.round((operation.count / totalEvents) * 1000) / 10 : 0;
+  const average = operation.count ? Math.round(operation.approxTokens / operation.count) : 0;
+  const bar = Math.max(2, Math.round((operation.count / maxCount) * 100));
+  return `
+    <div class="stats-event-row stats-event-operation-row" role="row" style="--bar:${escapeAttr(String(bar))}" title="${escapeAttr(`${operation.ruleLabel} · ${operation.count} 个工具输出 · 约 ${compactNumber(operation.approxTokens)} tok`)}">
+      <span class="stats-event-type" role="cell">
+        <strong data-overflow-tooltip>${highlight(escapeHtml(operation.title), query)}</strong>
+        <em data-overflow-tooltip>${escapeHtml(operation.ruleLabel)}</em>
+      </span>
+      <span role="cell" data-overflow-tooltip><strong>${escapeHtml(String(operation.count))}</strong></span>
+      <span role="cell" data-overflow-tooltip>${escapeHtml(`约 ${compactNumber(operation.approxTokens)}`)}</span>
+      <span role="cell" data-overflow-tooltip>${escapeHtml(`约 ${compactNumber(average)}`)}</span>
+      <span class="stats-event-share" role="cell">
+        <i aria-hidden="true"></i>
+        <em>${escapeHtml(`${percent}%`)}</em>
+      </span>
+      <span role="cell" data-overflow-tooltip>${escapeHtml(formatBytes(operation.approxBytes))}</span>
     </div>
   `;
 }
