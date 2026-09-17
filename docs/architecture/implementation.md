@@ -28,4 +28,4 @@
 - `npm test` 执行语法检查、Node 单元测试和 HTTP 冒烟测试。
 - `npm run test:e2e` 执行 Playwright 端到端测试。
 
-关键验证包括：`test/session-detail-coordinator.test.mjs` 覆盖稳定详情读取，`test/codex-goal-http.test.mjs` 覆盖 Goal 投影与 Raw 保留，`test/server-access-control.test.mjs` 覆盖非 loopback 服务的认证边界。
+关键验证包括：`test/session-detail-coordinator.test.mjs` 覆盖详情缓存与并发读取，`test/codex-goal-http.test.mjs` 覆盖 Goal 投影与 Raw 保留，`test/server-access-control.test.mjs` 覆盖非 loopback 服务的认证边界。

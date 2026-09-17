@@ -129,16 +129,6 @@ function throwIfAborted(signal) {
   if (signal?.aborted) throw createAbortError();
 }
 
-function changingRead(stat) {
-  return {
-    state: "changing",
-    code: "session_file_changed",
-    reason: "file_changed_during_read",
-    fileSizeBytes: stat?.size ?? null,
-
-  };
-}
-
 function estimateBytes(value) {
   try {
     return Buffer.byteLength(JSON.stringify(value), "utf8");
@@ -204,14 +194,10 @@ function createSessionDetailCoordinator(options = {}) {
           sharedSignal,
         );
         throwIfAborted(sharedSignal);
-        const afterReadStat = await stat(session.path);
-        if (signature !== fileSignature(session.path, afterReadStat)) return changingRead(afterReadStat);
-        const value = await derive(events, afterReadStat, sharedSignal);
+        const value = await derive(events, beforeStat, sharedSignal);
         throwIfAborted(sharedSignal);
-        const afterDeriveStat = await stat(session.path);
-        if (signature !== fileSignature(session.path, afterDeriveStat)) return changingRead(afterDeriveStat);
         if (shouldCache(value)) remember(cacheKey, signature, value);
-        return { state: "ready", value, stat: afterDeriveStat, signature, cached: false };
+        return { state: "ready", value, stat: beforeStat, signature, cached: false };
       },
       signal,
     );
@@ -221,7 +207,6 @@ function createSessionDetailCoordinator(options = {}) {
 }
 
 export {
-  changingRead,
   createAbortError,
   createConcurrencyGate,
   createSessionDetailCoordinator,

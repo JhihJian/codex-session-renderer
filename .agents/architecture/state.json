@@ -1,191 +1,10 @@
 {
   "version": 4,
-  "documentStatus": "active",
+  "documentStatus": "candidate",
   "snapshot": {
     "commit": "8d50d8aae90f7392eb5fb0dbfdb2c55160127c30",
     "acceptedAt": "2026-09-17T09:41:40.334Z",
-    "files": [
-      {
-        "path": "README.md",
-        "sha256": "sha256:e0490541fc27970382d59e4c2ae5e47718d03244c01a337a128b9de8cef3624f"
-      },
-      {
-        "path": "docs/architecture/README.md",
-        "sha256": "sha256:c353809889a803696fc3bacf8f26dcb0513c500924efed8efed154850add7df2"
-      },
-      {
-        "path": "docs/architecture/implementation.md",
-        "sha256": "sha256:9c9bca3d36b53dfe4079f15c392a265135c8a50d9745109cf9371942f503c36f"
-      },
-      {
-        "path": "docs/architecture/modules/session-projection.md",
-        "sha256": "sha256:459859abe0241401bc36b4cc514a8babe211ed272a37b88d4801b53781d1ee91"
-      },
-      {
-        "path": "docs/reader-context-events-design.md",
-        "sha256": "sha256:04f60dce31e6b30e792f333fd4997058b2004f5f7eee866f8a7685e6cd8d3d84"
-      },
-      {
-        "path": "docs/session-event-normalization.md",
-        "sha256": "sha256:edd78e3401233056041e18017e3ccffd48ff04fcb976235b82fbc29f1be320a2"
-      },
-      {
-        "path": "public/app-format.js",
-        "sha256": "sha256:70632d6407c36be36fe976b6af6783e7d760993428a4ce76b3d3ec86957d04d9"
-      },
-      {
-        "path": "public/app.js",
-        "sha256": "sha256:fd5d70850561a589bee23ab653f2de1623496acb19a82075a0cc84ed7e5b4924"
-      },
-      {
-        "path": "public/index.html",
-        "sha256": "sha256:ef9a7b8171ae892bfaca9f5224710104a6dfc13057a9158d76b5f81a13958e73"
-      },
-      {
-        "path": "public/styles.css",
-        "sha256": "sha256:5d1c16735f2ed13280751cae0fdb87d190ede6aaadbc05e4121fbdc50ff76a71"
-      },
-      {
-        "path": "public/tool-summary.js",
-        "sha256": "sha256:d360e343d67c0558b155f4737e80d89e8e5f82473a36fc5db767cb48b660c90a"
-      },
-      {
-        "path": "scripts/e2e-server.mjs",
-        "sha256": "sha256:23844276a854509fb31e9c53a3c11bfa0073ce43278679b80dded17c06c028b6"
-      },
-      {
-        "path": "server.mjs",
-        "sha256": "sha256:d79173b41e2caaefb77769e41c288e2679bf0d6607b20fb4bd9e2621578e3e7e"
-      },
-      {
-        "path": "src/access-control.mjs",
-        "sha256": "sha256:77dd682be1f66b4cea2625d67e5f1aed6804a5d6331dbb8b55c9d3dc6fa950fe"
-      },
-      {
-        "path": "src/data-sources.mjs",
-        "sha256": "sha256:06908de5df136e749c206007800d68d5eeca81b8645cb5ceda902e4c697329a1"
-      },
-      {
-        "path": "src/event-summary.mjs",
-        "sha256": "sha256:d04af923d369dde9f72af0e13c94ee40bd98b5f6eaa1fd0d7d9c937eaef0e592"
-      },
-      {
-        "path": "src/http-response.mjs",
-        "sha256": "sha256:9ca3f0eff6d1352c6d55ecb954c6bc7549d9cdbd31071f02ab9b070af1c14e8d"
-      },
-      {
-        "path": "src/jsonl-reader.mjs",
-        "sha256": "sha256:ae209e6def46e9af7135459689789f960a8b28575c734ef2169905529f984c0e"
-      },
-      {
-        "path": "src/pi-context-events.mjs",
-        "sha256": "sha256:de10b92dd0c4e0e521201772a7ea87ef4f6481ca90e1636e4d269b9b2092014d"
-      },
-      {
-        "path": "src/session-catalog.mjs",
-        "sha256": "sha256:f55a6189486e3f11a5fc0a4c0da1457fe454266151321390a7c62152726d276a"
-      },
-      {
-        "path": "src/session-detail-coordinator.mjs",
-        "sha256": "sha256:4d9686e3f2b199ae6857782e7c164a3f69f4cbccfd950631bedc3de5349bddc6"
-      },
-      {
-        "path": "src/session-events.mjs",
-        "sha256": "sha256:fdaa16bcf0a5d3bf8f9979cc0893c67af510c93531bb6d91e99c1ed7cf419376"
-      },
-      {
-        "path": "src/session-models.mjs",
-        "sha256": "sha256:ca8feb68cc1759e4605e0ab58d0f0d7dee9f64707fc082bb29e4205ee3292c8b"
-      },
-      {
-        "path": "src/session-normalizer.mjs",
-        "sha256": "sha256:e670dd3aa4328016c20d31ed65714df0c39c6f69304ce58bbb53b33a4b2de7ac"
-      },
-      {
-        "path": "src/session-query.mjs",
-        "sha256": "sha256:6f8ffc52b3590dcf33ba92beea9fbaa89a96a933e7ae9b5f7b27f6acb0e70515"
-      },
-      {
-        "path": "src/session-timing.mjs",
-        "sha256": "sha256:4111498866500c2a5876f694f53beb0f05bf37ed510a9c6dfedb0a7ce0d643a6"
-      },
-      {
-        "path": "src/sqlite-threads.mjs",
-        "sha256": "sha256:55690a948954e3c80b4ffda1fc2f85c0b9e6101eb3c3a13155901074e75482f5"
-      },
-      {
-        "path": "test/app-format.test.mjs",
-        "sha256": "sha256:1d94a1a44e1391553ebcf64028275455a65a3018acf3078f7c24c4ba57bdb27a"
-      },
-      {
-        "path": "test/data-sources.test.mjs",
-        "sha256": "sha256:703ffcd1592b5a7bacdbebd86e631fb77e7b1b12dbc969122960f0b1dbebd061"
-      },
-      {
-        "path": "test/e2e/fixture-session.mjs",
-        "sha256": "sha256:cafc17ebb64c06b8b86e24a1089d54af110296a283da7f3396d8c73b4ca8eb2b"
-      },
-      {
-        "path": "test/e2e/full-content.spec.mjs",
-        "sha256": "sha256:aafbc81ccf4780077484110a182d54f1cec64e703531f7211ad904809e943407"
-      },
-      {
-        "path": "test/e2e/list-scope-navigation.spec.mjs",
-        "sha256": "sha256:be50da1c2633b22ad69930d745b617340139520bbc127f26eac3784d0ce860dd"
-      },
-      {
-        "path": "test/e2e/source-helpers.mjs",
-        "sha256": "sha256:20a856b6c0007b47269dca30019ae5ce3c24cc20b5668ac7ec04840638942c05"
-      },
-      {
-        "path": "test/e2e/title-consistency.spec.mjs",
-        "sha256": "sha256:d84ae7b25ed38fa0d5eb5af0e6da8f888f8cbe0f629c75ca4b604923c0a2a4a9"
-      },
-      {
-        "path": "test/pi-context-events.test.mjs",
-        "sha256": "sha256:b76cf5d9cc8ba7c2d468acfcaaf011b12464fd0bef55101a5824acb7aab95a77"
-      },
-      {
-        "path": "test/pi-task-sources.test.mjs",
-        "sha256": "sha256:ff697bd8ce9e0301a00faa8d85986078cb64893c0d6aa1c5d41e057072152493"
-      },
-      {
-        "path": "test/server-access-control.test.mjs",
-        "sha256": "sha256:ad2aff4076f4cdecaff256886d8b21767de8bf0ca25988fae7350037220aef86"
-      },
-      {
-        "path": "test/session-catalog.test.mjs",
-        "sha256": "sha256:3f68736bddb47150fc25e46d8d1a1e156dd59fb94a0e6eb3860cfeb5466a99ce"
-      },
-      {
-        "path": "test/session-detail-coordinator.test.mjs",
-        "sha256": "sha256:a7ef2409b6b8870f951ff012ac19135945cee0e60b29f5ab63fdc1e38c914748"
-      },
-      {
-        "path": "test/session-events.test.mjs",
-        "sha256": "sha256:67391faa310ed6f65ae661ece8a6a3f85f9f76fc7d9dc5577ebb5630c6ebfe3d"
-      },
-      {
-        "path": "test/session-models.test.mjs",
-        "sha256": "sha256:c0c49dba4ecd70b670febdcf0e4d8ed3e610be5737bc23e231e741f2426e5339"
-      },
-      {
-        "path": "test/session-normalizer.test.mjs",
-        "sha256": "sha256:3d15bdbaf9a0860c6a297a041f652b43bdfc3df4b876e84b85e0d0234d2e6192"
-      },
-      {
-        "path": "test/session-query.test.mjs",
-        "sha256": "sha256:77cd1ba8fa7e87b737e691561b426a5e351f1a49153c82d0ccc3f02da99defa0"
-      },
-      {
-        "path": "test/session-timing.test.mjs",
-        "sha256": "sha256:86cf4afd92b68e2065d234c5a22f651e09bebb4526c92310257b46d330619e9b"
-      },
-      {
-        "path": "test/tool-summary.test.mjs",
-        "sha256": "sha256:b57fc6acdaf5617ed06bf7fe67b21d60ef02044f58ac602ea288c8461c2f1c64"
-      }
-    ]
+    "files": []
   },
   "documents": [
     {
@@ -310,7 +129,7 @@
     {
       "id": "module-session-projection",
       "kind": "module",
-      "summary": "会话读取与投影模块负责来源隔离的发现、稳定读取、规范化和阅读投影。",
+      "summary": "会话读取与投影模块负责来源隔离的发现、缓存读取、规范化和阅读投影。",
       "moduleId": "session-projection",
       "certainty": "confirmed",
       "evidence": [
@@ -373,7 +192,9 @@
         "public/index.html",
         "public/styles.css",
         "public/app-format.js",
+        "public/raw-event-cache.js",
         "public/tool-summary.js",
+        "test/raw-event-cache.test.mjs",
         "test/session-models.test.mjs",
         "test/tool-summary.test.mjs"
       ]
@@ -418,6 +239,7 @@
         "test/data-sources.test.mjs",
         "test/pi-task-sources.test.mjs",
         "test/session-query.test.mjs",
+        "test/server-http-smoke-helpers.mjs",
         "test/session-timing.test.mjs",
         "docs/architecture/modules/session-projection.md",
         "test/app-format.test.mjs",
@@ -431,7 +253,7 @@
     {
       "id": "flow-stable-session-detail",
       "kind": "flow",
-      "summary": "详情读取前后核验文件签名，只有稳定版本才返回和缓存完整投影，变化、取消和失败都返回受控非完整状态。",
+      "summary": "详情协调器按读取开始时的文件签名隔离缓存与共享读取；会话在读取期间追加时保留本次结果，下一次请求以新签名重新读取。",
       "moduleId": "session-projection",
       "certainty": "confirmed",
       "evidence": [
@@ -441,13 +263,13 @@
         },
         {
           "path": "server.mjs",
-          "locator": "function changingSessionDetail(context, session, stat, readState)"
+          "locator": "async function getSessionDetail(context, id, options = {})"
         }
       ],
       "tests": [
         {
           "path": "test/session-detail-coordinator.test.mjs",
-          "locator": "详情协调器检测读取后文件变化，不返回或缓存旧详情"
+          "locator": "详情协调器在读取中变化时保留本次结果，并按读取开始的版本缓存"
         }
       ],
       "document": {
@@ -465,5 +287,102 @@
     }
   ],
   "openQuestions": [],
-  "pendingImpact": null
+  "pendingImpact": {
+    "baseCommit": "8d50d8aae90f7392eb5fb0dbfdb2c55160127c30",
+    "changedPaths": [
+      ".agents/architecture/state.json",
+      "README.md",
+      "docs/architecture/README.md",
+      "docs/architecture/implementation.md",
+      "docs/architecture/modules/session-projection.md",
+      "docs/session-event-normalization.md",
+      "eslint-suppressions.json",
+      "public/app.js",
+      "server.mjs",
+      "src/session-detail-coordinator.mjs",
+      "src/session-query.mjs",
+      "test/raw-event-cache.test.mjs",
+      "test/server-http-smoke-helpers.mjs",
+      "test/session-detail-coordinator.test.mjs",
+      "test/session-query.test.mjs"
+    ],
+    "itemIds": [
+      "purpose-readable-session-workbench",
+      "boundary-source-records-and-local-derivatives",
+      "external-boundary-http-authentication",
+      "module-session-projection",
+      "capability-session-discovery-and-view",
+      "flow-stable-session-detail"
+    ],
+    "assessments": [
+      {
+        "itemId": "purpose-readable-session-workbench",
+        "result": "unaffected",
+        "reason": "放宽读取中追加文件的一致性要求，不改变工作台的阅读与诊断目的。",
+        "evidence": {
+          "path": "docs/architecture/README.md",
+          "locator": "## 目的"
+        }
+      },
+      {
+        "itemId": "boundary-source-records-and-local-derivatives",
+        "result": "unaffected",
+        "reason": "会话文件仍保持只读，浏览器展示仍由本地读取结果派生。",
+        "evidence": {
+          "path": "README.md",
+          "locator": "原始会话文件不会被修改"
+        }
+      },
+      {
+        "itemId": "external-boundary-http-authentication",
+        "result": "unaffected",
+        "reason": "详情与 Raw 的读取语义调整不改变非 loopback 服务的认证边界。",
+        "evidence": {
+          "path": "src/access-control.mjs",
+          "locator": "function assertSecureListenConfig(options = {})"
+        }
+      },
+      {
+        "itemId": "module-session-projection",
+        "result": "updated",
+        "reason": "浏览器和投影模块移除了读取后文件变化的拒绝状态与 Raw 快照状态机。",
+        "evidence": {
+          "path": "public/app.js",
+          "locator": "function createRawDiagnosticState()"
+        }
+      },
+      {
+        "itemId": "capability-session-discovery-and-view",
+        "result": "updated",
+        "reason": "Raw 分页和单条事件接口不再要求诊断快照令牌，仍保留游标和预算。",
+        "evidence": {
+          "path": "server.mjs",
+          "locator": "async function querySessionEvents(context, id, params, projectionOptions = {}, options = {})"
+        }
+      },
+      {
+        "itemId": "flow-stable-session-detail",
+        "result": "updated",
+        "reason": "详情协调器保留读取开始时签名的缓存隔离，但不再在读取后拒绝变化中的结果。",
+        "evidence": {
+          "path": "src/session-detail-coordinator.mjs",
+          "locator": "function createSessionDetailCoordinator(options = {})"
+        }
+      }
+    ],
+    "unmappedPaths": [
+      "eslint-suppressions.json"
+    ],
+    "pathAssessments": [
+      {
+        "path": "eslint-suppressions.json",
+        "result": "unaffected",
+        "reason": "删除的 Raw 快照状态机降低了 app.js 的圈复杂度，ESLint 自动移除了不再需要的抑制计数。",
+        "evidence": {
+          "path": "public/app.js",
+          "locator": "function createRawDiagnosticState()"
+        }
+      }
+    ]
+  }
 }

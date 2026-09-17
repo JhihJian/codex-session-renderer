@@ -406,7 +406,6 @@ function createRawDiagnosticState() {
     sessionKey: "",
     pages: [],
     pageIndex: 0,
-    snapshot: "",
     loading: false,
     error: "",
     readState: null,
@@ -1688,8 +1687,6 @@ function selectedSessionDisplayTitle() {
 
 function sessionPlaceholderState() {
   const target = selectedSessionDisplayTitle();
-  const changing = changingSessionPlaceholder(target, state.detail);
-  if (changing) return changing;
   if (state.healthLoadError && !state.detail?.session) return { title: "接口不可用", subtitle: state.healthLoadError };
   if (state.sessionLoading) return { title: "正在读取目标会话", subtitle: `${target} · 正在解析当前数据源中的 JSONL 事件流。` };
   if (state.sessionLoadError) return { title: "无法读取目标会话", subtitle: `${target} · ${state.sessionLoadError}` };
@@ -1699,19 +1696,9 @@ function sessionPlaceholderState() {
   return null;
 }
 
-function changingSessionPlaceholder(target, detail) {
-  const readState = detail?.readState;
-  if (readState?.state !== "changing") return null;
-  const fileSize = readState.fileSizeBytes ? `文件 ${formatBytes(readState.fileSizeBytes)}；` : "";
-  return {
-    title: "会话文件正在变化",
-    subtitle: `${target} · ${fileSize}读取期间文件发生变化，未展示可能过期的内容。请重新读取会话。`,
-  };
-}
-
 function renderSessionPlaceholder(title, subtitle) {
   const actions = [];
-  if ((state.sessionLoadError || state.detail?.readState?.state === "changing") && state.selectedSessionId) actions.push('<button class="ghost-button" type="button" data-session-placeholder-action="retry-detail">重新读取会话</button>');
+  if (state.sessionLoadError && state.selectedSessionId) actions.push('<button class="ghost-button" type="button" data-session-placeholder-action="retry-detail">重新读取会话</button>');
   const action = actions.length ? `<div class="empty-state-actions">${actions.join("")}</div>` : "";
   const html = emptyState(title, subtitle, action);
   [els.threadContent, els.compactContent, els.terminalContent, els.statsContent, els.traceContent, els.rawContent]
@@ -4163,7 +4150,6 @@ function rawDiagnosticHeader({ diagnostic, currentPage, limits, session }) {
 }
 
 function rawDiagnosticStateNote(diagnostic, currentPage, limits) {
-  if (diagnostic.readState?.state === "changing") return "文件在读取中发生变化。已清空本次诊断结果，请重新开始读取。";
   if (currentPage?.stopReason === "raw_event_scan_limit") return `已到达诊断事件索引上限（${compactNumber(limits.maxDiagnosticEventScan || 0)} 条），后续内容未读取。`;
   if (currentPage?.truncated) return `已到达单次诊断字节预算（${formatBytes(limits.diagnosticMaxFileBytes || 0)}），后续内容未读取。`;
   return "仅展示当前服务端分页返回的事件摘要；完整会话仍可在会话和复盘视图查看。";
@@ -4177,8 +4163,7 @@ function rawDiagnosticEmptyMarkup(diagnostic) {
   if (rawDiagnosticAwaitingFirstPage(diagnostic)) {
     return emptyState("准备读取有界事件摘要", "不会预取完整 JSONL；只读取当前页，选中事件后才可按需读取完整来源。");
   }
-  if (diagnostic.error) return emptyState("原始事件诊断未完成", "请重新开始读取，旧页不会与新结果混合。");
-  if (diagnostic.readState) return emptyState("原始事件诊断已停止", "文件状态已变化，请重新开始读取，不会展示旧页。");
+  if (diagnostic.error) return emptyState("原始事件诊断未完成", "请重新开始读取。");
   return emptyState("正在读取有界事件摘要", "正在从当前数据源读取第一页摘要。");
 }
 
@@ -4227,7 +4212,7 @@ async function loadRawDiagnosticPage({ restart = false, cursor = null } = {}) {
   if (!request) return;
   renderRawView();
   try {
-    const data = await fetchJson(sourceSessionEventsUrl(request.sessionId, request.sourceId, { cursor: request.cursor, snapshot: request.snapshot }), { signal: request.controller.signal });
+    const data = await fetchJson(sourceSessionEventsUrl(request.sessionId, request.sourceId, { cursor: request.cursor }), { signal: request.controller.signal });
     if (!rawDiagnosticRequestIsCurrent(request)) return;
     applyRawDiagnosticPage(request, data);
   } catch (error) {
@@ -4268,7 +4253,7 @@ function startRawDiagnosticPageRequest(restart, initialCursor = null) {
   diagnostic.error = "";
   diagnostic.readState = null;
   if (restart) resetRawDiagnosticPages(diagnostic, { clearSelection: true });
-  return { controller, cursor, snapshot: diagnostic.snapshot, diagnostic, diagnosticSessionKey, requestSeq: diagnostic.requestSeq, sessionId: detail.session.id, sourceId };
+  return { controller, cursor, diagnostic, diagnosticSessionKey, requestSeq: diagnostic.requestSeq, sessionId: detail.session.id, sourceId };
 }
 
 function rawDiagnosticDetailAvailable(detail) {
@@ -4286,8 +4271,7 @@ function rawDiagnosticRequestCursor(diagnostic, restart) {
 function rawDiagnosticCachedNextPage(diagnostic) {
   const currentPage = diagnostic.pages[diagnostic.pageIndex];
   const nextPage = diagnostic.pages[diagnostic.pageIndex + 1];
-  if (!diagnostic.snapshot || currentPage?.snapshot !== diagnostic.snapshot || nextPage?.snapshot !== diagnostic.snapshot) return null;
-  return nextPage;
+  return currentPage?.hasMore && nextPage?.cursor === currentPage.nextCursor ? nextPage : null;
 }
 
 function showCachedNextRawDiagnosticPage() {
@@ -4306,7 +4290,6 @@ function rawDiagnosticPageNumber(page, fallbackIndex) {
 function resetRawDiagnosticPages(diagnostic, { clearSelection = false, readState = null } = {}) {
   diagnostic.pages = [];
   diagnostic.pageIndex = 0;
-  diagnostic.snapshot = "";
   diagnostic.readState = readState;
   clearRawEventCache();
   state.selectedRawEvent = null;
@@ -4323,10 +4306,6 @@ function rawDiagnosticStillSelected(request) {
 
 function applyRawDiagnosticPage(request, data) {
   const { diagnostic } = request;
-  if (data.readState?.state === "changing") {
-    resetRawDiagnosticPages(diagnostic, { readState: data.readState });
-    return;
-  }
   const page = { ...data.page, events: data.events || [], readState: data.readState || null };
   if (!rawDiagnosticPageMatchesRequest(request, page)) {
     resetRawDiagnosticPages(diagnostic);
@@ -4334,7 +4313,6 @@ function applyRawDiagnosticPage(request, data) {
     return;
   }
   page.pageNumber = rawDiagnosticNextPageNumber(diagnostic);
-  diagnostic.snapshot = page.snapshot;
   diagnostic.readState = page.readState;
   diagnostic.pages.push(page);
   if (diagnostic.pages.length > 6) diagnostic.pages.shift();
@@ -4347,7 +4325,6 @@ function retainRawEventsForDiagnosticPages(diagnostic) {
   const retainedIndexes = new Set(diagnostic.pages.flatMap((cachedPage) => cachedPage.events || []).map((event) => event.index));
   state.rawEventCache.retain((entry) => (
     entry.sessionKey === diagnostic.sessionKey
-    && entry.snapshot === diagnostic.snapshot
     && retainedIndexes.has(entry.index)
   ));
 }
@@ -4355,8 +4332,6 @@ function retainRawEventsForDiagnosticPages(diagnostic) {
 function rawDiagnosticPageMatchesRequest(request, page) {
   return Number.isInteger(page.cursor)
     && page.cursor === request.cursor
-    && Boolean(page.snapshot)
-    && (!request.snapshot || page.snapshot === request.snapshot)
     && !request.diagnostic.pages.some((cachedPage) => cachedPage.cursor === page.cursor);
 }
 
@@ -4367,38 +4342,8 @@ function rawDiagnosticNextPageNumber(diagnostic) {
 
 function failRawDiagnosticPage(request, error) {
   if (!rawDiagnosticRequestIsCurrent(request)) return;
-  if (isRawDiagnosticSnapshotInvalidated(error)) {
-    const reset = resetRawDiagnosticForSnapshotChange({
-      sourceId: request.sourceId,
-      sessionId: request.sessionId,
-      snapshot: request.snapshot,
-      diagnostic: request.diagnostic,
-    });
-    if (reset) return;
-  }
   resetRawDiagnosticPages(request.diagnostic);
   request.diagnostic.error = error.message;
-}
-
-function isRawDiagnosticSnapshotInvalidated(error) {
-  return error?.status === 409 && ["session_snapshot_changed", "session_file_changed"].includes(error?.code);
-}
-
-function resetRawDiagnosticForSnapshotChange({ sourceId, sessionId, snapshot, diagnostic: requestDiagnostic }) {
-  const diagnostic = state.rawDiagnostic;
-  const diagnosticSessionKey = sessionKey({ id: sessionId, sourceId });
-  if (
-    !snapshot
-    || state.selectedSourceId !== sourceId
-    || state.selectedSessionKey !== diagnosticSessionKey
-    || diagnostic !== requestDiagnostic
-    || diagnostic?.sessionKey !== diagnosticSessionKey
-    || diagnostic.snapshot !== snapshot
-  ) return false;
-  resetRawDiagnosticPages(diagnostic, { clearSelection: true });
-  diagnostic.error = "会话文件或诊断快照已变化，已清空过期摘要、选择和完整事件缓存，请重新开始读取。";
-  renderRawView();
-  return true;
 }
 
 function rawEventMatches(event, query, typeFilter) {
@@ -4816,47 +4761,34 @@ async function loadRawEvent(index, { cancelPrevious = true } = {}) {
   const sourceId = state.detail?.session?.sourceId || state.selectedSourceId;
   const requestSessionKey = sessionKey({ id, sourceId });
   const diagnostic = state.rawDiagnostic;
-  const snapshot = rawDiagnosticSnapshotForEvent(index);
-  const cacheKey = rawEventCacheKey(sourceId, id, index, snapshot);
+  const cacheKey = rawEventCacheKey(sourceId, id, index);
   const cached = state.rawEventCache.get(cacheKey);
   if (cached !== undefined) return cached;
   if (cancelPrevious) cancelRawEventRequest();
   const controller = new AbortController();
   rawEventAbortController = controller;
   try {
-    const raw = await fetchJson(sourceEventUrl(id, index, sourceId, snapshot), { signal: controller.signal });
-    if (!rawEventRequestIsCurrent({ controller, sourceId, requestSessionKey, diagnostic, snapshot })) return null;
-    if (rawEventStillInDiagnosticPages(diagnostic, index, snapshot)) {
-      state.rawEventCache.remember(cacheKey, raw, { index, sessionKey: requestSessionKey, snapshot });
+    const raw = await fetchJson(sourceEventUrl(id, index, sourceId), { signal: controller.signal });
+    if (!rawEventRequestIsCurrent({ controller, sourceId, requestSessionKey, diagnostic })) return null;
+    if (rawEventStillInDiagnosticPages(diagnostic, index)) {
+      state.rawEventCache.remember(cacheKey, raw, { index, sessionKey: requestSessionKey });
     }
     return raw;
-  } catch (error) {
-    if (isRawDiagnosticSnapshotInvalidated(error) && rawEventRequestIsCurrent({ controller, sourceId, requestSessionKey, diagnostic, snapshot })) {
-      resetRawDiagnosticForSnapshotChange({ sourceId, sessionId: id, snapshot, diagnostic });
-    }
-    throw error;
   } finally {
     if (rawEventAbortController === controller) rawEventAbortController = null;
   }
 }
 
-function rawEventRequestIsCurrent({ controller, sourceId, requestSessionKey, diagnostic, snapshot }) {
-  if (controller.signal.aborted || state.selectedSourceId !== sourceId || state.selectedSessionKey !== requestSessionKey) return false;
-  if (!snapshot) return true;
-  return state.rawDiagnostic === diagnostic && diagnostic?.sessionKey === requestSessionKey && diagnostic.snapshot === snapshot;
+function rawEventRequestIsCurrent({ controller, sourceId, requestSessionKey, diagnostic }) {
+  return !controller.signal.aborted && state.selectedSourceId === sourceId && state.selectedSessionKey === requestSessionKey && state.rawDiagnostic === diagnostic;
 }
 
-function rawEventCacheKey(sourceId, id, index, snapshot = "") {
-  return JSON.stringify([sourceId || "local", id, index, snapshot]);
+function rawEventCacheKey(sourceId, id, index) {
+  return JSON.stringify([sourceId || "local", id, index]);
 }
 
-function rawDiagnosticSnapshotForEvent(index) {
-  return state.rawDiagnostic?.pages.find((page) => page.events?.some((event) => event.index === index))?.snapshot || "";
-}
-
-function rawEventStillInDiagnosticPages(diagnostic, index, snapshot) {
-  if (!snapshot) return true;
-  return diagnostic?.pages.some((page) => page.snapshot === snapshot && page.events?.some((event) => event.index === index));
+function rawEventStillInDiagnosticPages(diagnostic, index) {
+  return diagnostic?.pages.some((page) => page.events?.some((event) => event.index === index));
 }
 
 function selectTraceNode(id) {
@@ -5196,16 +5128,12 @@ function sourceSessionUrl(id, sourceId = state.selectedSourceId) {
   return `/api/sources/${encodeURIComponent(sourceId)}/sessions/${encodeURIComponent(id)}${query ? `?${query}` : ""}`;
 }
 
-function sourceEventUrl(id, index, sourceId = state.selectedSourceId, snapshot = "") {
-  const params = new URLSearchParams();
-  if (snapshot) params.set("snapshot", snapshot);
-  const query = params.toString();
-  return `/api/sources/${encodeURIComponent(sourceId)}/sessions/${encodeURIComponent(id)}/events/${index}${query ? `?${query}` : ""}`;
+function sourceEventUrl(id, index, sourceId = state.selectedSourceId) {
+  return `/api/sources/${encodeURIComponent(sourceId)}/sessions/${encodeURIComponent(id)}/events/${index}`;
 }
 
-function sourceSessionEventsUrl(id, sourceId = state.selectedSourceId, { cursor = 0, snapshot = "" } = {}) {
+function sourceSessionEventsUrl(id, sourceId = state.selectedSourceId, { cursor = 0 } = {}) {
   const params = new URLSearchParams({ limit: "100", cursor: String(cursor) });
-  if (snapshot) params.set("snapshot", snapshot);
   return `/api/sources/${encodeURIComponent(sourceId)}/query/sessions/${encodeURIComponent(id)}/events?${params.toString()}`;
 }
 

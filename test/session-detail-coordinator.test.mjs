@@ -74,7 +74,7 @@ test("详情协调器在最后一个订阅取消后中止读取且不写缓存",
   assert.equal(coordinator.cache.size, 0);
 });
 
-test("详情协调器检测读取后文件变化，不返回或缓存旧详情", async () => {
+test("详情协调器在读取中变化时保留本次结果，并按读取开始的版本缓存", async () => {
   const versions = [stat({ size: 10, mtimeMs: 1 }), stat({ size: 11, mtimeMs: 2 }), stat({ size: 11, mtimeMs: 2 }), stat({ size: 11, mtimeMs: 2 })];
   let statCalls = 0;
   const coordinator = createSessionDetailCoordinator({
@@ -82,8 +82,27 @@ test("详情协调器检测读取后文件变化，不返回或缓存旧详情",
     readEvents: async () => [{ text: "正文" }],
   });
   const result = await coordinator.read(session("changed"), { cacheKey: "changed" });
-  assert.equal(result.state, "changing");
-  assert.equal(coordinator.cache.size, 0);
+  assert.equal(result.state, "ready");
+  assert.equal(coordinator.cache.size, 1);
+});
+
+test("详情协调器在下一次读取发现文件版本更新时绕过旧缓存", async () => {
+  let version = stat({ size: 10, mtimeMs: 1 });
+  let reads = 0;
+  const coordinator = createSessionDetailCoordinator({
+    stat: async () => version,
+    readEvents: async () => [{ revision: ++reads }],
+  });
+
+  const first = await coordinator.read(session("updated"), { cacheKey: "updated" });
+  const cached = await coordinator.read(session("updated"), { cacheKey: "updated" });
+  version = stat({ size: 11, mtimeMs: 2 });
+  const updated = await coordinator.read(session("updated"), { cacheKey: "updated" });
+
+  assert.equal(first.cached, false);
+  assert.equal(cached.cached, true);
+  assert.equal(updated.cached, false);
+  assert.deepEqual(updated.value, [{ revision: 2 }]);
 });
 
 test("详情协调器完整读取大文件，并按估算字节维护有限版本 LRU", async () => {

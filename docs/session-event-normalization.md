@@ -122,10 +122,6 @@ Codex 有时会把机器上下文写进用户消息，例如 `AGENTS.md instruct
 
 去重只针对明确的事件回声，例如同一条用户消息同时以 `event_msg user_message` 和 `response_item role=user` 写入；用户真实重复输入同一句话不会仅因文本相同被删除。
 
-## 首个任务提示词归档
-归档条目的身份是 `sourceId + sessionId`，项目键是 `sourceId + cwd`，没有 `cwd` 的会话进入“无项目”。条目同时保存 `promptPreview`、`promptTimestamp`、`promptEventIndex`、`promptTurnId`、安全附件摘要、`promptTruncated`、`promptLimitReason` 和 `promptState`。状态包括 `found`、`image-only`、`empty`、`unavailable`、`too_large`、`changing` 和 `error`。`too_large` 与 `changing` 不返回正文，因此不会把超限或读取中变化文件的敏感内容带入响应。
-
-归档协调器以读取前后的真实文件签名（路径、大小、`mtimeMs`、`ctimeMs`）为缓存和 in-flight 去重边界。同一签名可由多个请求共享；每个请求是独立订阅，取消一个订阅不会打断其余订阅，最后一个订阅取消才中止底层流。读取后签名变化时立即返回 `changing` 且不缓存，后续请求会以新签名建立新的共享读取。缓存最多保留 400 个会话当前版本。首次归档的会话发现和响应一次最多处理 200 个会话，整个服务实例共享 4 路并发；每个文件最多读取 2 MiB 或 20,000 条非空 JSONL 记录，提示词正文上限为 12,000 字符。任何上限命中都返回 `too_large` 且不返回正文。前端在切换数据源、时间分类、刷新或离开归档时发出取消；HTTP 客户端断开也会取消其订阅。
 
 `turn_aborted` 会终止当前 turn 并标记为 `aborted`。如果一个没有工具或助手输出的 aborted turn 后面紧跟相同首条请求的续跑 turn，默认阅读会压掉前一个空 aborted turn 里的重复请求，但保留 aborted 状态本身。
 
@@ -173,13 +169,13 @@ Raw event 仍可按需查看完整原始 JSON。默认视图、事件预览和�
 
 每个分类保留 `nodeRefs`，包括 `traceNodeId`、轮次索引和原始事件索引，前端可从时间投入条跳转到 Audit 或 Raw。时间区间的 `durationKind` 使用 `observed`、`estimated`、`partial` 和 `unavailable`，会话和分类的 `confidence` 使用 `observed`、`mixed`、`estimated` 和 `unavailable`。缺少开始或结束事件的项目计入质量摘要，并以部分区间或估算状态展示。
 
-`timing` 还从轮次开始或上一条工具、上下文边界到 reasoning 或 assistant 事件推导 LLM 等待区间。原始 JSONL 没有稳定的 API `response.started` / `response.completed` 生命周期时，这些区间标记为 `estimated`，而非精确 API 耗时。Codex 的 `token_count.info.last_token_usage` 与 Pi 助手消息的 `usage` 若包含输出 token，会关联到本次 LLM 等待，展示输出 token 加推理 token 的总生成量及 `token/s`。速率的分母是上述推导区间，不是供应商逐 token 的流式遥测，缺少明确用量时不会按字符数估算。子代理只有同时拥有父会话中的启动事件和完成通知时才计入运行时长，内嵌子代理结果和子会话文件更新时间都不足以推断时长。工具时长仍来自同一调用的调用与返回事件。`GET /api/query/sessions/:id/view?view=timing` 返回与详情中相同的 `timing` 投影。搜索、类型筛选和事件统计不改变完整会话时间口径。详情读取和文件签名校验仍然是 timing 的版本边界，文件变化时前端清理旧的时间分析结果。
+`timing` 还从轮次开始或上一条工具、上下文边界到 reasoning 或 assistant 事件推导 LLM 等待区间。原始 JSONL 没有稳定的 API `response.started` / `response.completed` 生命周期时，这些区间标记为 `estimated`，而非精确 API 耗时。Codex 的 `token_count.info.last_token_usage` 与 Pi 助手消息的 `usage` 若包含输出 token，会关联到本次 LLM 等待，展示输出 token 加推理 token 的总生成量及 `token/s`。速率的分母是上述推导区间，不是供应商逐 token 的流式遥测，缺少明确用量时不会按字符数估算。子代理只有同时拥有父会话中的启动事件和完成通知时才计入运行时长，内嵌子代理结果和子会话文件更新时间都不足以推断时长。工具时长仍来自同一调用的调用与返回事件。`GET /api/query/sessions/:id/view?view=timing` 返回与详情中相同的 `timing` 投影。搜索、类型筛选和事件统计不改变完整会话时间口径。
 
 ## 完整详情与诊断预算
 
-详情、compact/view、turns/trace  导出完整读取当前 JSONL，不按文件字节数或事件数降级。服务端通过同一个协调器在读取前后比较文件签名，保留全局 4 路读取闸门与稳定完整派生的 24 条/48 MiB 版本 LRU；单个结果超过缓存总预算时只是不写入缓存，不能拒绝展示。具体环境变量和默认值见 README 的“完整详情读取与诊断预算”。
+详情、compact/view、turns/trace 导出完整读取当前 JSONL，不按文件字节数或事件数降级。服务端以读取开始时的文件签名区分缓存版本，保留全局 4 路读取闸门与 24 条/48 MiB 的版本 LRU；单个结果超过缓存总预算时只是不写入缓存，不能拒绝展示。文件在读取期间变化不会中断本次投影，更新后的签名会让下一次请求绕过旧缓存。具体环境变量和默认值见 README 的“完整详情读取与诊断预算”。
 
-文件在读取或派生期间变化、读取失败和取消都不会产生缓存条目，也不会把已读旧内容当作当前详情。文件变化时详情和外部 view 返回 `complete: false` 及 `readState.code = session_file_changed`，Markdown 返回 `409`；这不是大小或事件数能力降级。原始事件分页始终是独立诊断入口，使用同一并发闸门，但只受 `CODEX_SESSION_DIAGNOSTIC_MAX_FILE_BYTES` 单次字节预算、页大小和 `CODEX_SESSION_DIAGNOSTIC_MAX_EVENT_SCAN` 扫描预算约束；预算到达会返回诊断状态或 `413/session_event_scan_limited`，不会影响完整详情。单条事件读取也支持 `AbortSignal`、快照校验和这些诊断预算。
+原始事件分页是独立诊断入口，使用同一并发闸门，但只受 `CODEX_SESSION_DIAGNOSTIC_MAX_FILE_BYTES` 单次字节预算、页大小和 `CODEX_SESSION_DIAGNOSTIC_MAX_EVENT_SCAN` 扫描预算约束；预算到达会返回诊断状态或 `413/session_event_scan_limited`，不会影响完整详情。单条事件读取也支持 `AbortSignal` 和这些诊断预算。
 
 ## 测试要求
 

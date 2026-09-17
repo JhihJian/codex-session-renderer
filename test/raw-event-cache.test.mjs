@@ -38,18 +38,17 @@ test("完整原始事件缓存限制 UTF-8 总字节，超单项预算不写入"
 
 test("摘要页淘汰时同步丢弃已不在当前诊断页的完整事件", () => {
   const cache = createRawEventCache({ maxEntries: 8, maxBytes: 1_000 });
-  cache.remember("old", { raw: "old" }, { sessionKey: "local:session", snapshot: "snapshot", index: 0 });
-  cache.remember("current", { raw: "current" }, { sessionKey: "local:session", snapshot: "snapshot", index: 100 });
-  cache.remember("other-snapshot", { raw: "other" }, { sessionKey: "local:session", snapshot: "old-snapshot", index: 100 });
+  cache.remember("old", { raw: "old" }, { sessionKey: "local:session", index: 0 });
+  cache.remember("current", { raw: "current" }, { sessionKey: "local:session", index: 100 });
+  cache.remember("other-session", { raw: "other" }, { sessionKey: "pi-agent:session", index: 100 });
 
   const retainedIndexes = new Set([100, 101]);
   cache.retain((entry) => (
     entry.sessionKey === "local:session"
-    && entry.snapshot === "snapshot"
     && retainedIndexes.has(entry.index)
   ));
 
   assert.equal(cache.get("old"), undefined);
   assert.deepEqual(cache.get("current"), { raw: "current" });
-  assert.equal(cache.get("other-snapshot"), undefined);
+  assert.equal(cache.get("other-session"), undefined);
 });
