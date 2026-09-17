@@ -1,3 +1,21 @@
+{
+  const api = window.SessionWorkbench;
+  const { state, els } = api;
+  const emptyState = (...args) => api.emptyState(...args);
+  const renderMarkdownTitle = (...args) => api.renderMarkdownTitle(...args);
+  const formatDate = (...args) => api.formatDate(...args);
+  const shortPath = (...args) => api.shortPath(...args);
+  const itemRef = (...args) => api.itemRef(...args);
+  const itemTitle = (...args) => api.itemTitle(...args);
+  const prettyMaybeJson = (...args) => api.prettyMaybeJson(...args);
+  const escapeAttr = (...args) => api.escapeAttr(...args);
+  const escapeHtml = (...args) => api.escapeHtml(...args);
+  const renderMarkdownMessage = (...args) => api.renderMarkdownMessage(...args);
+  const highlight = (...args) => api.highlight(...args);
+  const renderTruncationNotice = (...args) => api.renderTruncationNotice(...args);
+  const terminalVisibleFieldsForBlock = (...args) => api.terminalVisibleFieldsForBlock(...args);
+  const cssEscape = (...args) => api.cssEscape(...args);
+  const preferredScrollBehavior = (...args) => api.preferredScrollBehavior(...args);
 function renderTerminal() {
   const detail = state.detail;
   if (!detail) {
@@ -233,4 +251,7 @@ function jumpTerminalRole(role) {
   const next = candidates[(currentIndex + 1) % candidates.length];
   next.scrollIntoView({ behavior: preferredScrollBehavior(), block: "center" });
   selectTerminalBlock(next.dataset.terminalBlockId);
+}
+
+  Object.assign(api, { renderTerminal, buildTerminalBlocks, terminalBlocksFromItem, terminalRoleForItem, terminalTextForItem, terminalItemHasError, terminalBlockMatches, terminalBlockSearchText, terminalRoleStats, renderTerminalRoleNavButton, renderTerminalBlock, selectTerminalBlock, jumpTerminalRole });
 }

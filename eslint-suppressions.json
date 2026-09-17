@@ -4,18 +4,62 @@
       "count": 1
     }
   },
-  "public/app.js": {
+  "public/app-requests.js": {
     "complexity": {
-      "count": 21
-    },
-    "max-lines": {
-      "count": 1
+      "count": 2
     },
     "max-statements": {
       "count": 2
-    },
-    "no-unused-vars": {
-      "count": 24
+    }
+  },
+  "public/app-view-compact-context.js": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "public/app-view-compact-outline.js": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "public/app-view-compact-thread.js": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "public/app-view-diagnostic.js": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "public/app-view-sessions.js": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "public/app-view-shell.js": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "public/app-view-terminal.js": {
+    "complexity": {
+      "count": 3
+    }
+  },
+  "public/app-view-trace-content.js": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "public/app-view-trace-helpers.js": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "public/app-view-trace.js": {
+    "complexity": {
+      "count": 3
     }
   },
   "public/tool-summary.js": {
@@ -32,20 +76,21 @@
       "count": 2
     }
   },
-  "server.mjs": {
+
+  "src/session-compact-reading-projection.mjs": {
     "complexity": {
-      "count": 5
-    },
-    "max-lines": {
-      "count": 1
-    },
-    "max-lines-per-function": {
-      "count": 1
+      "count": 2
     },
     "max-statements": {
       "count": 1
     }
   },
+  "src/session-execution-trace-projection.mjs": {
+    "complexity": {
+      "count": 2
+    }
+  },
+
   "src/embedded-subagents.mjs": {
     "complexity": {
       "count": 1
@@ -61,20 +106,28 @@
       "count": 1
     }
   },
-  "src/session-events.mjs": {
+  "src/session-projection-shared.mjs": {
     "complexity": {
-      "count": 11
-    },
-    "max-lines": {
       "count": 1
+    }
+  },
+  "src/session-trace-node-projection.mjs": {
+    "complexity": {
+      "count": 4
+    }
+  },
+  "src/session-turn-projection.mjs": {
+    "complexity": {
+      "count": 2
     },
     "max-lines-per-function": {
       "count": 1
     },
     "max-statements": {
-      "count": 2
+      "count": 1
     }
   },
+
   "src/session-models.mjs": {
     "complexity": {
       "count": 4

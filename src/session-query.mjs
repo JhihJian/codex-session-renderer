@@ -1,10 +1,12 @@
 import {
   isImportantEvent,
-  normalizeText,
   summarizeEventPreview,
   summarizeEventTitle,
+} from "./event-summary.mjs";
+import {
+  normalizeText,
   toIso,
-} from "./session-events.mjs";
+} from "./text-utils.mjs";
 import { parseSessionListType, sessionMatchesListType, spawnEdgesFromSessions, withSubagentMeta } from "./session-models.mjs";
 import { normalizeSessionEvent } from "./session-normalizer.mjs";
 

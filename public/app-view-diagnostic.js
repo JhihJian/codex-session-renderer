@@ -1,3 +1,32 @@
+{
+  const api = window.SessionWorkbench;
+  const { state, els } = api;
+  const emptyState = (...args) => api.emptyState(...args);
+  const loadRawDiagnosticPage = (...args) => api.loadRawDiagnosticPage(...args);
+  const createRawDiagnosticState = (...args) => api.createRawDiagnosticState(...args);
+  const escapeHtml = (...args) => api.escapeHtml(...args);
+  const selectedSessionDisplayTitle = (...args) => api.selectedSessionDisplayTitle(...args);
+  const selectedSource = (...args) => api.selectedSource(...args);
+  const rawDiagnosticPageNumber = (...args) => api.rawDiagnosticPageNumber(...args);
+  const compactNumber = (...args) => api.compactNumber(...args);
+  const formatBytes = (...args) => api.formatBytes(...args);
+  const humanEventTitle = (...args) => api.humanEventTitle(...args);
+  const rawDiagnosticRequestIsCurrent = (...args) => api.rawDiagnosticRequestIsCurrent(...args);
+  const resetRawDiagnosticPages = (...args) => api.resetRawDiagnosticPages(...args);
+  const escapeAttr = (...args) => api.escapeAttr(...args);
+  const rawEventEvidenceId = (...args) => api.rawEventEvidenceId(...args);
+  const formatDate = (...args) => api.formatDate(...args);
+  const renderMarkdownMessage = (...args) => api.renderMarkdownMessage(...args);
+  const renderCompactReplacementHistory = (...args) => api.renderCompactReplacementHistory(...args);
+  const mobilePanelLayoutActive = (...args) => api.mobilePanelLayoutActive(...args);
+  const setMobilePanel = (...args) => api.setMobilePanel(...args);
+  const syncViewControls = (...args) => api.syncViewControls(...args);
+  const renderStats = (...args) => api.renderStats(...args);
+  const preferredScrollBehavior = (...args) => api.preferredScrollBehavior(...args);
+  const selectRawEvent = (...args) => api.selectRawEvent(...args);
+  const loadRawEvent = (...args) => api.loadRawEvent(...args);
+  const isAbortError = (...args) => api.isAbortError(...args);
+  const showToast = (...args) => api.showToast(...args);
 function renderRawView() {
   const detail = state.detail;
   if (!detail) {
@@ -192,7 +221,6 @@ function renderRawEventInsight(event, query = "") {
 }
 
 async function openRawEvent(index) {
-  const changed = state.viewMode !== "diagnostic" || state.diagnosticMode !== "raw";
   state.viewMode = "diagnostic";
   state.diagnosticMode = "raw";
   if (mobilePanelLayoutActive()) setMobilePanel("thread");
@@ -217,4 +245,7 @@ async function selectRawViewEvent(index) {
   } catch (error) {
     if (!isAbortError(error)) showToast(`读取完整原始事件失败：${error.message}`);
   }
+}
+
+  Object.assign(api, { renderRawView, renderRawDiagnostic, rawDiagnosticRenderModel, rawDiagnosticHeader, rawDiagnosticStateNote, rawDiagnosticAwaitingFirstPage, rawDiagnosticEmptyMarkup, rawDiagnosticResultsMarkup, bindRawDiagnosticActions, failRawDiagnosticPage, rawEventMatches, selectedRawViewEvent, renderRawViewEventRow, isCompactEvent, renderRawEventInsight, openRawEvent, selectRawViewEvent });
 }

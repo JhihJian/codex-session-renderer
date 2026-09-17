@@ -4,7 +4,7 @@ import {
   sessionIdFromFile,
   sessionStartedFromFile,
   toIso,
-} from "./session-events.mjs";
+} from "./text-utils.mjs";
 import { stripLongPathPrefix } from "./sqlite-threads.mjs";
 
 const sessionListTypes = new Set(["all", "error", "tool"]);

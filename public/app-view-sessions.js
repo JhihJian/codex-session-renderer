@@ -1,3 +1,30 @@
+{
+  const api = window.SessionWorkbench;
+  const { els, state } = api;
+  const emptyState = (...args) => api.emptyState(...args);
+  const selectedSource = (...args) => api.selectedSource(...args);
+  const renderStatusbar = (...args) => api.renderStatusbar(...args);
+  const sessionTimeBucket = (...args) => api.sessionTimeBucket(...args);
+  const selectSession = (...args) => api.selectSession(...args);
+  const escapeAttr = (...args) => api.escapeAttr(...args);
+  const escapeHtml = (...args) => api.escapeHtml(...args);
+  const loadHistoricalSessions = (...args) => api.loadHistoricalSessions(...args);
+  const selectSource = (...args) => api.selectSource(...args);
+  const sessionKey = (...args) => api.sessionKey(...args);
+  const invalidateSessionListRequests = (...args) => api.invalidateSessionListRequests(...args);
+  const loadSessions = (...args) => api.loadSessions(...args);
+  const buildSessionDirectoryTree = (...args) => api.buildSessionDirectoryTree(...args);
+  const nestSessionChains = (...args) => api.nestSessionChains(...args);
+  const shortPath = (...args) => api.shortPath(...args);
+  const renderMarkdownTitle = (...args) => api.renderMarkdownTitle(...args);
+  const formatShortDate = (...args) => api.formatShortDate(...args);
+  const buildEvidenceId = (...args) => api.buildEvidenceId(...args);
+  const formatDate = (...args) => api.formatDate(...args);
+  const latestTokenUsage = (...args) => api.latestTokenUsage(...args);
+  const countItems = (...args) => api.countItems(...args);
+  const compactNumber = (...args) => api.compactNumber(...args);
+  const renderHandoffFact = (...args) => api.renderHandoffFact(...args);
+  const openHandoffFact = (...args) => api.openHandoffFact(...args);
 function renderSessionList() {
   const query = els.sessionSearch.value.trim().toLowerCase();
   const filter = els.sessionTypeFilter.value;
@@ -104,7 +131,6 @@ function clearSessionFiltersForSelectedSession() {
   invalidateSessionListRequests();
   els.sessionSearch.value = "";
   els.sessionTypeFilter.value = "all";
-  const previousTimeFilter = state.sessionTimeFilter;
   if (state.detail?.session) {
     state.sessionTimeFilter = sessionTimeBucket(state.detail.session);
   }
@@ -450,4 +476,7 @@ function tokenUsageTotal(usage) {
     if (Number.isFinite(total)) return total;
   }
   return null;
+}
+
+  Object.assign(api, { renderSessionList, renderSessionListActionEmptyState, bindSessionListEmptyActions, mergedVisibleSessions, findSessionSummary, currentSessionFilteredOut, clearSessionFiltersForSelectedSession, returnToRealtimeSessions, reloadCurrentSessionListForFilters, renderSessionFilterNotice, selectedSessionDisplayTitle, sessionPlaceholderState, renderSessionPlaceholder, syncSessionTimeFilter, sessionTimeFilterCopy, renderSessionDirectoryTree, renderSessionDirectoryNode, sessionDirectoryKey, directoryContainsSelectedSession, bindSessionDirectoryTree, renderSessionRow, evidenceScopeForSession, sessionEvidenceId, rawEventEvidenceId, traceNodeEvidenceId, itemEvidenceId, sessionStatusLabel, renderThreadHeader, renderSessionLineage, renderStats, renderSessionHandoff, sessionHandoffFacts, handoffSessionStatus, handoffChildText, handoffFact, tokenUsageTotal });
 }

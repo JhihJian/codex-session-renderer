@@ -12,7 +12,7 @@ Codex 与 Pi Agent 的文件布局、索引能力与事件形态不同。会话�
 
 - 数据源上下文拥有来源身份、可读根、SQLite 线程存储、短期目录缓存和详情协调器。
 - 目录发现以索引元数据和 JSONL 文件相互补全。Pi Agent 直接使用文件发现；同 ID 的活动和存档文件按活动优先及更新时间去重。Pi 会话首部的 `parentSession` 被解析为 `parentSessionId` 并暴露到列表与详情投影，供前端展示分叉链；父会话不存在时链在孤儿节点断开，不虚构节点。详情的 `related` 字段附带父、子和祖先链摘要，链遍历有环检测和深度上限。
-- 规范化层把异构原始事件转换为稳定内部模型；事件层由此构建轮次、工具调用、执行树、子代理关系、正文上下文事件、轮末上下文和生成 Token 摘要，时间层计算可确认的等待输入、每轮与全会话的实际运行区间及并行构成。
+- 规范化层把异构原始事件转换为稳定内部模型；事件层由此构建轮次、工具调用、执行树、子代理关系、正文上下文事件、轮末上下文和生成 Token 摘要。事件兼容门面保持既有导出，其下按轮次、紧凑阅读、执行追踪、追踪节点和共享投影工具单向拆分；时间层计算可确认的等待输入、每轮与全会话的实际运行区间及并行构成。
 - 详情协调器以来源、会话、读取视图和读取开始时的文件签名作为共享读取与缓存边界。文件更新后，新请求使用新的签名绕过旧缓存。
 
 ## 与现有模块的交互
@@ -34,7 +34,7 @@ Codex 与 Pi Agent 的文件布局、索引能力与事件形态不同。会话�
 
 ## 实现定位
 
-- `server.mjs` 的来源上下文、目录、详情和事件路由负责请求级编排。
+- `server.mjs` 仅装配服务；`src/session-router.mjs` 负责编排 HTTP 请求，`src/session-query-service.mjs` 装配来源上下文、目录、详情和事件查询。
 - `src/session-catalog.mjs`、`src/sqlite-threads.mjs` 和 `src/jsonl-reader.mjs` 负责候选发现、索引读取和 JSONL 读取。
-- `src/session-normalizer.mjs`、`src/session-events.mjs`、`src/embedded-subagents.mjs` 与 `src/session-timing.mjs` 负责稳定事件及其阅读投影。
+- `src/session-normalizer.mjs`、`src/session-events.mjs`、`src/session-turn-projection.mjs`、`src/session-compact-reading-projection.mjs`、`src/session-execution-trace-projection.mjs`、`src/session-trace-node-projection.mjs`、`src/session-projection-shared.mjs`、`src/embedded-subagents.mjs` 与 `src/session-timing.mjs` 负责稳定事件及其阅读投影。
 - `src/session-detail-coordinator.mjs` 负责详情共享读取、文件签名校验、取消和 LRU 缓存。

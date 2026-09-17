@@ -1,3 +1,12 @@
+{
+  const api = window.SessionWorkbench;
+  const { state, els, settingsViewIds, settingsViewOptions } = api;
+  const escapeAttr = (...args) => api.escapeAttr(...args);
+  const escapeHtml = (...args) => api.escapeHtml(...args);
+  const errorTextFromError = (...args) => api.errorTextFromError(...args);
+  const showToast = (...args) => api.showToast(...args);
+  const reloadSelectedSessionDetail = (...args) => api.reloadSelectedSessionDetail(...args);
+  const renderMainContent = (...args) => api.renderMainContent(...args);
 function openSettingsDialog() {
   const opener = document.activeElement;
   state.settingsDialogOpener = opener && opener !== document.body ? opener : els.settingsButton;
@@ -398,4 +407,7 @@ function newSummaryRule() {
     title: "",
     summary: "{cmd}",
   };
+}
+
+  Object.assign(api, { openSettingsDialog, requestCloseSettingsDialog, closeSettingsDialogAndRestoreFocus, restoreSettingsDialogFocus, selectSettingsViewFromEvent, selectSettingsView, normalizeSettingsView, renderSettingsDialog, settingsSnapshot, settingsDirty, stableSettingsJson, stableSettingsValue, restoreSettingsInitialSnapshot, syncSettingsDirtyState, renderSettingsOverview, settingsOverviewItems, renderSettingsTabs, syncSettingsPanelVisibility, renderActiveSettingsPanel, clearSettingsValidationState, clearSettingsValidationFeedback, settingsFieldError, settingsFieldErrorId, settingsFieldAttrs, renderSettingsFieldError, validateSettingsRulesForSave, settingsValidationMessage, focusSettingsValidationError, settingsInputForError, renderSummaryRuleList, renderSummaryRuleEditor, renderDefaultSummaryRuleList, updateSummaryRuleFromInput, saveSettingsFromForm, newSummaryRule });
 }

@@ -288,5 +288,7 @@
   };
 
   globalThis.AppFormat = api;
+  globalThis.SessionWorkbench = globalThis.SessionWorkbench || {};
+  Object.assign(globalThis.SessionWorkbench, api);
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })();

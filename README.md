@@ -66,8 +66,9 @@ npm run test:e2e
 
 主要实现位于：
 
-- `server.mjs`：只读 HTTP API、数据源和详情协调。
-- `src/session-*.mjs`：会话发现、规范化、查询、事件聚合和执行时间。
-- `public/app.js`：会话阅读、执行过程、统计和原始事件界面。
+- `server.mjs`：HTTP 服务装配入口；路由分派位于 `src/session-router.mjs`，会话查询服务由 `src/session-query-service.mjs` 装配。
+- `src/session-*-projection.mjs`：按轮次、紧凑阅读、执行追踪和追踪节点职责构建会话投影，`src/session-events.mjs` 保留兼容导出门面。
+- `src/session-*-query-service.mjs`：按来源上下文、目录、会话目录、详情和原始事件查询拆分只读读取服务。
+- `public/app.js`：浏览器初始化入口。`public/app-state.js`、`public/app-requests*.js`、`public/app-view-*.js` 与 `public/app-ui.js` 通过 `SessionWorkbench` 注册表分别承担状态、请求、视图和交互。
 - `public/styles.css`：浏览器样式入口，按原有层叠顺序导入 `public/styles/` 下的基础、工作区、阅读、视图与响应式样式。
 - `public/tool-summary.js`：可配置的工具调用可读摘要。

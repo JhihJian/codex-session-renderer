@@ -1,3 +1,33 @@
+{
+  const api = window.SessionWorkbench;
+  const { state, els } = api;
+  const initializeOverflowTooltips = (...args) => api.initializeOverflowTooltips(...args);
+  const loadHealthAndSources = (...args) => api.loadHealthAndSources(...args);
+  const refreshCurrentSessionList = (...args) => api.refreshCurrentSessionList(...args);
+  const handleMarkdownCodeCopy = (...args) => api.handleMarkdownCodeCopy(...args);
+  const selectSource = (...args) => api.selectSource(...args);
+  const openSettingsDialog = (...args) => api.openSettingsDialog(...args);
+  const requestCloseSettingsDialog = (...args) => api.requestCloseSettingsDialog(...args);
+  const saveSettingsFromForm = (...args) => api.saveSettingsFromForm(...args);
+  const selectSettingsViewFromEvent = (...args) => api.selectSettingsViewFromEvent(...args);
+  const clearSettingsValidationState = (...args) => api.clearSettingsValidationState(...args);
+  const newSummaryRule = (...args) => api.newSummaryRule(...args);
+  const renderSettingsDialog = (...args) => api.renderSettingsDialog(...args);
+  const invalidateSessionListRequests = (...args) => api.invalidateSessionListRequests(...args);
+  let sessionSearchTimer = api.sessionSearchTimer;
+  const loadHistoricalSessions = (...args) => api.loadHistoricalSessions(...args);
+  const loadSessions = (...args) => api.loadSessions(...args);
+  const selectSessionTimeFilter = (...args) => api.selectSessionTimeFilter(...args);
+  const sessionTimeBucket = (...args) => api.sessionTimeBucket(...args);
+  const clearSessionFiltersForSelectedSession = (...args) => api.clearSessionFiltersForSelectedSession(...args);
+  const returnToRealtimeSessions = (...args) => api.returnToRealtimeSessions(...args);
+  const renderMainContent = (...args) => api.renderMainContent(...args);
+  const setViewMode = (...args) => api.setViewMode(...args);
+  const setDiagnosticMode = (...args) => api.setDiagnosticMode(...args);
+  const selectSettingsView = (...args) => api.selectSettingsView(...args);
+  const scheduleOverflowTooltipSync = (...args) => api.scheduleOverflowTooltipSync(...args);
+  let rawDiagnosticAbortController = api.rawDiagnosticAbortController;
+  let rawEventAbortController = api.rawEventAbortController;
 function init() {
   state.summaryRules = window.ToolSummary?.loadCustomRules?.() || [];
   initializeOverflowTooltips();
@@ -234,3 +264,6 @@ function setPanelInteractivity(panel, open) {
 }
 
 window.SessionWorkbench.init = init;
+
+  Object.assign(api, { init, handleDialogEscapeKey, bindEvents, bindRovingTablist, createRawDiagnosticState, cancelRawDiagnosticRequest, cancelRawEventRequest, clearRawEventCache, syncPanelToggleLabels, mobilePanelLayoutActive, mobilePanelTab, setMobilePanel, syncMobilePanelNavigation, syncPanelVisibilityState, moveFocusBeforeHidingPanel, setPanelInteractivity });
+}

@@ -1,255 +1,10 @@
 {
   "version": 4,
-  "documentStatus": "active",
+  "documentStatus": "candidate",
   "snapshot": {
     "commit": "56374a9cb7ce631ab32b7b51240743d88b330bfb",
     "acceptedAt": "2026-09-17T11:09:49.459Z",
-    "files": [
-      {
-        "path": "README.md",
-        "sha256": "sha256:b19860e69f80272f4f0ef29d31c03991d0725679a1596d4915c697f1deaab9fe"
-      },
-      {
-        "path": "docs/architecture/README.md",
-        "sha256": "sha256:9b13c217eede945831eb002171e926b0359984e1d81058815a3f685159b418df"
-      },
-      {
-        "path": "docs/architecture/implementation.md",
-        "sha256": "sha256:8519699c56c736a84048d8caed2c7e4d935e852b865cb430909f9a7efdb4af8b"
-      },
-      {
-        "path": "docs/architecture/modules/session-projection.md",
-        "sha256": "sha256:ec0a0e22748970e135a86a148357d6507ff162774ac52a8203b24dc594309b59"
-      },
-      {
-        "path": "docs/reader-context-events-design.md",
-        "sha256": "sha256:04f60dce31e6b30e792f333fd4997058b2004f5f7eee866f8a7685e6cd8d3d84"
-      },
-      {
-        "path": "docs/session-event-normalization.md",
-        "sha256": "sha256:c39df1260cceb85e08716895648f41b589069ddc81fb40384589e667fda736ae"
-      },
-      {
-        "path": "public/app-format.js",
-        "sha256": "sha256:70632d6407c36be36fe976b6af6783e7d760993428a4ce76b3d3ec86957d04d9"
-      },
-      {
-        "path": "public/app.js",
-        "sha256": "sha256:cec6c6c7352ba61845b4a18a3cd32a5c7e33ab125d0b1a7d03426e1a97a6e350"
-      },
-      {
-        "path": "public/index.html",
-        "sha256": "sha256:ef9a7b8171ae892bfaca9f5224710104a6dfc13057a9158d76b5f81a13958e73"
-      },
-      {
-        "path": "public/raw-event-cache.js",
-        "sha256": "sha256:dcd8efe6e9336f7b318b1f45040c6ad26622155e104f0adbb70567440e4a523c"
-      },
-      {
-        "path": "public/styles.css",
-        "sha256": "sha256:22926492bbd952703c8c7c8be4c2c84796ff4dc3d5d15043dd5061aeb8ea0c60"
-      },
-      {
-        "path": "public/styles/audit-detail.css",
-        "sha256": "sha256:6388f8182668163a14f3e7565a20a2572a9a9ff9b53cb973e90bf4c5056fca9b"
-      },
-      {
-        "path": "public/styles/audit-overview.css",
-        "sha256": "sha256:e4c2bee35d0307cd1e6202f41c489b65ad861ea412ccf066a4a16ee4a4d089e0"
-      },
-      {
-        "path": "public/styles/compact.css",
-        "sha256": "sha256:c30e47200d6242600f7a6b9763fb1aa2b31f2cc75709f00220dec04dd1fc68d0"
-      },
-      {
-        "path": "public/styles/diagnostics.css",
-        "sha256": "sha256:1c5a48b91bc1fbec7ccb393148e741d517b20c66baa58ff0c2c3b3ce7ab12ff4"
-      },
-      {
-        "path": "public/styles/execution-details.css",
-        "sha256": "sha256:43a267cf2a105cb7f5a56990369b0bbf85e80c01c36509da3005c47254ebe423"
-      },
-      {
-        "path": "public/styles/foundation.css",
-        "sha256": "sha256:4d088f28659b7f485d9f04ad768fa2dc948cb83b10567af35ef597f48acb8494"
-      },
-      {
-        "path": "public/styles/inspector.css",
-        "sha256": "sha256:450139a4d77fb2fcf1664a776a07add9645c1be1d55d71411b3aa62c769d7c2f"
-      },
-      {
-        "path": "public/styles/raw-trace.css",
-        "sha256": "sha256:be7e9c81cc9ab50e8ac7af58ecdd31e3ce08c2149fa2be95c1a6542c937b247a"
-      },
-      {
-        "path": "public/styles/reader.css",
-        "sha256": "sha256:28ba8283235813717124b2eccb4550b27278d7bfec4c5de9aee8f764769890f1"
-      },
-      {
-        "path": "public/styles/responsive.css",
-        "sha256": "sha256:f318ad24b1ae7dbba6a4804ae4724e0f17b6cb14ac3f2215a3becfd9fb8eb784"
-      },
-      {
-        "path": "public/styles/shell.css",
-        "sha256": "sha256:696a4639aecf0f6a3adaf5578f50e5b63605ade59513dc0c706a52c4a0b60de1"
-      },
-      {
-        "path": "public/styles/terminal.css",
-        "sha256": "sha256:bcdc140d50acd267f784da20bbcd8c9b396e00dc4f8a9ae4d1bca6c7c25886a2"
-      },
-      {
-        "path": "public/styles/workspace.css",
-        "sha256": "sha256:29331b83204e7a860bc5cc41725cb57fcf25ab345163599892a1a567d92716af"
-      },
-      {
-        "path": "public/tool-summary.js",
-        "sha256": "sha256:d360e343d67c0558b155f4737e80d89e8e5f82473a36fc5db767cb48b660c90a"
-      },
-      {
-        "path": "scripts/e2e-server.mjs",
-        "sha256": "sha256:23844276a854509fb31e9c53a3c11bfa0073ce43278679b80dded17c06c028b6"
-      },
-      {
-        "path": "server.mjs",
-        "sha256": "sha256:b9ac24b577f6fcb7e4257068adeea52aa722b2766a5bd0793df60b2b6a426d1e"
-      },
-      {
-        "path": "src/access-control.mjs",
-        "sha256": "sha256:77dd682be1f66b4cea2625d67e5f1aed6804a5d6331dbb8b55c9d3dc6fa950fe"
-      },
-      {
-        "path": "src/data-sources.mjs",
-        "sha256": "sha256:06908de5df136e749c206007800d68d5eeca81b8645cb5ceda902e4c697329a1"
-      },
-      {
-        "path": "src/event-summary.mjs",
-        "sha256": "sha256:d04af923d369dde9f72af0e13c94ee40bd98b5f6eaa1fd0d7d9c937eaef0e592"
-      },
-      {
-        "path": "src/http-response.mjs",
-        "sha256": "sha256:9ca3f0eff6d1352c6d55ecb954c6bc7549d9cdbd31071f02ab9b070af1c14e8d"
-      },
-      {
-        "path": "src/jsonl-reader.mjs",
-        "sha256": "sha256:ae209e6def46e9af7135459689789f960a8b28575c734ef2169905529f984c0e"
-      },
-      {
-        "path": "src/pi-context-events.mjs",
-        "sha256": "sha256:de10b92dd0c4e0e521201772a7ea87ef4f6481ca90e1636e4d269b9b2092014d"
-      },
-      {
-        "path": "src/session-catalog.mjs",
-        "sha256": "sha256:f55a6189486e3f11a5fc0a4c0da1457fe454266151321390a7c62152726d276a"
-      },
-      {
-        "path": "src/session-detail-coordinator.mjs",
-        "sha256": "sha256:458aee0c7ab6e7a21354c6de4a3fa5fa9c17da32cdde83e017d8527779febab4"
-      },
-      {
-        "path": "src/session-events.mjs",
-        "sha256": "sha256:fdaa16bcf0a5d3bf8f9979cc0893c67af510c93531bb6d91e99c1ed7cf419376"
-      },
-      {
-        "path": "src/session-models.mjs",
-        "sha256": "sha256:ca8feb68cc1759e4605e0ab58d0f0d7dee9f64707fc082bb29e4205ee3292c8b"
-      },
-      {
-        "path": "src/session-normalizer.mjs",
-        "sha256": "sha256:e670dd3aa4328016c20d31ed65714df0c39c6f69304ce58bbb53b33a4b2de7ac"
-      },
-      {
-        "path": "src/session-query.mjs",
-        "sha256": "sha256:a7431510797ab01e1ca9e4f9d27c192d5333bd39ec37accaadc4c5afc740f0d5"
-      },
-      {
-        "path": "src/session-timing.mjs",
-        "sha256": "sha256:4111498866500c2a5876f694f53beb0f05bf37ed510a9c6dfedb0a7ce0d643a6"
-      },
-      {
-        "path": "src/sqlite-threads.mjs",
-        "sha256": "sha256:55690a948954e3c80b4ffda1fc2f85c0b9e6101eb3c3a13155901074e75482f5"
-      },
-      {
-        "path": "test/app-format.test.mjs",
-        "sha256": "sha256:1d94a1a44e1391553ebcf64028275455a65a3018acf3078f7c24c4ba57bdb27a"
-      },
-      {
-        "path": "test/data-sources.test.mjs",
-        "sha256": "sha256:703ffcd1592b5a7bacdbebd86e631fb77e7b1b12dbc969122960f0b1dbebd061"
-      },
-      {
-        "path": "test/e2e/fixture-session.mjs",
-        "sha256": "sha256:9bc20d7630c77dd274a266cb14e728526362ede908cc349a1357d712f1b84d10"
-      },
-      {
-        "path": "test/e2e/full-content.spec.mjs",
-        "sha256": "sha256:de4df89f01063b0de8f19b59cf154f73aadf34f81b58a0023ad86889668f21e8"
-      },
-      {
-        "path": "test/e2e/list-scope-navigation.spec.mjs",
-        "sha256": "sha256:be50da1c2633b22ad69930d745b617340139520bbc127f26eac3784d0ce860dd"
-      },
-      {
-        "path": "test/e2e/source-helpers.mjs",
-        "sha256": "sha256:20a856b6c0007b47269dca30019ae5ce3c24cc20b5668ac7ec04840638942c05"
-      },
-      {
-        "path": "test/e2e/title-consistency.spec.mjs",
-        "sha256": "sha256:d84ae7b25ed38fa0d5eb5af0e6da8f888f8cbe0f629c75ca4b604923c0a2a4a9"
-      },
-      {
-        "path": "test/pi-context-events.test.mjs",
-        "sha256": "sha256:b76cf5d9cc8ba7c2d468acfcaaf011b12464fd0bef55101a5824acb7aab95a77"
-      },
-      {
-        "path": "test/pi-task-sources.test.mjs",
-        "sha256": "sha256:ff697bd8ce9e0301a00faa8d85986078cb64893c0d6aa1c5d41e057072152493"
-      },
-      {
-        "path": "test/raw-event-cache.test.mjs",
-        "sha256": "sha256:a8179bf137d49224a4608b18923ce39e9785492bfafb82f42476e8ea74caf0ce"
-      },
-      {
-        "path": "test/server-access-control.test.mjs",
-        "sha256": "sha256:ad2aff4076f4cdecaff256886d8b21767de8bf0ca25988fae7350037220aef86"
-      },
-      {
-        "path": "test/server-http-smoke-helpers.mjs",
-        "sha256": "sha256:bc43999706e4f0eefd9cf8c888d0300634aa5bb9dad4f3894637f4dcdb2d4224"
-      },
-      {
-        "path": "test/session-catalog.test.mjs",
-        "sha256": "sha256:3f68736bddb47150fc25e46d8d1a1e156dd59fb94a0e6eb3860cfeb5466a99ce"
-      },
-      {
-        "path": "test/session-detail-coordinator.test.mjs",
-        "sha256": "sha256:811bf7daa8c407fc73fefabe4bc1e9b3e8effd2446569e2f42579277cfe451c4"
-      },
-      {
-        "path": "test/session-events.test.mjs",
-        "sha256": "sha256:67391faa310ed6f65ae661ece8a6a3f85f9f76fc7d9dc5577ebb5630c6ebfe3d"
-      },
-      {
-        "path": "test/session-models.test.mjs",
-        "sha256": "sha256:c0c49dba4ecd70b670febdcf0e4d8ed3e610be5737bc23e231e741f2426e5339"
-      },
-      {
-        "path": "test/session-normalizer.test.mjs",
-        "sha256": "sha256:3d15bdbaf9a0860c6a297a041f652b43bdfc3df4b876e84b85e0d0234d2e6192"
-      },
-      {
-        "path": "test/session-query.test.mjs",
-        "sha256": "sha256:7642851fd48c9cb05edbea078e7d170c9106e56cd0142b5280e4014fd7697606"
-      },
-      {
-        "path": "test/session-timing.test.mjs",
-        "sha256": "sha256:86cf4afd92b68e2065d234c5a22f651e09bebb4526c92310257b46d330619e9b"
-      },
-      {
-        "path": "test/tool-summary.test.mjs",
-        "sha256": "sha256:b57fc6acdaf5617ed06bf7fe67b21d60ef02044f58ac602ea288c8461c2f1c64"
-      }
-    ]
+    "files": []
   },
   "documents": [
     {
@@ -281,7 +36,7 @@
           "locator": "Codex 会话工作台是只读的会话浏览器。"
         },
         {
-          "path": "src/session-events.mjs",
+          "path": "src/session-turn-projection.mjs",
           "locator": "function buildTurns(events)"
         }
       ],
@@ -317,7 +72,7 @@
           "locator": "function createDataSourceRegistry(options = {})"
         },
         {
-          "path": "server.mjs",
+          "path": "src/session-source-context-service.mjs",
           "locator": "function getSourceContext(sourceId = \"local\")"
         }
       ],
@@ -379,23 +134,23 @@
       "certainty": "confirmed",
       "evidence": [
         {
-          "path": "server.mjs",
-          "locator": "function getSourceContext(sourceId = \"local\")"
+          "path": "src/session-query-service.mjs",
+          "locator": "export function createSessionQueryService()"
         },
         {
           "path": "src/session-normalizer.mjs",
           "locator": "function normalizeSessionEvent(rawEvent, index = null)"
         },
         {
-          "path": "public/app.js",
-          "locator": "function traceToolTitle(item, node)"
+          "path": "public/app-view-trace.js",
+          "locator": "function renderTraceNode(node, context)"
         },
         {
           "path": "public/tool-summary.js",
           "locator": "id: \"pi-read-file\""
         },
         {
-          "path": "public/app.js",
+          "path": "public/app-view-stats.js",
           "locator": "function addToolOutputOperationStats(groups, detail)"
         }
       ],
@@ -427,47 +182,84 @@
         "anchor": "设计结论"
       },
       "impactPaths": [
-        "server.mjs",
-        "src/session-catalog.mjs",
-        "src/sqlite-threads.mjs",
-        "src/jsonl-reader.mjs",
-        "src/session-models.mjs",
-        "src/session-normalizer.mjs",
-        "src/session-events.mjs",
-        "src/pi-context-events.mjs",
-        "src/event-summary.mjs",
-        "src/session-timing.mjs",
-        "test/session-normalizer.test.mjs",
-        "test/session-events.test.mjs",
-        "test/pi-context-events.test.mjs",
-        "test/session-catalog.test.mjs",
         "docs/architecture/implementation.md",
-        "docs/session-event-normalization.md",
         "docs/architecture/modules/session-projection.md",
         "docs/reader-context-events-design.md",
+        "docs/session-event-normalization.md",
+        "eslint-suppressions.json",
+        "package.json",
+        "public/app-format.js",
+        "public/app-requests-raw.js",
+        "public/app-requests-response.js",
+        "public/app-requests.js",
+        "public/app-state.js",
+        "public/app-ui.js",
+        "public/app-view-compact-context.js",
+        "public/app-view-compact-filter.js",
+        "public/app-view-compact-outline.js",
+        "public/app-view-compact-thread.js",
+        "public/app-view-compact.js",
+        "public/app-view-diagnostic.js",
+        "public/app-view-sessions.js",
+        "public/app-view-settings.js",
+        "public/app-view-shared.js",
+        "public/app-view-shell.js",
+        "public/app-view-stats-render.js",
+        "public/app-view-stats-timing.js",
+        "public/app-view-stats.js",
+        "public/app-view-terminal.js",
+        "public/app-view-trace-content.js",
+        "public/app-view-trace-helpers.js",
+        "public/app-view-trace.js",
         "public/app.js",
         "public/index.html",
-        "public/styles.css",
-        "public/styles/foundation.css",
-        "public/styles/shell.css",
-        "public/styles/reader.css",
-        "public/styles/compact.css",
-        "public/styles/terminal.css",
-        "public/styles/diagnostics.css",
-        "public/styles/audit-overview.css",
-        "public/styles/audit-detail.css",
-        "public/styles/raw-trace.css",
-        "public/styles/inspector.css",
-        "public/styles/responsive.css",
-        "public/styles/execution-details.css",
-        "public/styles/workspace.css",
-        "public/app-format.js",
         "public/raw-event-cache.js",
+        "public/styles.css",
+        "public/styles/audit-detail.css",
+        "public/styles/audit-overview.css",
+        "public/styles/compact.css",
+        "public/styles/diagnostics.css",
+        "public/styles/execution-details.css",
+        "public/styles/foundation.css",
+        "public/styles/inspector.css",
+        "public/styles/raw-trace.css",
+        "public/styles/reader.css",
+        "public/styles/responsive.css",
+        "public/styles/shell.css",
+        "public/styles/terminal.css",
+        "public/styles/workspace.css",
         "public/tool-summary.js",
+        "server.mjs",
+        "src/event-summary.mjs",
+        "src/jsonl-reader.mjs",
+        "src/pi-context-events.mjs",
+        "src/session-catalog-query-service.mjs",
+        "src/session-catalog.mjs",
+        "src/session-compact-reading-projection.mjs",
+        "src/session-detail-query-service.mjs",
+        "src/session-directory-query-service.mjs",
+        "src/session-event-projection.mjs",
+        "src/session-event-query-service.mjs",
+        "src/session-events.mjs",
+        "src/session-execution-trace-projection.mjs",
+        "src/session-models.mjs",
+        "src/session-normalizer.mjs",
+        "src/session-projection-shared.mjs",
+        "src/session-query-service.mjs",
+        "src/session-router.mjs",
+        "src/session-source-context-service.mjs",
+        "src/session-timing.mjs",
+        "src/session-trace-node-projection.mjs",
+        "src/session-turn-projection.mjs",
+        "src/sqlite-threads.mjs",
+        "test/e2e/full-content.spec.mjs",
+        "test/pi-context-events.test.mjs",
         "test/raw-event-cache.test.mjs",
+        "test/session-catalog.test.mjs",
+        "test/session-events.test.mjs",
         "test/session-models.test.mjs",
-        "test/tool-summary.test.mjs",
-        "test/e2e/full-content.spec.mjs"
+        "test/session-normalizer.test.mjs",
+        "test/tool-summary.test.mjs"
       ]
     },
     {
@@ -478,12 +270,12 @@
       "certainty": "confirmed",
       "evidence": [
         {
-          "path": "server.mjs",
-          "locator": "async function listSessions(context, options = {})"
+          "path": "src/session-catalog-query-service.mjs",
+          "locator": "async function listSessionsForDisplay(dependencies, context, scope, params)"
         },
         {
-          "path": "server.mjs",
-          "locator": "async function getSessionDetail(context, id, options = {})"
+          "path": "src/session-detail-query-service.mjs",
+          "locator": "async function getSessionDetail(dependencies, context, id, options = {})"
         }
       ],
       "tests": [
@@ -533,8 +325,8 @@
           "locator": "function createSessionDetailCoordinator(options = {})"
         },
         {
-          "path": "server.mjs",
-          "locator": "async function getSessionDetail(context, id, options = {})"
+          "path": "src/session-detail-query-service.mjs",
+          "locator": "async function getSessionDetail(dependencies, context, id, options = {})"
         }
       ],
       "tests": [
@@ -558,5 +350,507 @@
     }
   ],
   "openQuestions": [],
-  "pendingImpact": null
+  "pendingImpact": {
+    "baseCommit": "56374a9cb7ce631ab32b7b51240743d88b330bfb",
+    "changedPaths": [
+      ".agents/architecture/state.json",
+      ".agents/flows/contract-preserving-module-refactor/FLOW.md",
+      "README.md",
+      "docs/architecture/implementation.md",
+      "docs/architecture/modules/session-projection.md",
+      "eslint-suppressions.json",
+      "package.json",
+      "public/app-format.js",
+      "public/app-requests-raw.js",
+      "public/app-requests-response.js",
+      "public/app-requests.js",
+      "public/app-state.js",
+      "public/app-ui.js",
+      "public/app-view-compact-context.js",
+      "public/app-view-compact-filter.js",
+      "public/app-view-compact-outline.js",
+      "public/app-view-compact-thread.js",
+      "public/app-view-compact.js",
+      "public/app-view-diagnostic.js",
+      "public/app-view-sessions.js",
+      "public/app-view-settings.js",
+      "public/app-view-shared.js",
+      "public/app-view-shell.js",
+      "public/app-view-stats-render.js",
+      "public/app-view-stats-timing.js",
+      "public/app-view-stats.js",
+      "public/app-view-terminal.js",
+      "public/app-view-trace-content.js",
+      "public/app-view-trace-helpers.js",
+      "public/app-view-trace.js",
+      "public/app.js",
+      "public/index.html",
+      "server.mjs",
+      "src/session-catalog-query-service.mjs",
+      "src/session-compact-reading-projection.mjs",
+      "src/session-detail-query-service.mjs",
+      "src/session-directory-query-service.mjs",
+      "src/session-event-projection.mjs",
+      "src/session-event-query-service.mjs",
+      "src/session-events.mjs",
+      "src/session-execution-trace-projection.mjs",
+      "src/session-models.mjs",
+      "src/session-projection-shared.mjs",
+      "src/session-query-service.mjs",
+      "src/session-query.mjs",
+      "src/session-router.mjs",
+      "src/session-source-context-service.mjs",
+      "src/session-trace-node-projection.mjs",
+      "src/session-turn-projection.mjs",
+      "src/sqlite-threads.mjs"
+    ],
+    "itemIds": [
+      "purpose-readable-session-workbench",
+      "boundary-source-records-and-local-derivatives",
+      "external-boundary-http-authentication",
+      "module-session-projection",
+      "capability-session-discovery-and-view",
+      "flow-stable-session-detail"
+    ],
+    "assessments": [
+      {
+        "itemId": "purpose-readable-session-workbench",
+        "result": "unaffected",
+        "reason": "本次仅拆分实现职责，仍以只读方式展示会话，不改变产品目的。",
+        "evidence": {
+          "path": "README.md",
+          "locator": "Codex 会话工作台是只读的会话浏览器。"
+        }
+      },
+      {
+        "itemId": "boundary-source-records-and-local-derivatives",
+        "result": "unaffected",
+        "reason": "来源文件仍由数据源和读取服务只读访问，未增加写入路径。",
+        "evidence": {
+          "path": "src/data-sources.mjs",
+          "locator": "function createDataSourceRegistry(options = {})"
+        }
+      },
+      {
+        "itemId": "external-boundary-http-authentication",
+        "result": "unaffected",
+        "reason": "访问控制模块和非 loopback 认证边界未变，路由只消费其既有判定。",
+        "evidence": {
+          "path": "src/access-control.mjs",
+          "locator": "function assertSecureListenConfig(options = {})"
+        }
+      },
+      {
+        "itemId": "module-session-projection",
+        "result": "updated",
+        "reason": "前端、事件投影和 HTTP 查询职责已拆分，并以兼容门面维持既有入口。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "src/session-router.mjs"
+        }
+      },
+      {
+        "itemId": "capability-session-discovery-and-view",
+        "result": "updated",
+        "reason": "列表、详情与事件查询改由查询服务的职责模块提供，公开读取能力不变。",
+        "evidence": {
+          "path": "src/session-detail-query-service.mjs",
+          "locator": "async function getSessionDetail(dependencies, context, id, options = {})"
+        }
+      },
+      {
+        "itemId": "flow-stable-session-detail",
+        "result": "updated",
+        "reason": "详情读取的签名、取消和缓存仍由协调器拥有，详情组装已移入专用查询服务。",
+        "evidence": {
+          "path": "src/session-detail-coordinator.mjs",
+          "locator": "function createSessionDetailCoordinator(options = {})"
+        }
+      }
+    ],
+    "unmappedPaths": [
+      ".agents/flows/contract-preserving-module-refactor/FLOW.md",
+      "eslint-suppressions.json",
+      "package.json",
+      "public/app-requests-raw.js",
+      "public/app-requests-response.js",
+      "public/app-requests.js",
+      "public/app-state.js",
+      "public/app-ui.js",
+      "public/app-view-compact-context.js",
+      "public/app-view-compact-filter.js",
+      "public/app-view-compact-outline.js",
+      "public/app-view-compact-thread.js",
+      "public/app-view-compact.js",
+      "public/app-view-diagnostic.js",
+      "public/app-view-sessions.js",
+      "public/app-view-settings.js",
+      "public/app-view-shared.js",
+      "public/app-view-shell.js",
+      "public/app-view-stats-render.js",
+      "public/app-view-stats-timing.js",
+      "public/app-view-stats.js",
+      "public/app-view-terminal.js",
+      "public/app-view-trace-content.js",
+      "public/app-view-trace-helpers.js",
+      "public/app-view-trace.js",
+      "src/session-catalog-query-service.mjs",
+      "src/session-compact-reading-projection.mjs",
+      "src/session-detail-query-service.mjs",
+      "src/session-directory-query-service.mjs",
+      "src/session-event-projection.mjs",
+      "src/session-event-query-service.mjs",
+      "src/session-execution-trace-projection.mjs",
+      "src/session-projection-shared.mjs",
+      "src/session-query-service.mjs",
+      "src/session-router.mjs",
+      "src/session-source-context-service.mjs",
+      "src/session-trace-node-projection.mjs",
+      "src/session-turn-projection.mjs"
+    ],
+    "pathAssessments": [
+      {
+        "path": ".agents/flows/contract-preserving-module-refactor/FLOW.md",
+        "result": "unaffected",
+        "reason": "这是用于保持公开契约的通用开发流程，不属于运行时架构。",
+        "evidence": {
+          "path": ".agents/flows/contract-preserving-module-refactor/FLOW.md",
+          "locator": "保持契约的模块重构"
+        }
+      },
+      {
+        "path": "eslint-suppressions.json",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "package.json",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "public/app-requests-raw.js",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "public/app-requests-response.js",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "public/app-requests.js",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "public/app-state.js",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "public/app-ui.js",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "public/app-view-compact-context.js",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "public/app-view-compact-filter.js",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "public/app-view-compact-outline.js",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "public/app-view-compact-thread.js",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "public/app-view-compact.js",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "public/app-view-diagnostic.js",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "public/app-view-sessions.js",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "public/app-view-settings.js",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "public/app-view-shared.js",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "public/app-view-shell.js",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "public/app-view-stats-render.js",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "public/app-view-stats-timing.js",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "public/app-view-stats.js",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "public/app-view-terminal.js",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "public/app-view-trace-content.js",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "public/app-view-trace-helpers.js",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "public/app-view-trace.js",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "src/session-catalog-query-service.mjs",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "src/session-compact-reading-projection.mjs",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "src/session-detail-query-service.mjs",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "src/session-directory-query-service.mjs",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "src/session-event-projection.mjs",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "src/session-event-query-service.mjs",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "src/session-execution-trace-projection.mjs",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "src/session-projection-shared.mjs",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "src/session-query-service.mjs",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "src/session-router.mjs",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "src/session-source-context-service.mjs",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "src/session-trace-node-projection.mjs",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      },
+      {
+        "path": "src/session-turn-projection.mjs",
+        "result": "mapped",
+        "reason": "该路径属于会话读取与投影模块的拆分实现、浏览器入口或验证配置。",
+        "evidence": {
+          "path": "docs/architecture/implementation.md",
+          "locator": "## 浏览器界面"
+        }
+      }
+    ]
+  }
 }

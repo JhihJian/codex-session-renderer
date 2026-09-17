@@ -1,3 +1,12 @@
+{
+  const api = window.SessionWorkbench;
+  const { els, markdownCache, markdownRenderer, markdownCacheLimit } = api;
+  const sensitiveCopyToast = (...args) => api.sensitiveCopyToast(...args);
+  const localizeErrorText = (...args) => api.localizeErrorText(...args);
+  const escapeHtml = (...args) => api.escapeHtml(...args);
+  const escapeAttr = (...args) => api.escapeAttr(...args);
+  const highlightHtmlText = (...args) => api.highlightHtmlText(...args);
+  const normalizeMarkdownForRendering = (...args) => api.normalizeMarkdownForRendering(...args);
 async function handleMarkdownCodeCopy(event) {
   const button = event.target.closest("[data-markdown-code-copy]");
   if (!button) return;
@@ -180,3 +189,6 @@ function setMarkdownCache(key, html) {
 }
 
 window.SessionWorkbench.renderMarkdownFence = renderMarkdownFence;
+
+  Object.assign(api, { handleMarkdownCodeCopy, copyWithToast, copyWithToastWhileCurrent, copyText, clipboardWriteTextWithTimeout, errorTextFromError, showToast, emptyState, renderMarkdownFence, markdownFenceLanguage, renderMarkdownMessage, renderMarkdownTitle, renderDetailValue, renderSubagentMiniTitle, markdownToHtml, markdownInlineToHtml, setMarkdownCache });
+}

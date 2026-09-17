@@ -2,33 +2,64 @@ import { sanitizeErrorMessage } from "./data-sources.mjs";
 import { sendError, sendJson, serveStaticFile } from "./http-response.mjs";
 import { isAbortError } from "./session-detail-coordinator.mjs";
 
-export function createSessionRouter({ service, publicDir }) {
-  const {
-    getDefaultSource,
-    getSourceContext,
-    listSources,
-    normalizeSessionCatalogScope,
-    listSessionsForDisplay,
-    getSessionDetail,
-    querySessions,
-    querySessionView,
-    querySessionEvents,
-    getSessionEvent,
-  } = service;
+const READ_ONLY_API_PATHS = ["/api/health", "/api/sources"];
+const READ_ONLY_API_PATTERNS = [
+  /^\/api\/sessions(?:\/.*)?$/,
+  /^\/api\/query\/.*$/,
+  /^\/api\/sources\/[^/]+\/sessions(?:\/.*)?$/,
+  /^\/api\/sources\/[^/]+\/query\/.*$/,
+];
 
-async function serveStatic(req, res, pathname) {
-  if (req.method !== "GET") return sendError(res, 405, "Method not allowed");
-  return serveStaticFile(res, publicDir, pathname);
+const API_HANDLERS = [
+  handleHealthRequest,
+  handleSourcesRequest,
+  handleSessionListRequest,
+  handleSourceSessionListRequest,
+  handleSourceEventRequest,
+  handleSourceSessionRequest,
+  handleSessionQueryRequest,
+  handleSessionViewQueryRequest,
+  handleSessionEventsQueryRequest,
+  handleSourceSessionQueryRequest,
+  handleSourceSessionViewQueryRequest,
+  handleSourceSessionEventsQueryRequest,
+  handleEventRequest,
+  handleSessionRequest,
+];
+
+export function createSessionRouter({ service, publicDir }) {
+  return createRoute({ service, publicDir });
 }
 
+function createRoute(dependencies) {
+  return function route(req, res) {
+    return routeRequest(dependencies, req, res);
+  };
+}
 
-function allowMethod(req, res, methods) {
-  if (methods.includes(req.method)) return true;
-  sendError(res, 405, "Method not allowed");
+async function routeRequest(dependencies, req, res) {
+  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+  const requestSubscription = createRequestAbortSubscription(req, res);
+  try {
+    if (rejectUnsupportedReadOnlyMethod(req, res, url.pathname)) return undefined;
+    const handled = await dispatchApiRequest({ ...dependencies, req, res, url, pathname: url.pathname, signal: requestSubscription.signal });
+    if (handled) return undefined;
+    return serveStaticRequest(req, res, url.pathname, dependencies.publicDir);
+  } catch (error) {
+    return sendUnexpectedRequestError(res, error);
+  } finally {
+    requestSubscription.dispose();
+  }
+}
+
+async function dispatchApiRequest(request) {
+  for (const handler of API_HANDLERS) {
+    if (await handler(request)) return true;
+  }
   return false;
 }
 
-function requestAbortSubscription(req, res) {
+function createRequestAbortSubscription(req, res) {
   const controller = new AbortController();
   const abort = () => {
     if (!controller.signal.aborted) controller.abort();
@@ -47,164 +78,194 @@ function requestAbortSubscription(req, res) {
   };
 }
 
+function rejectUnsupportedReadOnlyMethod(req, res, pathname) {
+  if (!isReadOnlyApiPath(pathname) || req.method === "GET") return false;
+  sendError(res, 405, "Method not allowed");
+  return true;
+}
+
 function isReadOnlyApiPath(pathname) {
-  return (
-    pathname === "/api/health" ||
-
-    pathname === "/api/sources" ||
-    pathname === "/api/sessions" ||
-    pathname.startsWith("/api/sessions/") ||
-    pathname.startsWith("/api/query/") ||
-    /^\/api\/sources\/[^/]+\/sessions(?:\/.*)?$/.test(pathname) ||
-    /^\/api\/sources\/[^/]+\/query\/.*$/.test(pathname)
-  );
+  return READ_ONLY_API_PATHS.includes(pathname) || READ_ONLY_API_PATTERNS.some((pattern) => pattern.test(pathname));
 }
 
-
-async function route(req, res) {
-  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-  const pathname = url.pathname;
-  const requestSubscription = requestAbortSubscription(req, res);
-  try {
-    if (isReadOnlyApiPath(pathname) && !allowMethod(req, res, ["GET"])) return;
-
-    if (pathname === "/api/health") {
-      const defaultContext = getSourceContext(getDefaultSource()?.id);
-      return sendJson(res, 200, {
-        ok: true,
-        codexHome: defaultContext?.codexHome,
-        sessionsRoot: defaultContext?.sessionsRoot,
-        sessionIndexPath: defaultContext?.sessionIndexPath,
-        defaultSourceId: defaultContext?.source.id,
-        sources: listSources(),
-        time: new Date().toISOString(),
-      });
-    }
-
-    if (pathname === "/api/sources") {
-      return sendJson(res, 200, { sources: listSources() });
-    }
-
-    if (pathname === "/api/sessions") {
-      const context = resolveRequestSource(url);
-      if (!context) return sendError(res, 404, "Data source not found");
-      const scope = normalizeSessionCatalogScope(url.searchParams.get("scope"));
-      const sessions = await listSessionsForDisplay(context, scope, url.searchParams);
-      return sendJson(res, 200, { scope, sessions });
-    }
-    const sourceSessionsMatch = pathname.match(/^\/api\/sources\/([^/]+)\/sessions$/);
-    if (sourceSessionsMatch) {
-      const context = getSourceContext(decodeURIComponent(sourceSessionsMatch[1]));
-      if (!context) return sendError(res, 404, "Data source not found");
-      const scope = normalizeSessionCatalogScope(url.searchParams.get("scope"));
-      const sessions = await listSessionsForDisplay(context, scope, url.searchParams);
-      return sendJson(res, 200, { source: listSources().find((source) => source.id === context.source.id), scope, sessions });
-    }
-
-    const sourceEventMatch = pathname.match(/^\/api\/sources\/([^/]+)\/sessions\/([^/]+)\/events\/(\d+)$/);
-    if (sourceEventMatch) {
-      const context = getSourceContext(decodeURIComponent(sourceEventMatch[1]));
-      if (!context) return sendError(res, 404, "Data source not found");
-      const event = await getSessionEvent(context, decodeURIComponent(sourceEventMatch[2]), Number(sourceEventMatch[3]), { signal: requestSubscription.signal });
-      if (!event) return sendError(res, 404, "Event not found");
-      return sendJson(res, 200, event);
-    }
-    const sourceSessionMatch = pathname.match(/^\/api\/sources\/([^/]+)\/sessions\/([^/]+)$/);
-    if (sourceSessionMatch) {
-      const context = getSourceContext(decodeURIComponent(sourceSessionMatch[1]));
-      if (!context) return sendError(res, 404, "Data source not found");
-      const detail = await getSessionDetail(context, decodeURIComponent(sourceSessionMatch[2]), { signal: requestSubscription.signal });
-      if (!detail) return sendError(res, 404, "Session not found");
-      return sendJson(res, 200, detail);
-    }
-    if (pathname === "/api/query/sessions") {
-      const context = resolveRequestSource(url);
-      if (!context) return sendError(res, 404, "Data source not found");
-      return sendJson(res, 200, await querySessions(context, url.searchParams, queryProjectionOptions(context, url)));
-    }
-    const queryViewMatch = pathname.match(/^\/api\/query\/sessions\/([^/]+)\/view$/);
-    if (queryViewMatch) {
-      const context = resolveRequestSource(url);
-      if (!context) return sendError(res, 404, "Data source not found");
-      const view = await querySessionView(context, decodeURIComponent(queryViewMatch[1]), url.searchParams, queryProjectionOptions(context, url), { signal: requestSubscription.signal });
-      if (!view) return sendError(res, 404, "Session not found");
-      return sendJson(res, 200, view);
-    }
-    const queryEventsMatch = pathname.match(/^\/api\/query\/sessions\/([^/]+)\/events$/);
-    if (queryEventsMatch) {
-      const context = resolveRequestSource(url);
-      if (!context) return sendError(res, 404, "Data source not found");
-      const events = await querySessionEvents(context, decodeURIComponent(queryEventsMatch[1]), url.searchParams, queryProjectionOptions(context, url), { signal: requestSubscription.signal });
-      if (!events) return sendError(res, 404, "Session not found");
-      return sendJson(res, 200, events);
-    }
-    const sourceQuerySessionsMatch = pathname.match(/^\/api\/sources\/([^/]+)\/query\/sessions$/);
-    if (sourceQuerySessionsMatch) {
-      const context = getSourceContext(decodeURIComponent(sourceQuerySessionsMatch[1]));
-      if (!context) return sendError(res, 404, "Data source not found");
-      return sendJson(res, 200, await querySessions(context, url.searchParams, { sourceId: context.source.id }));
-    }
-    const sourceQueryViewMatch = pathname.match(/^\/api\/sources\/([^/]+)\/query\/sessions\/([^/]+)\/view$/);
-    if (sourceQueryViewMatch) {
-      const context = getSourceContext(decodeURIComponent(sourceQueryViewMatch[1]));
-      if (!context) return sendError(res, 404, "Data source not found");
-      const view = await querySessionView(context, decodeURIComponent(sourceQueryViewMatch[2]), url.searchParams, { sourceId: context.source.id }, { signal: requestSubscription.signal });
-      if (!view) return sendError(res, 404, "Session not found");
-      return sendJson(res, 200, view);
-    }
-    const sourceQueryEventsMatch = pathname.match(/^\/api\/sources\/([^/]+)\/query\/sessions\/([^/]+)\/events$/);
-    if (sourceQueryEventsMatch) {
-      const context = getSourceContext(decodeURIComponent(sourceQueryEventsMatch[1]));
-      if (!context) return sendError(res, 404, "Data source not found");
-      const events = await querySessionEvents(context, decodeURIComponent(sourceQueryEventsMatch[2]), url.searchParams, { sourceId: context.source.id }, { signal: requestSubscription.signal });
-      if (!events) return sendError(res, 404, "Session not found");
-      return sendJson(res, 200, events);
-    }
-
-    const eventMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/events\/(\d+)$/);
-    if (eventMatch) {
-      const context = resolveRequestSource(url);
-      if (!context) return sendError(res, 404, "Data source not found");
-      const event = await getSessionEvent(context, decodeURIComponent(eventMatch[1]), Number(eventMatch[2]), { signal: requestSubscription.signal });
-      if (!event) return sendError(res, 404, "Event not found");
-      return sendJson(res, 200, event);
-    }
-    const sessionMatch = pathname.match(/^\/api\/sessions\/([^/]+)$/);
-    if (sessionMatch) {
-      const context = resolveRequestSource(url);
-      if (!context) return sendError(res, 404, "Data source not found");
-      const detail = await getSessionDetail(context, decodeURIComponent(sessionMatch[1]), { signal: requestSubscription.signal });
-      if (!detail) return sendError(res, 404, "Session not found");
-      return sendJson(res, 200, detail);
-    }
-    return serveStatic(req, res, pathname);
-  } catch (error) {
-    if (isAbortError(error) || res.destroyed) return undefined;
-    const status = error?.status || 500;
-    const publicMessage = status >= 500 ? "Internal server error" : sanitizeErrorMessage(error?.message || "Bad request");
-    return sendError(res, status, publicMessage, {
-      name: error?.name,
-      code: error?.code,
-      status,
-      message: publicMessage,
-    });
-  } finally {
-    requestSubscription.dispose();
-  }
+function serveStaticRequest(req, res, pathname, publicDir) {
+  if (req.method !== "GET") return sendError(res, 405, "Method not allowed");
+  return serveStaticFile(res, publicDir, pathname);
 }
 
-function resolveRequestSource(url) {
-  return getSourceContext(url.searchParams.get("sourceId") || "local");
+function sendUnexpectedRequestError(res, error) {
+  if (isAbortError(error) || res.destroyed) return undefined;
+  const status = error?.status || 500;
+  const publicMessage = status >= 500 ? "Internal server error" : sanitizeErrorMessage(error?.message || "Bad request");
+  return sendError(res, status, publicMessage, {
+    name: error?.name,
+    code: error?.code,
+    status,
+    message: publicMessage,
+  });
+}
+
+function resolveRequestSource(service, url) {
+  return service.getSourceContext(url.searchParams.get("sourceId") || "local");
+}
+
+function resolveSourceOrRespond(res, sourceContext) {
+  if (sourceContext) return sourceContext;
+  sendError(res, 404, "Data source not found");
+  return null;
 }
 
 function queryProjectionOptions(context, url) {
-  if (url.searchParams.has("sourceId") && context.source.id !== "local") {
-    return { sourceId: context.source.id };
-  }
+  if (url.searchParams.has("sourceId") && context.source.id !== "local") return { sourceId: context.source.id };
   return {};
 }
 
+function sendResourceResponse(res, resourceName, resource) {
+  if (!resource) return sendError(res, 404, `${resourceName} not found`);
+  return sendJson(res, 200, resource);
+}
 
+async function sendSessionList(res, service, context, url, source) {
+  const scope = service.normalizeSessionCatalogScope(url.searchParams.get("scope"));
+  const sessions = await service.listSessionsForDisplay(context, scope, url.searchParams);
+  const body = source ? { source, scope, sessions } : { scope, sessions };
+  return sendJson(res, 200, body);
+}
 
-  return route;
+function handleHealthRequest({ pathname, res, service }) {
+  if (pathname !== "/api/health") return false;
+  const defaultContext = service.getSourceContext(service.getDefaultSource()?.id);
+  sendJson(res, 200, {
+    ok: true,
+    codexHome: defaultContext?.codexHome,
+    sessionsRoot: defaultContext?.sessionsRoot,
+    sessionIndexPath: defaultContext?.sessionIndexPath,
+    defaultSourceId: defaultContext?.source.id,
+    sources: service.listSources(),
+    time: new Date().toISOString(),
+  });
+  return true;
+}
+
+function handleSourcesRequest({ pathname, res, service }) {
+  if (pathname !== "/api/sources") return false;
+  sendJson(res, 200, { sources: service.listSources() });
+  return true;
+}
+
+async function handleSessionListRequest({ pathname, res, service, url }) {
+  if (pathname !== "/api/sessions") return false;
+  const context = resolveSourceOrRespond(res, resolveRequestSource(service, url));
+  if (!context) return true;
+  await sendSessionList(res, service, context, url);
+  return true;
+}
+
+async function handleSourceSessionListRequest({ pathname, res, service, url }) {
+  const match = pathname.match(/^\/api\/sources\/([^/]+)\/sessions$/);
+  if (!match) return false;
+  const context = resolveSourceOrRespond(res, service.getSourceContext(decodeURIComponent(match[1])));
+  if (!context) return true;
+  const source = service.listSources().find((candidate) => candidate.id === context.source.id);
+  await sendSessionList(res, service, context, url, source);
+  return true;
+}
+
+async function handleSourceEventRequest({ pathname, res, service, signal }) {
+  const match = pathname.match(/^\/api\/sources\/([^/]+)\/sessions\/([^/]+)\/events\/(\d+)$/);
+  if (!match) return false;
+  const context = resolveSourceOrRespond(res, service.getSourceContext(decodeURIComponent(match[1])));
+  if (!context) return true;
+  const event = await service.getSessionEvent(context, decodeURIComponent(match[2]), Number(match[3]), { signal });
+  sendResourceResponse(res, "Event", event);
+  return true;
+}
+
+async function handleSourceSessionRequest({ pathname, res, service, signal }) {
+  const match = pathname.match(/^\/api\/sources\/([^/]+)\/sessions\/([^/]+)$/);
+  if (!match) return false;
+  const context = resolveSourceOrRespond(res, service.getSourceContext(decodeURIComponent(match[1])));
+  if (!context) return true;
+  const detail = await service.getSessionDetail(context, decodeURIComponent(match[2]), { signal });
+  sendResourceResponse(res, "Session", detail);
+  return true;
+}
+
+async function handleSessionQueryRequest({ pathname, res, service, url }) {
+  if (pathname !== "/api/query/sessions") return false;
+  const context = resolveSourceOrRespond(res, resolveRequestSource(service, url));
+  if (!context) return true;
+  const result = await service.querySessions(context, url.searchParams, queryProjectionOptions(context, url));
+  sendJson(res, 200, result);
+  return true;
+}
+
+async function handleSessionViewQueryRequest({ pathname, res, service, signal, url }) {
+  const match = pathname.match(/^\/api\/query\/sessions\/([^/]+)\/view$/);
+  if (!match) return false;
+  const context = resolveSourceOrRespond(res, resolveRequestSource(service, url));
+  if (!context) return true;
+  const view = await service.querySessionView(context, decodeURIComponent(match[1]), url.searchParams, queryProjectionOptions(context, url), { signal });
+  sendResourceResponse(res, "Session", view);
+  return true;
+}
+
+async function handleSessionEventsQueryRequest({ pathname, res, service, signal, url }) {
+  const match = pathname.match(/^\/api\/query\/sessions\/([^/]+)\/events$/);
+  if (!match) return false;
+  const context = resolveSourceOrRespond(res, resolveRequestSource(service, url));
+  if (!context) return true;
+  const events = await service.querySessionEvents(context, decodeURIComponent(match[1]), url.searchParams, queryProjectionOptions(context, url), { signal });
+  sendResourceResponse(res, "Session", events);
+  return true;
+}
+
+async function handleSourceSessionQueryRequest({ pathname, res, service, url }) {
+  const match = pathname.match(/^\/api\/sources\/([^/]+)\/query\/sessions$/);
+  if (!match) return false;
+  const context = resolveSourceOrRespond(res, service.getSourceContext(decodeURIComponent(match[1])));
+  if (!context) return true;
+  const result = await service.querySessions(context, url.searchParams, { sourceId: context.source.id });
+  sendJson(res, 200, result);
+  return true;
+}
+
+async function handleSourceSessionViewQueryRequest({ pathname, res, service, signal, url }) {
+  const match = pathname.match(/^\/api\/sources\/([^/]+)\/query\/sessions\/([^/]+)\/view$/);
+  if (!match) return false;
+  const context = resolveSourceOrRespond(res, service.getSourceContext(decodeURIComponent(match[1])));
+  if (!context) return true;
+  const view = await service.querySessionView(context, decodeURIComponent(match[2]), url.searchParams, { sourceId: context.source.id }, { signal });
+  sendResourceResponse(res, "Session", view);
+  return true;
+}
+
+async function handleSourceSessionEventsQueryRequest({ pathname, res, service, signal, url }) {
+  const match = pathname.match(/^\/api\/sources\/([^/]+)\/query\/sessions\/([^/]+)\/events$/);
+  if (!match) return false;
+  const context = resolveSourceOrRespond(res, service.getSourceContext(decodeURIComponent(match[1])));
+  if (!context) return true;
+  const events = await service.querySessionEvents(context, decodeURIComponent(match[2]), url.searchParams, { sourceId: context.source.id }, { signal });
+  sendResourceResponse(res, "Session", events);
+  return true;
+}
+
+async function handleEventRequest({ pathname, res, service, signal, url }) {
+  const match = pathname.match(/^\/api\/sessions\/([^/]+)\/events\/(\d+)$/);
+  if (!match) return false;
+  const context = resolveSourceOrRespond(res, resolveRequestSource(service, url));
+  if (!context) return true;
+  const event = await service.getSessionEvent(context, decodeURIComponent(match[1]), Number(match[2]), { signal });
+  sendResourceResponse(res, "Event", event);
+  return true;
+}
+
+async function handleSessionRequest({ pathname, res, service, signal, url }) {
+  const match = pathname.match(/^\/api\/sessions\/([^/]+)$/);
+  if (!match) return false;
+  const context = resolveSourceOrRespond(res, resolveRequestSource(service, url));
+  if (!context) return true;
+  const detail = await service.getSessionDetail(context, decodeURIComponent(match[1]), { signal });
+  sendResourceResponse(res, "Session", detail);
+  return true;
 }

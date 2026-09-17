@@ -1,3 +1,6 @@
+{
+window.SessionWorkbench = window.SessionWorkbench || {};
+
 const rawEventCacheLimits = {
   maxEntries: 24,
   maxBytes: 8 * 1024 * 1024,
@@ -90,7 +93,7 @@ const {
   prettyMaybeJson,
   sessionTimeBucket,
   shortPath,
-} = window.AppFormat;
+} = window.SessionWorkbench;
 const { buildEvidenceId } = window.EvidenceId;
 
 const markdownCache = new Map();
@@ -263,6 +266,23 @@ const settingsViewIds = new Set(settingsViewOptions.map((view) => view.id));
 
 window.SessionWorkbench = window.SessionWorkbench || {};
 Object.assign(window.SessionWorkbench, {
+  buildSessionDirectoryTree,
+  compactNumber,
+  cssEscape,
+  escapeAttr,
+  escapeHtml,
+  firstLine,
+  formatBytes,
+  formatDate,
+  formatShortDate,
+  highlight,
+  highlightHtmlText,
+  nestSessionChains,
+  normalizeMarkdownForRendering,
+  prettyMaybeJson,
+  sessionTimeBucket,
+  shortPath,
+  buildEvidenceId,
   state,
   els,
   rawEventCacheLimits,
@@ -270,4 +290,20 @@ Object.assign(window.SessionWorkbench, {
   rawItemTypeOptions,
   settingsViewOptions,
   settingsViewIds,
+  markdownCache,
+  sessionAbortController,
+  rawDiagnosticAbortController,
+  rawEventAbortController,
+  alternateLocalSourceAbortController,
+  sessionSearchTimer,
+  compactTimelineObserver,
+  compactTimelineJumpTarget,
+  markdownCacheLimit,
+  visibleViewModes,
+  overflowTooltipFrame,
+  markdownRenderer,
+  localServiceUnavailableMessage,
+  clientErrorMessages,
+  statusErrorMessages,
 });
+}

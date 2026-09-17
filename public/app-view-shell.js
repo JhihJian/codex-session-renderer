@@ -1,3 +1,25 @@
+{
+  const api = window.SessionWorkbench;
+  const { state, els, visibleViewModes, rawItemTypeOptions, standardItemTypeOptions } = api;
+  const renderSessionList = (...args) => api.renderSessionList(...args);
+  const renderThreadHeader = (...args) => api.renderThreadHeader(...args);
+  const renderStats = (...args) => api.renderStats(...args);
+  const renderMainContent = (...args) => api.renderMainContent(...args);
+  const renderToolDetails = (...args) => api.renderToolDetails(...args);
+  const findTraceNode = (...args) => api.findTraceNode(...args);
+  let overflowTooltipFrame = api.overflowTooltipFrame;
+  const cancelRawDiagnosticRequest = (...args) => api.cancelRawDiagnosticRequest(...args);
+  const cancelRawEventRequest = (...args) => api.cancelRawEventRequest(...args);
+  const mobilePanelLayoutActive = (...args) => api.mobilePanelLayoutActive(...args);
+  const setMobilePanel = (...args) => api.setMobilePanel(...args);
+  const escapeAttr = (...args) => api.escapeAttr(...args);
+  const escapeHtml = (...args) => api.escapeHtml(...args);
+  const syncAsyncAccessibility = (...args) => api.syncAsyncAccessibility(...args);
+  const selectedSource = (...args) => api.selectedSource(...args);
+  const currentSessionFilteredOut = (...args) => api.currentSessionFilteredOut(...args);
+  const renderSessionFilterNotice = (...args) => api.renderSessionFilterNotice(...args);
+  const selectedSessionDisplayTitle = (...args) => api.selectedSessionDisplayTitle(...args);
+  const formatDate = (...args) => api.formatDate(...args);
 function renderAll() {
   renderSessionList();
   renderThreadHeader();
@@ -53,7 +75,6 @@ function syncOverflowTooltip(element) {
 
 function setViewMode(mode) {
   const nextMode = normalizeViewMode(mode);
-  const changed = state.viewMode !== nextMode;
   if (state.viewMode === "diagnostic" && state.diagnosticMode === "raw" && nextMode !== "diagnostic") {
     cancelRawDiagnosticRequest();
     cancelRawEventRequest();
@@ -181,4 +202,7 @@ function syncStatusbarDataStatus(source = selectedSource()) {
   else if (state.sessionsLoadError || state.sessionLoadError || status.error?.message) { value = "error"; label = "错误"; }
   els.statusbar.dataset.status = value;
   els.statusbar.title = "数据状态：" + label;
+}
+
+  Object.assign(api, { renderAll, initializeOverflowTooltips, scheduleOverflowTooltipSync, overflowTooltipCandidate, syncOverflowTooltip, setViewMode, normalizeViewMode, setDiagnosticMode, syncViewControls, syncItemTypeFilterOptions, primeTraceExpansion, renderStatusbar, syncStatusbarDataStatus });
 }

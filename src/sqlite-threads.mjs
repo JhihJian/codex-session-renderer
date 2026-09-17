@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { toIso } from "./session-events.mjs";
+import { toIso } from "./text-utils.mjs";
 
 const execFileAsync = promisify(execFile);
 
