@@ -3,6 +3,42 @@
 
   const defaultRules = [
     {
+      id: "pi-read-file",
+      label: "Pi 读取文件",
+      enabled: true,
+      tool: "read",
+      pattern: "[\\s\\S]*",
+      title: "读取文件内容",
+      summary: "{path}",
+    },
+    {
+      id: "pi-write-file",
+      label: "Pi 写入文件",
+      enabled: true,
+      tool: "write",
+      pattern: "[\\s\\S]*",
+      title: "写入文件",
+      summary: "{path}",
+    },
+    {
+      id: "pi-bash-rg-files",
+      label: "Pi rg 列出文件",
+      enabled: true,
+      tool: "bash",
+      pattern: "(?:^|\\s(?:&&|\\|\\||[|;])\\s*)rg\\s+--files\\b",
+      title: "列出文件",
+      summary: "{path}",
+    },
+    {
+      id: "pi-bash-rg-search",
+      label: "Pi rg 搜索文本",
+      enabled: true,
+      tool: "bash",
+      pattern: "(?:^|\\s(?:&&|\\|\\||[|;])\\s*)rg\\b",
+      title: "搜索文本",
+      summary: "{query} {path}",
+    },
+    {
       id: "exec-read-file-pwsh-raw-utf8",
       label: "PowerShell UTF-8 读取文件",
       enabled: true,
@@ -406,8 +442,8 @@
     const command = extractCommand(parsedArgs, argumentText, toolName);
     const output = input.output == null ? "" : String(input.output);
     const summary = input.summary == null ? "" : String(input.summary);
-    const path = extractCommandPath(command, toolName) || "";
-    const query = extractQuery(command, parsedArgs, summary) || "";
+    const path = extractArgumentPath(parsedArgs) || extractCommandPath(command, toolName) || "";
+    const query = extractQuery(command, parsedArgs, summary, toolName) || "";
     const changeSet = extractChangeSet(argumentText, output, toolName);
     const patchFiles = changeSet.files.length ? changeSet.files.map((file) => displayPatchFilePath(file)).slice(0, 4).join(", ") : extractPatchFiles(argumentText, output);
     const patchSummary = formatPatchSummary(changeSet) || patchFiles;
@@ -452,7 +488,7 @@
   }
 
   function extractCommandPath(command, toolName) {
-    const text = primaryCommand(command);
+    const text = commandForSummary(command, toolName);
     const tokens = shellTokens(stripShellWrapper(text));
     if (!tokens.length) return "";
     const commandName = commandBase(tokens[0]);
@@ -473,6 +509,14 @@
     });
   }
 
+  function extractArgumentPath(parsedArgs) {
+    if (!parsedArgs || typeof parsedArgs !== "object" || Array.isArray(parsedArgs)) return "";
+    for (const key of ["path", "filePath", "filepath", "targetPath", "outputPath"]) {
+      if (typeof parsedArgs[key] === "string" && parsedArgs[key].trim()) return stripOuterQuotes(parsedArgs[key].trim());
+    }
+    return "";
+  }
+
   function extractSearchPath(tokens) {
     const commandName = commandBase(tokens[0]).toLowerCase();
     const rest = tokens.slice(1);
@@ -483,13 +527,13 @@
     return candidates.slice(1).join(" ");
   }
 
-  function extractQuery(command, parsedArgs, summary) {
+  function extractQuery(command, parsedArgs, summary, toolName) {
     if (parsedArgs && typeof parsedArgs === "object" && !Array.isArray(parsedArgs)) {
       for (const key of ["query", "q", "pattern", "search"]) {
         if (parsedArgs[key]) return firstLine(parsedArgs[key], 120);
       }
     }
-    const tokens = shellTokens(stripShellWrapper(primaryCommand(command)));
+    const tokens = shellTokens(stripShellWrapper(commandForSummary(command, toolName)));
     const commandName = commandBase(tokens[0] || "").toLowerCase();
     if (["rg", "grep", "findstr"].includes(commandName)) {
       const candidates = nonOptionTokens(tokens.slice(1), {
@@ -522,6 +566,15 @@
 
   function primaryCommand(command) {
     return String(command || "").split(/\s(?:&&|\|\||[|;])\s?/)[0].trim();
+  }
+
+  function commandForSummary(command, toolName = "") {
+    const commands = String(command || "")
+      .split(/\s(?:&&|\|\||[|;])\s?/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (/^bash$/i.test(toolName)) return commands.find((part) => /^rg\b/i.test(stripShellWrapper(part))) || commands[0] || "";
+    return commands[0] || "";
   }
 
   function stripShellWrapper(command) {

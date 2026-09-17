@@ -19,6 +19,34 @@ test("default rules translate PowerShell UTF-8 raw reads", () => {
   assert.equal(summary.summary, "public\\app.js");
 });
 
+test("default rules summarize Pi read, write, and bash rg calls", () => {
+  const read = summarizeToolItem({
+    type: "tool-call",
+    name: "read",
+    arguments: { path: "/workspace/project/src/app.js", offset: 1, limit: 80 },
+  });
+  const write = summarizeToolItem({
+    type: "tool-call",
+    name: "write",
+    arguments: { path: "/workspace/project/docs/notes.md", content: "release notes" },
+  });
+  const search = summarizeToolItem({
+    type: "tool-call",
+    name: "bash",
+    arguments: { command: 'pwd && rg -n "release-check" public' },
+  });
+  const files = summarizeToolItem({
+    type: "tool-call",
+    name: "bash",
+    arguments: { command: "rg --files public" },
+  });
+
+  assert.deepEqual([read.title, read.summary], ["读取文件内容", "/workspace/project/src/app.js"]);
+  assert.deepEqual([write.title, write.summary], ["写入文件", "/workspace/project/docs/notes.md"]);
+  assert.deepEqual([search.title, search.summary], ["搜索文本", "release-check public"]);
+  assert.deepEqual([files.title, files.summary], ["列出文件", "public"]);
+});
+
 test("audit evidence uses readable output summaries", () => {
   const node = {
     type: "evidence",
