@@ -3528,29 +3528,45 @@ function buildEventTypeStats(detail) {
   );
 }
 
-function buildSummaryRuleStats(detail, query, typeFilter) {
+function buildToolContextStats(detail, query, typeFilter) {
   const tools = (detail?.turns || []).flatMap((turn) => turn.items || []).filter((item) => item.type === "tool-call");
   const visibleTools = tools.filter((item) => itemMatches(item, query, typeFilter));
   const groups = new Map();
   for (const item of visibleTools) {
     const readable = readableToolItem(item);
     if (!readable.matched || !readable.ruleId) continue;
-    const current = groups.get(readable.ruleId) || {
-      id: readable.ruleId,
+    const target = readable.summary || readable.path || readable.command || item.name || "未生成目标";
+    const key = `${readable.ruleId}\u0000${target}`;
+    const argument = String(item.arguments || "");
+    const output = String(item.output || "");
+    const current = groups.get(key) || {
+      id: key,
       title: readable.title,
       label: readable.ruleLabel,
+      target,
       count: 0,
-      samples: [],
+      argumentBytes: 0,
+      outputBytes: 0,
+      contextTokens: 0,
+      maxOutputBytes: 0,
     };
     current.count += 1;
-    const sample = readable.summary || readable.command;
-    if (sample && !current.samples.includes(sample) && current.samples.length < 3) current.samples.push(sample);
-    groups.set(readable.ruleId, current);
+    current.argumentBytes += utf8ByteLength(argument);
+    const outputBytes = utf8ByteLength(output);
+    current.outputBytes += outputBytes;
+    current.contextTokens += approxTokensFromValue(argument) + approxTokensFromValue(output);
+    current.maxOutputBytes = Math.max(current.maxOutputBytes, outputBytes);
+    groups.set(key, current);
   }
+  const values = [...groups.values()].sort(
+    (left, right) => right.contextTokens - left.contextTokens || right.outputBytes - left.outputBytes || right.maxOutputBytes - left.maxOutputBytes || left.target.localeCompare(right.target, "zh-Hans-CN"),
+  );
   return {
-    toolCount: visibleTools.length,
-    matchedCount: [...groups.values()].reduce((count, group) => count + group.count, 0),
-    groups: [...groups.values()].sort((left, right) => right.count - left.count || left.title.localeCompare(right.title, "zh-Hans-CN")),
+    outputBytes: values.reduce((count, group) => count + group.outputBytes, 0),
+    contextTokens: values.reduce((count, group) => count + group.contextTokens, 0),
+    repeatedTargets: values.filter((group) => group.count > 1).length,
+    largest: values[0] || null,
+    groups: values,
   };
 }
 
@@ -3624,6 +3640,10 @@ function approxTokensFromValue(value) {
   return length ? Math.max(1, Math.ceil(length / 4)) : 0;
 }
 
+function utf8ByteLength(value) {
+  return new TextEncoder().encode(String(value || "")).length;
+}
+
 function renderStatsInfoView() {
   const detail = state.detail;
   if (!detail) {
@@ -3652,7 +3672,7 @@ function renderStatsInfoView() {
         </div>
       </div>
       ${renderTimingView(detail.timing)}
-      ${renderSummaryRuleStats(detail, query, typeFilter)}
+      ${renderToolContextStats(detail, query, typeFilter)}
       <div class="stats-view-metrics" aria-label="事件统计概要">
         ${renderStatsMetric("事件类型", eventTypeStats.length, `全部 ${totalEventTypeStats.length} 类`)}
         ${renderStatsMetric("约 token", compactNumber(approxTokens), "按事件体积估算")}
@@ -3679,43 +3699,50 @@ function renderStatsInfoView() {
   bindTimingActions();
 }
 
-function renderSummaryRuleStats(detail, query, typeFilter) {
-  const stats = buildSummaryRuleStats(detail, query, typeFilter);
-  const totalLabel = stats.toolCount ? `${stats.matchedCount} / ${stats.toolCount} 次工具调用` : "没有工具调用";
+function renderToolContextStats(detail, query, typeFilter) {
+  const stats = buildToolContextStats(detail, query, typeFilter);
+  const largest = stats.largest ? `${stats.largest.title} · ${stats.largest.target}` : "无";
   return `
-    <section class="summary-rule-stats" aria-labelledby="summaryRuleStatsHeading">
-      <div class="summary-rule-stats-head">
+    <section class="tool-context-stats" aria-labelledby="toolContextStatsHeading">
+      <div class="tool-context-stats-head">
         <div>
-          <p class="eyebrow">展示规则</p>
-          <h3 id="summaryRuleStatsHeading">摘要规则命中</h3>
+          <p class="eyebrow">工具诊断</p>
+          <h3 id="toolContextStatsHeading">工具上下文占用</h3>
         </div>
-        <strong>${escapeHtml(totalLabel)}</strong>
+      </div>
+      <div class="tool-context-kpis" aria-label="工具上下文占用概览">
+        <span><strong>${escapeHtml(formatBytes(stats.outputBytes))}</strong>返回结果</span>
+        <span><strong>约 ${escapeHtml(compactNumber(stats.contextTokens))}</strong>上下文 token</span>
+        <span><strong>${escapeHtml(String(stats.repeatedTargets))}</strong>重复目标</span>
+        <span data-overflow-tooltip title="${escapeAttr(largest)}"><strong>${escapeHtml(largest)}</strong>最大上下文目标</span>
       </div>
       ${
         stats.groups.length
-          ? `<div class="summary-rule-table" role="table" aria-label="摘要规则命中统计">
-              <div class="summary-rule-row header" role="row">
-                <span role="columnheader">转换名称</span>
-                <span role="columnheader">规则</span>
-                <span role="columnheader">命中</span>
-                <span role="columnheader">摘要样例</span>
+          ? `<div class="tool-context-table" role="table" aria-label="工具上下文占用统计">
+              <div class="tool-context-row header" role="row">
+                <span role="columnheader">操作与目标</span>
+                <span role="columnheader">调用参数</span>
+                <span role="columnheader">返回结果</span>
+                <span role="columnheader">约上下文</span>
+                <span role="columnheader">最大返回</span>
               </div>
-              ${stats.groups.map((group) => renderSummaryRuleStatRow(group)).join("")}
+              ${stats.groups.slice(0, 30).map((group) => renderToolContextStatRow(group)).join("")}
             </div>`
-          : `<div class="summary-rule-empty">当前筛选范围没有命中摘要规则的工具调用。</div>`
+          : `<div class="tool-context-empty">当前筛选范围没有可按规则归类的工具调用。</div>`
       }
     </section>
   `;
 }
 
-function renderSummaryRuleStatRow(group) {
-  const samples = group.samples.join(" · ") || "未生成摘要";
+function renderToolContextStatRow(group) {
+  const repeated = group.count > 1 ? `重复 ${group.count} 次` : group.label;
   return `
-    <div class="summary-rule-row" role="row">
-      <strong role="cell" data-overflow-tooltip title="${escapeAttr(group.title)}">${escapeHtml(group.title)}</strong>
-      <span class="summary-rule-label" role="cell" data-overflow-tooltip title="${escapeAttr(group.label)}">${escapeHtml(group.label)}</span>
-      <span class="summary-rule-count" role="cell">${escapeHtml(String(group.count))}</span>
-      <span class="summary-rule-samples" role="cell" data-overflow-tooltip title="${escapeAttr(samples)}">${escapeHtml(samples)}</span>
+    <div class="tool-context-row" role="row">
+      <span class="tool-context-target" role="cell"><strong data-overflow-tooltip title="${escapeAttr(group.title)}">${escapeHtml(group.title)}</strong><em data-overflow-tooltip title="${escapeAttr(group.target)}">${escapeHtml(group.target)}</em><small>${escapeHtml(repeated)}</small></span>
+      <span class="tool-context-number" role="cell">${escapeHtml(formatBytes(group.argumentBytes))}</span>
+      <span class="tool-context-number" role="cell">${escapeHtml(formatBytes(group.outputBytes))}</span>
+      <span class="tool-context-number" role="cell">约 ${escapeHtml(compactNumber(group.contextTokens))}</span>
+      <span class="tool-context-number" role="cell">${escapeHtml(formatBytes(group.maxOutputBytes))}</span>
     </div>
   `;
 }

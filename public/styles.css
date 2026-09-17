@@ -3915,19 +3915,22 @@ button.compact-replacement-row:focus-visible {
 .timing-empty { display: grid; gap: 3px; padding: 18px 0; color: var(--text-3); font-size: 11px; }
 .timing-empty strong { color: var(--text-2); font-size: 12px; }
 
-.summary-rule-stats { display: grid; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--hair); background: var(--bg-elev); }
-.summary-rule-stats-head { display: flex; min-width: 0; align-items: baseline; justify-content: space-between; gap: 10px; }
-.summary-rule-stats-head h3 { margin: 0; font-size: 14px; }
-.summary-rule-stats-head > strong { color: var(--text-3); font-family: var(--mono); font-size: 11px; font-weight: 700; white-space: nowrap; }
-.summary-rule-table { display: grid; overflow: hidden; border: 1px solid var(--hair); border-radius: var(--radius-tool); background: var(--bg-sunken); }
-.summary-rule-row { display: grid; grid-template-columns: minmax(150px, 1.1fr) minmax(130px, 1fr) 58px minmax(220px, 2fr); align-items: center; gap: 10px; min-width: 0; min-height: 38px; border-bottom: 1px solid var(--hair); padding: 7px 10px; }
-.summary-rule-row:last-child { border-bottom: 0; }
-.summary-rule-row.header { min-height: 30px; background: color-mix(in srgb, var(--bg-elev) 72%, var(--bg-sunken)); color: var(--text-3); font-size: 10px; font-weight: 760; }
-.summary-rule-row > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.summary-rule-row > strong { color: var(--text); font-size: 12px; }
-.summary-rule-label, .summary-rule-samples { color: var(--text-3); font-family: var(--mono); font-size: 10.5px; }
-.summary-rule-count { color: var(--text); font-family: var(--mono); font-size: 12px; font-weight: 760; }
-.summary-rule-empty { color: var(--text-3); font-size: 11px; }
+.tool-context-stats { display: grid; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--hair); background: var(--bg-elev); }
+.tool-context-stats-head h3 { margin: 0; font-size: 14px; }
+.tool-context-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.tool-context-kpis span { display: grid; min-width: 0; gap: 2px; color: var(--text-3); font-size: 10.5px; }
+.tool-context-kpis strong { overflow: hidden; color: var(--text); font-family: var(--mono); font-size: 12px; font-weight: 760; text-overflow: ellipsis; white-space: nowrap; }
+.tool-context-table { display: grid; overflow: hidden; border: 1px solid var(--hair); border-radius: var(--radius-tool); background: var(--bg-sunken); }
+.tool-context-row { display: grid; grid-template-columns: minmax(220px, 2fr) 92px 92px 108px 92px; align-items: center; gap: 10px; min-width: 0; min-height: 42px; border-bottom: 1px solid var(--hair); padding: 7px 10px; }
+.tool-context-row:last-child { border-bottom: 0; }
+.tool-context-row.header { min-height: 30px; background: color-mix(in srgb, var(--bg-elev) 72%, var(--bg-sunken)); color: var(--text-3); font-size: 10px; font-weight: 760; }
+.tool-context-target { display: grid; min-width: 0; gap: 1px; }
+.tool-context-target strong, .tool-context-target em, .tool-context-target small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-context-target strong { color: var(--text); font-size: 12px; }
+.tool-context-target em, .tool-context-target small { color: var(--text-3); font-family: var(--mono); font-size: 10.5px; font-style: normal; }
+.tool-context-target small { color: var(--orange); }
+.tool-context-number { min-width: 0; overflow: hidden; color: var(--text-2); font-family: var(--mono); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.tool-context-empty { color: var(--text-3); font-size: 11px; }
 
 .stats-view-metrics {
   display: grid;
@@ -7613,28 +7616,33 @@ mark {
     margin: 8px;
   }
 
-  .summary-rule-stats {
+  .tool-context-stats {
     padding: 12px;
   }
 
-  .summary-rule-row.header {
+  .tool-context-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tool-context-row.header {
     display: none;
   }
 
-  .summary-rule-row:not(.header) {
+  .tool-context-row:not(.header) {
     grid-template-areas:
-      "title count"
-      "label label"
-      "samples samples";
+      "target context"
+      "args output"
+      "max max";
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 4px 8px;
     padding: 9px 10px;
   }
 
-  .summary-rule-row:not(.header) > strong { grid-area: title; }
-  .summary-rule-label { grid-area: label; }
-  .summary-rule-count { grid-area: count; }
-  .summary-rule-samples { grid-area: samples; }
+  .tool-context-target { grid-area: target; }
+  .tool-context-row:not(.header) > :nth-child(2) { grid-area: args; }
+  .tool-context-row:not(.header) > :nth-child(3) { grid-area: output; }
+  .tool-context-row:not(.header) > :nth-child(4) { grid-area: context; }
+  .tool-context-row:not(.header) > :nth-child(5) { grid-area: max; }
 
   .audit-turn-summary-button {
     grid-template-columns: minmax(0, 1fr);

@@ -162,19 +162,23 @@ test("摘要规则只替换执行树的工具节点名称", async ({ page }) => 
   await expect(page.locator("#toolDetailsContent")).toContainText('"cmd": "cat README.md"');
 });
 
-test("诊断统计按规则汇总转换后的工具调用", async ({ page }) => {
+test("诊断统计按工具目标汇总上下文占用", async ({ page }) => {
   await page.goto("/");
   await selectCodexSource(page);
   await page.locator("#diagnosticViewButton").click();
 
-  const ruleStats = page.locator(".summary-rule-stats");
-  await expect(ruleStats).toContainText("摘要规则命中");
-  await expect(ruleStats).toContainText("读取文件内容");
-  await expect(ruleStats).toContainText("运行验证");
-  await expect(ruleStats).toContainText("README.md");
-  await expect(ruleStats).toContainText("npm test");
+  const contextStats = page.locator(".tool-context-stats");
+  await expect(contextStats).toContainText("工具上下文占用");
+  await expect(contextStats).toContainText("返回结果");
+  await expect(contextStats).toContainText("约上下文");
+  await expect(contextStats).toContainText("最大返回");
+  await expect(contextStats).toContainText("读取文件内容");
+  await expect(contextStats).toContainText("README.md");
+  const verification = contextStats.locator(".tool-context-row", { hasText: "运行验证" });
+  await expect(verification).toContainText("npm test");
+  await expect(verification.locator(".tool-context-number").nth(1)).toContainText("KB");
   await page.setViewportSize({ width: 390, height: 844 });
-  const layout = await ruleStats.locator(".summary-rule-table").evaluate((element) => ({ client: element.clientWidth, scroll: element.scrollWidth }));
+  const layout = await contextStats.locator(".tool-context-table").evaluate((element) => ({ client: element.clientWidth, scroll: element.scrollWidth }));
   expect(layout.scroll).toBeLessThanOrEqual(layout.client);
 });
 
