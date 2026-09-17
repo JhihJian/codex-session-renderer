@@ -3528,6 +3528,32 @@ function buildEventTypeStats(detail) {
   );
 }
 
+function buildSummaryRuleStats(detail, query, typeFilter) {
+  const tools = (detail?.turns || []).flatMap((turn) => turn.items || []).filter((item) => item.type === "tool-call");
+  const visibleTools = tools.filter((item) => itemMatches(item, query, typeFilter));
+  const groups = new Map();
+  for (const item of visibleTools) {
+    const readable = readableToolItem(item);
+    if (!readable.matched || !readable.ruleId) continue;
+    const current = groups.get(readable.ruleId) || {
+      id: readable.ruleId,
+      title: readable.title,
+      label: readable.ruleLabel,
+      count: 0,
+      samples: [],
+    };
+    current.count += 1;
+    const sample = readable.summary || readable.command;
+    if (sample && !current.samples.includes(sample) && current.samples.length < 3) current.samples.push(sample);
+    groups.set(readable.ruleId, current);
+  }
+  return {
+    toolCount: visibleTools.length,
+    matchedCount: [...groups.values()].reduce((count, group) => count + group.count, 0),
+    groups: [...groups.values()].sort((left, right) => right.count - left.count || left.title.localeCompare(right.title, "zh-Hans-CN")),
+  };
+}
+
 function eventTypeKey(event) {
   return String(event?.kind || event?.payloadType || event?.type || "event").trim() || "event";
 }
@@ -3626,6 +3652,7 @@ function renderStatsInfoView() {
         </div>
       </div>
       ${renderTimingView(detail.timing)}
+      ${renderSummaryRuleStats(detail, query, typeFilter)}
       <div class="stats-view-metrics" aria-label="事件统计概要">
         ${renderStatsMetric("事件类型", eventTypeStats.length, `全部 ${totalEventTypeStats.length} 类`)}
         ${renderStatsMetric("约 token", compactNumber(approxTokens), "按事件体积估算")}
@@ -3650,6 +3677,47 @@ function renderStatsInfoView() {
     </div>
   `;
   bindTimingActions();
+}
+
+function renderSummaryRuleStats(detail, query, typeFilter) {
+  const stats = buildSummaryRuleStats(detail, query, typeFilter);
+  const totalLabel = stats.toolCount ? `${stats.matchedCount} / ${stats.toolCount} 次工具调用` : "没有工具调用";
+  return `
+    <section class="summary-rule-stats" aria-labelledby="summaryRuleStatsHeading">
+      <div class="summary-rule-stats-head">
+        <div>
+          <p class="eyebrow">展示规则</p>
+          <h3 id="summaryRuleStatsHeading">摘要规则命中</h3>
+        </div>
+        <strong>${escapeHtml(totalLabel)}</strong>
+      </div>
+      ${
+        stats.groups.length
+          ? `<div class="summary-rule-table" role="table" aria-label="摘要规则命中统计">
+              <div class="summary-rule-row header" role="row">
+                <span role="columnheader">转换名称</span>
+                <span role="columnheader">规则</span>
+                <span role="columnheader">命中</span>
+                <span role="columnheader">摘要样例</span>
+              </div>
+              ${stats.groups.map((group) => renderSummaryRuleStatRow(group)).join("")}
+            </div>`
+          : `<div class="summary-rule-empty">当前筛选范围没有命中摘要规则的工具调用。</div>`
+      }
+    </section>
+  `;
+}
+
+function renderSummaryRuleStatRow(group) {
+  const samples = group.samples.join(" · ") || "未生成摘要";
+  return `
+    <div class="summary-rule-row" role="row">
+      <strong role="cell" data-overflow-tooltip title="${escapeAttr(group.title)}">${escapeHtml(group.title)}</strong>
+      <span class="summary-rule-label" role="cell" data-overflow-tooltip title="${escapeAttr(group.label)}">${escapeHtml(group.label)}</span>
+      <span class="summary-rule-count" role="cell">${escapeHtml(String(group.count))}</span>
+      <span class="summary-rule-samples" role="cell" data-overflow-tooltip title="${escapeAttr(samples)}">${escapeHtml(samples)}</span>
+    </div>
+  `;
 }
 
 function renderTimingView(timing) {

@@ -162,6 +162,22 @@ test("摘要规则只替换执行树的工具节点名称", async ({ page }) => 
   await expect(page.locator("#toolDetailsContent")).toContainText('"cmd": "cat README.md"');
 });
 
+test("诊断统计按规则汇总转换后的工具调用", async ({ page }) => {
+  await page.goto("/");
+  await selectCodexSource(page);
+  await page.locator("#diagnosticViewButton").click();
+
+  const ruleStats = page.locator(".summary-rule-stats");
+  await expect(ruleStats).toContainText("摘要规则命中");
+  await expect(ruleStats).toContainText("读取文件内容");
+  await expect(ruleStats).toContainText("运行验证");
+  await expect(ruleStats).toContainText("README.md");
+  await expect(ruleStats).toContainText("npm test");
+  await page.setViewportSize({ width: 390, height: 844 });
+  const layout = await ruleStats.locator(".summary-rule-table").evaluate((element) => ({ client: element.clientWidth, scroll: element.scrollWidth }));
+  expect(layout.scroll).toBeLessThanOrEqual(layout.client);
+});
+
 test("Pi 执行过程区分等待输入、完成工具与缺失时长", async ({ page }) => {
   await page.goto("/");
   await page.locator("#traceViewButton").click();
