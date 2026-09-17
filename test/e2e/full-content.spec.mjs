@@ -112,12 +112,12 @@ test("正文、执行和诊断作为完整主工作区互斥切换", async ({ pa
   await expect(traceTitle).toBeVisible();
   expect(await traceTitle.evaluate((element) => element.ownerDocument.defaultView.getComputedStyle(element).fontWeight)).toBe("520");
   await expect(traceTitle.locator("strong")).toHaveCount(0);
-  for (let index = 0; index < 8 && await page.locator('.trace-row[data-trace-node-id]', { hasText: "exec_command" }).count() === 0; index += 1) {
+  for (let index = 0; index < 8 && await page.locator('.trace-row[data-trace-node-id]', { hasText: "npm test" }).count() === 0; index += 1) {
     const toggles = page.locator("[data-trace-toggle-id]");
     if (await toggles.count() === 0) break;
     await toggles.last().click();
   }
-  const tool = page.locator('.trace-row[data-trace-node-id]', { hasText: "exec_command" }).first();
+  const tool = page.locator('.trace-row[data-trace-node-id]', { hasText: "npm test" }).first();
   await expect(tool).toContainText("npm test");
   await expect(tool).toContainText("执行成功");
   await tool.click();
@@ -136,6 +136,30 @@ test("正文、执行和诊断作为完整主工作区互斥切换", async ({ pa
   await expect(page.locator("#diagnosticContent")).toBeVisible();
   await page.locator("#compactViewButton").click();
   await expect(page.locator("#compactContent")).toBeVisible();
+});
+
+test("摘要规则只替换执行树的工具节点名称", async ({ page }) => {
+  await page.goto("/");
+  await selectCodexSource(page);
+
+  await page.locator("#diagnosticViewButton").click();
+  await page.locator("#rawViewButton").click();
+  const rawTool = page.locator('[data-raw-event-index="7"]');
+  await expect(rawTool).toContainText("exec_command");
+  await expect(rawTool).not.toContainText("读取文件内容");
+
+  await page.locator("#traceViewButton").click();
+  for (let index = 0; index < 8 && (await page.locator('.trace-row[data-trace-node-id]', { hasText: "cat README.md" }).count()) === 0; index += 1) {
+    const toggles = page.locator("[data-trace-toggle-id]");
+    if ((await toggles.count()) === 0) break;
+    await toggles.last().click();
+  }
+  const traceTool = page.locator('.trace-row[data-trace-node-id]', { hasText: "cat README.md" }).first();
+  await expect(traceTool.locator(".trace-title")).toHaveText("读取文件内容");
+  await expect(traceTool).toContainText("cat README.md");
+  await traceTool.click();
+  await expect(page.locator("#toolDetailsContent h3")).toHaveText("exec_command");
+  await expect(page.locator("#toolDetailsContent")).toContainText('"cmd": "cat README.md"');
 });
 
 test("Pi 执行过程区分等待输入、完成工具与缺失时长", async ({ page }) => {

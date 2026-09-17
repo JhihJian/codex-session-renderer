@@ -6,7 +6,7 @@
   },
   "public/app.js": {
     "complexity": {
-      "count": 28
+      "count": 27
     },
     "max-lines": {
       "count": 1
@@ -18,7 +18,7 @@
       "count": 5
     },
     "no-unused-vars": {
-      "count": 19
+      "count": 18
     }
   },
   "public/tool-summary.js": {

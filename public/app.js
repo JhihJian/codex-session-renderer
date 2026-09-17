@@ -5961,6 +5961,7 @@ function renderTraceNode(node, context) {
   const expanded = state.expandedTraceNodeIds.has(node.id);
   const item = fullTraceItem(node);
   const isTool = item?.type === "tool-call" || node.type === "tool" || node.type === "handoff";
+  const title = isTool ? traceToolTitle(item, node) : node.title || "";
   const argumentPreview = isTool ? traceArgumentPreview(item) : "";
   return `
     <div class="trace-node" style="--depth:${depth}">
@@ -5974,7 +5975,7 @@ function renderTraceNode(node, context) {
         <span class="trace-icon ${escapeAttr(node.icon || node.type)}">${traceIcon(node)}</span>
         <span class="trace-main">
           <span class="trace-label" data-overflow-tooltip>${escapeHtml(node.label || node.type)}</span>
-          <span class="trace-title" data-overflow-tooltip>${escapeHtml(isTool ? (item?.name || node.title || "工具调用") : node.title || "")}</span>
+          <span class="trace-title" data-overflow-tooltip>${escapeHtml(title)}</span>
           ${argumentPreview ? `<span class="trace-arguments" data-overflow-tooltip title="${escapeAttr(argumentPreview)}">${escapeHtml(argumentPreview)}</span>` : ""}
         </span>
         <span class="trace-status status-${escapeAttr(traceStatusKind(node.status || item?.status))}" data-overflow-tooltip>${escapeHtml(traceStatusLabel(node.status || item?.status))}</span>
@@ -5984,6 +5985,11 @@ function renderTraceNode(node, context) {
       ${children.length && expanded ? `<div class="trace-children">${children.map((child) => renderTraceNode(child, { ...context, depth: depth + 1 })).join("")}</div>` : ""}
     </div>
   `;
+}
+
+function traceToolTitle(item, node) {
+  const readable = readableToolItem(item);
+  return readable.matched ? readable.title : item?.name || node.title || "工具调用";
 }
 
 function fullTraceItem(node) {
@@ -6422,46 +6428,11 @@ function readableToolItem(item) {
   return window.ToolSummary.summarizeToolItem(item, summaryRuleOptions());
 }
 
-function readableRawEvent(event) {
-  if (isCompactEvent(event)) return readableCompactEvent(event);
-  if (!event || !window.ToolSummary) {
-    return { matched: false, title: humanEventTitle(event), summary: event?.preview || "", body: event?.preview || "", command: "" };
-  }
-  return window.ToolSummary.summarizeRawEvent(event, summaryRuleOptions());
-}
-
-function readableCompactEvent(event) {
-  const compact = event?.compact || {};
-  const isSummary = compact.kind === "compacted" || event?.kind === "compacted";
-  const title = isSummary ? "上下文压缩摘要" : "上下文压缩完成";
-  const meta = [
-    compact.windowNumber != null ? `窗口 ${compact.windowNumber}` : "",
-    compact.replacementHistoryCount ? `替换历史 ${compact.replacementHistoryCount}` : "",
-    compact.messageLength ? `${compactNumber(compact.messageLength)} 字符` : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  const summary = compact.message || event?.preview || (isSummary ? "已生成上下文替换摘要。" : "上下文压缩完成。");
-  return {
-    matched: true,
-    title,
-    summary: [meta, summary].filter(Boolean).join("："),
-    body: summary,
-    command: "",
-  };
-}
-
 function itemTitle(item) {
   if (item.type === "user-message") return "用户消息";
   if (item.type === "assistant-message") return item.phase === "final" ? "助手最终回复" : "助手消息";
-  if (item.type === "tool-call") {
-    const readable = readableToolItem(item);
-    return readable.matched ? readable.title : item.name ? `工具调用 · ${item.name}` : "工具调用";
-  }
-  if (item.type === "tool-output") {
-    const readable = readableToolItem(item);
-    return readable.matched ? readable.title : "工具输出";
-  }
+  if (item.type === "tool-call") return item.name ? `工具调用 · ${item.name}` : "工具调用";
+  if (item.type === "tool-output") return "工具输出";
   if (item.type === "reasoning") return "推理摘要";
   if (item.type === "token-count") return "上下文占用统计";
   if (item.type === "context-compact") return item.compact?.kind === "context_compacted" ? "上下文压缩完成" : "上下文压缩摘要";
@@ -6566,8 +6537,6 @@ function groupEventsByTurn(events) {
 }
 
 function humanEventTitle(event) {
-  const readable = window.ToolSummary ? window.ToolSummary.summarizeRawEvent(event, summaryRuleOptions()) : null;
-  if (readable?.matched && readable.title) return readable.title;
   const kind = event.kind || event.payloadType || event.type || "event";
   if (kind === "user_message") return "用户消息";
   if (kind === "agent_message") return "助手消息";
