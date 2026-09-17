@@ -22,7 +22,7 @@ test("createDataSourceRegistry supports a dynamic Pi Agent task root", async () 
     assert.equal(source.sessionsRoot, tasksRoot);
     assert.equal(source.taskSessionsRoot, tasksRoot);
     assert.equal(source.codexHome, tasksRoot);
-    assert.equal(source.status.snapshotAvailable, true);
+    assert.deepEqual(source.status, {});
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

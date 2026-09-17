@@ -142,7 +142,6 @@ const clientErrorMessages = new Map([
   ["Method not allowed", "请求方法不允许"],
   ["Not Found", "未找到资源"],
   ["Not found", "未找到资源"],
-  ["Peer not found", "远端数据源不存在"],
   ["Request body too large", "请求体过大"],
   ["Session not found", "会话不存在"],
   ["Unauthorized", "未授权访问"],
@@ -512,7 +511,7 @@ async function loadHealthAndSources({ announce = false } = {}) {
   } catch (error) {
     const message = healthUnavailableMessage(error);
     state.healthLoadError = message;
-    state.sources = [{ id: "local", label: "本机 Codex Home", kind: "local", status: { refreshable: false, error: { message } } }];
+    state.sources = [{ id: "local", label: "本机 Codex Home", kind: "local", status: { error: { message } } }];
     state.selectedSourceId = "local";
     state.sessions = [];
     state.filteredSessions = [];
@@ -530,7 +529,7 @@ async function loadHealthAndSources({ announce = false } = {}) {
 function renderSourceControls() {
   if (!state.sources.length) {
     els.sourceSelect.innerHTML = `<option value="local">本机 Codex Home</option>`;
-    state.sources = [{ id: "local", label: "本机 Codex Home", kind: "local", status: { refreshable: false } }];
+    state.sources = [{ id: "local", label: "本机 Codex Home", kind: "local", status: {} }];
   } else {
     els.sourceSelect.innerHTML = state.sources
       .map((source) => `<option value="${escapeAttr(source.id)}">${escapeHtml(sourceLabel(source))}</option>`)
@@ -668,7 +667,7 @@ function cancelAlternateLocalSourceDiscovery({ clear = true } = {}) {
 }
 
 function alternateLocalSourceCandidate() {
-  return state.sources.find((source) => source.id !== state.selectedSourceId && source.kind === "pi-agent" && source.status?.snapshotAvailable !== false) || null;
+  return state.sources.find((source) => source.id !== state.selectedSourceId && source.kind === "pi-agent" && !source.status?.error) || null;
 }
 
 function canDiscoverAlternateLocalSource() {
@@ -1695,7 +1694,7 @@ function sessionPlaceholderState() {
   if (state.sessionLoading) return { title: "正在读取目标会话", subtitle: `${target} · 正在解析当前数据源中的 JSONL 事件流。` };
   if (state.sessionLoadError) return { title: "无法读取目标会话", subtitle: `${target} · ${state.sessionLoadError}` };
   if (state.sessionsLoadError && !state.detail?.session) {
-    return { title: "会话列表加载失败", subtitle: `${selectedSource()?.label || "当前数据源"} · ${state.sessionsLoadError}。请确认服务仍在运行，或远端快照已成功拉取。` };
+    return { title: "会话列表加载失败", subtitle: `${selectedSource()?.label || "当前数据源"} · ${state.sessionsLoadError}。请确认服务仍在运行后重试。` };
   }
   return null;
 }

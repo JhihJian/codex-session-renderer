@@ -9,11 +9,11 @@ test("createDataSourceRegistry only exposes the local Codex source by default", 
   const registry = createDataSourceRegistry({ env: { CODEX_HOME: "/tmp/codex-home" }, homeDir: "/home/user" });
 
   assert.deepEqual(
-    registry.listSources().map((source) => [source.id, source.kind, source.status.refreshable, source.isDefault]),
-    [["local", "local", false, true]],
+    registry.listSources().map((source) => [source.id, source.kind, source.isDefault]),
+    [["local", "local", true]],
   );
   assert.equal(registry.getDefaultSource().codexHome, path.resolve("/tmp/codex-home"));
-  assert.equal(registry.getSource("remote"), null);
+  assert.equal(registry.getSource("unknown"), null);
 });
 
 test("createDataSourceRegistry prefers an available local Pi Agent source", async () => {

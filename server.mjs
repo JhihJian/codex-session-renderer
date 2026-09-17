@@ -820,8 +820,6 @@ function sessionDetailStats(context, session, { stat, rawEvents = [], analysisEv
       id: context.source.id,
       label: context.source.label,
       kind: context.source.kind,
-      stale: context.source.status?.stale ?? false,
-      lastSuccessfulRefreshAt: context.source.status?.lastSuccessfulRefreshAt ?? null,
     },
     codexHome: context.codexHome,
     dataPath: session.path,

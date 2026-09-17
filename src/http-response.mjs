@@ -40,7 +40,6 @@ const publicErrorMessages = new Map([
   ["Invalid JSON body", "请求体不是有效 JSON"],
   ["Method not allowed", "请求方法不允许"],
   ["Not found", "未找到资源"],
-  ["Peer not found", "远端数据源不存在"],
   ["Request body too large", "请求体过大"],
   ["Session not found", "会话不存在"],
   ["Unauthorized", "未授权访问"],

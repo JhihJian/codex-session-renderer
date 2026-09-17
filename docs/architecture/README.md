@@ -8,11 +8,7 @@ Codex 会话工作台把 Codex 与 Pi Agent 写入 JSONL 的会话记录投影�
 
 ## 系统边界
 
-系统读取本机 Codex Home、可选 Pi Agent 会话根，以及已发布到本机私有目录的远端 Codex 快照。原始会话文件保持不变。
-
-远端连接定义和远端快照属于工作台的本地派生状态，与会话来源隔离。主 HTTP 服务默认只监听 loopback；非 loopback 监听要求令牌认证。快照共享服务独立运行并要求令牌认证。
-
-远端身份供应、TLS 部署、网络隔离、数据保留和备份由运行环境负责。
+系统读取本机 Codex Home 与可选 Pi Agent 会话根。原始会话文件保持不变。主 HTTP 服务默认只监听 loopback；非 loopback 监听要求令牌认证。
 
 ## 主要责任单元
 

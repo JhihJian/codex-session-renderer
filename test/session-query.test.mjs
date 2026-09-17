@@ -141,11 +141,11 @@ test("projectSessionForApi keeps legacy links by default and supports source-sco
     events: "/api/query/sessions/thread%20id/events",
   });
 
-  const scoped = projectSessionForApi({ id: "thread id", title: "链接测试" }, {}, { sourceId: "remote-a" });
+  const scoped = projectSessionForApi({ id: "thread id", title: "链接测试" }, {}, { sourceId: "pi-agent" });
   assert.deepEqual(scoped.links, {
-    detail: "/api/sources/remote-a/sessions/thread%20id",
-    compactView: "/api/sources/remote-a/query/sessions/thread%20id/view?view=compact",
-    events: "/api/sources/remote-a/query/sessions/thread%20id/events",
+    detail: "/api/sources/pi-agent/sessions/thread%20id",
+    compactView: "/api/sources/pi-agent/query/sessions/thread%20id/view?view=compact",
+    events: "/api/sources/pi-agent/query/sessions/thread%20id/events",
   });
 });
 

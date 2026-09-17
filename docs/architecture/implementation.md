@@ -9,7 +9,7 @@
 
 ## 数据源
 
-`src/data-sources.mjs` 创建本机 Codex 与可选 Pi Agent 来源。Pi Agent 会话根存在时成为默认来源，否则使用本机 Codex；来源均只读，不保存远端连接、令牌或快照。
+`src/data-sources.mjs` 创建本机 Codex 与可选 Pi Agent 来源。Pi Agent 会话根存在时成为默认来源，否则使用本机 Codex；来源均只读。
 
 ## 会话与阅读投影
 
@@ -20,7 +20,7 @@
 
 ## 浏览器界面
 
-`public/app.js` 负责会话目录、正文阅读、正文/执行/诊断三视图、详情、执行过程、时间、远端来源和 Raw 诊断的浏览器状态与渲染。`public/index.html` 与 `public/styles.css` 将默认阅读面限制为紧凑目录和正文，并让执行与诊断在切换后占据完整主工作区。筛选与低频管理能力按需展开。`src/pi-context-events.mjs` 仅从 Pi JSONL 投影 Skill 指令块和 `SKILL.md` 读取证据，不扫描当前磁盘作为历史事实。`public/app-format.js`、`public/tool-summary.js`、`public/raw-event-cache.js` 与 `public/evidence-id.js` 提供展示格式、工具摘要、诊断缓存和稳定定位辅助。浏览器不保存远端令牌，也不直接读取会话来源路径。
+`public/app.js` 负责会话目录、正文阅读、正文/执行/诊断三视图、详情、执行过程、时间和 Raw 诊断的浏览器状态与渲染。`public/index.html` 与 `public/styles.css` 将默认阅读面限制为紧凑目录和正文，并让执行与诊断在切换后占据完整主工作区。筛选与低频管理能力按需展开。`src/pi-context-events.mjs` 仅从 Pi JSONL 投影 Skill 指令块和 `SKILL.md` 读取证据，不扫描当前磁盘作为历史事实。`public/app-format.js`、`public/tool-summary.js`、`public/raw-event-cache.js` 与 `public/evidence-id.js` 提供展示格式、工具摘要、诊断缓存和稳定定位辅助。浏览器不直接读取会话来源路径。
 
 ## 验证入口
 

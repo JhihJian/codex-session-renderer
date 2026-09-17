@@ -251,7 +251,7 @@ Process exited with code 0`, {
 });
 
 test("command output model does not treat successful test names as failures", () => {
-  const model = commandOutputModel(`✔ remote snapshot refresh publishes current atomically and keeps previous snapshot after failure (35.4285ms)
+  const model = commandOutputModel(`✔ session refresh publishes current data atomically and keeps previous data after failure (35.4285ms)
 ℹ tests 90
 ℹ pass 90
 ℹ fail 0

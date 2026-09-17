@@ -38,7 +38,7 @@ function createLocalDataSource({ codexHome }) {
     sessionsRoot: path.join(codexHome, "sessions"),
     sessionIndexPath: path.join(codexHome, "session_index.jsonl"),
     stateDbPath: path.join(codexHome, "state_5.sqlite"),
-    status: availableSourceStatus(),
+    status: {},
   };
 }
 
@@ -71,7 +71,7 @@ function firstEnvValue(env, keys) {
 }
 
 function createPiAgentDataSource({ agentHome, sessionsRoot, tasksRoot, autoDetected }) {
-  const snapshotAvailable = existsSync(sessionsRoot);
+  const sessionsAvailable = existsSync(sessionsRoot);
   return {
     id: piAgentSourceId,
     label: "Pi Agent Sessions",
@@ -83,24 +83,7 @@ function createPiAgentDataSource({ agentHome, sessionsRoot, tasksRoot, autoDetec
     sessionIndexPath: path.join(agentHome, "session_index.jsonl"),
     stateDbPath: path.join(agentHome, "state_5.sqlite"),
     origin: { type: "pi-agent", sessionsRoot, taskSessionsRoot: tasksRoot, autoDetected },
-    status: {
-      ...availableSourceStatus(),
-      snapshotAvailable,
-      error: snapshotAvailable ? null : { code: "missing_sessions_root", message: "Pi Agent 会话目录不存在。" },
-    },
-  };
-}
-
-function availableSourceStatus() {
-  return {
-    configured: true,
-    refreshable: false,
-    refreshing: false,
-    lastRefreshOk: null,
-    lastSuccessfulRefreshAt: null,
-    stale: false,
-    snapshotAvailable: true,
-    error: null,
+    status: sessionsAvailable ? {} : { error: { code: "missing_sessions_root", message: "Pi Agent 会话目录不存在。" } },
   };
 }
 
@@ -112,7 +95,6 @@ function publicDataSource(source, defaultSourceId = "local") {
     origin: source.origin || { type: "local", codexHome: source.codexHome },
     isDefault: source.id === defaultSourceId,
     codexHome: source.codexHome,
-    snapshotPath: null,
     status: { ...source.status },
   };
 }
