@@ -208,6 +208,12 @@ test("事件统计在工具输出下按摘要规则汇总操作", async ({ page 
   await expect(operationRows.filter({ hasText: "读取文件内容" })).toHaveCount(1);
   await expect(operationRows.filter({ hasText: "搜索文本" })).toHaveCount(1);
   await expect(operationRows.filter({ hasText: "运行验证" })).toHaveCount(1);
+  const shareBarsMatchLabels = await table.locator(".stats-event-row:not(.header)").evaluateAll((rows) => rows.every((row) => {
+    const bar = Number(row.style.getPropertyValue("--bar"));
+    const label = Number(row.querySelector(".stats-event-share em").textContent.replace("%", ""));
+    return bar === label;
+  }));
+  expect(shareBarsMatchLabels).toBe(true);
 });
 
 test("缺失窗口或轮次指标时不保留未记录占位", async ({ page }) => {

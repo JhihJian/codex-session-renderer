@@ -2274,7 +2274,6 @@ function renderStatsInfoView() {
   const filtered = filteredEvents.length !== allEvents.length;
   const approxTokens = eventTypeStats.reduce((sum, stat) => sum + stat.approxTokens, 0);
   const approxBytes = eventTypeStats.reduce((sum, stat) => sum + stat.approxBytes, 0);
-  const maxCount = Math.max(1, ...eventTypeStats.map((stat) => stat.count));
   const topType = eventTypeStats[0];
   const title = filtered ? `${filteredEvents.length} / ${allEvents.length} 个事件` : `${allEvents.length} 个事件`;
   els.statsContent.innerHTML = `
@@ -2310,7 +2309,7 @@ function renderStatsInfoView() {
                 <span role="columnheader">占比</span>
                 <span role="columnheader">体积</span>
               </div>
-              ${eventTypeStats.map((stat) => renderStatsEventRows(stat, filteredEvents.length, maxCount, query)).join("")}
+              ${eventTypeStats.map((stat) => renderStatsEventRows(stat, filteredEvents.length, query)).join("")}
             </div>`
           : emptyState("没有匹配的事件统计", "调整内容搜索或类型过滤。")
       }
@@ -2525,16 +2524,16 @@ function renderStatsMetric(label, value, hint) {
   `;
 }
 
-function renderStatsEventRows(stat, totalEvents, maxCount, query) {
-  const rows = [renderStatsEventRow(stat, totalEvents, maxCount, query)];
-  for (const operation of stat.operations || []) rows.push(renderStatsOperationRow(operation, totalEvents, maxCount, query));
+function renderStatsEventRows(stat, totalEvents, query) {
+  const rows = [renderStatsEventRow(stat, totalEvents, query)];
+  for (const operation of stat.operations || []) rows.push(renderStatsOperationRow(operation, totalEvents, query));
   return rows.join("");
 }
 
-function renderStatsEventRow(stat, totalEvents, maxCount, query) {
+function renderStatsEventRow(stat, totalEvents, query) {
   const percent = totalEvents ? Math.round((stat.count / totalEvents) * 1000) / 10 : 0;
   const average = stat.count ? Math.round(stat.approxTokens / stat.count) : 0;
-  const bar = Math.max(2, Math.round((stat.count / maxCount) * 100));
+  const bar = percent;
   return `
     <div class="stats-event-row" role="row" style="--bar:${escapeAttr(String(bar))}" title="${escapeAttr(`${stat.kind} · ${stat.count} 个事件 · 约 ${compactNumber(stat.approxTokens)} tok`)}">
       <span class="stats-event-type" role="cell">
@@ -2553,10 +2552,10 @@ function renderStatsEventRow(stat, totalEvents, maxCount, query) {
   `;
 }
 
-function renderStatsOperationRow(operation, totalEvents, maxCount, query) {
+function renderStatsOperationRow(operation, totalEvents, query) {
   const percent = totalEvents ? Math.round((operation.count / totalEvents) * 1000) / 10 : 0;
   const average = operation.count ? Math.round(operation.approxTokens / operation.count) : 0;
-  const bar = Math.max(2, Math.round((operation.count / maxCount) * 100));
+  const bar = percent;
   return `
     <div class="stats-event-row stats-event-operation-row" role="row" style="--bar:${escapeAttr(String(bar))}" title="${escapeAttr(`${operation.ruleLabel} · ${operation.count} 个工具输出 · 约 ${compactNumber(operation.approxTokens)} tok`)}">
       <span class="stats-event-type" role="cell">

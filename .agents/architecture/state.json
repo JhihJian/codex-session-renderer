@@ -1,203 +1,10 @@
 {
   "version": 4,
-  "documentStatus": "active",
+  "documentStatus": "candidate",
   "snapshot": {
     "commit": "9d997b5d738bbb56dc2e268096f7e8d55ec83673",
     "acceptedAt": "2026-09-17T10:53:55.589Z",
-    "files": [
-      {
-        "path": "README.md",
-        "sha256": "sha256:55d975bd9d9a8908c55bafd68995c19a5d77f38a7e09d5afb293a98b334e70ef"
-      },
-      {
-        "path": "docs/architecture/README.md",
-        "sha256": "sha256:9b13c217eede945831eb002171e926b0359984e1d81058815a3f685159b418df"
-      },
-      {
-        "path": "docs/architecture/implementation.md",
-        "sha256": "sha256:27a0ad8b565a990c18a861af9093f791f2c66b86880c9cc60156c385b2899f5f"
-      },
-      {
-        "path": "docs/architecture/modules/session-projection.md",
-        "sha256": "sha256:ec0a0e22748970e135a86a148357d6507ff162774ac52a8203b24dc594309b59"
-      },
-      {
-        "path": "docs/reader-context-events-design.md",
-        "sha256": "sha256:04f60dce31e6b30e792f333fd4997058b2004f5f7eee866f8a7685e6cd8d3d84"
-      },
-      {
-        "path": "docs/session-event-normalization.md",
-        "sha256": "sha256:c39df1260cceb85e08716895648f41b589069ddc81fb40384589e667fda736ae"
-      },
-      {
-        "path": "public/app-format.js",
-        "sha256": "sha256:70632d6407c36be36fe976b6af6783e7d760993428a4ce76b3d3ec86957d04d9"
-      },
-      {
-        "path": "public/app.js",
-        "sha256": "sha256:28fc23d1e9440444d0388b1ed0e892b789f3ad265b366bfb4e640a1f1e9d9c74"
-      },
-      {
-        "path": "public/index.html",
-        "sha256": "sha256:ef9a7b8171ae892bfaca9f5224710104a6dfc13057a9158d76b5f81a13958e73"
-      },
-      {
-        "path": "public/raw-event-cache.js",
-        "sha256": "sha256:dcd8efe6e9336f7b318b1f45040c6ad26622155e104f0adbb70567440e4a523c"
-      },
-      {
-        "path": "public/styles.css",
-        "sha256": "sha256:5c533141d2f11076f76fa8db82eab2eb22ddef495b4969e7428d1543f74bb9dc"
-      },
-      {
-        "path": "public/tool-summary.js",
-        "sha256": "sha256:d360e343d67c0558b155f4737e80d89e8e5f82473a36fc5db767cb48b660c90a"
-      },
-      {
-        "path": "scripts/e2e-server.mjs",
-        "sha256": "sha256:23844276a854509fb31e9c53a3c11bfa0073ce43278679b80dded17c06c028b6"
-      },
-      {
-        "path": "server.mjs",
-        "sha256": "sha256:b9ac24b577f6fcb7e4257068adeea52aa722b2766a5bd0793df60b2b6a426d1e"
-      },
-      {
-        "path": "src/access-control.mjs",
-        "sha256": "sha256:77dd682be1f66b4cea2625d67e5f1aed6804a5d6331dbb8b55c9d3dc6fa950fe"
-      },
-      {
-        "path": "src/data-sources.mjs",
-        "sha256": "sha256:06908de5df136e749c206007800d68d5eeca81b8645cb5ceda902e4c697329a1"
-      },
-      {
-        "path": "src/event-summary.mjs",
-        "sha256": "sha256:d04af923d369dde9f72af0e13c94ee40bd98b5f6eaa1fd0d7d9c937eaef0e592"
-      },
-      {
-        "path": "src/http-response.mjs",
-        "sha256": "sha256:9ca3f0eff6d1352c6d55ecb954c6bc7549d9cdbd31071f02ab9b070af1c14e8d"
-      },
-      {
-        "path": "src/jsonl-reader.mjs",
-        "sha256": "sha256:ae209e6def46e9af7135459689789f960a8b28575c734ef2169905529f984c0e"
-      },
-      {
-        "path": "src/pi-context-events.mjs",
-        "sha256": "sha256:de10b92dd0c4e0e521201772a7ea87ef4f6481ca90e1636e4d269b9b2092014d"
-      },
-      {
-        "path": "src/session-catalog.mjs",
-        "sha256": "sha256:f55a6189486e3f11a5fc0a4c0da1457fe454266151321390a7c62152726d276a"
-      },
-      {
-        "path": "src/session-detail-coordinator.mjs",
-        "sha256": "sha256:458aee0c7ab6e7a21354c6de4a3fa5fa9c17da32cdde83e017d8527779febab4"
-      },
-      {
-        "path": "src/session-events.mjs",
-        "sha256": "sha256:fdaa16bcf0a5d3bf8f9979cc0893c67af510c93531bb6d91e99c1ed7cf419376"
-      },
-      {
-        "path": "src/session-models.mjs",
-        "sha256": "sha256:ca8feb68cc1759e4605e0ab58d0f0d7dee9f64707fc082bb29e4205ee3292c8b"
-      },
-      {
-        "path": "src/session-normalizer.mjs",
-        "sha256": "sha256:e670dd3aa4328016c20d31ed65714df0c39c6f69304ce58bbb53b33a4b2de7ac"
-      },
-      {
-        "path": "src/session-query.mjs",
-        "sha256": "sha256:a7431510797ab01e1ca9e4f9d27c192d5333bd39ec37accaadc4c5afc740f0d5"
-      },
-      {
-        "path": "src/session-timing.mjs",
-        "sha256": "sha256:4111498866500c2a5876f694f53beb0f05bf37ed510a9c6dfedb0a7ce0d643a6"
-      },
-      {
-        "path": "src/sqlite-threads.mjs",
-        "sha256": "sha256:55690a948954e3c80b4ffda1fc2f85c0b9e6101eb3c3a13155901074e75482f5"
-      },
-      {
-        "path": "test/app-format.test.mjs",
-        "sha256": "sha256:1d94a1a44e1391553ebcf64028275455a65a3018acf3078f7c24c4ba57bdb27a"
-      },
-      {
-        "path": "test/data-sources.test.mjs",
-        "sha256": "sha256:703ffcd1592b5a7bacdbebd86e631fb77e7b1b12dbc969122960f0b1dbebd061"
-      },
-      {
-        "path": "test/e2e/fixture-session.mjs",
-        "sha256": "sha256:9bc20d7630c77dd274a266cb14e728526362ede908cc349a1357d712f1b84d10"
-      },
-      {
-        "path": "test/e2e/full-content.spec.mjs",
-        "sha256": "sha256:c2dc00503a7abf2d7e760ffb5f5dd053e291ce2a5abdd7f848b3a0fd6d2696a7"
-      },
-      {
-        "path": "test/e2e/list-scope-navigation.spec.mjs",
-        "sha256": "sha256:be50da1c2633b22ad69930d745b617340139520bbc127f26eac3784d0ce860dd"
-      },
-      {
-        "path": "test/e2e/source-helpers.mjs",
-        "sha256": "sha256:20a856b6c0007b47269dca30019ae5ce3c24cc20b5668ac7ec04840638942c05"
-      },
-      {
-        "path": "test/e2e/title-consistency.spec.mjs",
-        "sha256": "sha256:d84ae7b25ed38fa0d5eb5af0e6da8f888f8cbe0f629c75ca4b604923c0a2a4a9"
-      },
-      {
-        "path": "test/pi-context-events.test.mjs",
-        "sha256": "sha256:b76cf5d9cc8ba7c2d468acfcaaf011b12464fd0bef55101a5824acb7aab95a77"
-      },
-      {
-        "path": "test/pi-task-sources.test.mjs",
-        "sha256": "sha256:ff697bd8ce9e0301a00faa8d85986078cb64893c0d6aa1c5d41e057072152493"
-      },
-      {
-        "path": "test/raw-event-cache.test.mjs",
-        "sha256": "sha256:a8179bf137d49224a4608b18923ce39e9785492bfafb82f42476e8ea74caf0ce"
-      },
-      {
-        "path": "test/server-access-control.test.mjs",
-        "sha256": "sha256:ad2aff4076f4cdecaff256886d8b21767de8bf0ca25988fae7350037220aef86"
-      },
-      {
-        "path": "test/server-http-smoke-helpers.mjs",
-        "sha256": "sha256:bc43999706e4f0eefd9cf8c888d0300634aa5bb9dad4f3894637f4dcdb2d4224"
-      },
-      {
-        "path": "test/session-catalog.test.mjs",
-        "sha256": "sha256:3f68736bddb47150fc25e46d8d1a1e156dd59fb94a0e6eb3860cfeb5466a99ce"
-      },
-      {
-        "path": "test/session-detail-coordinator.test.mjs",
-        "sha256": "sha256:811bf7daa8c407fc73fefabe4bc1e9b3e8effd2446569e2f42579277cfe451c4"
-      },
-      {
-        "path": "test/session-events.test.mjs",
-        "sha256": "sha256:67391faa310ed6f65ae661ece8a6a3f85f9f76fc7d9dc5577ebb5630c6ebfe3d"
-      },
-      {
-        "path": "test/session-models.test.mjs",
-        "sha256": "sha256:c0c49dba4ecd70b670febdcf0e4d8ed3e610be5737bc23e231e741f2426e5339"
-      },
-      {
-        "path": "test/session-normalizer.test.mjs",
-        "sha256": "sha256:3d15bdbaf9a0860c6a297a041f652b43bdfc3df4b876e84b85e0d0234d2e6192"
-      },
-      {
-        "path": "test/session-query.test.mjs",
-        "sha256": "sha256:7642851fd48c9cb05edbea078e7d170c9106e56cd0142b5280e4014fd7697606"
-      },
-      {
-        "path": "test/session-timing.test.mjs",
-        "sha256": "sha256:86cf4afd92b68e2065d234c5a22f651e09bebb4526c92310257b46d330619e9b"
-      },
-      {
-        "path": "test/tool-summary.test.mjs",
-        "sha256": "sha256:b57fc6acdaf5617ed06bf7fe67b21d60ef02044f58ac602ea288c8461c2f1c64"
-      }
-    ]
+    "files": []
   },
   "documents": [
     {
@@ -493,5 +300,38 @@
     }
   ],
   "openQuestions": [],
-  "pendingImpact": null
+  "pendingImpact": {
+    "baseCommit": "9d997b5d738bbb56dc2e268096f7e8d55ec83673",
+    "changedPaths": [
+      ".agents/architecture/state.json",
+      "public/app.js",
+      "test/e2e/full-content.spec.mjs"
+    ],
+    "itemIds": [
+      "purpose-readable-session-workbench",
+      "module-session-projection"
+    ],
+    "assessments": [
+      {
+        "itemId": "purpose-readable-session-workbench",
+        "result": "unaffected",
+        "reason": "条状图改为使用已显示的事件占比，不改变会话工作台的目的、读取范围或诊断边界。",
+        "evidence": {
+          "path": "public/app.js",
+          "locator": "function renderStatsEventRow(stat, totalEvents, query)"
+        }
+      },
+      {
+        "itemId": "module-session-projection",
+        "result": "unaffected",
+        "reason": "修复仅统一浏览器事件统计列内的视觉编码与数值口径，不改变阅读投影、规则聚合或服务端数据流。",
+        "evidence": {
+          "path": "test/e2e/full-content.spec.mjs",
+          "locator": "shareBarsMatchLabels"
+        }
+      }
+    ],
+    "unmappedPaths": [],
+    "pathAssessments": []
+  }
 }
