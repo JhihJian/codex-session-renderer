@@ -1,10 +1,179 @@
 {
   "version": 4,
-  "documentStatus": "candidate",
+  "documentStatus": "active",
   "snapshot": {
-    "commit": "ca4ba09351f369be32faa5fe96daf1e87c1e68ee",
-    "acceptedAt": "2026-09-17T08:47:43.332Z",
-    "files": []
+    "commit": "0e1404ab7c643b750648f468d6e2a1386c3596a0",
+    "acceptedAt": "2026-09-17T09:03:35.480Z",
+    "files": [
+      {
+        "path": "README.md",
+        "sha256": "sha256:e0490541fc27970382d59e4c2ae5e47718d03244c01a337a128b9de8cef3624f"
+      },
+      {
+        "path": "docs/architecture/README.md",
+        "sha256": "sha256:c39cf19a472d743605c517653f2e91372db45d32c68fe24891731389e0756d64"
+      },
+      {
+        "path": "docs/architecture/implementation.md",
+        "sha256": "sha256:f85bd427d0f65e4aefb5e67710c5038fc32bc04e64ed2d38c9747ea013a965dc"
+      },
+      {
+        "path": "docs/architecture/modules/session-projection.md",
+        "sha256": "sha256:459859abe0241401bc36b4cc514a8babe211ed272a37b88d4801b53781d1ee91"
+      },
+      {
+        "path": "docs/reader-context-events-design.md",
+        "sha256": "sha256:04f60dce31e6b30e792f333fd4997058b2004f5f7eee866f8a7685e6cd8d3d84"
+      },
+      {
+        "path": "public/app-format.js",
+        "sha256": "sha256:70632d6407c36be36fe976b6af6783e7d760993428a4ce76b3d3ec86957d04d9"
+      },
+      {
+        "path": "public/app.js",
+        "sha256": "sha256:a69fda597206901bd50c0254013799c96122fb7f13746ac2d13ff9d5ef3dc09d"
+      },
+      {
+        "path": "public/index.html",
+        "sha256": "sha256:5099aa9f9aa976f974392d84d31084efe4606b4def511876525dc9ef0e389dde"
+      },
+      {
+        "path": "public/styles.css",
+        "sha256": "sha256:5220910d2a9478d625e892cd8f84f73afeb4a492e2670d31e23211caf89e18f0"
+      },
+      {
+        "path": "public/tool-summary.js",
+        "sha256": "sha256:d360e343d67c0558b155f4737e80d89e8e5f82473a36fc5db767cb48b660c90a"
+      },
+      {
+        "path": "scripts/e2e-server.mjs",
+        "sha256": "sha256:23844276a854509fb31e9c53a3c11bfa0073ce43278679b80dded17c06c028b6"
+      },
+      {
+        "path": "server.mjs",
+        "sha256": "sha256:3c444b86da9ac25a3be925ba728821ef399587927659b889b721105c3e94e248"
+      },
+      {
+        "path": "src/access-control.mjs",
+        "sha256": "sha256:77dd682be1f66b4cea2625d67e5f1aed6804a5d6331dbb8b55c9d3dc6fa950fe"
+      },
+      {
+        "path": "src/data-sources.mjs",
+        "sha256": "sha256:3fc79b80728f495d0fdc9f78d036bec63238d6084723c4e2a5ec7595e166b110"
+      },
+      {
+        "path": "src/event-summary.mjs",
+        "sha256": "sha256:d04af923d369dde9f72af0e13c94ee40bd98b5f6eaa1fd0d7d9c937eaef0e592"
+      },
+      {
+        "path": "src/jsonl-reader.mjs",
+        "sha256": "sha256:ae209e6def46e9af7135459689789f960a8b28575c734ef2169905529f984c0e"
+      },
+      {
+        "path": "src/pi-context-events.mjs",
+        "sha256": "sha256:de10b92dd0c4e0e521201772a7ea87ef4f6481ca90e1636e4d269b9b2092014d"
+      },
+      {
+        "path": "src/session-catalog.mjs",
+        "sha256": "sha256:f55a6189486e3f11a5fc0a4c0da1457fe454266151321390a7c62152726d276a"
+      },
+      {
+        "path": "src/session-detail-coordinator.mjs",
+        "sha256": "sha256:4d9686e3f2b199ae6857782e7c164a3f69f4cbccfd950631bedc3de5349bddc6"
+      },
+      {
+        "path": "src/session-events.mjs",
+        "sha256": "sha256:fdaa16bcf0a5d3bf8f9979cc0893c67af510c93531bb6d91e99c1ed7cf419376"
+      },
+      {
+        "path": "src/session-models.mjs",
+        "sha256": "sha256:ca8feb68cc1759e4605e0ab58d0f0d7dee9f64707fc082bb29e4205ee3292c8b"
+      },
+      {
+        "path": "src/session-normalizer.mjs",
+        "sha256": "sha256:e670dd3aa4328016c20d31ed65714df0c39c6f69304ce58bbb53b33a4b2de7ac"
+      },
+      {
+        "path": "src/session-query.mjs",
+        "sha256": "sha256:6f8ffc52b3590dcf33ba92beea9fbaa89a96a933e7ae9b5f7b27f6acb0e70515"
+      },
+      {
+        "path": "src/session-timing.mjs",
+        "sha256": "sha256:4111498866500c2a5876f694f53beb0f05bf37ed510a9c6dfedb0a7ce0d643a6"
+      },
+      {
+        "path": "src/sqlite-threads.mjs",
+        "sha256": "sha256:55690a948954e3c80b4ffda1fc2f85c0b9e6101eb3c3a13155901074e75482f5"
+      },
+      {
+        "path": "test/app-format.test.mjs",
+        "sha256": "sha256:1d94a1a44e1391553ebcf64028275455a65a3018acf3078f7c24c4ba57bdb27a"
+      },
+      {
+        "path": "test/data-sources.test.mjs",
+        "sha256": "sha256:fa9769e3a4b4539faaee9f541c7cc23b605dc8238a324368d650c45a05d6f4c0"
+      },
+      {
+        "path": "test/e2e/fixture-session.mjs",
+        "sha256": "sha256:cafc17ebb64c06b8b86e24a1089d54af110296a283da7f3396d8c73b4ca8eb2b"
+      },
+      {
+        "path": "test/e2e/full-content.spec.mjs",
+        "sha256": "sha256:aafbc81ccf4780077484110a182d54f1cec64e703531f7211ad904809e943407"
+      },
+      {
+        "path": "test/e2e/list-scope-navigation.spec.mjs",
+        "sha256": "sha256:be50da1c2633b22ad69930d745b617340139520bbc127f26eac3784d0ce860dd"
+      },
+      {
+        "path": "test/e2e/source-helpers.mjs",
+        "sha256": "sha256:20a856b6c0007b47269dca30019ae5ce3c24cc20b5668ac7ec04840638942c05"
+      },
+      {
+        "path": "test/e2e/title-consistency.spec.mjs",
+        "sha256": "sha256:d84ae7b25ed38fa0d5eb5af0e6da8f888f8cbe0f629c75ca4b604923c0a2a4a9"
+      },
+      {
+        "path": "test/pi-context-events.test.mjs",
+        "sha256": "sha256:b76cf5d9cc8ba7c2d468acfcaaf011b12464fd0bef55101a5824acb7aab95a77"
+      },
+      {
+        "path": "test/server-access-control.test.mjs",
+        "sha256": "sha256:ad2aff4076f4cdecaff256886d8b21767de8bf0ca25988fae7350037220aef86"
+      },
+      {
+        "path": "test/session-catalog.test.mjs",
+        "sha256": "sha256:3f68736bddb47150fc25e46d8d1a1e156dd59fb94a0e6eb3860cfeb5466a99ce"
+      },
+      {
+        "path": "test/session-detail-coordinator.test.mjs",
+        "sha256": "sha256:a7ef2409b6b8870f951ff012ac19135945cee0e60b29f5ab63fdc1e38c914748"
+      },
+      {
+        "path": "test/session-events.test.mjs",
+        "sha256": "sha256:67391faa310ed6f65ae661ece8a6a3f85f9f76fc7d9dc5577ebb5630c6ebfe3d"
+      },
+      {
+        "path": "test/session-models.test.mjs",
+        "sha256": "sha256:c0c49dba4ecd70b670febdcf0e4d8ed3e610be5737bc23e231e741f2426e5339"
+      },
+      {
+        "path": "test/session-normalizer.test.mjs",
+        "sha256": "sha256:3d15bdbaf9a0860c6a297a041f652b43bdfc3df4b876e84b85e0d0234d2e6192"
+      },
+      {
+        "path": "test/session-query.test.mjs",
+        "sha256": "sha256:9672df82f37ce7328ea0b681ebd5f4dd81edf80c9ed63442d0b8d204aaecdba8"
+      },
+      {
+        "path": "test/session-timing.test.mjs",
+        "sha256": "sha256:86cf4afd92b68e2065d234c5a22f651e09bebb4526c92310257b46d330619e9b"
+      },
+      {
+        "path": "test/tool-summary.test.mjs",
+        "sha256": "sha256:8f19fb1d4f313768954312071efe20229745830555ec12a061aa31131415545a"
+      }
+    ]
   },
   "documents": [
     {
@@ -281,213 +450,5 @@
     }
   ],
   "openQuestions": [],
-  "pendingImpact": {
-    "baseCommit": "ca4ba09351f369be32faa5fe96daf1e87c1e68ee",
-    "changedPaths": [
-      ".agents/architecture/state.json",
-      "README.md",
-      "docs/architecture/README.md",
-      "docs/architecture/implementation.md",
-      "docs/architecture/modules/prompt-archive-and-goal-projection.md",
-      "docs/architecture/modules/session-projection.md",
-      "docs/session-event-normalization.md",
-      "eslint-suppressions.json",
-      "package.json",
-      "public/app.js",
-      "public/index.html",
-      "public/styles.css",
-      "server.mjs",
-      "src/markdown-export.mjs",
-      "src/prompt-archive-coordinator.mjs",
-      "src/session-detail-coordinator.mjs",
-      "src/session-events.mjs",
-      "src/session-prompts.mjs",
-      "src/session-query.mjs",
-      "test/codex-goal-http.test.mjs",
-      "test/e2e/list-scope-navigation.spec.mjs",
-      "test/markdown-export.test.mjs",
-      "test/prompt-archive-coordinator.test.mjs",
-      "test/session-events.test.mjs",
-      "test/session-prompts.test.mjs",
-      "test/session-query.test.mjs"
-    ],
-    "itemIds": [
-      "purpose-readable-session-workbench",
-      "boundary-source-records-and-local-derivatives",
-      "external-boundary-http-authentication",
-      "module-session-projection",
-      "capability-session-discovery-and-view",
-      "flow-stable-session-detail"
-    ],
-    "assessments": [
-      {
-        "itemId": "purpose-readable-session-workbench",
-        "result": "updated",
-        "reason": "已移除任务归档与 Markdown 导出边界，并复核会话读取投影仍由详情协调器负责。",
-        "evidence": {
-          "path": "server.mjs",
-          "locator": "function getSourceContext(sourceId = \"local\")"
-        }
-      },
-      {
-        "itemId": "boundary-source-records-and-local-derivatives",
-        "result": "updated",
-        "reason": "已移除任务归档与 Markdown 导出边界，并复核会话读取投影仍由详情协调器负责。",
-        "evidence": {
-          "path": "server.mjs",
-          "locator": "function getSourceContext(sourceId = \"local\")"
-        }
-      },
-      {
-        "itemId": "external-boundary-http-authentication",
-        "result": "updated",
-        "reason": "已移除任务归档与 Markdown 导出边界，并复核会话读取投影仍由详情协调器负责。",
-        "evidence": {
-          "path": "server.mjs",
-          "locator": "function getSourceContext(sourceId = \"local\")"
-        }
-      },
-      {
-        "itemId": "module-session-projection",
-        "result": "updated",
-        "reason": "已移除任务归档与 Markdown 导出边界，并复核会话读取投影仍由详情协调器负责。",
-        "evidence": {
-          "path": "server.mjs",
-          "locator": "function getSourceContext(sourceId = \"local\")"
-        }
-      },
-      {
-        "itemId": "capability-session-discovery-and-view",
-        "result": "updated",
-        "reason": "已移除任务归档与 Markdown 导出边界，并复核会话读取投影仍由详情协调器负责。",
-        "evidence": {
-          "path": "server.mjs",
-          "locator": "function getSourceContext(sourceId = \"local\")"
-        }
-      },
-      {
-        "itemId": "flow-stable-session-detail",
-        "result": "updated",
-        "reason": "已移除任务归档与 Markdown 导出边界，并复核会话读取投影仍由详情协调器负责。",
-        "evidence": {
-          "path": "server.mjs",
-          "locator": "function getSourceContext(sourceId = \"local\")"
-        }
-      }
-    ],
-    "unmappedPaths": [
-      "docs/architecture/modules/prompt-archive-and-goal-projection.md",
-      "docs/session-event-normalization.md",
-      "eslint-suppressions.json",
-      "package.json",
-      "src/markdown-export.mjs",
-      "src/prompt-archive-coordinator.mjs",
-      "src/session-prompts.mjs",
-      "test/codex-goal-http.test.mjs",
-      "test/markdown-export.test.mjs",
-      "test/prompt-archive-coordinator.test.mjs",
-      "test/session-prompts.test.mjs"
-    ],
-    "pathAssessments": [
-      {
-        "path": "docs/architecture/modules/prompt-archive-and-goal-projection.md",
-        "result": "unaffected",
-        "reason": "该文件的删除或说明收缩已由会话读取投影结论覆盖，未形成新的架构责任。",
-        "evidence": {
-          "path": "server.mjs",
-          "locator": "function getSourceContext(sourceId = \"local\")"
-        }
-      },
-      {
-        "path": "docs/session-event-normalization.md",
-        "result": "unaffected",
-        "reason": "该文件的删除或说明收缩已由会话读取投影结论覆盖，未形成新的架构责任。",
-        "evidence": {
-          "path": "server.mjs",
-          "locator": "function getSourceContext(sourceId = \"local\")"
-        }
-      },
-      {
-        "path": "eslint-suppressions.json",
-        "result": "unaffected",
-        "reason": "该文件的删除或说明收缩已由会话读取投影结论覆盖，未形成新的架构责任。",
-        "evidence": {
-          "path": "server.mjs",
-          "locator": "function getSourceContext(sourceId = \"local\")"
-        }
-      },
-      {
-        "path": "package.json",
-        "result": "unaffected",
-        "reason": "该文件的删除或说明收缩已由会话读取投影结论覆盖，未形成新的架构责任。",
-        "evidence": {
-          "path": "server.mjs",
-          "locator": "function getSourceContext(sourceId = \"local\")"
-        }
-      },
-      {
-        "path": "src/markdown-export.mjs",
-        "result": "unaffected",
-        "reason": "该文件的删除或说明收缩已由会话读取投影结论覆盖，未形成新的架构责任。",
-        "evidence": {
-          "path": "server.mjs",
-          "locator": "function getSourceContext(sourceId = \"local\")"
-        }
-      },
-      {
-        "path": "src/prompt-archive-coordinator.mjs",
-        "result": "unaffected",
-        "reason": "该文件的删除或说明收缩已由会话读取投影结论覆盖，未形成新的架构责任。",
-        "evidence": {
-          "path": "server.mjs",
-          "locator": "function getSourceContext(sourceId = \"local\")"
-        }
-      },
-      {
-        "path": "src/session-prompts.mjs",
-        "result": "unaffected",
-        "reason": "该文件的删除或说明收缩已由会话读取投影结论覆盖，未形成新的架构责任。",
-        "evidence": {
-          "path": "server.mjs",
-          "locator": "function getSourceContext(sourceId = \"local\")"
-        }
-      },
-      {
-        "path": "test/codex-goal-http.test.mjs",
-        "result": "unaffected",
-        "reason": "该文件的删除或说明收缩已由会话读取投影结论覆盖，未形成新的架构责任。",
-        "evidence": {
-          "path": "server.mjs",
-          "locator": "function getSourceContext(sourceId = \"local\")"
-        }
-      },
-      {
-        "path": "test/markdown-export.test.mjs",
-        "result": "unaffected",
-        "reason": "该文件的删除或说明收缩已由会话读取投影结论覆盖，未形成新的架构责任。",
-        "evidence": {
-          "path": "server.mjs",
-          "locator": "function getSourceContext(sourceId = \"local\")"
-        }
-      },
-      {
-        "path": "test/prompt-archive-coordinator.test.mjs",
-        "result": "unaffected",
-        "reason": "该文件的删除或说明收缩已由会话读取投影结论覆盖，未形成新的架构责任。",
-        "evidence": {
-          "path": "server.mjs",
-          "locator": "function getSourceContext(sourceId = \"local\")"
-        }
-      },
-      {
-        "path": "test/session-prompts.test.mjs",
-        "result": "unaffected",
-        "reason": "该文件的删除或说明收缩已由会话读取投影结论覆盖，未形成新的架构责任。",
-        "evidence": {
-          "path": "server.mjs",
-          "locator": "function getSourceContext(sourceId = \"local\")"
-        }
-      }
-    ]
-  }
+  "pendingImpact": null
 }
