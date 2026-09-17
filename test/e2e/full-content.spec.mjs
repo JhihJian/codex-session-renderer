@@ -167,12 +167,16 @@ test("诊断统计按工具目标汇总上下文占用", async ({ page }) => {
   await selectCodexSource(page);
   await page.locator("#diagnosticViewButton").click();
 
+  await expect(page.locator(".context-diagnostic-section > .stats-diagnostic-section-head h3")).toHaveText("上下文统计诊断");
+  await expect(page.locator(".timing-diagnostic-section > .stats-diagnostic-section-head h3")).toHaveText("时间统计诊断");
   const contextStats = page.locator(".tool-context-stats");
-  await expect(contextStats).toContainText("工具上下文占用");
+  await expect(contextStats).toContainText("已识别工具上下文");
   await expect(contextStats).not.toContainText("最近上下文窗口");
   await expect(contextStats).toContainText("返回结果");
-  await expect(contextStats).not.toContainText("累计 / 窗口");
-  await expect(contextStats).not.toContainText("最大返回 / 窗口");
+  await expect(contextStats).not.toContainText("相对最近窗口");
+  await expect(contextStats.locator(".tool-context-table")).toHaveCount(0);
+  await expect(contextStats.locator("#toolContextQuery")).toHaveCount(0);
+  await contextStats.locator("[data-tool-context-list-toggle]").click();
   await expect(contextStats).toContainText("读取文件内容");
   await expect(contextStats).toContainText("README.md");
   const verification = contextStats.locator(".tool-context-row", { hasText: "运行验证" });
@@ -186,6 +190,7 @@ test("诊断统计按工具目标汇总上下文占用", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const layout = await contextStats.locator(".tool-context-table").evaluate((element) => ({ client: element.clientWidth, scroll: element.scrollWidth }));
   expect(layout.scroll).toBeLessThanOrEqual(layout.client);
+  await expect(verification.locator(".tool-context-number").first()).toHaveAttribute("data-tool-context-label", "调用参数");
   await verification.locator("[data-tool-context-event-index]").click();
   await expect(page.locator("#rawContent .raw-preview")).toContainText("FULL_TOOL_OUTPUT_END");
 });
@@ -213,11 +218,11 @@ test("缺失窗口或轮次指标时不保留未记录占位", async ({ page }) 
 
   await page.locator("#diagnosticViewButton").click();
   const contextStats = page.locator(".tool-context-stats");
-  await expect(contextStats).toContainText("工具上下文占用");
+  await expect(contextStats).toContainText("已识别工具上下文");
   await expect(contextStats).not.toContainText("最近上下文窗口");
-  await expect(contextStats).not.toContainText("累计 / 窗口");
-  await expect(contextStats).not.toContainText("最大返回 / 窗口");
+  await expect(contextStats).not.toContainText("相对最近窗口");
   await expect(contextStats).not.toContainText("未记录");
+  await contextStats.locator("[data-tool-context-list-toggle]").click();
   await expect(page.locator('#toolContextSort option[value="context-share"]')).toHaveCount(0);
 
   await page.setViewportSize({ width: 390, height: 844 });
