@@ -152,14 +152,12 @@ function sessionLinks(sessionId, options = {}) {
       detail: `${sourcePrefix}/sessions/${encodedId}`,
       compactView: `${sourcePrefix}/query/sessions/${encodedId}/view?view=compact`,
       events: `${sourcePrefix}/query/sessions/${encodedId}/events`,
-      markdown: `${sourcePrefix}/sessions/${encodedId}/markdown`,
     };
   }
   return {
     detail: `/api/sessions/${encodedId}`,
     compactView: `/api/query/sessions/${encodedId}/view?view=compact`,
     events: `/api/query/sessions/${encodedId}/events`,
-    markdown: `/api/sessions/${encodedId}/markdown`,
   };
 }
 

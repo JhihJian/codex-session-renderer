@@ -131,7 +131,7 @@ test("桌面端切换到更早范围时，过期 recent 响应不会释放当前
   await expect(page.locator("#refreshButton")).toBeEnabled();
 });
 
-test("列表和归档的 scope 响应错配会失败关闭并保留可重试状态", async ({ page }) => {
+test("列表 scope 响应错配会失败关闭并保留可重试状态", async ({ page }) => {
   await page.goto("/");
   await selectCodexSource(page);
   await expect(page.locator("#sessionTitle")).toContainText(/Chromium|验证工作台/);
@@ -147,19 +147,4 @@ test("列表和归档的 scope 响应错配会失败关闭并保留可重试状�
   await expect(page.locator("#sessionList")).toContainText("历史会话读取失败：来源响应校验失败，请重试。");
   await expect(page.locator("[data-session-empty-action=retry-history]")).toBeEnabled();
 
-  await page.route("**/api/sources/local/prompts?*", async (route) => {
-    await route.fulfill({ json: {
-      source: { id: "local", label: "本机 Codex Home", kind: "local" },
-      scope: "recent24h",
-      entries: [],
-      projects: [],
-      page: { candidateFrom: 0, candidateTo: 0, candidatesScanned: 0, entriesReturned: 0, hasMoreCandidates: false, nextPageToken: null },
-    } });
-  });
-  await page.locator(".topbar-more > summary").click();
-  await page.locator("#promptsModeButton").click();
-  await expect(page.locator("#promptArchiveContent")).toContainText("任务归档读取失败");
-  await expect(page.locator("#promptArchiveContent")).toContainText("来源响应校验失败，请重试。");
-  await expect(page.locator("#promptArchiveContent [data-session-empty-action=retry-prompts]")).toBeEnabled();
-  await expect(page.locator("#promptArchiveContent")).toHaveAttribute("aria-busy", "false");
 });

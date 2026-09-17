@@ -62,19 +62,6 @@ const state = {
   settingsFeedbackStatus: "",
   settingsDialogOpener: null,
 
-  sidebarMode: "sessions",
-  promptArchive: [],
-  promptArchiveProjects: [],
-  promptArchiveLoading: false,
-  promptArchiveError: "",
-  promptArchiveCancelled: false,
-  promptArchiveRequestKey: "",
-  promptArchiveRequestSeq: 0,
-  promptArchiveAbortController: null,
-  promptArchiveScope: "",
-  promptArchiveLoaded: false,
-  promptArchiveProject: "all",
-  promptArchivePage: null,
 
   alternateLocalSource: null,
   alternateLocalSourceLoading: false,
@@ -99,7 +86,6 @@ const {
   nestSessionChains,
   normalizeMarkdownForRendering,
   prettyMaybeJson,
-  sanitizeFileName,
   sessionTimeBucket,
   shortPath,
 } = window.AppFormat;
@@ -107,7 +93,6 @@ const { buildEvidenceId } = window.EvidenceId;
 
 const markdownCache = new Map();
 let sessionAbortController = null;
-let markdownAbortController = null;
 let rawDiagnosticAbortController = null;
 let rawEventAbortController = null;
 
@@ -191,11 +176,7 @@ const els = {
   sessionSearch: document.getElementById("sessionSearch"),
   sessionTimeFilter: document.getElementById("sessionTimeFilter"),
   sessionTypeFilter: document.getElementById("sessionTypeFilter"),
-  sessionsModeButton: document.getElementById("sessionsModeButton"),
-  promptsModeButton: document.getElementById("promptsModeButton"),
-  promptArchiveControls: document.getElementById("promptArchiveControls"),
-  promptArchiveSearch: document.getElementById("promptArchiveSearch"),
-  promptArchiveStatus: document.getElementById("promptArchiveStatus"),
+
   itemSearch: document.getElementById("itemSearch"),
   itemTypeFilter: document.getElementById("itemTypeFilter"),
   importantOnly: document.getElementById("importantOnly"),
@@ -210,7 +191,7 @@ const els = {
   clearSessionFiltersButton: document.getElementById("clearSessionFiltersButton"),
   returnRealtimeButton: document.getElementById("returnRealtimeButton"),
   statsStrip: document.getElementById("statsStrip"),
-  promptArchiveContent: document.getElementById("promptArchiveContent"),
+
   threadContent: document.getElementById("threadContent"),
   compactContent: document.getElementById("compactContent"),
   terminalContent: document.getElementById("terminalContent"),
@@ -249,8 +230,7 @@ const els = {
   statusbar: document.getElementById("statusbar"),
   workbenchOperationStatus: document.getElementById("workbenchOperationStatus"),
   workbenchAnnouncements: document.getElementById("workbenchAnnouncements"),
-  copyMarkdownButton: document.getElementById("copyMarkdownButton"),
-  downloadMarkdownButton: document.getElementById("downloadMarkdownButton"),
+
   compactViewButton: document.getElementById("compactViewButton"),
   traceViewButton: document.getElementById("traceViewButton"),
   statsViewButton: document.getElementById("statsViewButton"),
@@ -355,11 +335,7 @@ function bindEvents() {
     }
     else void loadSessions({ announce: true });
   });
-  [els.sessionsModeButton, els.promptsModeButton].forEach((button) => {
-    button?.addEventListener("click", () => selectSidebarMode(button.dataset.sidebarMode || "sessions"));
-  });
-  els.promptArchiveSearch?.addEventListener("input", renderPromptArchive);
-  els.promptArchiveStatus?.addEventListener("change", renderPromptArchive);
+
   els.clearSessionFiltersButton?.addEventListener("click", clearSessionFiltersForSelectedSession);
   els.returnRealtimeButton?.addEventListener("click", returnToRealtimeSessions);
   els.itemSearch.addEventListener("input", () => {
@@ -384,8 +360,7 @@ function bindEvents() {
 
   bindRovingTablist(els.settingsTabs, "[data-settings-view]", (button) => selectSettingsView(button.dataset.settingsView || "summary"));
 
-  els.copyMarkdownButton.addEventListener("click", copyMarkdown);
-  els.downloadMarkdownButton.addEventListener("click", downloadMarkdown);
+
   els.toggleLeft.addEventListener("click", () => {
     const next = els.appShell.dataset.left === "open" ? "closed" : "open";
     els.appShell.dataset.left = next;
@@ -596,10 +571,6 @@ function selectSessionTimeFilter(bucket) {
   const changed = next !== state.sessionTimeFilter;
   if (changed) invalidateSessionListRequests();
   state.sessionTimeFilter = next;
-  if (state.sidebarMode === "prompts") {
-    void loadPromptArchive({ announce: true });
-    return;
-  }
   if (state.sessionTimeFilter === "earlier" && !state.historyLoaded) {
     renderSessionList();
     void loadHistoricalSessions({ announce: true });
@@ -607,167 +578,6 @@ function selectSessionTimeFilter(bucket) {
     renderSessionList();
     selectFirstVisibleSession();
   }
-}
-
-function selectSidebarMode(mode) {
-  const next = mode === "prompts" ? "prompts" : "sessions";
-  if (next === state.sidebarMode) {
-    renderAll();
-    return;
-  }
-  if (next !== "prompts") cancelPromptArchiveRequest();
-  state.sidebarMode = next;
-  els.appShell.dataset.mode = next;
-  setMobilePanel(next === "prompts" ? "thread" : "sessions");
-  if (els.promptArchiveControls) els.promptArchiveControls.hidden = next !== "prompts";
-  [els.sessionsModeButton, els.promptsModeButton].forEach((button) => {
-    if (!button) return;
-    const active = button.dataset.sidebarMode === next;
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-pressed", active ? "true" : "false");
-  });
-  if (els.sessionsModeButton) els.sessionsModeButton.hidden = next !== "prompts";
-  if (els.promptsModeButton) els.promptsModeButton.hidden = next === "prompts";
-  if (next === "prompts") void loadPromptArchive({ announce: true });
-  syncPanelToggleLabels();
-  renderAll();
-  if (next === "prompts") els.promptArchiveContent?.focus({ preventScroll: true });
-}
-
-async function loadPromptArchive({ force = false, pageToken = "", restarted = false, announce = false } = {}) {
-  const sourceId = state.selectedSourceId;
-  const scope = promptArchiveScope();
-  const archiveContext = sourceNavigationContext();
-  const archiveCacheKey = promptArchiveCacheKey(sourceId, scope);
-  if (!force && !pageToken && state.promptArchiveScope === archiveCacheKey && state.promptArchiveLoaded && !state.promptArchiveError && !state.promptArchiveCancelled) {
-    renderAll();
-    return;
-  }
-  cancelPromptArchiveRequest();
-  const controller = new AbortController();
-  state.promptArchiveAbortController = controller;
-  const request = promptArchiveRequestDetails(sourceId, scope, pageToken);
-  const requestKey = request.key;
-  state.promptArchiveRequestKey = requestKey;
-  state.promptArchiveLoading = true;
-  state.promptArchiveLoaded = false;
-  state.promptArchiveError = "";
-  state.promptArchiveCancelled = false;
-  state.promptArchiveScope = archiveCacheKey;
-  if (!pageToken) resetPromptArchivePage();
-  const operationKey = `${requestKey}:status`;
-  let requestState = "current";
-  setWorkbenchStatus(operationKey, request.loadingMessage, { announce });
-  renderAll();
-  try {
-    const response = await requestPromptArchive({ sourceId, scope, pageToken, controller, requestKey, archiveContext });
-    requestState = response.requestState;
-    if (requestState !== "current") return;
-    applyPromptArchiveResponse(response.data);
-    setWorkbenchStatus(operationKey, `任务归档已更新：本批 ${state.promptArchive.length} 条`, { announce });
-  } catch (error) {
-    requestState = await handlePromptArchiveFailure({ error, sourceId, requestKey, archiveContext, pageToken, restarted, operationKey, announce });
-  } finally {
-    finishPromptArchiveRequest({ controller, sourceId, requestKey, operationKey, requestState });
-  }
-}
-
-function promptArchiveRequestDetails(sourceId, scope, pageToken) {
-  return {
-    key: `prompts:${++state.promptArchiveRequestSeq}:${sourceId}:${scope}:${pageToken || "first"}`,
-    loadingMessage: pageToken ? "正在定位更早任务" : "正在整理当前批任务归档",
-  };
-}
-
-function resetPromptArchivePage() {
-  state.promptArchive = [];
-  state.promptArchiveProjects = [];
-  state.promptArchivePage = null;
-  state.promptArchiveProject = "all";
-}
-
-async function requestPromptArchive({ sourceId, scope, pageToken, controller, requestKey, archiveContext }) {
-  const data = await fetchJson(promptArchiveUrl(sourceId, scope, pageToken), { signal: controller.signal });
-  const requestState = sourceRequestState({ requestKey, expectedRequestKey: state.promptArchiveRequestKey, sourceId, context: archiveContext });
-  if (requestState === "current") requireSourceResponse(data, sourceId, "prompts", scope);
-  return { data, requestState };
-}
-
-function applyPromptArchiveResponse(data) {
-  state.promptArchive = data.entries || [];
-  state.promptArchiveProjects = data.projects || [];
-  state.promptArchivePage = data.page || null;
-  state.promptArchiveProject = "all";
-  state.promptArchiveLoaded = true;
-  state.promptArchiveError = "";
-}
-
-async function handlePromptArchiveFailure({ error, sourceId, requestKey, archiveContext, pageToken, restarted, operationKey, announce }) {
-  if (isAbortError(error)) return "stale";
-  const requestState = sourceRequestState({ requestKey, expectedRequestKey: state.promptArchiveRequestKey, sourceId, context: archiveContext });
-  if (requestState !== "current") return requestState;
-  if (error.code === "prompt_archive_snapshot_changed" && pageToken && !restarted) {
-    resetPromptArchivePage();
-    showToast("任务范围已变化，已从最近任务重新开始定位");
-    state.promptArchiveLoading = false;
-    setWorkbenchStatus(operationKey, "任务归档范围已变化，正在从最近任务重新开始定位", { announce });
-    await loadPromptArchive({ force: true, restarted: true, announce });
-    return "restarted";
-  }
-  resetPromptArchivePage();
-  state.promptArchiveError = error.message;
-  setWorkbenchStatus(operationKey, `任务归档读取失败：${error.message}。可重试。`, { announce: true });
-  return "current";
-}
-
-function finishPromptArchiveRequest({ controller, sourceId, requestKey, operationKey, requestState }) {
-  if (state.promptArchiveAbortController === controller) state.promptArchiveAbortController = null;
-  if (!sourceRequestOwnsState({ requestKey, expectedRequestKey: state.promptArchiveRequestKey, sourceId })) return;
-  state.promptArchiveLoading = false;
-  if (requestState === "navigation-changed") {
-    state.promptArchiveCancelled = true;
-    if (state.workbenchStatus.key === operationKey) setWorkbenchStatus(operationKey, "任务归档读取已取消，可重新整理");
-  }
-  renderAll();
-}
-
-function cancelPromptArchiveRequest() {
-  const wasLoading = Boolean(state.promptArchiveAbortController && state.promptArchiveLoading);
-  state.promptArchiveAbortController?.abort();
-  state.promptArchiveAbortController = null;
-  if (wasLoading) {
-    state.promptArchiveLoading = false;
-    state.promptArchiveCancelled = true;
-    state.promptArchiveRequestKey = `inactive:${++state.promptArchiveRequestSeq}`;
-    setWorkbenchStatus("prompts:cancelled", "已取消任务归档读取");
-  }
-}
-
-function promptArchiveScope() {
-  return state.sessionTimeFilter === "earlier" ? "history" : "recent24h";
-}
-
-function promptArchiveCacheKey(sourceId, scope) {
-  return `${sourceId}:${scope}`;
-}
-
-function invalidatePromptArchiveCache(sourceId, scope) {
-  if (state.promptArchiveScope !== promptArchiveCacheKey(sourceId, scope)) return false;
-  state.promptArchiveAbortController?.abort();
-  state.promptArchiveAbortController = null;
-  state.promptArchiveRequestKey = `invalidated:${++state.promptArchiveRequestSeq}`;
-  state.promptArchiveLoading = false;
-  state.promptArchiveError = "";
-  state.promptArchiveCancelled = false;
-  state.promptArchiveLoaded = false;
-  state.promptArchiveScope = "";
-  resetPromptArchivePage();
-  return true;
-}
-
-function reloadInvalidatedPromptArchive(invalidated, sourceId) {
-  if (!invalidated || state.sidebarMode !== "prompts" || state.selectedSourceId !== sourceId) return;
-  void loadPromptArchive({ force: true, announce: true });
 }
 
 async function loadSessions({ announce = false } = {}) {
@@ -795,7 +605,6 @@ async function loadSessions({ announce = false } = {}) {
     const data = await fetchJson(sourceSessionsUrl(sourceId, "recent24h"), { signal: controller.signal });
     if (!sessionListRequestIsCurrent({ requestKey, sourceId, scopeVersion, kind: "sessions" })) return;
     requireSourceResponse(data, sourceId, "sessions", "recent24h");
-    const promptArchiveInvalidated = invalidatePromptArchiveCache(sourceId, "recent24h");
     state.healthLoadError = "";
     if (data.source) upsertSource(data.source);
     state.sessions = data.sessions || [];
@@ -816,7 +625,6 @@ async function loadSessions({ announce = false } = {}) {
       renderAll();
     }
     if (!sessionListRequestIsCurrent({ requestKey, sourceId, scopeVersion, kind: "sessions" })) return;
-    reloadInvalidatedPromptArchive(promptArchiveInvalidated, sourceId);
   } catch (error) {
     if (isAbortError(error) || !sessionListRequestIsCurrent({ requestKey, sourceId, scopeVersion, kind: "sessions" })) return;
     showToast(`加载会话失败：${error.message}`);
@@ -865,8 +673,7 @@ function alternateLocalSourceCandidate() {
 
 function canDiscoverAlternateLocalSource() {
   return Boolean(
-    state.sidebarMode === "sessions" &&
-      state.selectedSourceId === "local" &&
+    state.selectedSourceId === "local" &&
       state.sessionTimeFilter === "realtime" &&
       !els.sessionSearch.value.trim() &&
       els.sessionTypeFilter.value === "all" &&
@@ -938,7 +745,6 @@ async function loadHistoricalSessions({ announce = false } = {}) {
     const data = await fetchJson(sourceSessionsUrl(sourceId, "history"), { signal: controller.signal });
     if (!sessionListRequestIsCurrent({ requestKey, sourceId, scopeVersion, kind: "history" })) return;
     requireSourceResponse(data, sourceId, "sessions", "history");
-    const promptArchiveInvalidated = invalidatePromptArchiveCache(sourceId, "history");
     if (data.source) upsertSource(data.source);
     const priorSessions = state.sessions.filter((session) => sessionTimeBucket(session) !== "earlier");
     const byKey = new Map(priorSessions.map((session) => [sessionKey(session), session]));
@@ -947,7 +753,6 @@ async function loadHistoricalSessions({ announce = false } = {}) {
     state.historyLoaded = true;
     state.historyLoadError = "";
     setWorkbenchStatus(operationKey, `更早会话已加载：${state.sessions.length} 个会话`, { announce });
-    reloadInvalidatedPromptArchive(promptArchiveInvalidated, sourceId);
   } catch (error) {
     if (isAbortError(error) || !sessionListRequestIsCurrent({ requestKey, sourceId, scopeVersion, kind: "history" })) return;
     state.historyLoadError = error.message;
@@ -1011,10 +816,8 @@ function setWorkbenchStatus(key, message, { announce = false } = {}) {
 }
 
 function syncAsyncAccessibility() {
-  const promptLoading = state.sidebarMode === "prompts" && state.promptArchiveLoading;
-  setAriaBusy(els.sessionsPanel, state.sessionsLoading || state.historyLoading || promptLoading);
-  setAriaBusy(els.threadPanel, state.sessionLoading || promptLoading);
-  setAriaBusy(els.promptArchiveContent, promptLoading);
+  setAriaBusy(els.sessionsPanel, state.sessionsLoading || state.historyLoading);
+  setAriaBusy(els.threadPanel, state.sessionLoading);
 }
 
 function setAriaBusy(element, busy) {
@@ -1024,7 +827,6 @@ function setAriaBusy(element, busy) {
 
 async function selectSession(id, { announce = true, focusMobilePanel = true, immediateMobilePanel = false } = {}) {
   sessionAbortController?.abort();
-  markdownAbortController?.abort();
   cancelRawDiagnosticRequest({ clear: true });
   cancelRawEventRequest();
   sessionAbortController = new AbortController();
@@ -1051,7 +853,6 @@ async function selectSession(id, { announce = true, focusMobilePanel = true, imm
   state.visibleEvents = 40;
   state.visibleThreadItems = 140;
 
-  syncExportButtons();
   setWorkbenchStatus(operationKey, `正在读取会话：${state.pendingSessionTitle}`, { announce });
   renderAll();
   try {
@@ -1074,7 +875,6 @@ async function selectSession(id, { announce = true, focusMobilePanel = true, imm
     state.sessionLoading = false;
     state.sessionLoadError = error.message;
     setWorkbenchStatus(operationKey, `读取会话失败：${error.message}。可重试或选择其他会话。`, { announce: true });
-    syncExportButtons();
     renderAll();
     showToast(`读取会话失败：${error.message}`);
   }
@@ -1111,11 +911,9 @@ async function reloadSelectedSessionDetail() {
 
 function clearSelectedSession() {
   sessionAbortController?.abort();
-  markdownAbortController?.abort();
   cancelRawDiagnosticRequest({ clear: true });
   cancelRawEventRequest();
   sessionAbortController = null;
-  markdownAbortController = null;
   state.selectedSessionId = null;
   state.selectedSessionKey = null;
   state.sessionLoading = false;
@@ -1130,12 +928,10 @@ function clearSelectedSession() {
   state.selectedTerminalBlockId = null;
   state.expandedTraceNodeIds = new Set();
   clearRawEventCache();
-  syncExportButtons();
 }
 
 async function selectSource(sourceId) {
   if (!sourceId || sourceId === state.selectedSourceId) return;
-  cancelPromptArchiveRequest();
   invalidateSessionListRequests();
   cancelAlternateLocalSourceDiscovery();
   state.selectedSourceId = sourceId;
@@ -1143,18 +939,10 @@ async function selectSource(sourceId) {
   state.filteredSessions = [];
   state.sessionsLoadError = "";
   state.sessionsLoading = true;
-  state.promptArchive = [];
-  state.promptArchiveProjects = [];
-  state.promptArchiveLoaded = false;
-  state.promptArchiveError = "";
-  state.promptArchiveCancelled = false;
-  state.promptArchiveProject = "all";
-  state.promptArchivePage = null;
   clearSelectedSession();
   renderSourceControls();
   renderAll();
   await loadSessions({ announce: true });
-  if (state.sidebarMode === "prompts") await loadPromptArchive({ announce: true });
 }
 
 function openSettingsDialog() {
@@ -1562,7 +1350,6 @@ function newSummaryRule() {
 function sourceNavigationContext() {
   return JSON.stringify({
     sourceId: state.selectedSourceId,
-    sidebarMode: state.sidebarMode,
     sessionTimeFilter: state.sessionTimeFilter,
     viewMode: state.viewMode,
     selectedSessionKey: state.selectedSessionKey || "",
@@ -1611,7 +1398,6 @@ function renderAll() {
   renderMainContent();
   renderToolDetails(state.selectedDetailsNodeId ? findTraceNode(state.detail?.trace?.root, state.selectedDetailsNodeId) : null);
   renderStatusbar();
-  syncExportButtons();
   scheduleOverflowTooltipSync();
 }
 
@@ -1756,238 +1542,7 @@ function primeTraceExpansion(detail) {
   state.expandedTraceNodeIds = new Set(root ? [root.id] : []);
 }
 
-function renderPromptArchiveSidebar() {
-  const projects = state.promptArchiveProjects || [];
-  const page = state.promptArchivePage || {};
-  els.sessionCount.textContent = String(page.candidatesScanned || state.promptArchive.length || 0);
-  if (state.promptArchiveLoading && !state.promptArchive.length) {
-    els.sessionList.innerHTML = emptyState("正在整理任务归档", "按项目读取每个会话的首个用户提示词。", []);
-    return;
-  }
-  if (state.promptArchiveCancelled) {
-    els.sessionList.innerHTML = renderSessionListActionEmptyState("任务归档读取已取消", "当前导航已变化，未采用旧结果。可以重新整理。", [{ action: "retry-prompts", label: "重新整理" }]);
-    bindSessionListEmptyActions();
-    return;
-  }
-  if (state.promptArchiveError) {
-    els.sessionList.innerHTML = renderSessionListActionEmptyState("任务归档读取失败", state.promptArchiveError, [{ action: "retry-prompts", label: "重试" }]);
-    bindSessionListEmptyActions();
-    return;
-  }
-  if (!projects.length) {
-    els.sessionList.innerHTML = emptyState("暂无任务归档", promptArchiveRangeNote("当前批没有可显示的任务归档。", page), []);
-    return;
-  }
-  const active = state.promptArchiveProject;
-  els.sessionList.innerHTML = `
-    <button class="prompt-project-row${active === "all" ? " active" : ""}" type="button" data-prompt-project="all">
-      <span><strong>当前批全部项目</strong><em>${escapeHtml(promptArchiveRangeLabel(page))}</em></span><small>${state.promptArchive.length}</small>
-    </button>
-    ${projects
-      .map(
-        (project) => `
-          <button class="prompt-project-row${active === project.key ? " active" : ""}" type="button" data-prompt-project="${escapeAttr(project.key)}">
-            <span><strong data-overflow-tooltip>${escapeHtml(project.label)}</strong><em data-overflow-tooltip>${escapeHtml(project.cwd || "无工作目录")}</em></span><small>${project.count}</small>
-          </button>
-        `,
-      )
-      .join("")}
-  `;
-  els.sessionList.querySelectorAll("[data-prompt-project]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.promptArchiveProject = button.dataset.promptProject || "all";
-      renderAll();
-      els.promptArchiveContent?.focus({ preventScroll: true });
-    });
-  });
-}
-
-function renderPromptArchive() {
-  if (!els.promptArchiveContent) return;
-  if (state.sidebarMode !== "prompts") {
-    els.promptArchiveContent.hidden = true;
-    return;
-  }
-  els.promptArchiveContent.hidden = false;
-  const query = els.promptArchiveSearch?.value.trim().toLowerCase() || "";
-  const status = els.promptArchiveStatus?.value || "all";
-  const entries = state.promptArchive.filter((entry) => {
-    if (state.promptArchiveProject !== "all" && entry.projectKey !== state.promptArchiveProject) return false;
-    if (status !== "all" && entry.promptState !== status) return false;
-    if (!query) return true;
-    return [entry.sessionTitle, entry.promptText, entry.cwd, entry.sessionId, entry.sourceLabel, entry.status]
-      .filter(Boolean)
-      .join("\n")
-      .toLowerCase()
-      .includes(query);
-  });
-  if (state.promptArchiveLoading && !state.promptArchive.length) {
-    els.promptArchiveContent.innerHTML = emptyState("正在整理任务归档", "按项目读取每个会话的首个用户提示词。", []);
-    return;
-  }
-  if (state.promptArchiveCancelled) {
-    els.promptArchiveContent.innerHTML = renderSessionListActionEmptyState("任务归档读取已取消", "当前导航已变化，未采用旧结果。可以重新整理。", [{ action: "retry-prompts", label: "重新整理" }]);
-    bindSessionListEmptyActions(els.promptArchiveContent);
-    return;
-  }
-  if (state.promptArchiveError) {
-    els.promptArchiveContent.innerHTML = renderSessionListActionEmptyState("任务归档读取失败", state.promptArchiveError, [{ action: "retry-prompts", label: "重试" }]);
-    bindSessionListEmptyActions(els.promptArchiveContent);
-    return;
-  }
-  const page = state.promptArchivePage || {};
-  const groups = groupPromptArchiveEntries(entries);
-  const empty = !entries.length;
-  const emptyMessage = query || status !== "all" || state.promptArchiveProject !== "all"
-    ? promptArchiveRangeNote("当前已扫描范围没有符合搜索或筛选条件的任务。", page)
-    : promptArchiveRangeNote("当前批没有可显示的任务归档。", page);
-  els.promptArchiveContent.innerHTML = `
-    <div class="prompt-archive-shell">
-      <header class="prompt-archive-header">
-        <div>
-          <p class="eyebrow">任务归档</p>
-          <h2>${escapeHtml(empty ? "当前批没有匹配任务" : `${entries.length} 条当前批任务`)}</h2>
-          <p class="prompt-archive-note">${escapeHtml(promptArchiveRangeNote("按工作目录整理。提示词来自会话正文，标题仅作为会话元信息。", page))}</p>
-        </div>
-        <div class="prompt-archive-summary" aria-label="当前批任务归档统计">
-          <strong>${groups.length}</strong><span>个项目</span>
-        </div>
-      </header>
-      ${empty ? emptyState("没有匹配的任务", emptyMessage, []) : groups.map(renderPromptArchiveGroup).join("")}
-      ${renderPromptArchivePagination(page)}
-    </div>
-  `;
-  els.promptArchiveContent.querySelectorAll("[data-prompt-session-id]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const entry = state.promptArchive.find((candidate) => candidate.sessionId === button.dataset.promptSessionId);
-      openPromptArchiveSession(entry);
-    });
-  });
-  bindPromptArchivePagination();
-}
-
-function promptArchiveRangeLabel(page = {}) {
-  const from = Number(page.candidateFrom) || 0;
-  const to = Number(page.candidateTo) || 0;
-  return from && to ? `已扫描候选第 ${from}-${to} 个` : "等待扫描候选会话";
-}
-
-function promptArchiveRangeNote(prefix, page = {}) {
-  if (!page.candidatesScanned) return prefix;
-  const range = promptArchiveRangeLabel(page);
-  return page.hasMoreCandidates ? `${prefix} ${range}；更早候选尚未扫描。` : `${prefix} ${range}；已扫描到当前时间范围最早任务。`;
-}
-
-function renderPromptArchivePagination(page = {}) {
-  if (!page.candidatesScanned && !state.promptArchiveLoading) return "";
-  const hasMore = page.hasMoreCandidates === true && Boolean(page.nextPageToken);
-  const completion = hasMore ? "更早候选尚未扫描" : "已扫描到当前时间范围最早任务";
-  return `
-    <nav class="pagination prompt-archive-pagination" aria-label="任务归档候选分页">
-      <span class="pagination-info" data-prompt-archive-page-info>${escapeHtml(promptArchiveRangeLabel(page))} · 本批 ${Number(page.entriesReturned) || 0} 条归档</span>
-      <span class="pagination-status" data-prompt-archive-page-status>${escapeHtml(completion)}</span>
-      <div class="pagination-actions">
-        <button class="ghost-button small" type="button" data-prompt-archive-page-action="next" ${hasMore && !state.promptArchiveLoading ? "" : "disabled"}>${state.promptArchiveLoading ? "正在定位更早任务" : "继续定位更早任务"}</button>
-      </div>
-    </nav>
-  `;
-}
-
-function bindPromptArchivePagination() {
-  els.promptArchiveContent?.querySelectorAll("[data-prompt-archive-page-action=next]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const token = state.promptArchivePage?.nextPageToken;
-      if (!token || state.promptArchiveLoading) return;
-      void loadPromptArchive({ pageToken: token, announce: true });
-    });
-  });
-}
-
-function groupPromptArchiveEntries(entries) {
-  const groups = new Map();
-  for (const entry of entries) {
-    const group = groups.get(entry.projectKey) || { key: entry.projectKey, label: entry.projectLabel, cwd: entry.cwd, entries: [] };
-    group.entries.push(entry);
-    groups.set(entry.projectKey, group);
-  }
-  return [...groups.values()];
-}
-
-function renderPromptArchiveGroup(group) {
-  return `
-    <section class="prompt-archive-group">
-      <div class="prompt-archive-group-head"><div><strong data-overflow-tooltip>${escapeHtml(group.label)}</strong><span data-overflow-tooltip>${escapeHtml(group.cwd || "无工作目录")}</span></div><small>${group.entries.length}</small></div>
-      <div class="prompt-archive-list">${group.entries.map(renderPromptArchiveEntry).join("")}</div>
-    </section>
-  `;
-}
-
-function renderPromptArchiveEntry(entry) {
-  const stateLabel = promptArchiveStateLabel(entry.promptState);
-  const promptBody = entry.promptText || stateLabel;
-  const attachmentLabel = entry.attachments?.length ? ` · ${entry.attachments.length} 个附件` : "";
-  const eventAnchor = Number.isInteger(entry.promptEventIndex) ? `事件 #${entry.promptEventIndex}` : "未定位事件";
-  return `
-    <article class="prompt-archive-entry${entry.promptState !== "found" ? " is-muted" : ""}">
-      <div class="prompt-archive-entry-head">
-        <div><strong data-overflow-tooltip>${escapeHtml(entry.sessionTitle)}</strong><span>${escapeHtml(formatDate(entry.updatedAt || entry.startedAt) || "未知时间")}</span></div>
-        <span class="prompt-archive-status" data-state="${escapeAttr(entry.promptState)}" data-overflow-tooltip>${escapeHtml(stateLabel + attachmentLabel)}</span>
-      </div>
-      <details class="prompt-archive-text"${entry.promptState === "found" ? " open" : ""}>
-        <summary>${escapeHtml(entry.promptPreview || promptBody)}</summary>
-        ${entry.promptText ? `<div class="prompt-archive-full-text">${escapeHtml(entry.promptText)}</div>` : `<div class="prompt-archive-empty-text">${escapeHtml(promptBody)}</div>`}
-      </details>
-      <div class="prompt-archive-entry-meta"><span data-overflow-tooltip>${escapeHtml(entry.sourceLabel || "当前数据源")}</span><span data-overflow-tooltip>${escapeHtml(entry.cwd || "无项目")}</span><span data-overflow-tooltip>${escapeHtml(eventAnchor)}</span><button class="ghost-button small" type="button" data-prompt-session-id="${escapeAttr(entry.sessionId)}">打开原会话</button></div>
-    </article>
-  `;
-}
-
-function promptArchiveStateLabel(value) {
-  if (value === "found") return "已找到首个任务";
-  if (value === "image-only") return "仅图片附件";
-  if (value === "unavailable") return "正文不可用";
-  if (value === "too_large") return "内容超过归档读取上限";
-  if (value === "changing") return "文件读取时仍在变化";
-  if (value === "error") return "读取失败";
-  return "未找到明确任务";
-}
-
-function openPromptArchiveSession(entry) {
-  if (!entry?.sessionId) return;
-  cancelPromptArchiveRequest();
-  state.sidebarMode = "sessions";
-  state.promptArchiveProject = entry.projectKey || "all";
-  els.appShell.dataset.mode = "sessions";
-  if (els.promptArchiveControls) els.promptArchiveControls.hidden = true;
-  syncSidebarModeTabs();
-  setMobilePanel("thread");
-  syncPanelToggleLabels();
-  renderAll();
-  if (entry.sourceId && entry.sourceId !== state.selectedSourceId) {
-    void selectSource(entry.sourceId).then(() => selectSession(entry.sessionId, { focusMobilePanel: false }));
-    return;
-  }
-  void selectSession(entry.sessionId, { focusMobilePanel: false });
-}
-
-function syncSidebarModeTabs() {
-  [els.sessionsModeButton, els.promptsModeButton].forEach((button) => {
-    if (!button) return;
-    const active = button.dataset.sidebarMode === state.sidebarMode;
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-pressed", active ? "true" : "false");
-  });
-  if (els.sessionsModeButton) els.sessionsModeButton.hidden = state.sidebarMode !== "prompts";
-  if (els.promptsModeButton) els.promptsModeButton.hidden = state.sidebarMode === "prompts";
-}
-
 function renderSessionList() {
-  if (state.sidebarMode === "prompts") {
-    renderPromptArchiveSidebar();
-    renderStatusbar();
-    syncExportButtons();
-    return;
-  }
   const query = els.sessionSearch.value.trim().toLowerCase();
   const filter = els.sessionTypeFilter.value;
   syncSessionTimeFilter();
@@ -1996,7 +1551,6 @@ function renderSessionList() {
     els.sessionCount.textContent = "0";
     els.sessionList.innerHTML = emptyState("正在加载会话列表", (selectedSource()?.label || "当前数据源") + " · 请稍候。");
     renderStatusbar();
-    syncExportButtons();
     return;
   }
   if (state.healthLoadError && state.sessions.length === 0) {
@@ -2004,7 +1558,6 @@ function renderSessionList() {
     els.sessionCount.textContent = "0";
     els.sessionList.innerHTML = emptyState("接口不可用", state.healthLoadError);
     renderStatusbar();
-    syncExportButtons();
     return;
   }
   if (state.sessionsLoadError && state.sessions.length === 0) {
@@ -2012,7 +1565,6 @@ function renderSessionList() {
     els.sessionCount.textContent = "0";
     els.sessionList.innerHTML = emptyState("无法加载会话列表", (selectedSource()?.label || "当前数据源") + " · " + state.sessionsLoadError);
     renderStatusbar();
-    syncExportButtons();
     return;
   }
   const sessions = state.sessions.filter((session) => {
@@ -2034,7 +1586,6 @@ function renderSessionList() {
       els.sessionList.innerHTML = emptyState("没有匹配的会话", "调整搜索或过滤条件。");
     }
     renderStatusbar();
-    syncExportButtons();
     return;
   }
   els.sessionList.innerHTML = renderSessionDirectoryTree(sessions, query);
@@ -2049,7 +1600,6 @@ function renderSessionList() {
     });
   });
   renderStatusbar();
-  syncExportButtons();
 }
 
 function renderSessionListActionEmptyState(title, subtitle, actions = []) {
@@ -2069,8 +1619,6 @@ function bindSessionListEmptyActions(container = els.sessionList) {
         returnToRealtimeSessions();
       } else if (action === "retry-history") {
         void loadHistoricalSessions({ announce: true });
-      } else if (action === "retry-prompts") {
-        void loadPromptArchive();
       } else if (action === "select-alternate-local-source" && state.alternateLocalSource) {
         void selectSource(state.alternateLocalSource.id);
       } else if (action === "clear-session-filters") {
@@ -2132,29 +1680,6 @@ function renderSessionFilterNotice(filteredOut = currentSessionFilteredOut()) {
   els.clearSessionFiltersButton.title = "清除搜索和类型筛选，并切回当前会话所属时间分类";
   els.clearSessionFiltersButton.setAttribute("aria-label", els.clearSessionFiltersButton.title);
   els.returnRealtimeButton.hidden = state.sessionTimeFilter === "realtime";
-}
-
-function markdownExportBlockedReason() {
-  if (state.sessionLoading) return "正在读取目标会话，暂不能导出";
-  if (state.sessionLoadError) return "目标会话读取失败，无法导出";
-  if (state.healthLoadError) return "接口不可用，无法导出会话";
-  if (state.sessionsLoadError && !state.detail?.session?.id) return "会话列表加载失败，未选择可导出会话";
-  if (!state.detail?.session?.id) return "未选择可导出的会话";
-  if (currentSessionFilteredOut()) return "当前会话已被筛选隐藏，清除搜索或筛选后可导出";
-  return "";
-}
-
-function syncExportButtons() {
-  const reason = markdownExportBlockedReason();
-  const disabled = Boolean(reason);
-  const copyLabel = disabled ? reason : "复制完整会话 Markdown";
-  const downloadLabel = disabled ? reason : "下载完整会话 Markdown";
-  els.copyMarkdownButton.disabled = disabled;
-  els.downloadMarkdownButton.disabled = disabled;
-  els.copyMarkdownButton.title = copyLabel;
-  els.downloadMarkdownButton.title = downloadLabel;
-  els.copyMarkdownButton.setAttribute("aria-label", copyLabel);
-  els.downloadMarkdownButton.setAttribute("aria-label", downloadLabel);
 }
 
 function selectedSessionDisplayTitle() {
@@ -2338,12 +1863,6 @@ function sessionStatusLabel(status) {
 }
 
 function renderThreadHeader() {
-  if (state.sidebarMode === "prompts") {
-    els.sessionTitle.textContent = "任务归档";
-    els.sessionMetaLabel.textContent = `${selectedSource()?.label || "当前数据源"} · 只读派生索引`;
-    renderSessionHandoff();
-    return;
-  }
   const session = state.detail?.session;
   if (!session) {
     const placeholder = sessionPlaceholderState();
@@ -2397,7 +1916,7 @@ function renderSessionLineage() {
 }
 
 function renderStats() {
-  if (state.sidebarMode === "prompts" || state.viewMode !== "diagnostic") {
+  if (state.viewMode !== "diagnostic") {
     els.statsStrip.innerHTML = "";
     els.statsStrip.hidden = true;
     return;
@@ -2432,7 +1951,7 @@ function renderStats() {
 function renderSessionHandoff() {
   if (!els.sessionHandoff) return;
   const detail = state.detail;
-  if (!detail || state.sidebarMode === "prompts") {
+  if (!detail) {
     els.sessionHandoff.hidden = true;
     els.sessionHandoff.innerHTML = "";
     return;
@@ -2965,8 +2484,7 @@ function renderStatusbar() {
   els.statusSession.textContent = state.sessionLoading ? "正在读取：" + selectedSessionDisplayTitle() : state.sessionLoadError ? "读取失败：" + selectedSessionDisplayTitle() : filteredOut ? "当前会话已被筛选隐藏" : session ? "当前：" + selectedSessionDisplayTitle() : "未选择会话";
   els.statusEvents.textContent = String(state.filteredSessions.length || 0) + "/" + String(state.sessions.length || 0) + " 个会话";
   const updated = session?.updatedAt || session?.fileModifiedAt || session?.startedAt;
-  els.statusUpdated.textContent = filteredOut ? "清除搜索或筛选后可复制/下载" : stats ? String(stats.eventCount || 0) + " 个事件 · " + String(stats.turnCount || 0) + " 轮次 · " + (formatDate(updated) || "未知时间") : "只读浏览";
-  syncExportButtons();
+  els.statusUpdated.textContent = filteredOut ? "清除搜索或筛选后重新对齐" : stats ? String(stats.eventCount || 0) + " 个事件 · " + String(stats.turnCount || 0) + " 轮次 · " + (formatDate(updated) || "未知时间") : "只读浏览";
 }
 
 function syncStatusbarDataStatus(source = selectedSource()) {
@@ -2975,22 +2493,13 @@ function syncStatusbarDataStatus(source = selectedSource()) {
   let value = "local";
   let label = "本机只读";
   if (state.healthLoadError) { value = "error"; label = "接口不可用"; }
-  else if (state.sessionsLoading || state.sessionLoading || state.promptArchiveLoading) { value = "loading"; label = "加载中"; }
-  else if (state.sessionsLoadError || state.sessionLoadError || state.promptArchiveError || status.error?.message) { value = "error"; label = "错误"; }
+  else if (state.sessionsLoading || state.sessionLoading) { value = "loading"; label = "加载中"; }
+  else if (state.sessionsLoadError || state.sessionLoadError || status.error?.message) { value = "error"; label = "错误"; }
   els.statusbar.dataset.status = value;
   els.statusbar.title = "数据状态：" + label;
 }
 
 function renderMainContent() {
-  if (state.sidebarMode === "prompts") {
-    els.promptArchiveContent.hidden = false;
-    renderPromptArchive();
-    [els.threadContent, els.compactContent, els.terminalContent, els.executionWorkspace, els.diagnosticContent, els.statsContent, els.traceContent, els.rawContent]
-      .filter(Boolean)
-      .forEach((container) => { container.hidden = true; });
-    return;
-  }
-  els.promptArchiveContent.hidden = true;
   syncViewControls();
   const placeholder = sessionPlaceholderState();
   if (placeholder) {
@@ -5378,102 +4887,6 @@ function toggleTraceNode(id) {
   renderTrace();
 }
 
-async function copyMarkdown() {
-  const blockedReason = markdownExportBlockedReason();
-  if (blockedReason) {
-    showToast(blockedReason);
-    syncExportButtons();
-    return;
-  }
-  const snapshot = markdownExportSnapshot();
-  if (!snapshot) {
-    showToast("未选择可导出的会话");
-    syncExportButtons();
-    return;
-  }
-  markdownAbortController?.abort();
-  markdownAbortController = new AbortController();
-  els.copyMarkdownButton.disabled = true;
-  try {
-    const markdown = await fetchText(sourceMarkdownUrl(snapshot.sessionId, snapshot.sourceId), { signal: markdownAbortController.signal });
-    if (!markdownExportSnapshotStillCurrent(snapshot)) {
-      showToast("会话或数据源已切换，已取消本次 Markdown 复制");
-      return;
-    }
-    await copyText(markdown);
-    if (!markdownExportSnapshotStillCurrent(snapshot)) {
-      showToast("会话或数据源已切换，本次 Markdown 复制不再作为当前会话结果提示");
-      return;
-    }
-    showToast(sensitiveCopyToast("已复制 Markdown"));
-  } catch (error) {
-    if (isAbortError(error)) return;
-    showToast(`复制 Markdown 失败：${error.message}`);
-  } finally {
-    syncExportButtons();
-  }
-}
-
-async function downloadMarkdown() {
-  const blockedReason = markdownExportBlockedReason();
-  if (blockedReason) {
-    showToast(blockedReason);
-    syncExportButtons();
-    return;
-  }
-  const snapshot = markdownExportSnapshot();
-  if (!snapshot) {
-    showToast("未选择可导出的会话");
-    syncExportButtons();
-    return;
-  }
-  markdownAbortController?.abort();
-  markdownAbortController = new AbortController();
-  els.downloadMarkdownButton.disabled = true;
-  try {
-    const markdown = await fetchText(sourceMarkdownUrl(snapshot.sessionId, snapshot.sourceId), { signal: markdownAbortController.signal });
-    if (!markdownExportSnapshotStillCurrent(snapshot)) {
-      showToast("会话或数据源已切换，已取消本次 Markdown 下载");
-      return;
-    }
-    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${sanitizeFileName(snapshot.title || snapshot.sessionId)}.md`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-    if (markdownExportSnapshotStillCurrent(snapshot)) showToast(sensitiveCopyToast("已下载 Markdown"));
-  } catch (error) {
-    if (isAbortError(error)) return;
-    showToast(`下载 Markdown 失败：${error.message}`);
-  } finally {
-    syncExportButtons();
-  }
-}
-
-function markdownExportSnapshot() {
-  const session = state.detail?.session;
-  if (!session?.id) return null;
-  return {
-    sourceId: state.selectedSourceId,
-    sessionId: session.id,
-    title: session.title || session.id,
-    selectedSessionKey: state.selectedSessionKey,
-  };
-}
-
-function markdownExportSnapshotStillCurrent(snapshot) {
-  if (!snapshot) return false;
-  return (
-    state.selectedSourceId === snapshot.sourceId &&
-    state.selectedSessionKey === snapshot.selectedSessionKey &&
-    state.detail?.session?.id === snapshot.sessionId
-  );
-}
-
 function countItems(type) {
   return state.detail?.turns.reduce((count, turn) => count + turn.items.filter((item) => item.type === type).length, 0) ?? 0;
 }
@@ -5772,11 +5185,6 @@ function sourceSessionsUrl(sourceId = state.selectedSourceId, scope = "all") {
   return `/api/sources/${encodeURIComponent(sourceId)}/sessions${query ? `?${query}` : ""}`;
 }
 
-function promptArchiveUrl(sourceId = state.selectedSourceId, scope = promptArchiveScope(), pageToken = "") {
-  const params = new URLSearchParams({ scope });
-  if (pageToken) params.set("pageToken", pageToken);
-  return `/api/sources/${encodeURIComponent(sourceId)}/prompts?${params.toString()}`;
-}
 
 function sessionListServerType() {
   const type = els.sessionTypeFilter?.value || "all";
@@ -5802,9 +5210,6 @@ function sourceSessionEventsUrl(id, sourceId = state.selectedSourceId, { cursor 
   return `/api/sources/${encodeURIComponent(sourceId)}/query/sessions/${encodeURIComponent(id)}/events?${params.toString()}`;
 }
 
-function sourceMarkdownUrl(id, sourceId = state.selectedSourceId) {
-  return `/api/sources/${encodeURIComponent(sourceId)}/sessions/${encodeURIComponent(id)}/markdown`;
-}
 
 function sessionKey(session) {
   return `${session.sourceId || state.selectedSourceId || "local"}:${session.id}`;
@@ -5841,21 +5246,6 @@ function responseError(text, fallback, status) {
   error.status = status;
   error.code = code;
   return error;
-}
-
-async function fetchText(url, options = {}) {
-  let response;
-  try {
-    response = await fetch(url, { cache: "no-store", ...options });
-  } catch (error) {
-    if (error?.name === "AbortError") throw error;
-    throw new Error(requestFailedMessage(error));
-  }
-  if (!response.ok) {
-    const text = await response.text();
-    throw responseError(text, response.statusText, response.status);
-  }
-  return response.text();
 }
 
 function errorText(text, fallback, status) {

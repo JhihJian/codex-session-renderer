@@ -29,7 +29,6 @@ import {
   toolNameFromPayload,
   toolOutputFromPayload,
 } from "./tool-events.mjs";
-export { renderConversationMarkdown } from "./markdown-export.mjs";
 export {
   classifyEvent,
   eventTime,

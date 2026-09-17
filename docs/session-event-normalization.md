@@ -1,6 +1,6 @@
 # Codex/Pi Agent JSONL 事件规范化契约
 
-本项目把 Codex 和 Pi Agent 会话文件视为 UTF-8 JSONL 事件流读取。不同客户端和版本可能记录不同字段形态，因此服务端先把原始事件转换为内部稳定事件模型，再供会话摘要、Turn 聚合、Audit、Trace、Raw 视图、Markdown 导出和外部查询 API 使用。
+本项目把 Codex 和 Pi Agent 会话文件视为 UTF-8 JSONL 事件流读取。不同客户端和版本可能记录不同字段形态，因此服务端先把原始事件转换为内部稳定事件模型，再供会话摘要、Turn 聚合、Audit、Trace、Raw 视图和外部查询 API 使用。
 
 ## 稳定字段
 
@@ -74,7 +74,7 @@ Pi 标准会话的顶层 `type: "compaction"` 也会标记为重要事件并进�
 
 ## Codex Goal 控制包安全投影
 
-Codex 会把持续目标的自动续跑控制包写为 `response_item / message / role=user`。控制包包含用户 objective 和较长的运行规则，不是新的用户输入。默认阅读、Turn/Audit、首任务归档、Markdown、语义事件搜索及标题派生只在已实证的 `codex-thread-goal@0.144.1` 结构完整时投影 objective；Raw event、单事件接口和 `includePayload/includeRaw` 一律保留完整原始 JSON。
+Codex 会把持续目标的自动续跑控制包写为 `response_item / message / role=user`。控制包包含用户 objective 和较长的运行规则，不是新的用户输入。默认阅读、Turn/Audit、Markdown、语义事件搜索及标题派生只在已实证的 `codex-thread-goal@0.144.1` 结构完整时投影 objective；Raw event、单事件接口和 `includePayload/includeRaw` 一律保留完整原始 JSON。
 
 已支持 profile 必须同时满足以下可信关联，任何一项不满足都失败关闭：
 
@@ -89,7 +89,7 @@ SQLite 或轻量索引给出疑似控制包标题时，列表只对当前可见�
 
 ## 会话标题一致性
 
-同一 `sourceId + sessionId` 的规范标题由已验证的 SQLite `threads.title` 优先确定，适用于详情、Markdown、任务归档和会话查询。列表与远端历史索引从规范标题派生固定上限的 `displayTitle` 和 `titleTruncated`，绝不输出完整 `title`；行 DOM、移动端列表、ARIA 名称和选择中的公告只能消费这两个有界字段。截断项以“标题已截断”作为额外的简短无障碍语义，当前项使用 `aria-current`。服务端列表 `q` 仍在规范标题及既有元数据上匹配，后段命中不会导致完整标题回传浏览器。
+同一 `sourceId + sessionId` 的规范标题由已验证的 SQLite `threads.title` 优先确定，适用于详情、Markdown和会话查询。列表与远端历史索引从规范标题派生固定上限的 `displayTitle` 和 `titleTruncated`，绝不输出完整 `title`；行 DOM、移动端列表、ARIA 名称和选择中的公告只能消费这两个有界字段。截断项以“标题已截断”作为额外的简短无障碍语义，当前项使用 `aria-current`。服务端列表 `q` 仍在规范标题及既有元数据上匹配，后段命中不会导致完整标题回传浏览器。
 
 文件或轻量索引回退已经完成路径与 ID 校验后，才会把当前受列表上限约束的候选 ID 作为一次有界 SQLite 查询输入；SQLite 返回的非空标题可以补齐文件回退标题，但不会据此新增会话、路径或正文。
 
@@ -99,7 +99,7 @@ SQLite 不可读、没有同 ID 行或标题为空时，保留已有的索引、
 
 ## Pi Goal-mode 安全投影
 
-Pi Goal-mode 扩展会把控制提示词以 `type: "message"`、`message.role: "user"` 写入 Pi JSONL。它们不是普通用户的新输入：启动和目标更新包包含用户目标以及控制规则，恢复和自动续跑包没有新的用户目标。为避免将规则、`goal_id` 和续跑 marker 带入默认阅读、Audit、归档、搜索或 Markdown，本项目只对当前已实证的 `Pi session v3 + @narumitw/pi-goal@0.15.1` 完整结构包投影。
+Pi Goal-mode 扩展会把控制提示词以 `type: "message"`、`message.role: "user"` 写入 Pi JSONL。它们不是普通用户的新输入：启动和目标更新包包含用户目标以及控制规则，恢复和自动续跑包没有新的用户目标。为避免将规则、`goal_id` 和续跑 marker 带入默认阅读、Audit、归档、搜索或 本项目只对当前已实证的 `Pi session v3 + @narumitw/pi-goal@0.15.1` 完整结构包投影。
 
 投影器要求同时满足：
 
@@ -113,7 +113,7 @@ Pi Goal-mode 扩展会把控制提示词以 `type: "message"`、`message.role: "
 
 ## 默认用户消息口径
 
-Codex 有时会把机器上下文写进用户消息，例如 `AGENTS.md instructions`、`environment_context`、浏览器/文件包装和 subagent notification。默认阅读模型、Markdown 导出和事件搜索会先提取真实用户请求：
+Codex 有时会把机器上下文写进用户消息，例如 `AGENTS.md instructions`、`environment_context`、浏览器/文件包装和 subagent notification。默认阅读模型和事件搜索会先提取真实用户请求：
 
 - 如果存在 `## My request for Codex:`，只展示其后的请求正文。
 - 如果消息开头是 `AGENTS.md instructions` 并包含 `environment_context`，默认隐藏这段机器上下文，保留后续真实请求。
@@ -123,9 +123,6 @@ Codex 有时会把机器上下文写进用户消息，例如 `AGENTS.md instruct
 去重只针对明确的事件回声，例如同一条用户消息同时以 `event_msg user_message` 和 `response_item role=user` 写入；用户真实重复输入同一句话不会仅因文本相同被删除。
 
 ## 首个任务提示词归档
-
-`src/session-prompts.mjs` 基于 `buildTurns()` 提取根会话中第一个有效的 `user-message`，作为任务归档的 `promptText`。因此首个提示词遵循与阅读视图相同的 Pi Goal 安全投影、机器上下文清理、fork replay 前缀抑制、事件回声去重和中断续跑处理口径；会话标题不作为提示词回退值，`compacted` / `context_compacted` 的 `replacement_history` 也不视为新的用户输入。
-
 归档条目的身份是 `sourceId + sessionId`，项目键是 `sourceId + cwd`，没有 `cwd` 的会话进入“无项目”。条目同时保存 `promptPreview`、`promptTimestamp`、`promptEventIndex`、`promptTurnId`、安全附件摘要、`promptTruncated`、`promptLimitReason` 和 `promptState`。状态包括 `found`、`image-only`、`empty`、`unavailable`、`too_large`、`changing` 和 `error`。`too_large` 与 `changing` 不返回正文，因此不会把超限或读取中变化文件的敏感内容带入响应。
 
 归档协调器以读取前后的真实文件签名（路径、大小、`mtimeMs`、`ctimeMs`）为缓存和 in-flight 去重边界。同一签名可由多个请求共享；每个请求是独立订阅，取消一个订阅不会打断其余订阅，最后一个订阅取消才中止底层流。读取后签名变化时立即返回 `changing` 且不缓存，后续请求会以新签名建立新的共享读取。缓存最多保留 400 个会话当前版本。首次归档的会话发现和响应一次最多处理 200 个会话，整个服务实例共享 4 路并发；每个文件最多读取 2 MiB 或 20,000 条非空 JSONL 记录，提示词正文上限为 12,000 字符。任何上限命中都返回 `too_large` 且不返回正文。前端在切换数据源、时间分类、刷新或离开归档时发出取消；HTTP 客户端断开也会取消其订阅。
@@ -180,7 +177,7 @@ Raw event 仍可按需查看完整原始 JSON。默认视图、事件预览和�
 
 ## 完整详情与诊断预算
 
-详情、compact/view、turns/trace 和 Markdown 导出完整读取当前 JSONL，不按文件字节数或事件数降级。服务端通过同一个协调器在读取前后比较文件签名，保留全局 4 路读取闸门与稳定完整派生的 24 条/48 MiB 版本 LRU；单个结果超过缓存总预算时只是不写入缓存，不能拒绝展示。具体环境变量和默认值见 README 的“完整详情读取与诊断预算”。
+详情、compact/view、turns/trace  导出完整读取当前 JSONL，不按文件字节数或事件数降级。服务端通过同一个协调器在读取前后比较文件签名，保留全局 4 路读取闸门与稳定完整派生的 24 条/48 MiB 版本 LRU；单个结果超过缓存总预算时只是不写入缓存，不能拒绝展示。具体环境变量和默认值见 README 的“完整详情读取与诊断预算”。
 
 文件在读取或派生期间变化、读取失败和取消都不会产生缓存条目，也不会把已读旧内容当作当前详情。文件变化时详情和外部 view 返回 `complete: false` 及 `readState.code = session_file_changed`，Markdown 返回 `409`；这不是大小或事件数能力降级。原始事件分页始终是独立诊断入口，使用同一并发闸门，但只受 `CODEX_SESSION_DIAGNOSTIC_MAX_FILE_BYTES` 单次字节预算、页大小和 `CODEX_SESSION_DIAGNOSTIC_MAX_EVENT_SCAN` 扫描预算约束；预算到达会返回诊断状态或 `413/session_event_scan_limited`，不会影响完整详情。单条事件读取也支持 `AbortSignal`、快照校验和这些诊断预算。
 

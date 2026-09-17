@@ -4,7 +4,7 @@
 
 ## 服务装配
 
-- `server.mjs` 是主 HTTP 服务入口。它装配访问控制、来源注册表、来源上下文、会话读取、任务归档、静态资源和浏览器 API。
+- `server.mjs` 是主 HTTP 服务入口。它装配访问控制、来源注册表、来源上下文、会话读取、静态资源和浏览器 API。
 - `src/access-control.mjs` 对主服务的非 loopback 监听强制令牌，并支持 Basic 或 Bearer 请求认证；`src/http-response.mjs` 统一 HTTP 响应与错误输出。
 
 ## 数据源
@@ -18,15 +18,9 @@
 - `src/session-detail-coordinator.mjs` 管理完整详情的文件签名、并发、取消和缓存；`src/markdown-export.mjs` 输出 Markdown。
 - 事件字段、Goal profile、控制包投影、Raw 保留和完整详情/诊断预算由[事件规范化契约](../session-event-normalization.md)完整负责。
 
-## 任务归档
-
-- `src/prompt-archive-coordinator.mjs` 负责有界首任务读取、共享订阅、取消、签名失效和缓存。
-- `src/session-prompts.mjs` 负责首个有效用户任务及其归档条目。
-- `src/pi-goal-projection.mjs` 负责严格投影 Codex/Pi Goal 的 objective，并在结构不符时保留原始语义。
-
 ## 浏览器界面
 
-`public/app.js` 负责会话目录、正文阅读、正文/执行/诊断三视图、详情、执行过程、时间、归档、远端来源和 Raw 诊断的浏览器状态与渲染。`public/index.html` 与 `public/styles.css` 将默认阅读面限制为紧凑目录和正文，并让执行与诊断在切换后占据完整主工作区。筛选与低频管理能力按需展开。`src/pi-context-events.mjs` 仅从 Pi JSONL 投影 Skill 指令块和 `SKILL.md` 读取证据，不扫描当前磁盘作为历史事实。`public/app-format.js`、`public/tool-summary.js`、`public/raw-event-cache.js` 与 `public/evidence-id.js` 提供展示格式、工具摘要、诊断缓存和稳定定位辅助。浏览器不保存远端令牌，也不直接读取会话来源路径。
+`public/app.js` 负责会话目录、正文阅读、正文/执行/诊断三视图、详情、执行过程、时间、远端来源和 Raw 诊断的浏览器状态与渲染。`public/index.html` 与 `public/styles.css` 将默认阅读面限制为紧凑目录和正文，并让执行与诊断在切换后占据完整主工作区。筛选与低频管理能力按需展开。`src/pi-context-events.mjs` 仅从 Pi JSONL 投影 Skill 指令块和 `SKILL.md` 读取证据，不扫描当前磁盘作为历史事实。`public/app-format.js`、`public/tool-summary.js`、`public/raw-event-cache.js` 与 `public/evidence-id.js` 提供展示格式、工具摘要、诊断缓存和稳定定位辅助。浏览器不保存远端令牌，也不直接读取会话来源路径。
 
 ## 验证入口
 
@@ -34,4 +28,4 @@
 - `npm test` 执行语法检查、Node 单元测试和 HTTP 冒烟测试。
 - `npm run test:e2e` 执行 Playwright 端到端测试。
 
-关键验证包括：`test/session-detail-coordinator.test.mjs` 覆盖稳定详情读取，`test/prompt-archive-coordinator.test.mjs` 覆盖归档预算与取消，`test/codex-goal-http.test.mjs` 覆盖 Goal 投影与 Raw 保留，`test/server-access-control.test.mjs` 覆盖非 loopback 服务的认证边界。
+关键验证包括：`test/session-detail-coordinator.test.mjs` 覆盖稳定详情读取，`test/codex-goal-http.test.mjs` 覆盖 Goal 投影与 Raw 保留，`test/server-access-control.test.mjs` 覆盖非 loopback 服务的认证边界。

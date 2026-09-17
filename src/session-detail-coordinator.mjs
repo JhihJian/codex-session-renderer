@@ -1,10 +1,4 @@
 import { promises as fs } from "node:fs";
-import {
-  createAbortError,
-  createConcurrencyGate,
-  createSharedSubscriptionRegistry,
-  fileSignature,
-} from "./prompt-archive-coordinator.mjs";
 import { readJsonlWithDiagnostics } from "./jsonl-reader.mjs";
 
 const defaultSessionDetailLimits = {
@@ -14,6 +8,116 @@ const defaultSessionDetailLimits = {
   maxCacheEntries: 24,
   maxCacheBytes: 48 * 1024 * 1024,
 };
+
+function createAbortError() {
+  const error = new Error("The operation was aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+function fileSignature(filePath, stat) {
+  return [filePath || "", stat?.size ?? "", stat?.mtimeMs ?? "", stat?.ctimeMs ?? ""].join(":");
+}
+
+function createSharedSubscriptionRegistry() {
+  const tasks = new Map();
+
+  function subscribe(key, start, signal) {
+    throwIfAborted(signal);
+    let task = tasks.get(key);
+    if (task?.controller.signal.aborted) {
+      if (tasks.get(key) === task) tasks.delete(key);
+      task = null;
+    }
+    if (!task) {
+      const controller = new AbortController();
+      task = { controller, key, subscribers: new Set(), promise: null };
+      task.promise = Promise.resolve()
+        .then(() => start(controller.signal))
+        .finally(() => {
+          if (tasks.get(task.key) === task) tasks.delete(task.key);
+        });
+      tasks.set(key, task);
+    }
+    return new Promise((resolve, reject) => {
+      const subscriber = { active: true };
+      task.subscribers.add(subscriber);
+      const detach = () => {
+        if (!subscriber.active) return;
+        subscriber.active = false;
+        task.subscribers.delete(subscriber);
+        signal?.removeEventListener("abort", onAbort);
+        if (task.subscribers.size === 0 && tasks.get(task.key) === task && !task.controller.signal.aborted) task.controller.abort();
+      };
+      const onAbort = () => {
+        detach();
+        reject(createAbortError());
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+      task.promise.then(
+        (value) => {
+          if (!subscriber.active) return;
+          detach();
+          resolve(value);
+        },
+        (error) => {
+          if (!subscriber.active) return;
+          detach();
+          reject(error);
+        },
+      );
+    });
+  }
+
+  return { subscribe, tasks };
+}
+
+function createConcurrencyGate(maxConcurrent) {
+  let active = 0;
+  const queue = [];
+  function drain() {
+    while (active < maxConcurrent && queue.length > 0) {
+      const job = queue.shift();
+      if (job.signal?.aborted) {
+        job.reject(createAbortError());
+        continue;
+      }
+      active += 1;
+      job.signal?.removeEventListener("abort", job.onAbort);
+      Promise.resolve()
+        .then(job.work)
+        .then(job.resolve, job.reject)
+        .finally(() => {
+          active -= 1;
+          drain();
+        });
+    }
+  }
+  function run(work, signal) {
+    throwIfAborted(signal);
+    return new Promise((resolve, reject) => {
+      const job = {
+        work,
+        signal,
+        resolve,
+        reject,
+        onAbort: () => {
+          const index = queue.indexOf(job);
+          if (index >= 0) queue.splice(index, 1);
+          reject(createAbortError());
+        },
+      };
+      signal?.addEventListener("abort", job.onAbort, { once: true });
+      queue.push(job);
+      drain();
+    });
+  }
+  return { run };
+}
+
+function isAbortError(error) {
+  return error?.name === "AbortError" || error?.code === "ABORT_ERR";
+}
 
 function clampPositive(value, fallback, maximum = Infinity) {
   const number = Number(value);
@@ -116,4 +220,12 @@ function createSessionDetailCoordinator(options = {}) {
   return { cache, get cacheBytes() { return cacheBytes; }, inFlight: registry.tasks, limits, read, readGate };
 }
 
-export { changingRead, createSessionDetailCoordinator, defaultSessionDetailLimits };
+export {
+  changingRead,
+  createAbortError,
+  createConcurrencyGate,
+  createSessionDetailCoordinator,
+  defaultSessionDetailLimits,
+  fileSignature,
+  isAbortError,
+};

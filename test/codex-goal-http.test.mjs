@@ -94,18 +94,14 @@ test("HTTP surfaces project a verified Codex goal while raw diagnostics retain t
   assert.equal(detail.body.turns[0].items.find((item) => item.type === "user-message").text, objective);
   assert.equal(JSON.stringify(detail.body.turns).includes("Tokens remaining: unbounded"), false);
 
-  const [archive, semanticSearch, controlSearch] = await Promise.all([
-    json(`/api/sources/local/prompts?scope=all&q=${encodeURIComponent(objective)}`),
+  const [semanticSearch, controlSearch] = await Promise.all([
     json(`/api/query/sessions/${threadId}/events?q=${encodeURIComponent(objective)}`),
     json(`/api/query/sessions/${threadId}/events?q=Tokens%20remaining`),
   ]);
-  assert.equal(archive.body.entries[0].promptText, objective);
   assert.deepEqual(semanticSearch.body.events.map((event) => event.index), [3]);
   assert.equal(controlSearch.body.events.length, 0);
 
-  const [markdown, raw] = await Promise.all([fetch(`${baseUrl}/api/sessions/${threadId}/markdown`), json(`/api/sessions/${threadId}/events/3`)]);
-  assert.equal(markdown.status, 200);
-  assert.match(await markdown.text(), new RegExp(objective));
+  const raw = await json(`/api/sessions/${threadId}/events/3`);
   assert.equal(raw.body.raw.payload.content[0].text, control);
   assert.equal(raw.body.payload.content[0].text, control);
 });

@@ -30,10 +30,6 @@
           <details class="topbar-more">
             <summary aria-label="更多操作">···</summary>
             <div class="topbar-more-menu">
-              <button class="ghost-button" id="promptsModeButton" type="button" aria-pressed="false" data-sidebar-mode="prompts">任务归档</button>
-              <button class="ghost-button" id="sessionsModeButton" type="button" aria-pressed="true" data-sidebar-mode="sessions" hidden>返回会话</button>
-              <button class="ghost-button" id="copyMarkdownButton" type="button" disabled>复制 Markdown</button>
-              <button class="ghost-button" id="downloadMarkdownButton" type="button" disabled>下载 Markdown</button>
               <button class="ghost-button" id="settingsButton" type="button">展示规则</button>
             </div>
           </details>
@@ -79,19 +75,6 @@
               </select>
             </div>
           </details>
-
-          <div class="prompt-archive-controls" id="promptArchiveControls" hidden>
-            <label class="field-label" for="promptArchiveSearch">搜索任务提示词</label>
-            <input class="text-input" id="promptArchiveSearch" type="search" autocomplete="off" placeholder="提示词、会话标题、项目..." />
-            <label class="field-label" for="promptArchiveStatus">提示词状态</label>
-            <select class="select-input" id="promptArchiveStatus">
-              <option value="all">全部状态</option>
-              <option value="found">已找到首个任务</option>
-              <option value="image-only">仅图片附件</option>
-              <option value="empty">未找到明确任务</option>
-              <option value="error">读取失败</option>
-            </select>
-          </div>
         </div>
 
         <div class="session-list" id="sessionList" role="region" aria-label="会话列表"></div>
@@ -143,8 +126,6 @@
         </section>
 
         <section class="stats-strip" id="statsStrip" aria-label="会话统计" hidden></section>
-
-        <section class="prompt-archive-content" id="promptArchiveContent" tabindex="-1" hidden></section>
 
         <section class="thread-content" id="threadContent" tabindex="-1" hidden></section>
         <section class="compact-content" id="compactContent" role="tabpanel" aria-labelledby="compactViewButton" tabindex="-1"></section>

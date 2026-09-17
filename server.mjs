@@ -1,12 +1,12 @@
 import { createServer } from "node:http";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertSecureListenConfig, createAccessControl, requireAuthorizedRequest } from "./src/access-control.mjs";
 import { createDataSourceRegistry, sanitizeErrorMessage } from "./src/data-sources.mjs";
-import { sendError, sendJson, sendText, serveStaticFile } from "./src/http-response.mjs";
-import { createSessionDetailCoordinator } from "./src/session-detail-coordinator.mjs";
+import { sendError, sendJson, serveStaticFile } from "./src/http-response.mjs";
+
 import { readJsonl, readJsonlLineWithDiagnostics, readJsonlRange, readJsonlWithDiagnostics } from "./src/jsonl-reader.mjs";
 import {
   buildTrace,
@@ -24,7 +24,6 @@ import {
   findSpawnAgentEvents,
   findSubagentNotifications,
   isImportantEvent,
-  renderConversationMarkdown,
   sessionIdFromFile,
   sessionStartedFromFile,
   summarizeEventPreview,
@@ -37,8 +36,7 @@ import { dedupeSessionFileRecords, sessionFileRoots } from "./src/session-catalo
 import { normalizeSessionEvent } from "./src/session-normalizer.mjs";
 import { buildSessionTiming } from "./src/session-timing.mjs";
 import { createPiGoalMessageProjector, isLikelyCodexGoalControlText } from "./src/pi-goal-projection.mjs";
-import { promptProjectKey } from "./src/session-prompts.mjs";
-import { createAbortError, createConcurrencyGate, createPromptArchiveCoordinator, fileSignature, isAbortError } from "./src/prompt-archive-coordinator.mjs";
+import { createAbortError, createConcurrencyGate, createSessionDetailCoordinator, fileSignature, isAbortError } from "./src/session-detail-coordinator.mjs";
 import {
   compactSessionForList,
   parentSessionIdFromMeta,
@@ -116,15 +114,9 @@ function getSourceContext(sourceId = "local") {
     allSessionCache: null,
     allSessionCacheTime: 0,
     sessionDetailCoordinator: null,
-    promptArchiveCoordinator: null,
-    promptArchiveTokens: new Map(),
   };
   context.sessionDetailCoordinator = createSessionDetailCoordinator({
     ...sessionDetailCoordinatorOptions(),
-    stat: async (filePath) => requireReadableSessionFile(context, filePath),
-  });
-  context.promptArchiveCoordinator = createPromptArchiveCoordinator({
-    readGate: sessionReadGate,
     stat: async (filePath) => requireReadableSessionFile(context, filePath),
   });
   sourceContexts.set(source.id, context);
@@ -689,212 +681,6 @@ async function listSessionsForDisplay(context, scope, params) {
   return filtered.map(compactSessionForList);
 }
 
-async function listPromptArchive(context, scope = "recent24h", options = {}) {
-  const normalizedScope = normalizeSessionCatalogScope(scope);
-  const pageSize = context.promptArchiveCoordinator.limits.maxSessions;
-  const snapshot = await promptArchiveSnapshot(context, normalizedScope);
-  const continuation = await resolvePromptArchiveContinuation(context, options.pageToken, normalizedScope, snapshot);
-  const candidates = await promptArchiveCandidates(context, normalizedScope, continuation?.cursor || null, pageSize + 1, options);
-  const selected = candidates.slice(0, pageSize);
-  const result = await context.promptArchiveCoordinator.list(selected.map((candidate) => candidate.session), { signal: options.signal });
-  const entries = result.entries;
-  entries.sort((left, right) => promptEntryTimeMs(right) - promptEntryTimeMs(left));
-  const hasMoreCandidates = candidates.length > selected.length;
-  const candidateFrom = continuation?.candidateTo + 1 || 1;
-  const candidateTo = candidateFrom + selected.length - 1;
-  const nextPageToken = hasMoreCandidates && selected.length
-    ? storePromptArchiveContinuation(context, {
-      scope: normalizedScope,
-      snapshot,
-      cursor: selected.at(-1).cursor,
-      candidateTo,
-      watched: await Promise.all(selected.map(async (candidate) => {
-        const stat = await sessionFileStat(context, candidate.session.path, candidate.session.id);
-        return { path: candidate.session.path, signature: fileSignature(candidate.session.path, stat) };
-      })),
-    })
-    : null;
-  return {
-    entries,
-    page: {
-      candidateFrom,
-      candidateTo,
-      candidatesScanned: selected.length,
-      entriesReturned: entries.length,
-      limit: pageSize,
-      hasMoreCandidates,
-      nextPageToken,
-    },
-  };
-}
-
-async function queryPromptArchive(context, params, options = {}) {
-  const scope = normalizeSessionCatalogScope(params.get("scope") || "recent24h");
-  const q = String(params.get("q") || "").trim().toLowerCase();
-  const project = String(params.get("project") || "").trim();
-  const status = String(params.get("status") || "all").trim();
-  const archive = await listPromptArchive(context, scope, { ...options, pageToken: params.get("pageToken") || "" });
-  const entries = archive.entries.filter((entry) => {
-    if (project && entry.projectKey !== project && promptProjectKey(entry.cwd) !== project) return false;
-    if (status !== "all" && entry.promptState !== status) return false;
-    return !q || [entry.sessionTitle, entry.promptText, entry.promptPreview, entry.cwd, entry.sessionId, entry.sourceLabel, entry.status]
-      .filter(Boolean)
-      .join("\n")
-      .toLowerCase()
-      .includes(q);
-  });
-  return {
-    source: dataSources.listSources().find((source) => source.id === context.source.id) || null,
-    scope,
-    entries,
-    page: { ...archive.page, entriesReturned: entries.length },
-    projects: projectSummaries(entries),
-    serverTime: new Date().toISOString(),
-  };
-}
-
-async function promptArchiveSnapshot(context, scope) {
-  const paths = [context.stateDbPath, context.sessionsRoot, path.join(context.codexHome, "archived_sessions")];
-  const signatures = await Promise.all(paths.map(async (target) => {
-    try {
-      const stat = await fs.stat(target);
-      return stat ? fileSignature(target, stat) : `${target}:missing`;
-    } catch {
-      return `${target}:missing`;
-    }
-  }));
-  return createHash("sha256")
-    .update([context.source.id, context.source.status?.sourceVersion || "", scope, ...signatures].join("\u0000"))
-    .digest("base64url");
-}
-
-function promptArchiveChangedError() {
-  const error = new Error("任务归档候选范围已变化，请从最近任务重新开始定位。");
-  error.status = 409;
-  error.code = "prompt_archive_snapshot_changed";
-  return error;
-}
-
-async function resolvePromptArchiveContinuation(context, pageToken, scope, snapshot) {
-  if (!pageToken) return null;
-  const continuation = context.promptArchiveTokens.get(pageToken);
-  if (!continuation || continuation.scope !== scope || continuation.snapshot !== snapshot) throw promptArchiveChangedError();
-  const unchanged = await Promise.all((continuation.watched || []).map(async (entry) => {
-    const stat = await sessionFileStat(context, entry.path);
-    return entry.signature === fileSignature(entry.path, stat);
-  }));
-  if (unchanged.some((value) => !value)) throw promptArchiveChangedError();
-  context.promptArchiveTokens.delete(pageToken);
-  return continuation;
-}
-
-function storePromptArchiveContinuation(context, continuation) {
-  const token = randomUUID();
-  context.promptArchiveTokens.set(token, continuation);
-  while (context.promptArchiveTokens.size > 32) context.promptArchiveTokens.delete(context.promptArchiveTokens.keys().next().value);
-  return token;
-}
-
-async function promptArchiveCandidates(context, scope, cursor, limit, options = {}) {
-  const bounds = sessionCatalogBounds(scope);
-  const threads = await context.threadStore.readThreads({ ...bounds, limit, cursor: cursor?.kind === "sqlite" ? cursor : null, sort: "path", signal: options.signal });
-  if (threads.size > 0) {
-    const candidates = [];
-    for (const thread of threads.values()) {
-      throwIfRequestAborted(options.signal);
-      const session = sessionFromThread(thread, context.codexHome, sourceModelOptions(context));
-      if (!await sessionFileExists(context, session, options)) continue;
-      const stat = await sessionFileStat(context, session.path, session.id);
-      if (!stat) continue;
-      candidates.push({
-        session,
-        // SQLite paths are mapped into the selected local source before reading the session file.
-        cursor: { kind: "sqlite", path: thread.path, id: thread.id },
-      });
-    }
-    if (candidates.length > 0) return candidates;
-  }
-  return promptArchiveFileCandidates(context, bounds, cursor, limit, options);
-}
-
-async function promptArchiveFileCandidates(context, bounds, cursor, limit, options = {}) {
-  const records = [];
-  if (context.source.taskSessionsRoot) {
-    for await (const record of walkSourceSessionFiles(context, options)) {
-      if (records.length >= limit) break;
-      if (cursor?.kind === "file" && record.filePath >= cursor.filePath) continue;
-      let stat;
-      try {
-        stat = await sessionFileStat(context, record.filePath);
-        if (!stat) continue;
-      } catch {
-        continue;
-      }
-      if (bounds.sinceMs != null && stat.mtimeMs < bounds.sinceMs) continue;
-      if (bounds.beforeMs != null && stat.mtimeMs >= bounds.beforeMs) continue;
-      records.push({ id: sessionRecordId(record.filePath, record.taskId), filePath: record.filePath, stat, archived: false, rootIndex: 0 });
-    }
-    const candidates = await Promise.all(records.map(async (record) => ({
-      session: await sessionFromFilePath(context, record.filePath, { archived: false, sessionId: record.id, signal: options.signal }),
-      cursor: { kind: "file", rootIndex: 0, filePath: record.filePath },
-    })));
-    return candidates.filter((candidate) => candidate.session?.path);
-  }
-  const roots = sessionFileRoots(context.codexHome, context.sessionsRoot, true);
-  const startRoot = cursor?.kind === "file" ? cursor.rootIndex : 0;
-  for (let rootIndex = startRoot; rootIndex < roots.length && records.length < limit; rootIndex += 1) {
-    const root = roots[rootIndex];
-    for await (const filePath of walkJsonl(root.root, options)) {
-      if (records.length >= limit) break;
-      if (rootIndex === startRoot && cursor?.kind === "file" && filePath >= cursor.filePath) continue;
-      let stat;
-      try {
-        stat = await sessionFileStat(context, filePath);
-        if (!stat) continue;
-      } catch {
-        continue;
-      }
-      if (bounds.sinceMs != null && stat.mtimeMs < bounds.sinceMs) continue;
-      if (bounds.beforeMs != null && stat.mtimeMs >= bounds.beforeMs) continue;
-      records.push({ id: sessionIdFromFile(filePath), filePath, stat, archived: root.archived, rootIndex });
-    }
-  }
-  const candidates = (await Promise.all(dedupeSessionFileRecords(records).map(async (record) => ({
-    session: await sessionFromFilePath(context, record.filePath, { archived: record.archived, signal: options.signal }),
-    cursor: { kind: "file", rootIndex: record.rootIndex, filePath: record.filePath },
-  })))).filter((candidate) => candidate.session?.path);
-  const titled = await supplementVerifiedFileSessionTitles(context, candidates.map((candidate) => candidate.session), options);
-  return candidates.map((candidate, index) => ({ ...candidate, session: titled[index] }));
-}
-
-
-function projectSummaries(entries) {
-  const groups = new Map();
-  for (const entry of entries) {
-    const current = groups.get(entry.projectKey) || {
-      key: entry.projectKey,
-      label: entry.projectLabel,
-      cwd: entry.cwd,
-      count: 0,
-      latestAt: null,
-    };
-    current.count += 1;
-    if (!current.latestAt || promptEntryTimeMs(entry) > promptEntryTimeMs({ updatedAt: current.latestAt })) {
-      current.latestAt = entry.updatedAt || entry.startedAt || null;
-    }
-    groups.set(entry.projectKey, current);
-  }
-  return [...groups.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label, "zh-CN"));
-}
-
-function promptEntryTimeMs(entry) {
-  for (const value of [entry?.updatedAt, entry?.startedAt, entry?.promptTimestamp]) {
-    const time = value ? new Date(value).getTime() : NaN;
-    if (Number.isFinite(time)) return time;
-  }
-  return 0;
-}
-
 async function getSessionDetail(context, id, options = {}) {
   throwIfRequestAborted(options.signal);
   const session = await getSessionById(context, id, { signal: options.signal });
@@ -1376,18 +1162,6 @@ async function sessionFromFilePath(context, filePath, options = {}) {
   );
 }
 
-async function getSessionMarkdown(context, id, options = {}) {
-  throwIfRequestAborted(options.signal);
-  const session = await getSessionById(context, id, { signal: options.signal });
-  if (!session || !await sessionFileExists(context, session, options)) return null;
-  const result = await context.sessionDetailCoordinator.read(session, {
-    cacheKey: `markdown:${context.source.id}:${id}`,
-    signal: options.signal,
-    derive: (rawEvents) => renderConversationMarkdown(session, buildTurns(rawEvents)),
-  });
-  return result.state === "ready" ? { markdown: result.value, readState: null } : { markdown: null, readState: result };
-}
-
 async function getThreadHierarchy(context, threadId, options = {}) {
   throwIfRequestAborted(options.signal);
   const edges = await context.threadStore.readSpawnEdges();
@@ -1464,7 +1238,6 @@ function isReadOnlyApiPath(pathname) {
     pathname === "/api/sessions" ||
     pathname.startsWith("/api/sessions/") ||
     pathname.startsWith("/api/query/") ||
-    /^\/api\/sources\/[^/]+\/prompts$/.test(pathname) ||
     /^\/api\/sources\/[^/]+\/sessions(?:\/.*)?$/.test(pathname) ||
     /^\/api\/sources\/[^/]+\/query\/.*$/.test(pathname)
   );
@@ -1494,19 +1267,6 @@ async function route(req, res) {
     if (pathname === "/api/sources") {
       return sendJson(res, 200, { sources: dataSources.listSources() });
     }
-    const sourcePromptsMatch = pathname.match(/^\/api\/sources\/([^/]+)\/prompts$/);
-    if (sourcePromptsMatch) {
-      const context = getSourceContext(decodeURIComponent(sourcePromptsMatch[1]));
-      if (!context) return sendError(res, 404, "Data source not found");
-      const subscription = requestAbortSubscription(req, res);
-      try {
-        const archive = await queryPromptArchive(context, url.searchParams, { signal: subscription.signal });
-        if (!subscription.signal.aborted && !res.destroyed) return sendJson(res, 200, archive);
-        return undefined;
-      } finally {
-        subscription.dispose();
-      }
-    }
 
     if (pathname === "/api/sessions") {
       const context = resolveRequestSource(url);
@@ -1523,15 +1283,7 @@ async function route(req, res) {
       const sessions = await listSessionsForDisplay(context, scope, url.searchParams);
       return sendJson(res, 200, { source: dataSources.listSources().find((source) => source.id === context.source.id), scope, sessions });
     }
-    const sourceMarkdownMatch = pathname.match(/^\/api\/sources\/([^/]+)\/sessions\/([^/]+)\/markdown$/);
-    if (sourceMarkdownMatch) {
-      const context = getSourceContext(decodeURIComponent(sourceMarkdownMatch[1]));
-      if (!context) return sendError(res, 404, "Data source not found");
-      const markdown = await getSessionMarkdown(context, decodeURIComponent(sourceMarkdownMatch[2]), { signal: requestSubscription.signal });
-      if (markdown == null) return sendError(res, 404, "Session not found");
-      if (markdown.readState) return sendJson(res, 409, { error: "会话文件在读取中发生变化", code: markdown.readState.code, readState: markdown.readState });
-      return sendText(res, 200, markdown.markdown);
-    }
+
     const sourceEventMatch = pathname.match(/^\/api\/sources\/([^/]+)\/sessions\/([^/]+)\/events\/(\d+)$/);
     if (sourceEventMatch) {
       const context = getSourceContext(decodeURIComponent(sourceEventMatch[1]));
@@ -1591,15 +1343,7 @@ async function route(req, res) {
       if (!events) return sendError(res, 404, "Session not found");
       return sendJson(res, 200, events);
     }
-    const markdownMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/markdown$/);
-    if (markdownMatch) {
-      const context = resolveRequestSource(url);
-      if (!context) return sendError(res, 404, "Data source not found");
-      const markdown = await getSessionMarkdown(context, decodeURIComponent(markdownMatch[1]), { signal: requestSubscription.signal });
-      if (markdown == null) return sendError(res, 404, "Session not found");
-      if (markdown.readState) return sendJson(res, 409, { error: "会话文件在读取中发生变化", code: markdown.readState.code, readState: markdown.readState });
-      return sendText(res, 200, markdown.markdown);
-    }
+
     const eventMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/events\/(\d+)$/);
     if (eventMatch) {
       const context = resolveRequestSource(url);

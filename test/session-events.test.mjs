@@ -11,7 +11,7 @@ import {
   deriveSessionStatusFromTurns,
   extractTitleFromEvents,
   findSubagentNotifications,
-  renderConversationMarkdown,
+
   summarizeEventPreview,
 } from "../src/session-events.mjs";
 import { readJsonlWithDiagnostics } from "../src/jsonl-reader.mjs";
@@ -69,7 +69,7 @@ test("buildTurns keeps visible behavior while deduplicating response echoes", ()
   assert.equal(turns[0].items[1].output, "found 2");
 });
 
-test("event summaries and markdown export keep diagnostics readable", () => {
+test("event summaries keep diagnostics readable", () => {
   const events = [
     {
       type: "response_item",
@@ -80,23 +80,8 @@ test("event summaries and markdown export keep diagnostics readable", () => {
       payload: { type: "agent_message", message: "完成处理" },
     },
   ];
-  const turns = buildTurns(events);
-  const markdown = renderConversationMarkdown(
-    {
-      id: "thread-1",
-      title: "测试会话",
-      cwd: "D:\\github\\codex-session-renderer",
-      startedAt: "2026-06-24T10:00:00.000Z",
-    },
-    turns,
-  );
-
   assert.equal(extractTitleFromEvents(events, "fallback"), "第一行 第二行");
   assert.equal(summarizeEventPreview(events[0]), "第一行 第二行");
-  assert.match(markdown, /^# 测试会话/m);
-  assert.match(markdown, /^## 第 1 轮/m);
-  assert.match(markdown, /### 用户/);
-  assert.match(markdown, /### 助手/);
 });
 
 test("buildTrace localizes thread, turn, and execution fallback labels", () => {
@@ -701,7 +686,7 @@ test("buildTurns keeps real repeated user messages with the same text", async ()
 test("buildTurns marks aborted turns and hides replayed machine context", async () => {
   const events = await readSpecialSessionFixture("interrupt-resume-machine-context.jsonl");
   const turns = buildTurns(events);
-  const markdown = renderConversationMarkdown({ id: "interrupt", title: "中断续跑" }, turns);
+
 
   assert.equal(turns.length, 2);
   assert.equal(turns[0].status, "aborted");
@@ -709,10 +694,7 @@ test("buildTurns marks aborted turns and hides replayed machine context", async 
   assert.equal(turns[1].status, "completed");
   assert.equal(turns[1].items[0].text, "请继续整理复盘材料");
   assert.equal(deriveSessionStatusFromTurns(turns), "completed");
-  assert.equal(markdown.includes("AGENTS.md instructions"), false);
-  assert.equal(markdown.includes("<environment_context>"), false);
-  assert.equal(markdown.includes("turn_aborted"), false);
-  assert.match(markdown, /_aborted/);
+
 });
 
 test("buildTurns infers waiting status for pending wait_agent calls", () => {

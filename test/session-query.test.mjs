@@ -139,7 +139,6 @@ test("projectSessionForApi keeps legacy links by default and supports source-sco
     detail: "/api/sessions/thread%20id",
     compactView: "/api/query/sessions/thread%20id/view?view=compact",
     events: "/api/query/sessions/thread%20id/events",
-    markdown: "/api/sessions/thread%20id/markdown",
   });
 
   const scoped = projectSessionForApi({ id: "thread id", title: "链接测试" }, {}, { sourceId: "remote-a" });
@@ -147,7 +146,6 @@ test("projectSessionForApi keeps legacy links by default and supports source-sco
     detail: "/api/sources/remote-a/sessions/thread%20id",
     compactView: "/api/sources/remote-a/query/sessions/thread%20id/view?view=compact",
     events: "/api/sources/remote-a/query/sessions/thread%20id/events",
-    markdown: "/api/sources/remote-a/sessions/thread%20id/markdown",
   });
 });
 

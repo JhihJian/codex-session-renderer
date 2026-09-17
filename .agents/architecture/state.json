@@ -1,219 +1,10 @@
 {
   "version": 4,
-  "documentStatus": "active",
+  "documentStatus": "candidate",
   "snapshot": {
     "commit": "ca4ba09351f369be32faa5fe96daf1e87c1e68ee",
     "acceptedAt": "2026-09-17T08:47:43.332Z",
-    "files": [
-      {
-        "path": "README.md",
-        "sha256": "sha256:67375aff527224c453578676c56b98f52dcb060eb0a6b80ba991be6ba76f7719"
-      },
-      {
-        "path": "docs/architecture/README.md",
-        "sha256": "sha256:bcb187053dbfc1ff8f3bad328cf928bcbf88c01e2df585ca56e5043eda0d9e48"
-      },
-      {
-        "path": "docs/architecture/implementation.md",
-        "sha256": "sha256:32366e38a114da90f8706d48da7f00ec294e112f226f31b4f9560bfd25a409df"
-      },
-      {
-        "path": "docs/architecture/modules/prompt-archive-and-goal-projection.md",
-        "sha256": "sha256:656e93e0c3e140a637aa0ca4e55ec6f48ac1ac3f6553d41000d23f67dfc457b8"
-      },
-      {
-        "path": "docs/architecture/modules/session-projection.md",
-        "sha256": "sha256:76e94fbaa0aa03226d920463c2812240c98b6994a0da210029c638470058e7bc"
-      },
-      {
-        "path": "docs/reader-context-events-design.md",
-        "sha256": "sha256:04f60dce31e6b30e792f333fd4997058b2004f5f7eee866f8a7685e6cd8d3d84"
-      },
-      {
-        "path": "docs/session-event-normalization.md",
-        "sha256": "sha256:b2e8f63e72abcd58fd377451047a2f757e62a9a04d0ba0078956d2ccfb523a85"
-      },
-      {
-        "path": "public/app-format.js",
-        "sha256": "sha256:70632d6407c36be36fe976b6af6783e7d760993428a4ce76b3d3ec86957d04d9"
-      },
-      {
-        "path": "public/app.js",
-        "sha256": "sha256:38389c80eb05298196a86134461b9dfa821ac20c9f06111933966b664772021d"
-      },
-      {
-        "path": "public/index.html",
-        "sha256": "sha256:73bb7ede544fea85325c8808c52f2729444d6a1582866420e9b1e9f913e63b36"
-      },
-      {
-        "path": "public/styles.css",
-        "sha256": "sha256:c3cec33b5a1f471f3a13f4546929893abe605f1dd1100139cb534424db21e959"
-      },
-      {
-        "path": "public/tool-summary.js",
-        "sha256": "sha256:d360e343d67c0558b155f4737e80d89e8e5f82473a36fc5db767cb48b660c90a"
-      },
-      {
-        "path": "scripts/e2e-server.mjs",
-        "sha256": "sha256:23844276a854509fb31e9c53a3c11bfa0073ce43278679b80dded17c06c028b6"
-      },
-      {
-        "path": "server.mjs",
-        "sha256": "sha256:15e02d7cf351c876c89ec71daa6d71502f6f8a4e5e6d1de9e2998fa267d57a9c"
-      },
-      {
-        "path": "src/access-control.mjs",
-        "sha256": "sha256:77dd682be1f66b4cea2625d67e5f1aed6804a5d6331dbb8b55c9d3dc6fa950fe"
-      },
-      {
-        "path": "src/data-sources.mjs",
-        "sha256": "sha256:3fc79b80728f495d0fdc9f78d036bec63238d6084723c4e2a5ec7595e166b110"
-      },
-      {
-        "path": "src/event-summary.mjs",
-        "sha256": "sha256:d04af923d369dde9f72af0e13c94ee40bd98b5f6eaa1fd0d7d9c937eaef0e592"
-      },
-      {
-        "path": "src/jsonl-reader.mjs",
-        "sha256": "sha256:ae209e6def46e9af7135459689789f960a8b28575c734ef2169905529f984c0e"
-      },
-      {
-        "path": "src/markdown-export.mjs",
-        "sha256": "sha256:9093a7c7731c22ef4429b30d7383d510d9ffce9944e4965e490a4373c5079a1f"
-      },
-      {
-        "path": "src/pi-context-events.mjs",
-        "sha256": "sha256:de10b92dd0c4e0e521201772a7ea87ef4f6481ca90e1636e4d269b9b2092014d"
-      },
-      {
-        "path": "src/pi-goal-projection.mjs",
-        "sha256": "sha256:9d8ed5049596ef51108702893bffa629bd52ee9afc4dc89f55b12052bdfd5745"
-      },
-      {
-        "path": "src/prompt-archive-coordinator.mjs",
-        "sha256": "sha256:9a1dda2e5bbeb012f658b17e110c159c51af1bf027f3b828076ca2b445650320"
-      },
-      {
-        "path": "src/session-catalog.mjs",
-        "sha256": "sha256:f55a6189486e3f11a5fc0a4c0da1457fe454266151321390a7c62152726d276a"
-      },
-      {
-        "path": "src/session-detail-coordinator.mjs",
-        "sha256": "sha256:c8e0db66948d2be0613a73271c6348291a2038b7b6c58261b6176293bd6b5831"
-      },
-      {
-        "path": "src/session-events.mjs",
-        "sha256": "sha256:393cfbd16be44d9b5b487be65b12dde0071cb60f4af906cb736e401ca55d2066"
-      },
-      {
-        "path": "src/session-models.mjs",
-        "sha256": "sha256:ca8feb68cc1759e4605e0ab58d0f0d7dee9f64707fc082bb29e4205ee3292c8b"
-      },
-      {
-        "path": "src/session-normalizer.mjs",
-        "sha256": "sha256:e670dd3aa4328016c20d31ed65714df0c39c6f69304ce58bbb53b33a4b2de7ac"
-      },
-      {
-        "path": "src/session-prompts.mjs",
-        "sha256": "sha256:921149d7129b40fe706b28e728ba953abfdcf77bdb97c5e3ee106c7075127303"
-      },
-      {
-        "path": "src/session-query.mjs",
-        "sha256": "sha256:35d2886274e9a80f44382cd0563df85da901d10c0548bac455f203dca8894e17"
-      },
-      {
-        "path": "src/session-timing.mjs",
-        "sha256": "sha256:4111498866500c2a5876f694f53beb0f05bf37ed510a9c6dfedb0a7ce0d643a6"
-      },
-      {
-        "path": "src/sqlite-threads.mjs",
-        "sha256": "sha256:55690a948954e3c80b4ffda1fc2f85c0b9e6101eb3c3a13155901074e75482f5"
-      },
-      {
-        "path": "test/app-format.test.mjs",
-        "sha256": "sha256:1d94a1a44e1391553ebcf64028275455a65a3018acf3078f7c24c4ba57bdb27a"
-      },
-      {
-        "path": "test/codex-goal-http.test.mjs",
-        "sha256": "sha256:43db66f9b20d4d9f6c8da887ab551be1fc8af52cf5359d46277502ee9b064cc9"
-      },
-      {
-        "path": "test/data-sources.test.mjs",
-        "sha256": "sha256:fa9769e3a4b4539faaee9f541c7cc23b605dc8238a324368d650c45a05d6f4c0"
-      },
-      {
-        "path": "test/e2e/fixture-session.mjs",
-        "sha256": "sha256:cafc17ebb64c06b8b86e24a1089d54af110296a283da7f3396d8c73b4ca8eb2b"
-      },
-      {
-        "path": "test/e2e/full-content.spec.mjs",
-        "sha256": "sha256:aafbc81ccf4780077484110a182d54f1cec64e703531f7211ad904809e943407"
-      },
-      {
-        "path": "test/e2e/list-scope-navigation.spec.mjs",
-        "sha256": "sha256:0fbb27c8553fce29d28615ee451966331de73c9e5a815a064e1cfd62939e0738"
-      },
-      {
-        "path": "test/e2e/source-helpers.mjs",
-        "sha256": "sha256:20a856b6c0007b47269dca30019ae5ce3c24cc20b5668ac7ec04840638942c05"
-      },
-      {
-        "path": "test/e2e/title-consistency.spec.mjs",
-        "sha256": "sha256:d84ae7b25ed38fa0d5eb5af0e6da8f888f8cbe0f629c75ca4b604923c0a2a4a9"
-      },
-      {
-        "path": "test/markdown-export.test.mjs",
-        "sha256": "sha256:f5cabac78cebf70c6be79552de194698396a8b1522b65547b63352eb8c414470"
-      },
-      {
-        "path": "test/pi-context-events.test.mjs",
-        "sha256": "sha256:b76cf5d9cc8ba7c2d468acfcaaf011b12464fd0bef55101a5824acb7aab95a77"
-      },
-      {
-        "path": "test/prompt-archive-coordinator.test.mjs",
-        "sha256": "sha256:0ced889eca6fd35e929417b48ede65d64aa515de460747b55f8e6f355158f363"
-      },
-      {
-        "path": "test/server-access-control.test.mjs",
-        "sha256": "sha256:ad2aff4076f4cdecaff256886d8b21767de8bf0ca25988fae7350037220aef86"
-      },
-      {
-        "path": "test/session-catalog.test.mjs",
-        "sha256": "sha256:3f68736bddb47150fc25e46d8d1a1e156dd59fb94a0e6eb3860cfeb5466a99ce"
-      },
-      {
-        "path": "test/session-detail-coordinator.test.mjs",
-        "sha256": "sha256:a7ef2409b6b8870f951ff012ac19135945cee0e60b29f5ab63fdc1e38c914748"
-      },
-      {
-        "path": "test/session-events.test.mjs",
-        "sha256": "sha256:90e227fe28506fc21843e9398c254a0ed4be0ef1a196ac5d9401f51544f97880"
-      },
-      {
-        "path": "test/session-models.test.mjs",
-        "sha256": "sha256:c0c49dba4ecd70b670febdcf0e4d8ed3e610be5737bc23e231e741f2426e5339"
-      },
-      {
-        "path": "test/session-normalizer.test.mjs",
-        "sha256": "sha256:3d15bdbaf9a0860c6a297a041f652b43bdfc3df4b876e84b85e0d0234d2e6192"
-      },
-      {
-        "path": "test/session-prompts.test.mjs",
-        "sha256": "sha256:d2a7317b13b7924866239f3e2e2b2d102a55a185a2c0dfb4448c36e495ce6b53"
-      },
-      {
-        "path": "test/session-query.test.mjs",
-        "sha256": "sha256:4c82274baa0c6d6cec62c3448d98d029bf9d41588e3ff837c12abef827df1498"
-      },
-      {
-        "path": "test/session-timing.test.mjs",
-        "sha256": "sha256:86cf4afd92b68e2065d234c5a22f651e09bebb4526c92310257b46d330619e9b"
-      },
-      {
-        "path": "test/tool-summary.test.mjs",
-        "sha256": "sha256:8f19fb1d4f313768954312071efe20229745830555ec12a061aa31131415545a"
-      }
-    ]
+    "files": []
   },
   "documents": [
     {
@@ -225,11 +16,6 @@
       "role": "session-projection",
       "path": "docs/architecture/modules/session-projection.md",
       "anchor": "会话读取与投影"
-    },
-    {
-      "role": "prompt-archive-and-goal-projection",
-      "path": "docs/architecture/modules/prompt-archive-and-goal-projection.md",
-      "anchor": "任务归档与目标投影"
     },
     {
       "role": "implementation-reference",
@@ -277,7 +63,7 @@
     {
       "id": "boundary-source-records-and-local-derivatives",
       "kind": "boundary",
-      "summary": "系统不改写本机 Codex 或 Pi Agent 原始会话；浏览器展示、Markdown 与任务归档均从本地读取结果派生。",
+      "summary": "系统不改写本机 Codex 或 Pi Agent 原始会话；浏览器展示 与任务归档均从本地读取结果派生。",
       "moduleId": "data-sources",
       "certainty": "confirmed",
       "evidence": [
@@ -412,7 +198,7 @@
     {
       "id": "capability-session-discovery-and-view",
       "kind": "capability",
-      "summary": "服务按来源提供 SQLite 优先、JSONL 回退的会话发现，并派生列表、详情、事件、执行过程、时间统计和 Markdown。",
+      "summary": "服务按来源提供 SQLite 优先、JSONL 回退的会话发现，并派生列表、详情、事件、执行过程、时间统计。",
       "moduleId": "session-projection",
       "certainty": "confirmed",
       "evidence": [
@@ -446,12 +232,10 @@
         "src/session-query.mjs",
         "src/session-events.mjs",
         "src/session-timing.mjs",
-        "src/markdown-export.mjs",
         "test/data-sources.test.mjs",
         "test/session-query.test.mjs",
         "test/session-timing.test.mjs",
         "docs/architecture/modules/session-projection.md",
-        "test/markdown-export.test.mjs",
         "test/app-format.test.mjs",
         "test/e2e/list-scope-navigation.spec.mjs",
         "test/e2e/source-helpers.mjs",
@@ -494,127 +278,216 @@
         "test/session-detail-coordinator.test.mjs",
         "docs/architecture/modules/session-projection.md"
       ]
-    },
-    {
-      "id": "module-prompt-archive-and-goal-projection",
-      "kind": "module",
-      "summary": "任务归档与目标投影模块负责有界提取首个有效用户任务，并失败关闭地投影已验证 Goal 控制包的目标文本。",
-      "moduleId": "prompt-archive-and-goal-projection",
-      "certainty": "confirmed",
-      "evidence": [
-        {
-          "path": "src/prompt-archive-coordinator.mjs",
-          "locator": "function createPromptArchiveCoordinator(options = {})"
-        },
-        {
-          "path": "src/pi-goal-projection.mjs",
-          "locator": "function createPiGoalMessageProjector()"
-        }
-      ],
-      "tests": [
-        {
-          "path": "test/prompt-archive-coordinator.test.mjs",
-          "locator": "归档协调器限制慢读取并发且不会提前启动后续文件"
-        },
-        {
-          "path": "test/codex-goal-http.test.mjs",
-          "locator": "HTTP surfaces project a verified Codex goal while raw diagnostics retain the packet"
-        }
-      ],
-      "document": {
-        "role": "prompt-archive-and-goal-projection",
-        "path": "docs/architecture/modules/prompt-archive-and-goal-projection.md",
-        "anchor": "设计结论"
-      },
-      "impactPaths": [
-        "server.mjs",
-        "src/prompt-archive-coordinator.mjs",
-        "src/session-prompts.mjs",
-        "src/pi-goal-projection.mjs",
-        "test/prompt-archive-coordinator.test.mjs",
-        "test/session-prompts.test.mjs",
-        "test/codex-goal-http.test.mjs",
-        "docs/architecture/implementation.md",
-        "docs/architecture/modules/prompt-archive-and-goal-projection.md"
-      ]
-    },
-    {
-      "id": "capability-bounded-prompt-archive",
-      "kind": "capability",
-      "summary": "任务归档以来源和文件版本隔离，在固定并发、文件、事件、会话和正文预算内返回首个有效用户任务或明确状态。",
-      "moduleId": "prompt-archive-and-goal-projection",
-      "certainty": "confirmed",
-      "evidence": [
-        {
-          "path": "src/prompt-archive-coordinator.mjs",
-          "locator": "const defaultLimits = {"
-        },
-        {
-          "path": "src/session-prompts.mjs",
-          "locator": "function extractFirstPrompt(events, options = {})"
-        }
-      ],
-      "tests": [
-        {
-          "path": "test/prompt-archive-coordinator.test.mjs",
-          "locator": "超长提示词受限，而超大文件的有界前缀仍可归档首个任务"
-        },
-        {
-          "path": "test/session-prompts.test.mjs",
-          "locator": "extractFirstPrompt keeps the first real user task and its source anchor"
-        }
-      ],
-      "document": {
-        "role": "prompt-archive-and-goal-projection",
-        "path": "docs/architecture/modules/prompt-archive-and-goal-projection.md",
-        "anchor": "核心模型"
-      },
-      "impactPaths": [
-        "server.mjs",
-        "src/prompt-archive-coordinator.mjs",
-        "src/session-prompts.mjs",
-        "test/prompt-archive-coordinator.test.mjs",
-        "test/session-prompts.test.mjs",
-        "docs/architecture/modules/prompt-archive-and-goal-projection.md"
-      ]
-    },
-    {
-      "id": "guarantee-goal-control-fails-closed",
-      "kind": "guarantee",
-      "summary": "只有完全符合当前 Codex/Pi Goal profile 的控制包可投影 objective，未知或不匹配内容保持普通消息和 Raw 诊断事实。",
-      "moduleId": "prompt-archive-and-goal-projection",
-      "certainty": "confirmed",
-      "evidence": [
-        {
-          "path": "src/pi-goal-projection.mjs",
-          "locator": "function projectCodexGoalMessage(event, goalState, minimumTokensUsed, projectedObjectives)"
-        },
-        {
-          "path": "docs/session-event-normalization.md",
-          "locator": "未知版本、预算形态、字段缺失、错误 thread ID、状态倒退、模板附加内容、伪造文本和普通用户写出的相似标签均按普通消息保留。"
-        }
-      ],
-      "tests": [
-        {
-          "path": "test/codex-goal-http.test.mjs",
-          "locator": "HTTP surfaces project a verified Codex goal while raw diagnostics retain the packet"
-        }
-      ],
-      "document": {
-        "role": "prompt-archive-and-goal-projection",
-        "path": "docs/architecture/modules/prompt-archive-and-goal-projection.md",
-        "anchor": "必须保持的规则"
-      },
-      "impactPaths": [
-        "src/pi-goal-projection.mjs",
-        "src/session-events.mjs",
-        "src/session-prompts.mjs",
-        "docs/session-event-normalization.md",
-        "test/codex-goal-http.test.mjs",
-        "docs/architecture/modules/prompt-archive-and-goal-projection.md"
-      ]
     }
   ],
   "openQuestions": [],
-  "pendingImpact": null
+  "pendingImpact": {
+    "baseCommit": "ca4ba09351f369be32faa5fe96daf1e87c1e68ee",
+    "changedPaths": [
+      ".agents/architecture/state.json",
+      "README.md",
+      "docs/architecture/README.md",
+      "docs/architecture/implementation.md",
+      "docs/architecture/modules/prompt-archive-and-goal-projection.md",
+      "docs/architecture/modules/session-projection.md",
+      "docs/session-event-normalization.md",
+      "eslint-suppressions.json",
+      "package.json",
+      "public/app.js",
+      "public/index.html",
+      "public/styles.css",
+      "server.mjs",
+      "src/markdown-export.mjs",
+      "src/prompt-archive-coordinator.mjs",
+      "src/session-detail-coordinator.mjs",
+      "src/session-events.mjs",
+      "src/session-prompts.mjs",
+      "src/session-query.mjs",
+      "test/codex-goal-http.test.mjs",
+      "test/e2e/list-scope-navigation.spec.mjs",
+      "test/markdown-export.test.mjs",
+      "test/prompt-archive-coordinator.test.mjs",
+      "test/session-events.test.mjs",
+      "test/session-prompts.test.mjs",
+      "test/session-query.test.mjs"
+    ],
+    "itemIds": [
+      "purpose-readable-session-workbench",
+      "boundary-source-records-and-local-derivatives",
+      "external-boundary-http-authentication",
+      "module-session-projection",
+      "capability-session-discovery-and-view",
+      "flow-stable-session-detail"
+    ],
+    "assessments": [
+      {
+        "itemId": "purpose-readable-session-workbench",
+        "result": "updated",
+        "reason": "已移除任务归档与 Markdown 导出边界，并复核会话读取投影仍由详情协调器负责。",
+        "evidence": {
+          "path": "server.mjs",
+          "locator": "function getSourceContext(sourceId = \"local\")"
+        }
+      },
+      {
+        "itemId": "boundary-source-records-and-local-derivatives",
+        "result": "updated",
+        "reason": "已移除任务归档与 Markdown 导出边界，并复核会话读取投影仍由详情协调器负责。",
+        "evidence": {
+          "path": "server.mjs",
+          "locator": "function getSourceContext(sourceId = \"local\")"
+        }
+      },
+      {
+        "itemId": "external-boundary-http-authentication",
+        "result": "updated",
+        "reason": "已移除任务归档与 Markdown 导出边界，并复核会话读取投影仍由详情协调器负责。",
+        "evidence": {
+          "path": "server.mjs",
+          "locator": "function getSourceContext(sourceId = \"local\")"
+        }
+      },
+      {
+        "itemId": "module-session-projection",
+        "result": "updated",
+        "reason": "已移除任务归档与 Markdown 导出边界，并复核会话读取投影仍由详情协调器负责。",
+        "evidence": {
+          "path": "server.mjs",
+          "locator": "function getSourceContext(sourceId = \"local\")"
+        }
+      },
+      {
+        "itemId": "capability-session-discovery-and-view",
+        "result": "updated",
+        "reason": "已移除任务归档与 Markdown 导出边界，并复核会话读取投影仍由详情协调器负责。",
+        "evidence": {
+          "path": "server.mjs",
+          "locator": "function getSourceContext(sourceId = \"local\")"
+        }
+      },
+      {
+        "itemId": "flow-stable-session-detail",
+        "result": "updated",
+        "reason": "已移除任务归档与 Markdown 导出边界，并复核会话读取投影仍由详情协调器负责。",
+        "evidence": {
+          "path": "server.mjs",
+          "locator": "function getSourceContext(sourceId = \"local\")"
+        }
+      }
+    ],
+    "unmappedPaths": [
+      "docs/architecture/modules/prompt-archive-and-goal-projection.md",
+      "docs/session-event-normalization.md",
+      "eslint-suppressions.json",
+      "package.json",
+      "src/markdown-export.mjs",
+      "src/prompt-archive-coordinator.mjs",
+      "src/session-prompts.mjs",
+      "test/codex-goal-http.test.mjs",
+      "test/markdown-export.test.mjs",
+      "test/prompt-archive-coordinator.test.mjs",
+      "test/session-prompts.test.mjs"
+    ],
+    "pathAssessments": [
+      {
+        "path": "docs/architecture/modules/prompt-archive-and-goal-projection.md",
+        "result": "unaffected",
+        "reason": "该文件的删除或说明收缩已由会话读取投影结论覆盖，未形成新的架构责任。",
+        "evidence": {
+          "path": "server.mjs",
+          "locator": "function getSourceContext(sourceId = \"local\")"
+        }
+      },
+      {
+        "path": "docs/session-event-normalization.md",
+        "result": "unaffected",
+        "reason": "该文件的删除或说明收缩已由会话读取投影结论覆盖，未形成新的架构责任。",
+        "evidence": {
+          "path": "server.mjs",
+          "locator": "function getSourceContext(sourceId = \"local\")"
+        }
+      },
+      {
+        "path": "eslint-suppressions.json",
+        "result": "unaffected",
+        "reason": "该文件的删除或说明收缩已由会话读取投影结论覆盖，未形成新的架构责任。",
+        "evidence": {
+          "path": "server.mjs",
+          "locator": "function getSourceContext(sourceId = \"local\")"
+        }
+      },
+      {
+        "path": "package.json",
+        "result": "unaffected",
+        "reason": "该文件的删除或说明收缩已由会话读取投影结论覆盖，未形成新的架构责任。",
+        "evidence": {
+          "path": "server.mjs",
+          "locator": "function getSourceContext(sourceId = \"local\")"
+        }
+      },
+      {
+        "path": "src/markdown-export.mjs",
+        "result": "unaffected",
+        "reason": "该文件的删除或说明收缩已由会话读取投影结论覆盖，未形成新的架构责任。",
+        "evidence": {
+          "path": "server.mjs",
+          "locator": "function getSourceContext(sourceId = \"local\")"
+        }
+      },
+      {
+        "path": "src/prompt-archive-coordinator.mjs",
+        "result": "unaffected",
+        "reason": "该文件的删除或说明收缩已由会话读取投影结论覆盖，未形成新的架构责任。",
+        "evidence": {
+          "path": "server.mjs",
+          "locator": "function getSourceContext(sourceId = \"local\")"
+        }
+      },
+      {
+        "path": "src/session-prompts.mjs",
+        "result": "unaffected",
+        "reason": "该文件的删除或说明收缩已由会话读取投影结论覆盖，未形成新的架构责任。",
+        "evidence": {
+          "path": "server.mjs",
+          "locator": "function getSourceContext(sourceId = \"local\")"
+        }
+      },
+      {
+        "path": "test/codex-goal-http.test.mjs",
+        "result": "unaffected",
+        "reason": "该文件的删除或说明收缩已由会话读取投影结论覆盖，未形成新的架构责任。",
+        "evidence": {
+          "path": "server.mjs",
+          "locator": "function getSourceContext(sourceId = \"local\")"
+        }
+      },
+      {
+        "path": "test/markdown-export.test.mjs",
+        "result": "unaffected",
+        "reason": "该文件的删除或说明收缩已由会话读取投影结论覆盖，未形成新的架构责任。",
+        "evidence": {
+          "path": "server.mjs",
+          "locator": "function getSourceContext(sourceId = \"local\")"
+        }
+      },
+      {
+        "path": "test/prompt-archive-coordinator.test.mjs",
+        "result": "unaffected",
+        "reason": "该文件的删除或说明收缩已由会话读取投影结论覆盖，未形成新的架构责任。",
+        "evidence": {
+          "path": "server.mjs",
+          "locator": "function getSourceContext(sourceId = \"local\")"
+        }
+      },
+      {
+        "path": "test/session-prompts.test.mjs",
+        "result": "unaffected",
+        "reason": "该文件的删除或说明收缩已由会话读取投影结论覆盖，未形成新的架构责任。",
+        "evidence": {
+          "path": "server.mjs",
+          "locator": "function getSourceContext(sourceId = \"local\")"
+        }
+      }
+    ]
+  }
 }

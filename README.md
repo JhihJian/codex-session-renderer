@@ -10,7 +10,7 @@ Codex 会话工作台是只读的会话浏览器。它把 Codex 与 Pi Agent 的
 
 产品核心目标是让会话记录更易读，并让用户以固定顺序完成理解：先连续阅读当前会话，再定位另一段会话，最后按需分析执行细节。
 
-- 默认界面是会话目录和正文组成的两栏阅读器。目录首屏只保留数据源、搜索和会话结果，并按工作目录组织为可折叠的项目树，会话作为目录叶子显示；时间与类型条件按需展开，任务归档收纳到更多操作；正文不保留常驻执行目录、统计条或工具详情栏。
+- 默认界面是会话目录和正文组成的两栏阅读器。目录首屏只保留数据源、搜索和会话结果，并按工作目录组织为可折叠的项目树，会话作为目录叶子显示；时间与类型条件按需展开；正文不保留常驻执行目录、统计条或工具详情栏。
 - 会话正文按轮次完整显示用户输入、助手消息、推理摘要、工具参数和输出，不按字符数裁剪正文。原始事件列表按页加载，选中任一事件后显示该事件的完整 JSON。
 - 正文在每轮末尾显示可证明的轮末上下文占用、生成 Token 和实际执行时长，并显示有持久化证据的上下文事件：Codex/Pi 的压缩时间和摘要、Pi 会话中的 Skill 指令块，以及 `read` 读取 `SKILL.md` 的记录与工具结果。启动时的系统提示、可用工具或 Skills 索引未写入 JSONL，不会由当前磁盘状态反推为历史事件。
 - 会话标题在目录中最多显示两行，只有实际超出时才使用省略号；路径、状态、统计和执行链路等受限概览文本在实际被截断时可悬停查看完整原文，避免长文本破坏页面布局。
@@ -28,11 +28,11 @@ Codex 会话工作台是只读的会话浏览器。它把 Codex 与 Pi Agent 的
 
 Pi Agent 会话目录可用时，工作台默认展示 Pi 数据源；未发现 Pi Agent 会话目录时，自动回退到本机 Codex 数据源。
 
-原始会话文件不会被修改。Markdown 导出和浏览器展示均基于本地文件。
+原始会话文件不会被修改，浏览器展示均基于本地文件。
 
 ## 完整详情与诊断预算
 
-完整详情、compact/view、turns/trace 和 Markdown 导出读取当前会话的完整 JSONL，不因文件大小或事件数降级。读取前后文件签名变化时，详情返回非完整读取状态，Markdown 返回 `409`，旧结果不会进入缓存。
+完整详情、compact/view 和 turns/trace 读取当前会话的完整 JSONL，不因文件大小或事件数降级。读取前后文件签名变化时，详情返回非完整读取状态，旧结果不会进入缓存。
 
 原始事件分页是独立诊断入口，受 `CODEX_SESSION_DIAGNOSTIC_MAX_FILE_BYTES` 和 `CODEX_SESSION_DIAGNOSTIC_MAX_EVENT_SCAN` 约束。详情并发、诊断上限和缓存可分别通过 `CODEX_SESSION_DETAIL_MAX_CONCURRENT_READS`、`CODEX_SESSION_DIAGNOSTIC_MAX_FILE_BYTES`、`CODEX_SESSION_DIAGNOSTIC_MAX_EVENT_SCAN`、`CODEX_SESSION_DETAIL_MAX_CACHE_ENTRIES` 与 `CODEX_SESSION_DETAIL_MAX_CACHE_BYTES` 配置。
 
@@ -67,6 +67,6 @@ npm run test:e2e
 主要实现位于：
 
 - `server.mjs`：只读 HTTP API、数据源和详情协调。
-- `src/session-*.mjs`：会话发现、规范化、查询、事件聚合、执行时间与 Markdown 导出。
+- `src/session-*.mjs`：会话发现、规范化、查询、事件聚合和执行时间。
 - `public/app.js`：会话阅读、执行过程、统计和原始事件界面。
 - `public/tool-summary.js`：可配置的工具调用可读摘要。
