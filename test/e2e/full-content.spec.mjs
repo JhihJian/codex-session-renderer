@@ -15,10 +15,16 @@ test("正文展示 Pi 压缩和 Skill 上下文事件，并可跳转原始记录
   await expect(page.locator("#rawContent")).toContainText("pi-skill-output");
 });
 
-test("正文右侧轮次时间线定位轮次并标记压缩和子代理调用", async ({ page }) => {
+test("正文左侧固定高度时间线定位轮次并标记压缩和子代理调用", async ({ page }) => {
   await page.goto("/");
   const timeline = page.locator(".compact-timeline");
   await expect(timeline).toBeVisible();
+  const layout = await timeline.evaluate((element) => {
+    const main = element.parentElement.querySelector(".compact-main");
+    return { timeline: element.getBoundingClientRect(), main: main.getBoundingClientRect() };
+  });
+  expect(layout.timeline.left).toBeLessThan(layout.main.left);
+  expect(layout.timeline.height).toBeGreaterThan(300);
   const nodes = timeline.locator("[data-compact-timeline-target]");
   await expect(nodes).toHaveCount(2);
   await expect(nodes.nth(1)).toHaveClass(/has-compaction/);

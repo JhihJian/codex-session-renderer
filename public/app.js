@@ -3939,10 +3939,10 @@ function renderCompact() {
   els.compactContent.innerHTML = `
     <div class="compact-shell">
       <div class="compact-reading-layout">
+        ${renderCompactTimeline(filtered)}
         <div class="compact-main">
           ${renderCompactThread(filtered, { depth: 0, root: true, path: "root", query })}
         </div>
-        ${renderCompactTimeline(filtered)}
       </div>
     </div>
   `;
@@ -4030,19 +4030,29 @@ function renderCompactTimeline(node) {
 }
 
 function compactTimelineEntries(node) {
-  const entries = (node.turns || []).map((turn, index) => compactTimelineEntry(turn, index));
-  return entries.length > 40 ? aggregateCompactTimelineEntries(entries) : entries;
+  const timingByTurn = new Map((state.detail?.timing?.turns || []).map((turn) => [turn.turnNumber, turn.durationMs]));
+  const entries = (node.turns || []).map((turn, index) => compactTimelineEntry(turn, index, timingByTurn));
+  const reduced = entries.length > 24 ? aggregateCompactTimelineEntries(entries) : entries;
+  return withCompactTimelineWeights(reduced);
 }
 
-function compactTimelineEntry(turn, index) {
+function compactTimelineEntry(turn, index, timingByTurn) {
   const contextEvents = contextEventsForTurn(turn);
+  const timingDuration = Number(timingByTurn.get(turn.turnNumber));
   return {
     targetId: compactElementId("turn", `root-turn-${index}`),
     startTurn: turn.turnNumber || index + 1,
     endTurn: turn.turnNumber || index + 1,
+    durationMs: Number.isFinite(timingDuration) && timingDuration > 0 ? timingDuration : compactTurnDuration(turn),
     hasCompaction: contextEvents.some((event) => event.contextKind === "compaction"),
     subagentCount: (turn.embeddedSubagents?.length || 0) + (turn.children?.length || 0),
   };
+}
+
+function compactTurnDuration(turn) {
+  const start = new Date(turn.startedAt || "").getTime();
+  const end = new Date(turn.completedAt || "").getTime();
+  return Number.isFinite(start) && Number.isFinite(end) && end > start ? end - start : null;
 }
 
 function aggregateCompactTimelineEntries(entries) {
@@ -4051,7 +4061,12 @@ function aggregateCompactTimelineEntries(entries) {
   const flushOrdinary = () => {
     while (ordinary.length) {
       const group = ordinary.splice(0, 5);
-      result.push({ ...group[0], endTurn: group.at(-1).endTurn, grouped: group.length > 1 });
+      result.push({
+        ...group[0],
+        endTurn: group.at(-1).endTurn,
+        durationMs: group.reduce((total, entry) => total + (entry.durationMs || 0), 0) || null,
+        grouped: group.length > 1,
+      });
     }
   };
   for (const entry of entries) {
@@ -4064,6 +4079,13 @@ function aggregateCompactTimelineEntries(entries) {
   }
   flushOrdinary();
   return result;
+}
+
+function withCompactTimelineWeights(entries) {
+  const known = entries.map((entry) => entry.durationMs).filter((duration) => Number.isFinite(duration) && duration > 0);
+  const fallback = known.length ? known.reduce((sum, duration) => sum + duration, 0) / known.length : 1;
+  const minimum = Math.max(1, fallback * 0.08);
+  return entries.map((entry) => ({ ...entry, timelineWeight: Math.max(minimum, entry.durationMs || fallback) }));
 }
 
 function renderCompactTimelineEntry(entry, index, total) {
@@ -4079,9 +4101,10 @@ function renderCompactTimelineEntry(entry, index, total) {
     entry.subagentCount ? `含 ${entry.subagentCount} 次子代理调用` : "",
   ].filter(Boolean);
   const range = entry.grouped ? `第 ${entry.startTurn} 至 ${entry.endTurn} 轮，共 ${entry.endTurn - entry.startTurn + 1} 轮` : `第 ${entry.startTurn} 轮`;
-  const ariaLabel = [range, ...signals].join("，");
+  const duration = entry.durationMs ? `记录时长 ${formatTimingDuration(entry.durationMs)}` : "未记录时长";
+  const ariaLabel = [range, duration, ...signals].join("，");
   return `
-    <button class="${classes}" type="button" data-compact-timeline-target="${escapeAttr(entry.targetId)}" aria-label="${escapeAttr(ariaLabel)}" title="${escapeAttr(ariaLabel)}" tabindex="${index === 0 ? "0" : "-1"}">
+    <button class="${classes}" type="button" style="--timeline-weight:${escapeAttr(String(entry.timelineWeight))}" data-compact-timeline-target="${escapeAttr(entry.targetId)}" aria-label="${escapeAttr(ariaLabel)}" title="${escapeAttr(ariaLabel)}" tabindex="${index === 0 ? "0" : "-1"}">
       <span class="compact-timeline-label">${escapeHtml(label)}</span>
       <span class="compact-timeline-dot" aria-hidden="true"></span>
     </button>
@@ -4640,7 +4663,7 @@ function renderCompactThread(node, context) {
     .join("");
 
   return `
-    <article class="compact-thread" id="${escapeAttr(targetId)}" tabindex="-1" style="--depth:${depth}">
+    <article class="compact-thread${context.root ? " root" : ""}" id="${escapeAttr(targetId)}" tabindex="-1" style="--depth:${depth}">
       <header class="compact-thread-head">
         <span class="compact-thread-line" aria-hidden="true"></span>
         <span class="compact-agent-mark">${context.root ? "R" : "A"}</span>
