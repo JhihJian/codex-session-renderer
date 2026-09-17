@@ -3562,13 +3562,20 @@ function addToolContextItem(groups, item, query) {
   const current = groups.get(key) || createToolContextGroup(key, readable, target);
   const outputBytes = utf8ByteLength(output);
   const outputTokens = approxTokensFromValue(output);
+  const rawEventIndex = item.outputSourceIndex ?? item.sourceIndex ?? null;
   current.count += 1;
   current.argumentBytes += utf8ByteLength(argument);
   current.outputBytes += outputBytes;
   current.contextTokens += approxTokensFromValue(argument) + outputTokens;
+  if (outputBytes >= current.maxOutputBytes) current.primaryEventIndex = rawEventIndex;
   current.maxOutputBytes = Math.max(current.maxOutputBytes, outputBytes);
   current.maxOutputTokens = Math.max(current.maxOutputTokens, outputTokens);
+  addToolContextRawEventIndex(current, rawEventIndex);
   groups.set(key, current);
+}
+
+function addToolContextRawEventIndex(group, eventIndex) {
+  if (eventIndex != null && !group.rawEventIndexes.includes(eventIndex)) group.rawEventIndexes.push(eventIndex);
 }
 
 function toolContextQueryMatches(query, title, target, output) {
@@ -3587,6 +3594,8 @@ function createToolContextGroup(id, readable, target) {
     contextTokens: 0,
     maxOutputBytes: 0,
     maxOutputTokens: 0,
+    primaryEventIndex: null,
+    rawEventIndexes: [],
   };
 }
 
@@ -3800,9 +3809,13 @@ function renderToolContextStats(detail, query, typeFilter) {
 
 function renderToolContextStatRow(group) {
   const repeated = group.count > 1 ? `同一目标 ${group.count} 次` : group.label;
+  const rawCount = group.rawEventIndexes.length;
+  const rawAction = group.primaryEventIndex != null
+    ? `<button class="ghost-button small tool-context-raw" type="button" data-tool-context-event-index="${escapeAttr(String(group.primaryEventIndex))}">查看 Raw</button>`
+    : "";
   return `
     <div class="tool-context-row" role="row">
-      <span class="tool-context-target" role="cell"><strong data-overflow-tooltip title="${escapeAttr(group.title)}">${escapeHtml(group.title)}</strong><em data-overflow-tooltip title="${escapeAttr(group.target)}">${escapeHtml(group.target)}</em><small>${escapeHtml(repeated)}</small></span>
+      <span class="tool-context-target" role="cell"><strong data-overflow-tooltip title="${escapeAttr(group.title)}">${escapeHtml(group.title)}</strong><em data-overflow-tooltip title="${escapeAttr(group.target)}">${escapeHtml(group.target)}</em><span class="tool-context-target-actions"><small>${escapeHtml(rawCount ? `${repeated} · 原始 ${rawCount} 条` : repeated)}</small>${rawAction}</span></span>
       <span class="tool-context-number" role="cell">${escapeHtml(formatBytes(group.argumentBytes))}</span>
       <span class="tool-context-number" role="cell">${escapeHtml(formatBytes(group.outputBytes))}</span>
       <span class="tool-context-number" role="cell">约 ${escapeHtml(compactNumber(group.contextTokens))} tok · ${escapeHtml(formatContextRatio(group.contextWindowShare))}</span>
@@ -3828,6 +3841,9 @@ function bindToolContextControls() {
   sortInput?.addEventListener("change", () => {
     state.toolContextSort = sortInput.value;
     renderStatsInfoView();
+  });
+  els.statsContent.querySelectorAll("[data-tool-context-event-index]").forEach((button) => {
+    button.addEventListener("click", () => openRawEvent(Number(button.dataset.toolContextEventIndex)));
   });
 }
 

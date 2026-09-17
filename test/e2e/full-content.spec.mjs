@@ -185,6 +185,8 @@ test("诊断统计按工具目标汇总上下文占用", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const layout = await contextStats.locator(".tool-context-table").evaluate((element) => ({ client: element.clientWidth, scroll: element.scrollWidth }));
   expect(layout.scroll).toBeLessThanOrEqual(layout.client);
+  await verification.locator("[data-tool-context-event-index]").click();
+  await expect(page.locator("#rawContent .raw-preview")).toContainText("FULL_TOOL_OUTPUT_END");
 });
 
 test("Pi 执行过程区分等待输入、完成工具与缺失时长", async ({ page }) => {

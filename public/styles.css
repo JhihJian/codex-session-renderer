@@ -3933,6 +3933,9 @@ button.compact-replacement-row:focus-visible {
 .tool-context-target strong { color: var(--text); font-size: 12px; }
 .tool-context-target em, .tool-context-target small { color: var(--text-3); font-family: var(--mono); font-size: 10.5px; font-style: normal; }
 .tool-context-target small { color: var(--orange); }
+.tool-context-target-actions { display: flex; min-width: 0; align-items: center; gap: 7px; }
+.tool-context-target-actions small { flex: 1 1 auto; }
+.tool-context-raw { flex: 0 0 auto; }
 .tool-context-number { min-width: 0; overflow: hidden; color: var(--text-2); font-family: var(--mono); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .tool-context-empty { color: var(--text-3); font-size: 11px; }
 
