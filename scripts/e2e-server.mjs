@@ -69,7 +69,9 @@ await writeFile(
     { type: "message", id: "pi-skill", parentId: "pi-final", timestamp: new Date().toISOString(), message: { role: "user", content: [{ type: "text", text: '<skill name="release-check" location="/workspace/pi-agent/.agents/skills/release-check/SKILL.md">执行发布检查。</skill>\n\n检查当前分支。' }] } },
     { type: "message", id: "pi-skill-read", parentId: "pi-skill", timestamp: new Date().toISOString(), message: { role: "assistant", content: [{ type: "toolCall", id: "pi-read-skill", name: "read", arguments: { path: "/workspace/pi-agent/.agents/skills/release-check/SKILL.md" } }] } },
     { type: "message", id: "pi-skill-output", parentId: "pi-skill-read", timestamp: new Date().toISOString(), message: { role: "toolResult", toolCallId: "pi-read-skill", toolName: "read", content: [{ type: "text", text: "# release-check" }], isError: false } },
-    { type: "compaction", id: "pi-compaction", parentId: "pi-skill-output", timestamp: new Date().toISOString(), summary: "保留当前任务、Skill 读取结果和验证结论。", tokensBefore: 90000, retainedTail: [{ role: "user" }] },
+    { type: "message", id: "pi-subagent-call", parentId: "pi-skill-output", timestamp: new Date().toISOString(), message: { role: "assistant", content: [{ type: "toolCall", id: "pi-subagent", name: "subagent", arguments: { mode: "single", agent: "reviewer", task: "审查当前分支" } }] } },
+    { type: "message", id: "pi-subagent-result", parentId: "pi-subagent-call", timestamp: new Date().toISOString(), message: { role: "toolResult", toolCallId: "pi-subagent", toolName: "subagent", content: [{ type: "text", text: "审查完成" }], details: { mode: "single", results: [{ agent: "reviewer", exitCode: 0, stopReason: "stop", messages: [{ role: "assistant", content: [{ type: "text", text: "审查完成" }] }] }] }, isError: false } },
+    { type: "compaction", id: "pi-compaction", parentId: "pi-subagent-result", timestamp: new Date().toISOString(), summary: "保留当前任务、Skill 读取结果和验证结论。", tokensBefore: 90000, retainedTail: [{ role: "user" }] },
   ].map((event) => JSON.stringify(event)).join("\n")}\n`,
   "utf8",
 );

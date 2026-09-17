@@ -15,6 +15,21 @@ test("正文展示 Pi 压缩和 Skill 上下文事件，并可跳转原始记录
   await expect(page.locator("#rawContent")).toContainText("pi-skill-output");
 });
 
+test("正文右侧轮次时间线定位轮次并标记压缩和子代理调用", async ({ page }) => {
+  await page.goto("/");
+  const timeline = page.locator(".compact-timeline");
+  await expect(timeline).toBeVisible();
+  const nodes = timeline.locator("[data-compact-timeline-target]");
+  await expect(nodes).toHaveCount(2);
+  await expect(nodes.nth(1)).toHaveClass(/has-compaction/);
+  await expect(nodes.nth(1)).toHaveClass(/has-subagent/);
+  await nodes.nth(1).click();
+  await expect(nodes.nth(1)).toHaveAttribute("aria-current", "location");
+  await nodes.nth(0).focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(nodes.nth(1)).toBeFocused();
+});
+
 test("原始事件详情完整展示大型工具输出", async ({ page }) => {
   await page.goto("/");
   await selectCodexSource(page);

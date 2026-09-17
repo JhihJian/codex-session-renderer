@@ -3031,6 +3031,110 @@ button.compression-ref-badge:hover {
 
 .compact-context-event.state-failed .compact-context-title strong { color: var(--red); }
 
+/* The reading timeline is navigation only, never a second execution surface. */
+.compact-reading-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 980px) 68px;
+  align-items: start;
+  gap: 16px;
+  width: 100%;
+  max-width: 1064px;
+  margin: 0 auto;
+}
+
+.compact-reading-layout > .compact-main { max-width: none; }
+
+.compact-timeline {
+  position: sticky;
+  top: 8px;
+  display: grid;
+  width: 68px;
+  align-content: start;
+  justify-items: stretch;
+}
+
+.compact-timeline-node {
+  position: relative;
+  display: grid;
+  width: 68px;
+  height: 28px;
+  grid-template-columns: 36px 1fr;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 0;
+  text-align: right;
+}
+
+.compact-timeline-label {
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact-timeline-dot {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 8px;
+  height: 8px;
+  justify-self: center;
+  border: 2px solid var(--hair-strong);
+  border-radius: 50%;
+  background: var(--bg-elev);
+}
+
+.compact-timeline-node:not(.is-last)::after,
+.compact-timeline-node.has-compaction.has-subagent:not(.is-last)::before {
+  content: "";
+  position: absolute;
+  top: 18px;
+  bottom: -10px;
+  width: 2px;
+}
+
+.compact-timeline-node:not(.is-last)::after {
+  left: 48px;
+  background: var(--hair-strong);
+}
+
+.compact-timeline-node.has-compaction:not(.is-last)::after { background: var(--orange); }
+.compact-timeline-node.has-subagent:not(.has-compaction):not(.is-last)::after { background: var(--teal); }
+
+.compact-timeline-node.has-compaction.has-subagent:not(.is-last)::before {
+  left: 52px;
+  background: var(--teal);
+}
+
+.compact-timeline-node.has-compaction .compact-timeline-dot { border-color: var(--orange); }
+.compact-timeline-node.has-subagent .compact-timeline-dot { box-shadow: 0 0 0 2px var(--teal-soft); }
+
+.compact-timeline-node.active { color: var(--blue); }
+
+.compact-timeline-node.active .compact-timeline-dot {
+  border-color: var(--blue);
+  background: var(--blue);
+  box-shadow: 0 0 0 3px var(--blue-soft);
+}
+
+.compact-timeline-node:hover { color: var(--text); }
+
+.compact-timeline-node:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--blue) 58%, transparent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 820px) {
+  .compact-reading-layout { display: block; }
+  .compact-timeline { display: none; }
+}
+
 @media (max-width: 820px) {
   .compact-context-head {
     grid-template-columns: 24px minmax(0, 1fr) 28px;

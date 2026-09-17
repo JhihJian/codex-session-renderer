@@ -133,6 +133,8 @@ let rawEventAbortController = null;
 
 let alternateLocalSourceAbortController = null;
 let sessionSearchTimer = null;
+let compactTimelineObserver = null;
+let compactTimelineJumpTarget = "";
 const markdownCacheLimit = 700;
 const remoteIndexPageCacheLimit = 6;
 const remoteIndexPageLimit = 100;
@@ -3920,6 +3922,8 @@ function renderThread() {
 }
 
 function renderCompact() {
+  compactTimelineObserver?.disconnect();
+  compactTimelineObserver = null;
   const compact = state.detail?.compact || buildCompactFallback(state.detail);
   if (!compact) {
     els.compactContent.innerHTML = emptyState("选择一个会话", "左侧列表展示本机 Codex 会话。");
@@ -3934,8 +3938,11 @@ function renderCompact() {
   }
   els.compactContent.innerHTML = `
     <div class="compact-shell">
-      <div class="compact-main">
-        ${renderCompactThread(filtered, { depth: 0, root: true, path: "root", query })}
+      <div class="compact-reading-layout">
+        <div class="compact-main">
+          ${renderCompactThread(filtered, { depth: 0, root: true, path: "root", query })}
+        </div>
+        ${renderCompactTimeline(filtered)}
       </div>
     </div>
   `;
@@ -3962,6 +3969,7 @@ function renderCompact() {
       scrollToCompactReplacementTarget(button);
     });
   });
+  bindCompactTimeline();
   const outlineRows = Array.from(els.compactContent.querySelectorAll("[data-compact-nav-target]"));
   const focusCompactOutlineRow = (index) => {
     if (!outlineRows.length) return;
@@ -4008,6 +4016,132 @@ function renderCompact() {
       event.preventDefault();
       scrollToCompactTarget(row.dataset.compactNavTarget);
     });
+  });
+}
+
+function renderCompactTimeline(node) {
+  const entries = compactTimelineEntries(node);
+  if (entries.length < 2) return "";
+  return `
+    <nav class="compact-timeline" aria-label="正文轮次导航">
+      ${entries.map((entry, index) => renderCompactTimelineEntry(entry, index, entries.length)).join("")}
+    </nav>
+  `;
+}
+
+function compactTimelineEntries(node) {
+  const entries = (node.turns || []).map((turn, index) => compactTimelineEntry(turn, index));
+  return entries.length > 40 ? aggregateCompactTimelineEntries(entries) : entries;
+}
+
+function compactTimelineEntry(turn, index) {
+  const contextEvents = contextEventsForTurn(turn);
+  return {
+    targetId: compactElementId("turn", `root-turn-${index}`),
+    startTurn: turn.turnNumber || index + 1,
+    endTurn: turn.turnNumber || index + 1,
+    hasCompaction: contextEvents.some((event) => event.contextKind === "compaction"),
+    subagentCount: (turn.embeddedSubagents?.length || 0) + (turn.children?.length || 0),
+  };
+}
+
+function aggregateCompactTimelineEntries(entries) {
+  const result = [];
+  let ordinary = [];
+  const flushOrdinary = () => {
+    while (ordinary.length) {
+      const group = ordinary.splice(0, 5);
+      result.push({ ...group[0], endTurn: group.at(-1).endTurn, grouped: group.length > 1 });
+    }
+  };
+  for (const entry of entries) {
+    if (!entry.hasCompaction && entry.subagentCount === 0) {
+      ordinary.push(entry);
+      continue;
+    }
+    flushOrdinary();
+    result.push(entry);
+  }
+  flushOrdinary();
+  return result;
+}
+
+function renderCompactTimelineEntry(entry, index, total) {
+  const label = entry.startTurn === entry.endTurn ? String(entry.startTurn) : `${entry.startTurn}-${entry.endTurn}`;
+  const classes = [
+    "compact-timeline-node",
+    entry.hasCompaction ? "has-compaction" : "",
+    entry.subagentCount ? "has-subagent" : "",
+    index === total - 1 ? "is-last" : "",
+  ].filter(Boolean).join(" ");
+  const signals = [
+    entry.hasCompaction ? "含上下文压缩" : "",
+    entry.subagentCount ? `含 ${entry.subagentCount} 次子代理调用` : "",
+  ].filter(Boolean);
+  const range = entry.grouped ? `第 ${entry.startTurn} 至 ${entry.endTurn} 轮，共 ${entry.endTurn - entry.startTurn + 1} 轮` : `第 ${entry.startTurn} 轮`;
+  const ariaLabel = [range, ...signals].join("，");
+  return `
+    <button class="${classes}" type="button" data-compact-timeline-target="${escapeAttr(entry.targetId)}" aria-label="${escapeAttr(ariaLabel)}" title="${escapeAttr(ariaLabel)}" tabindex="${index === 0 ? "0" : "-1"}">
+      <span class="compact-timeline-label">${escapeHtml(label)}</span>
+      <span class="compact-timeline-dot" aria-hidden="true"></span>
+    </button>
+  `;
+}
+
+function bindCompactTimeline() {
+  const buttons = Array.from(els.compactContent.querySelectorAll("[data-compact-timeline-target]"));
+  if (!buttons.length) return;
+  setCompactTimelineReadingTarget(buttons[0].dataset.compactTimelineTarget || "");
+  buttons.forEach((button, index) => {
+    button.addEventListener("click", () => {
+      const targetId = button.dataset.compactTimelineTarget || "";
+      compactTimelineJumpTarget = targetId;
+      setCompactTimelineReadingTarget(targetId);
+      scrollToCompactTarget(targetId);
+      window.setTimeout(() => {
+        if (compactTimelineJumpTarget === targetId) compactTimelineJumpTarget = "";
+      }, 700);
+    });
+    button.addEventListener("keydown", (event) => handleCompactTimelineKeydown(event, buttons, index));
+  });
+  observeCompactTimelineTargets(buttons);
+}
+
+function handleCompactTimelineKeydown(event, buttons, index) {
+  if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const nextIndex = event.key === "Home"
+    ? 0
+    : event.key === "End"
+      ? buttons.length - 1
+      : Math.min(buttons.length - 1, Math.max(0, index + (event.key === "ArrowUp" ? -1 : 1)));
+  buttons.forEach((button, buttonIndex) => { button.tabIndex = buttonIndex === nextIndex ? 0 : -1; });
+  buttons[nextIndex]?.focus({ preventScroll: true });
+}
+
+function observeCompactTimelineTargets(buttons) {
+  if (typeof IntersectionObserver === "undefined") return;
+  compactTimelineObserver = new IntersectionObserver((observations) => {
+    if (compactTimelineJumpTarget) return;
+    const visible = observations.filter((entry) => entry.isIntersecting);
+    if (!visible.length) return;
+    visible.sort((left, right) => left.boundingClientRect.top - right.boundingClientRect.top);
+    setCompactTimelineReadingTarget(visible[0].target.id);
+  }, { root: els.compactContent, rootMargin: "0px 0px -62% 0px", threshold: 0.01 });
+  buttons.forEach((button) => {
+    const target = els.compactContent.querySelector(`#${cssEscape(button.dataset.compactTimelineTarget || "")}`);
+    if (target) compactTimelineObserver.observe(target);
+  });
+}
+
+function setCompactTimelineReadingTarget(targetId) {
+  if (!targetId) return;
+  const buttons = els.compactContent.querySelectorAll("[data-compact-timeline-target]");
+  buttons.forEach((button) => {
+    const active = button.dataset.compactTimelineTarget === targetId;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-current", active ? "location" : "false");
+    if (!els.compactContent.contains(document.activeElement)) button.tabIndex = active ? 0 : -1;
   });
 }
 
@@ -4437,6 +4571,7 @@ function scrollToCompactTarget(targetId) {
   if (!targetId) return;
   const target = els.compactContent.querySelector(`#${cssEscape(targetId)}`);
   if (!target) return;
+  setCompactTimelineReadingTarget(targetId);
   target.scrollIntoView({ behavior: preferredScrollBehavior(), block: "start" });
   target.classList.remove("compact-jump-highlight");
   if (prefersReducedMotion()) return;
