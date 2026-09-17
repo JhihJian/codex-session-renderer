@@ -3936,10 +3936,11 @@ function renderCompact() {
     els.compactContent.innerHTML = emptyState("没有匹配的阅读内容", "阅读视图包含用户输入、全部助手消息和子代理层级。");
     return;
   }
+  const timeline = renderCompactTimeline(filtered);
   els.compactContent.innerHTML = `
     <div class="compact-shell">
-      <div class="compact-reading-layout">
-        ${renderCompactTimeline(filtered)}
+      <div class="compact-reading-layout${timeline ? " has-timeline" : ""}">
+        ${timeline}
         <div class="compact-main">
           ${renderCompactThread(filtered, { depth: 0, root: true, path: "root", query })}
         </div>

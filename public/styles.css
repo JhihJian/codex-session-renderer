@@ -3068,13 +3068,17 @@ button.compression-ref-badge:hover {
 
 /* The reading timeline is navigation only, never a second execution surface. */
 .compact-reading-layout {
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+.compact-reading-layout.has-timeline {
   display: grid;
   grid-template-columns: 68px minmax(0, 980px);
   align-items: start;
   gap: 16px;
-  width: 100%;
   max-width: 1064px;
-  margin: 0 auto;
 }
 
 .compact-reading-layout > .compact-main { max-width: none; }

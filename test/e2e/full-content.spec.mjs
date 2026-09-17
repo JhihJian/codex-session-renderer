@@ -25,6 +25,13 @@ test("正文在每轮末尾展示上下文、生成 Token 和实际执行时长"
   await expect(metrics).toContainText("400");
   await expect(metrics).toContainText("实际执行");
   await expect(metrics).toContainText("2.5 s");
+  const desktopBody = await page.locator(".compact-thread.root > .compact-thread-body").evaluate((element) => {
+    const body = element.getBoundingClientRect();
+    const thread = element.parentElement.getBoundingClientRect();
+    return { bodyWidth: body.width, bodyRight: body.right, threadRight: thread.right };
+  });
+  expect(desktopBody.bodyWidth).toBeGreaterThan(700);
+  expect(Math.abs(desktopBody.bodyRight - desktopBody.threadRight)).toBeLessThanOrEqual(1);
   await page.setViewportSize({ width: 390, height: 844 });
   const metricLayout = await metrics.locator(":scope > div").evaluateAll((items) => items.map((item) => {
     const rect = item.getBoundingClientRect();
