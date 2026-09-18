@@ -41,17 +41,17 @@ function createStaticModelCatalog(models) {
 }
 
 function resolvePiCommand() {
-  const besideNode = path.join(path.dirname(process.execPath), "pi");
-  return {
-    command: existsSync(besideNode) ? [besideNode, "--mode", "rpc", "--no-session"] : [...defaultRpcCommand],
-    hint: besideNode,
-  };
+  const binDir = path.dirname(process.execPath);
+  const besideNode = path.join(binDir, "pi");
+  return existsSync(besideNode)
+    ? { command: [besideNode, "--mode", "rpc", "--no-session"], binDir }
+    : { command: [...defaultRpcCommand], binDir: "" };
 }
 
 function createPiModelCatalogService(options = {}) {
   const ttlMs = options.ttlMs ?? defaultRefreshTtlMs;
   const resolved = resolvePiCommand();
-  const queryModels = options.queryModels ?? (() => queryPiRpcModels({ command: resolved.command }));
+  const queryModels = options.queryModels ?? (() => queryPiRpcModels({ command: resolved.command, binDir: resolved.binDir }));
   const now = options.now ?? Date.now;
   let snapshot = null;
   let inFlight = null;
@@ -94,9 +94,12 @@ function createPiModelCatalogService(options = {}) {
   return api;
 }
 
-function queryPiRpcModels({ command = defaultRpcCommand, timeoutMs = defaultQueryTimeoutMs } = {}) {
+function queryPiRpcModels({ command = defaultRpcCommand, timeoutMs = defaultQueryTimeoutMs, binDir = "" } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command[0], command.slice(1), { stdio: ["pipe", "pipe", "ignore"] });
+    // pi 是 #!/usr/bin/env node 脚本：受限 PATH（如 systemd）会解析到系统旧 node 导致启动失败，
+    // 因此把当前 node 的 bin 目录前置到子进程 PATH。
+    const env = binDir ? { ...process.env, PATH: `${binDir}:${process.env.PATH || ""}` } : process.env;
+    const child = spawn(command[0], command.slice(1), { stdio: ["pipe", "pipe", "ignore"], env });
     let buffer = "";
     let settled = false;
     const finish = (settle, value) => {

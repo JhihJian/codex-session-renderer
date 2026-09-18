@@ -19,6 +19,8 @@ export function createSessionSourceContextService({ maxListSessions }) {
   const sessionReadGate = createConcurrencyGate(readPositiveEnv("CODEX_SESSION_DETAIL_MAX_CONCURRENT_READS", 4, 32));
   const dataSources = createDataSourceRegistry();
   const sourceContexts = new Map();
+  const piAgentContext = dataSources.getSource("pi-agent");
+  if (piAgentContext) getSourceContext(piAgentContext.id);
 
   function sessionDetailCoordinatorOptions() {
     return {
