@@ -2,8 +2,8 @@
   "version": 4,
   "documentStatus": "active",
   "snapshot": {
-    "commit": "c4e334a3ceebe44b6252ce36d5e6cec81056ec30",
-    "acceptedAt": "2026-09-17T12:22:36.297Z",
+    "commit": "0521effe8a3be8cfb6f971556e6f31098bf17f93",
+    "acceptedAt": "2026-09-18T01:08:08.723Z",
     "files": [
       {
         "path": "README.md",
@@ -15,7 +15,7 @@
       },
       {
         "path": "docs/architecture/implementation.md",
-        "sha256": "sha256:8335cfd54f2e221496ecc50b6eee7a1823da5f00446499b4fe8728f7f9e7126d"
+        "sha256": "sha256:6d15871e81bbe2734d99f91fe2fe9d598d8877ff09c95e69a3da50b89024576d"
       },
       {
         "path": "docs/architecture/modules/session-projection.md",
@@ -31,11 +31,15 @@
       },
       {
         "path": "eslint-suppressions.json",
-        "sha256": "sha256:08fdcd9d63615ec52f3c6b77092081e18104a283ea4f1e226653024b28cb9c81"
+        "sha256": "sha256:0e6ff2d5bae1d10e49c8bf7af28d9b171e156b713c26566acfdc09d310d705e5"
+      },
+      {
+        "path": "eslint.config.js",
+        "sha256": "sha256:32b3a057f1155a754bf8611648f169cd24aa562d7cd0b044864058c150a2793d"
       },
       {
         "path": "package.json",
-        "sha256": "sha256:113bfeeeae7874b4fd2f3e27e6b5a56f12b1f4f2bfb98692fd3e21d827b2e68c"
+        "sha256": "sha256:88a706ee018c44599945fd3ad5611bf297cf0f813100d7451f2a10249664eb13"
       },
       {
         "path": "public/app-format.js",
@@ -135,7 +139,11 @@
       },
       {
         "path": "public/index.html",
-        "sha256": "sha256:7184490fc6b04ad9cc22192458d86d19709676caaa65f4bd917a5f21fcaf05a3"
+        "sha256": "sha256:3dff68133325fdb4a90d2826b13baf82ec825a03d248152c3f36a133a97b1b3a"
+      },
+      {
+        "path": "public/package.json",
+        "sha256": "sha256:73513439b93b2391b8a67720b5e0959f46afc909c1f0fc7dd73b79c5ae36bda7"
       },
       {
         "path": "public/raw-event-cache.js",
@@ -198,8 +206,24 @@
         "sha256": "sha256:29331b83204e7a860bc5cc41725cb57fcf25ab345163599892a1a567d92716af"
       },
       {
+        "path": "public/tool-summary-command-output.js",
+        "sha256": "sha256:63c977389649f43b4284136ac5af65851cf96a433ac999c49e770edef83a177c"
+      },
+      {
+        "path": "public/tool-summary-patch.js",
+        "sha256": "sha256:b8b55a964baba1c2f95d30b26bddc39be4230796902e015e9d65388087178cf0"
+      },
+      {
+        "path": "public/tool-summary-rules.js",
+        "sha256": "sha256:bcebb727ffd1e59856a8325e2036c580782e730f309100825b748b5ca29c82f1"
+      },
+      {
+        "path": "public/tool-summary-text.js",
+        "sha256": "sha256:b3113c91cebf9ad23c087f82e58dc05ad9e6db6f42afff48108a1f1b81bcb430"
+      },
+      {
         "path": "public/tool-summary.js",
-        "sha256": "sha256:d360e343d67c0558b155f4737e80d89e8e5f82473a36fc5db767cb48b660c90a"
+        "sha256": "sha256:ad3764ba1a308fa06bf328962be73966bd15db138eb33a865e9ec8cb5838d2b4"
       },
       {
         "path": "scripts/e2e-server.mjs",
@@ -299,7 +323,7 @@
       },
       {
         "path": "src/session-source-context-service.mjs",
-        "sha256": "sha256:ad7a7599d43266ee8c9b49b564835a7c6ed5b01e8104b58ac6bd6963a36ae942"
+        "sha256": "sha256:65894f5fb1c362a0691029ff738d7dc2cd33a1bb84776e86c835103ec46665b0"
       },
       {
         "path": "src/session-timing.mjs",
@@ -366,6 +390,10 @@
         "sha256": "sha256:bc43999706e4f0eefd9cf8c888d0300634aa5bb9dad4f3894637f4dcdb2d4224"
       },
       {
+        "path": "test/server-http-smoke.test.mjs",
+        "sha256": "sha256:ef7ac963625c08d8c122225378b88e184f2ae3409ec6fc3a0514f8c244f5137c"
+      },
+      {
         "path": "test/session-catalog.test.mjs",
         "sha256": "sha256:3f68736bddb47150fc25e46d8d1a1e156dd59fb94a0e6eb3860cfeb5466a99ce"
       },
@@ -395,7 +423,7 @@
       },
       {
         "path": "test/tool-summary.test.mjs",
-        "sha256": "sha256:b57fc6acdaf5617ed06bf7fe67b21d60ef02044f58ac602ea288c8461c2f1c64"
+        "sha256": "sha256:c3f91d689b0e499b5b1325feee59ec3a0d9025775a034e47b4ea37f5ba03b5a4"
       }
     ]
   },
@@ -484,6 +512,7 @@
         "README.md",
         "server.mjs",
         "src/data-sources.mjs",
+        "src/session-source-context-service.mjs",
         "test/data-sources.test.mjs",
         "src/http-response.mjs",
         "docs/architecture/README.md"
@@ -539,7 +568,7 @@
           "locator": "function renderTraceNode(node, context)"
         },
         {
-          "path": "public/tool-summary.js",
+          "path": "public/tool-summary-rules.js",
           "locator": "id: \"pi-read-file\""
         },
         {
@@ -561,6 +590,10 @@
           "locator": "default rules summarize Pi read, write, and bash rg calls"
         },
         {
+          "path": "test/server-http-smoke.test.mjs",
+          "locator": "HTTP diagnostic endpoints enforce scan and byte budgets"
+        },
+        {
           "path": "test/e2e/full-content.spec.mjs",
           "locator": "事件统计在工具输出下按摘要规则汇总操作"
         },
@@ -579,6 +612,7 @@
         "docs/architecture/modules/session-projection.md",
         "docs/reader-context-events-design.md",
         "docs/session-event-normalization.md",
+        "eslint.config.js",
         "eslint-suppressions.json",
         "package.json",
         "public/app-format.js",
@@ -606,6 +640,7 @@
         "public/app-view-trace.js",
         "public/app.js",
         "public/index.html",
+        "public/package.json",
         "public/raw-event-cache.js",
         "public/styles.css",
         "public/styles/audit-detail.css",
@@ -621,6 +656,10 @@
         "public/styles/shell.css",
         "public/styles/terminal.css",
         "public/styles/workspace.css",
+        "public/tool-summary-command-output.js",
+        "public/tool-summary-patch.js",
+        "public/tool-summary-rules.js",
+        "public/tool-summary-text.js",
         "public/tool-summary.js",
         "server.mjs",
         "src/event-summary.mjs",
@@ -652,6 +691,7 @@
         "test/session-events.test.mjs",
         "test/session-models.test.mjs",
         "test/session-normalizer.test.mjs",
+        "test/server-http-smoke.test.mjs",
         "test/tool-summary.test.mjs"
       ]
     },
