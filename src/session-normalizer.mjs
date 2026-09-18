@@ -75,12 +75,22 @@ function extractTokenUsage(payload, raw) {
     raw?.message?.usage,
   ].filter((value) => isObject(value));
   for (const source of sources) {
-    const outputTokens = firstTokenNumber(source, ["output_tokens", "outputTokens", "completion_tokens", "completionTokens", "output"]);
-    if (outputTokens == null) continue;
-    const reasoningTokens = firstTokenNumber(source, ["reasoning_output_tokens", "reasoningOutputTokens", "reasoning_tokens", "reasoningTokens", "reasoning"]) ?? 0;
-    return { outputTokens, reasoningTokens, generatedTokens: outputTokens + reasoningTokens };
+    const usage = tokenUsageFromSource(source);
+    if (usage) return usage;
   }
   return null;
+}
+
+function tokenUsageFromSource(source) {
+  const outputTokens = firstTokenNumber(source, ["output_tokens", "outputTokens", "completion_tokens", "completionTokens", "output"]);
+  if (outputTokens == null) return null;
+  const reasoningTokens = firstTokenNumber(source, ["reasoning_output_tokens", "reasoningOutputTokens", "reasoning_tokens", "reasoningTokens", "reasoning"]) ?? 0;
+  const usage = { outputTokens, reasoningTokens, generatedTokens: outputTokens + reasoningTokens };
+  const inputTokens = firstTokenNumber(source, ["input_tokens", "inputTokens", "prompt_tokens", "promptTokens", "input"]);
+  const totalTokens = firstTokenNumber(source, ["total_tokens", "totalTokens"]);
+  if (inputTokens != null) usage.inputTokens = inputTokens;
+  if (totalTokens != null) usage.totalTokens = totalTokens;
+  return usage;
 }
 
 function firstTokenNumber(source, keys) {

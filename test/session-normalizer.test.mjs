@@ -143,6 +143,26 @@ test("normalizer extracts generated token usage from Codex and Pi records", () =
   assert.deepEqual(pi.tokenUsage, { outputTokens: 42, reasoningTokens: 8, generatedTokens: 50 });
 });
 
+test("normalizer keeps input and total tokens when usage records them", () => {
+  const pi = normalizeSessionEvent({
+    type: "message",
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text: "done" }],
+      usage: { input: 7256, output: 179, cacheRead: 128, reasoning: 0, totalTokens: 7563 },
+    },
+  });
+  const codex = normalizeSessionEvent({
+    type: "event_msg",
+    payload: { type: "token_count", info: { last_token_usage: { input_tokens: 100, output_tokens: 20, total_tokens: 120 } } },
+  });
+
+  assert.equal(pi.tokenUsage.inputTokens, 7256);
+  assert.equal(pi.tokenUsage.totalTokens, 7563);
+  assert.equal(codex.tokenUsage.inputTokens, 100);
+  assert.equal(codex.tokenUsage.totalTokens, 120);
+});
+
 test("coalesceNormalizedEvents joins streamed message delta chunks by message id", () => {
   const events = [
     { type: "assistant", message_id: "msg-1", delta: true, content: [{ text: "第一段" }] },

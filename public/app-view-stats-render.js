@@ -12,6 +12,7 @@
   const renderTimingView = (...args) => api.renderTimingView(...args);
   const bindTimingActions = (...args) => api.bindTimingActions(...args);
   const buildToolContextStats = (...args) => api.buildToolContextStats(...args);
+  const buildContextCapacityStats = (...args) => api.buildContextCapacityStats(...args);
   const formatContextRatio = (...args) => api.formatContextRatio(...args);
   const ratioPercent = (...args) => api.ratioPercent(...args);
   const escapeAttr = (...args) => api.escapeAttr(...args);
@@ -46,6 +47,10 @@ function renderStatsInfoView() {
         <div class="stats-diagnostic-section-head">
           <div><p class="eyebrow">上下文</p><h3 id="contextDiagnosticHeading">上下文统计诊断</h3></div>
           <span>当前筛选范围</span>
+        </div>
+        <div class="stats-subsection-head"><h4>上下文容量</h4><span>完整会话口径</span></div>
+        <div class="stats-view-metrics" aria-label="上下文容量概览">
+          ${renderContextCapacityMetrics(buildContextCapacityStats(detail))}
         </div>
         ${renderToolContextStats(detail, query, typeFilter)}
         <div class="stats-subsection-head"><h4>事件概览</h4><span>${escapeHtml(filtered ? "已应用搜索或类型过滤" : "完整事件流")}</span></div>
@@ -82,6 +87,34 @@ function renderStatsInfoView() {
   `;
   bindTimingActions();
   bindToolContextControls();
+}
+
+function renderContextCapacityMetrics(capacity) {
+  const hasWindow = capacity.contextWindow > 0;
+  const usedShare = ratioPercent(capacity.maxUsedTokens, capacity.contextWindow);
+  const outputShare = ratioPercent(capacity.maxOutputTokens, capacity.contextWindow);
+  return [
+    hasWindow
+      ? renderStatsMetric("模型上下文窗口", `${compactNumber(capacity.contextWindow)} tok`, "最近记录的窗口配置")
+      : "",
+    capacity.maxUsedTokens
+      ? renderStatsMetric(
+          "最大上下文占用",
+          hasWindow ? formatContextRatio(usedShare) : `约 ${compactNumber(capacity.maxUsedTokens)} tok`,
+          hasWindow ? `峰值约 ${compactNumber(capacity.maxUsedTokens)} tok · 单次请求总 token` : "单次请求峰值总 token",
+        )
+      : "",
+    capacity.maxOutputTokens
+      ? renderStatsMetric(
+          "最大输出上下文",
+          hasWindow ? formatContextRatio(outputShare) : `约 ${compactNumber(capacity.maxOutputTokens)} tok`,
+          hasWindow ? `单次最大 ${compactNumber(capacity.maxOutputTokens)} tok 生成` : "单次响应最大生成 token",
+        )
+      : "",
+    renderStatsMetric("触发压缩", `${compactNumber(capacity.compactCount)} 次`, capacity.compactCount ? "会话中的上下文压缩事件" : "未发生上下文压缩"),
+  ]
+    .filter(Boolean)
+    .join("");
 }
 
 function renderToolContextStats(detail, query, typeFilter) {
@@ -196,5 +229,5 @@ function bindToolContextControls() {
   });
 }
 
-  Object.assign(api, { renderStatsInfoView, renderToolContextStats, renderToolContextList, renderToolContextStatRow, renderToolContextNumber, bindToolContextControls });
+  Object.assign(api, { renderStatsInfoView, renderContextCapacityMetrics, renderToolContextStats, renderToolContextList, renderToolContextStatRow, renderToolContextNumber, bindToolContextControls });
 }

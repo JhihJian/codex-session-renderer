@@ -63,6 +63,11 @@ const sessionEvents = [
   },
   {
     timestamp: "2025-01-02T03:04:11.000Z",
+    type: "compacted",
+    payload: { message: "已压缩上一阶段上下文。" },
+  },
+  {
+    timestamp: "2025-01-02T03:04:11.500Z",
     type: "event_msg",
     payload: { type: "task_complete", last_agent_message: "验证完成。" },
   },

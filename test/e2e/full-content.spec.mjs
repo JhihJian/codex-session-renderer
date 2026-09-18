@@ -169,11 +169,21 @@ test("诊断统计按工具目标汇总上下文占用", async ({ page }) => {
 
   await expect(page.locator(".context-diagnostic-section > .stats-diagnostic-section-head h3")).toHaveText("上下文统计诊断");
   await expect(page.locator(".timing-diagnostic-section > .stats-diagnostic-section-head h3")).toHaveText("时间统计诊断");
+  const capacityMetrics = page.locator(".context-diagnostic-section .stats-view-metrics[aria-label='上下文容量概览']");
+  await expect(capacityMetrics).toContainText("模型上下文窗口");
+  await expect(capacityMetrics).toContainText("128.0K tok");
+  await expect(capacityMetrics).toContainText("最大上下文占用");
+  await expect(capacityMetrics).toContainText("50.0%");
+  await expect(capacityMetrics).toContainText("最大输出上下文");
+  await expect(capacityMetrics).toContainText("0.25%");
+  await expect(capacityMetrics).toContainText("触发压缩");
+  await expect(capacityMetrics).toContainText("1 次");
   const contextStats = page.locator(".tool-context-stats");
   await expect(contextStats).toContainText("已识别工具上下文");
-  await expect(contextStats).not.toContainText("最近上下文窗口");
+  await expect(contextStats).toContainText("最近上下文窗口");
+  await expect(contextStats).toContainText("128.0K tok");
   await expect(contextStats).toContainText("返回结果");
-  await expect(contextStats).not.toContainText("相对最近窗口");
+  await expect(contextStats).toContainText("相对最近窗口");
   await expect(contextStats.locator(".tool-context-table")).toHaveCount(0);
   await expect(contextStats.locator("#toolContextQuery")).toHaveCount(0);
   await contextStats.locator("[data-tool-context-list-toggle]").click();
@@ -184,7 +194,7 @@ test("诊断统计按工具目标汇总上下文占用", async ({ page }) => {
   await expect(verification.locator(".tool-context-number").nth(1)).toContainText("KB");
   await page.locator("#toolContextQuery").fill("npm test");
   await expect(contextStats.locator(".tool-context-row:not(.header)")).toHaveCount(1);
-  await expect(page.locator('#toolContextSort option[value="context-share"]')).toHaveCount(0);
+  await expect(page.locator('#toolContextSort option[value="context-share"]')).toHaveCount(1);
   await page.locator("#toolContextSort").selectOption("max-output");
   await expect(page.locator("#toolContextSort")).toHaveValue("max-output");
   await page.setViewportSize({ width: 390, height: 844 });

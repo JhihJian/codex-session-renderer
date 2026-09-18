@@ -285,6 +285,25 @@ test("compactTurnsForClient keeps tool output complete for reading view", () => 
   assert.equal(item.truncatedFields, undefined);
 });
 
+test("compactTurnsForClient keeps token usage for context diagnostics", () => {
+  const events = [
+    {
+      type: "message",
+      timestamp: "2026-06-24T10:00:00.000Z",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        usage: { input: 7256, output: 179, cacheRead: 128, reasoning: 0, totalTokens: 7563 },
+      },
+    },
+  ];
+
+  const compactTurns = compactTurnsForClient(buildTurns(events));
+  const item = compactTurns[0].items.find((entry) => entry.type === "assistant-message");
+
+  assert.deepEqual(item.tokenUsage, { outputTokens: 179, reasoningTokens: 0, generatedTokens: 179, inputTokens: 7256, totalTokens: 7563 });
+});
+
 test("compactTurnForView keeps all assistant messages", () => {
   const view = compactTurnForView(
     {

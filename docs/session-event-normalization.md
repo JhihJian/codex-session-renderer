@@ -171,6 +171,10 @@ Raw event 仍可按需查看完整原始 JSON。默认视图、事件预览和�
 
 `timing` 还从轮次开始或上一条工具、上下文边界到 reasoning 或 assistant 事件推导 LLM 等待区间。原始 JSONL 没有稳定的 API `response.started` / `response.completed` 生命周期时，这些区间标记为 `estimated`，而非精确 API 耗时。Codex 的 `token_count.info.last_token_usage` 与 Pi 助手消息的 `usage` 若包含输出 token，会关联到本次 LLM 等待，展示输出 token 加推理 token 的总生成量及 `token/s`。速率的分母是上述推导区间，不是供应商逐 token 的流式遥测，缺少明确用量时不会按字符数估算。子代理只有同时拥有父会话中的启动事件和完成通知时才计入运行时长，内嵌子代理结果和子会话文件更新时间都不足以推断时长。工具时长仍来自同一调用的调用与返回事件。`GET /api/query/sessions/:id/view?view=timing` 返回与详情中相同的 `timing` 投影。搜索、类型筛选和事件统计不改变完整会话时间口径。
 
+## 上下文容量统计
+
+诊断页“上下文统计诊断”中的“上下文容量”概览基于完整会话口径：最近记录的模型上下文窗口、会话中最大单次请求的上下文占用、最大单次生成输出以及触发的压缩次数。数据来源是客户端轮次投影中的原始记录：Codex 的 `token-count` 项目保留 `info.last_token_usage` 与 `info.context_usage`（含 `limit`），峰值占用取 `last_token_usage.total_tokens`；Pi 助手消息的 `usage` 提取为 `tokenUsage`（含 `inputTokens`、`totalTokens`），峰值占用取 `totalTokens`，单次生成取 `generatedTokens`。占比一律以最近记录的窗口为分母；原始记录没有窗口时只展示绝对 token 和压缩次数，不保留比例占位。压缩次数按会话中的压缩事件计数（Codex `compacted` / `context_compacted` 与 Pi `compaction`）。
+
 ## 完整详情与诊断预算
 
 详情、compact/view、turns/trace 导出完整读取当前 JSONL，不按文件字节数或事件数降级。服务端以读取开始时的文件签名区分缓存版本，保留全局 4 路读取闸门与 24 条/48 MiB 的版本 LRU；单个结果超过缓存总预算时只是不写入缓存，不能拒绝展示。文件在读取期间变化不会中断本次投影，更新后的签名会让下一次请求绕过旧缓存。具体环境变量和默认值见 README 的“完整详情读取与诊断预算”。

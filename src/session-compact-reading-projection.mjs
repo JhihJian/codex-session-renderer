@@ -51,6 +51,7 @@ function compactItemForClient(item, turnIndex, itemIndex, options = {}) {
   if (item.attachments?.length) base.attachments = item.attachments;
   const info = compactTraceInfo(item.info);
   if (info) base.info = info;
+  if (item.tokenUsage) base.tokenUsage = item.tokenUsage;
   if (options.contextUsage) base.contextUsage = options.contextUsage;
 
   if (item.text != null) {
