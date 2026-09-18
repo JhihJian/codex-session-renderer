@@ -5,6 +5,7 @@ import path from "node:path";
 const piAgentSourceId = "pi-agent";
 const piAgentSessionsRootEnvKeys = ["CODEX_SESSION_RENDERER_PI_AGENT_SESSIONS_ROOT", "PI_AGENT_SESSIONS_ROOT", "PI_AGENT_SESSIONS"];
 const piAgentTasksRootEnvKeys = ["CODEX_SESSION_RENDERER_PI_AGENT_TASKS_ROOT", "PI_AGENT_TASKS_ROOT"];
+const piAgentEvaluationsRootEnvKeys = ["CODEX_SESSION_RENDERER_PI_AGENT_EVALUATIONS_ROOT", "PI_AGENT_EVALUATIONS_ROOT"];
 const piAgentHomeEnvKeys = ["CODEX_SESSION_RENDERER_PI_AGENT_HOME", "PI_AGENT_HOME"];
 
 function createDataSourceRegistry(options = {}) {
@@ -43,23 +44,31 @@ function createLocalDataSource({ codexHome }) {
 }
 
 function parsePiAgentDefinition(env = process.env, homeDir = os.homedir()) {
-  const configuredSessionsRoot = firstEnvValue(env, piAgentSessionsRootEnvKeys);
-  const configuredTasksRoot = firstEnvValue(env, piAgentTasksRootEnvKeys);
+  const root = resolvePiAgentRoot(env, homeDir);
   const configuredAgentHome = firstEnvValue(env, piAgentHomeEnvKeys);
-  if (configuredSessionsRoot && configuredTasksRoot) {
-    throw new Error("PI Agent 会话根目录和任务根目录不能同时配置。");
-  }
-  const tasksRoot = configuredTasksRoot ? path.resolve(configuredTasksRoot) : "";
-  const sessionsRoot = path.resolve(configuredSessionsRoot || path.join(homeDir, ".pi", "agent", "sessions"));
-  const autoDetected = !configuredSessionsRoot && !configuredTasksRoot && !configuredAgentHome;
+  const autoDetected = !root.configured && !configuredAgentHome;
+  const sessionsRoot = root.sessionsRoot;
   if (autoDetected && !existsSync(sessionsRoot)) return null;
-  const agentHome = path.resolve(configuredAgentHome || tasksRoot || path.dirname(sessionsRoot));
+  const agentHome = path.resolve(configuredAgentHome || root.agentHome);
   return {
     agentHome,
-    sessionsRoot: tasksRoot || sessionsRoot,
-    ...(tasksRoot ? { tasksRoot } : {}),
+    sessionsRoot,
+    ...root.dynamicRoot,
     autoDetected,
   };
+}
+
+function resolvePiAgentRoot(env, homeDir) {
+  const configuredRoots = [
+    { kind: "sessions", value: firstEnvValue(env, piAgentSessionsRootEnvKeys) },
+    { kind: "tasks", value: firstEnvValue(env, piAgentTasksRootEnvKeys) },
+    { kind: "evaluations", value: firstEnvValue(env, piAgentEvaluationsRootEnvKeys) },
+  ].filter((root) => root.value);
+  if (configuredRoots.length > 1) throw new Error("PI Agent 会话、任务和评估根目录不能同时配置。");
+  const configuredRoot = configuredRoots[0];
+  const sessionsRoot = path.resolve(configuredRoot?.value || path.join(homeDir, ".pi", "agent", "sessions"));
+  const dynamicRoot = configuredRoot && configuredRoot.kind !== "sessions" ? { [`${configuredRoot.kind}Root`]: sessionsRoot } : {};
+  return { configured: Boolean(configuredRoot), sessionsRoot, agentHome: configuredRoot ? sessionsRoot : path.dirname(sessionsRoot), dynamicRoot };
 }
 
 function firstEnvValue(env, keys) {
@@ -70,7 +79,7 @@ function firstEnvValue(env, keys) {
   return "";
 }
 
-function createPiAgentDataSource({ agentHome, sessionsRoot, tasksRoot, autoDetected }) {
+function createPiAgentDataSource({ agentHome, sessionsRoot, tasksRoot, evaluationsRoot, autoDetected }) {
   const sessionsAvailable = existsSync(sessionsRoot);
   return {
     id: piAgentSourceId,
@@ -80,9 +89,10 @@ function createPiAgentDataSource({ agentHome, sessionsRoot, tasksRoot, autoDetec
     originalCodexHome: agentHome,
     sessionsRoot,
     taskSessionsRoot: tasksRoot,
+    evaluationSessionsRoot: evaluationsRoot,
     sessionIndexPath: path.join(agentHome, "session_index.jsonl"),
     stateDbPath: path.join(agentHome, "state_5.sqlite"),
-    origin: { type: "pi-agent", sessionsRoot, taskSessionsRoot: tasksRoot, autoDetected },
+    origin: { type: "pi-agent", sessionsRoot, taskSessionsRoot: tasksRoot, evaluationSessionsRoot: evaluationsRoot, autoDetected },
     status: sessionsAvailable ? {} : { error: { code: "missing_sessions_root", message: "Pi Agent 会话目录不存在。" } },
   };
 }

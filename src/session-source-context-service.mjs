@@ -52,8 +52,13 @@ export function createSessionSourceContextService({ maxListSessions }) {
   }
 
   async function sessionFileStat(context, filePath, expectedId = null) {
-    if (expectedId && sessionIdFromFile(filePath) !== expectedId) return null;
+    if (expectedId && !sessionFileMatchesExpectedId(filePath, expectedId)) return null;
     return sourceFileStat(context, filePath);
+  }
+
+  function sessionFileMatchesExpectedId(filePath, expectedId) {
+    const fileSessionId = sessionIdFromFile(filePath);
+    return fileSessionId === expectedId || expectedId.endsWith(`:${fileSessionId}`);
   }
 
   async function requireReadableSessionFile(context, filePath) {

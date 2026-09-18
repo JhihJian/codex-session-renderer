@@ -8,6 +8,8 @@ import { isAbortError } from "./session-detail-coordinator.mjs";
 import { stripLongPathPrefix } from "./sqlite-threads.mjs";
 
 const piTaskDirectoryPattern = /^task-[a-z0-9][a-z0-9-]{0,127}$/;
+const evaluationDirectoryPattern = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
+const evaluationSessionFileName = "pi-stdout.jsonl";
 
 export function createSessionDirectoryQueryService(dependencies) {
   return {
@@ -44,6 +46,10 @@ async function* walkSourceSessionFiles(dependencies, context, options = {}) {
     yield* walkPiTaskSessions(dependencies, context.source.taskSessionsRoot, options);
     return;
   }
+  if (context.source.evaluationSessionsRoot) {
+    yield* walkPiEvaluationSessions(dependencies, context.source.evaluationSessionsRoot, options);
+    return;
+  }
   for (const entry of sessionFileRoots(context.codexHome, context.sessionsRoot, true)) {
     if (!await dependencies.sourceSessionRootIsReadable(context, entry.root)) continue;
     for await (const filePath of walkJsonl(dependencies, entry.root, options)) yield { filePath, taskId: null, archived: entry.archived };
@@ -69,10 +75,37 @@ async function* walkPiTaskSessions(dependencies, tasksRoot, options = {}) {
   }
 }
 
+async function* walkPiEvaluationSessions(dependencies, evaluationsRoot, options = {}) {
+  let evaluations;
+  try {
+    evaluations = await fs.readdir(evaluationsRoot, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  evaluations.sort((left, right) => right.name.localeCompare(left.name, "en"));
+  for (const evaluation of evaluations) {
+    dependencies.throwIfRequestAborted(options.signal);
+    if (!evaluation.isDirectory() || !evaluationDirectoryPattern.test(evaluation.name)) continue;
+    const evaluationRoot = path.join(evaluationsRoot, evaluation.name);
+    const sessionPath = path.join(evaluationRoot, evaluationSessionFileName);
+    if (!await isRegularDirectory(evaluationRoot) || !await isRegularFile(sessionPath)) continue;
+    yield { filePath: sessionPath, taskId: evaluation.name, archived: false };
+  }
+}
+
 async function isRegularDirectory(directoryPath) {
   try {
     const stat = await fs.lstat(directoryPath);
     return stat.isDirectory() && !stat.isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+async function isRegularFile(filePath) {
+  try {
+    const stat = await fs.lstat(filePath);
+    return stat.isFile() && !stat.isSymbolicLink();
   } catch {
     return false;
   }

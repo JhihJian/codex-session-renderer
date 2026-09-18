@@ -23,7 +23,7 @@ Codex 会话工作台是只读的会话浏览器。它把 Codex 与 Pi Agent 的
 
 - Codex 元数据：`~/.codex/state_5.sqlite`
 - Codex 会话：`~/.codex/sessions/**/*.jsonl`
-- Pi Agent 会话：自动发现 `~/.pi/agent/sessions/**/*.jsonl`，也可通过 `PI_AGENT_SESSIONS_ROOT` 或 `PI_AGENT_TASKS_ROOT` 配置。内嵌 `subagent` 调用会按轮次汇总为连续执行组，展示每次调用的任务、状态与短回报预览，完整回报按需展开，并保留原始事件跳转；会话侧栏目录和执行过程树同时展示“内嵌调用 → 子代理”节点。各处投影都不会伪装成可打开的独立子会话。Pi 会话首部的 `parentSession` 会解析为分叉链：列表中同项目的子会话缩进展示并带“分叉”徽标，详情头部提供“⤴ 分叉自 …”“分叉出 N 个会话”的跳转链接，父会话已被清理时如实标注不在当前目录。Pi `compaction` 直接展示摘要；`<skill>` 指令块和读取 `SKILL.md` 只展示会话内可验证的声明或读取证据，不宣称启动时已加载的 Skills。
+- Pi Agent 会话：自动发现 `~/.pi/agent/sessions/**/*.jsonl`，也可通过 `PI_AGENT_SESSIONS_ROOT`、`PI_AGENT_TASKS_ROOT` 或 `PI_AGENT_EVALUATIONS_ROOT` 配置。评估根目录按 `<evaluation_id>/pi-stdout.jsonl` 读取，`evaluation_id` 必须是 UUID，且会进入会话 ID 以避免同名文件互相覆盖。三种显式根目录配置互斥。内嵌 `subagent` 调用会按轮次汇总为连续执行组，展示每次调用的任务、状态与短回报预览，完整回报按需展开，并保留原始事件跳转；会话侧栏目录和执行过程树同时展示“内嵌调用 → 子代理”节点。各处投影都不会伪装成可打开的独立子会话。Pi 会话首部的 `parentSession` 会解析为分叉链：列表中同项目的子会话缩进展示并带“分叉”徽标，详情头部提供“⤴ 分叉自 …”“分叉出 N 个会话”的跳转链接，父会话已被清理时如实标注不在当前目录。Pi `compaction` 直接展示摘要；`<skill>` 指令块和读取 `SKILL.md` 只展示会话内可验证的声明或读取证据，不宣称启动时已加载的 Skills。
 
 
 Pi Agent 会话目录可用时，工作台默认展示 Pi 数据源；未发现 Pi Agent 会话目录时，自动回退到本机 Codex 数据源。
