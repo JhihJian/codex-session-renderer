@@ -2,8 +2,8 @@
   "version": 4,
   "documentStatus": "active",
   "snapshot": {
-    "commit": "0521effe8a3be8cfb6f971556e6f31098bf17f93",
-    "acceptedAt": "2026-09-18T01:08:08.723Z",
+    "commit": "311027166488d0b89a98193032cc6468b00006a9",
+    "acceptedAt": "2026-09-18T01:42:21.338Z",
     "files": [
       {
         "path": "README.md",
@@ -19,7 +19,7 @@
       },
       {
         "path": "docs/architecture/modules/session-projection.md",
-        "sha256": "sha256:020250c2307db3c81a5a8eeaaaf254ea2f5ba4448c7782ba8f5989d0c0a2152d"
+        "sha256": "sha256:289610214db1ec191311cc8bc90f922def0d6eed0e5549f5b9be073d8661ea26"
       },
       {
         "path": "docs/reader-context-events-design.md",
@@ -111,7 +111,7 @@
       },
       {
         "path": "public/app-view-stats-timing.js",
-        "sha256": "sha256:7dadeeedd0fc9c547d194b84f598630f1a2385f5801f5cd4067b05dfd2faa765"
+        "sha256": "sha256:54bd21d2eb62d9e1b1bdd9eae0affd9be08f343b928c471859db84c12c3ba9bb"
       },
       {
         "path": "public/app-view-stats.js",
@@ -167,7 +167,7 @@
       },
       {
         "path": "public/styles/diagnostics.css",
-        "sha256": "sha256:1c5a48b91bc1fbec7ccb393148e741d517b20c66baa58ff0c2c3b3ce7ab12ff4"
+        "sha256": "sha256:10a511c4939254b06a1f985dbaf1d61ba45c807f0829a0096db782e51502a45a"
       },
       {
         "path": "public/styles/execution-details.css",
@@ -295,7 +295,7 @@
       },
       {
         "path": "src/session-execution-trace-projection.mjs",
-        "sha256": "sha256:040952c0bcaa719d811966c18d0d1edd59f0b3bb9c3268dea105ed76eb42938d"
+        "sha256": "sha256:b98c1295c1ca348e6efb4b151a531db7bd5b7d2449becfb00a00a8cd73e1d308"
       },
       {
         "path": "src/session-models.mjs",
@@ -346,6 +346,10 @@
         "sha256": "sha256:1d94a1a44e1391553ebcf64028275455a65a3018acf3078f7c24c4ba57bdb27a"
       },
       {
+        "path": "test/app-view-stats-timing.test.mjs",
+        "sha256": "sha256:3fcb70706a829484c089428a92b3c11c44a5ee61bcae68a19808e89d4f75f2f7"
+      },
+      {
         "path": "test/data-sources.test.mjs",
         "sha256": "sha256:703ffcd1592b5a7bacdbebd86e631fb77e7b1b12dbc969122960f0b1dbebd061"
       },
@@ -355,7 +359,7 @@
       },
       {
         "path": "test/e2e/full-content.spec.mjs",
-        "sha256": "sha256:de4df89f01063b0de8f19b59cf154f73aadf34f81b58a0023ad86889668f21e8"
+        "sha256": "sha256:2400fbfb18567cc9cd8bde446e66099b585f91b78d1d521405e8e03dc733d3e3"
       },
       {
         "path": "test/e2e/list-scope-navigation.spec.mjs",
@@ -403,7 +407,7 @@
       },
       {
         "path": "test/session-events.test.mjs",
-        "sha256": "sha256:67391faa310ed6f65ae661ece8a6a3f85f9f76fc7d9dc5577ebb5630c6ebfe3d"
+        "sha256": "sha256:3e123f5e97e11fe71dacd4f496bb510d51634ba0ab2d8e075e04fa715355ed57"
       },
       {
         "path": "test/session-models.test.mjs",
@@ -600,6 +604,10 @@
         {
           "path": "test/e2e/full-content.spec.mjs",
           "locator": "诊断统计按工具目标汇总上下文占用"
+        },
+        {
+          "path": "test/app-view-stats-timing.test.mjs",
+          "locator": "timing view renders session TPS card and per-turn TPS meta"
         }
       ],
       "document": {
@@ -692,7 +700,8 @@
         "test/session-models.test.mjs",
         "test/session-normalizer.test.mjs",
         "test/server-http-smoke.test.mjs",
-        "test/tool-summary.test.mjs"
+        "test/tool-summary.test.mjs",
+        "test/app-view-stats-timing.test.mjs"
       ]
     },
     {
