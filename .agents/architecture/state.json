@@ -2,12 +2,12 @@
   "version": 4,
   "documentStatus": "active",
   "snapshot": {
-    "commit": "260b7fffff28f1dd89cb72197705fd8633e4259f",
-    "acceptedAt": "2026-09-18T04:12:48.372Z",
+    "commit": "4e8d6c50816900f731a9758d63281fc5f8f52ce7",
+    "acceptedAt": "2026-09-18T05:35:53.891Z",
     "files": [
       {
         "path": "README.md",
-        "sha256": "sha256:8943cd9d846b0886d55718f29fba8db6936db9588499607119b168dca19fb3ac"
+        "sha256": "sha256:af6a25c0b0188a4f5e769a5df5a54cb508ad88ac38bcd450898e4690e0a7f586"
       },
       {
         "path": "docs/architecture/README.md",
@@ -19,7 +19,7 @@
       },
       {
         "path": "docs/architecture/modules/session-projection.md",
-        "sha256": "sha256:a6306dc098963583b47621440a9599da720dcaba7164a9ff909f379e49c70c37"
+        "sha256": "sha256:92fa374ca6d4f2c3243013cd9a21283a5cbf2ccc23ae4fcb0e5af1fce3bcf6cc"
       },
       {
         "path": "docs/reader-context-events-design.md",
@@ -27,7 +27,7 @@
       },
       {
         "path": "docs/session-event-normalization.md",
-        "sha256": "sha256:abcbba5be9eb86acc896f08ade074ab6a3e9f9c80cb643d7a4ee9ddb49f9c938"
+        "sha256": "sha256:a78d39415663ff25d52cba542f7869f73d05b9a0536d1ce7058af0b198557d4a"
       },
       {
         "path": "eslint-suppressions.json",
@@ -107,15 +107,15 @@
       },
       {
         "path": "public/app-view-stats-render.js",
-        "sha256": "sha256:e07089bbe77f5cab9b3c62b96af1e177320834510b9fe6abab27f20f5ba30a24"
+        "sha256": "sha256:53c764aaaca5cc70d000778b9a438d2bbc2a9c516de8f863cf5b473486da1c92"
       },
       {
         "path": "public/app-view-stats-timing.js",
-        "sha256": "sha256:54bd21d2eb62d9e1b1bdd9eae0affd9be08f343b928c471859db84c12c3ba9bb"
+        "sha256": "sha256:98282e8cb48d218496db030f47db9ef13e87482ce896e5cf6cded7f6b690d0e1"
       },
       {
         "path": "public/app-view-stats.js",
-        "sha256": "sha256:e2287990372ced5a235976937f816684aabb9d93a58633be4780995c7e105293"
+        "sha256": "sha256:2a949a25d5316f4c49a13057d081efd81a0a12ea4c58b33351bfabfecc7d3d31"
       },
       {
         "path": "public/app-view-terminal.js",
@@ -127,11 +127,11 @@
       },
       {
         "path": "public/app-view-trace-helpers.js",
-        "sha256": "sha256:b9d3b283f27893bea528cf00cc6d81c2acc5365b092c94dda57ae607044edab1"
+        "sha256": "sha256:0f35ff2031133b3b3a3737a989ed06fb1d66146f0dce9187480d8d917ccce9e9"
       },
       {
         "path": "public/app-view-trace.js",
-        "sha256": "sha256:fb38861aebe7c1aa2b69353ffcc545ba06c97a6ed1f09ad00295d3fd612bc841"
+        "sha256": "sha256:f00b5af966a81c0604d00a0eb2897287477f3b0dc9e5b438f946e7fed832608c"
       },
       {
         "path": "public/app.js",
@@ -167,7 +167,7 @@
       },
       {
         "path": "public/styles/diagnostics.css",
-        "sha256": "sha256:10a511c4939254b06a1f985dbaf1d61ba45c807f0829a0096db782e51502a45a"
+        "sha256": "sha256:d9be3a9ff2c9f27b942023437d7966c3104160447da36dd084080fe989f2dfa1"
       },
       {
         "path": "public/styles/execution-details.css",
@@ -183,7 +183,7 @@
       },
       {
         "path": "public/styles/raw-trace.css",
-        "sha256": "sha256:76a10788e6d02ea8fed5c8116171dcea5fbb15848aafcdd399258c9ae57628b6"
+        "sha256": "sha256:70404d42e23b31fb3f2fcb441b104f887361898f897cfa8d63ab819daf7da41a"
       },
       {
         "path": "public/styles/reader.css",
@@ -191,7 +191,7 @@
       },
       {
         "path": "public/styles/responsive.css",
-        "sha256": "sha256:f318ad24b1ae7dbba6a4804ae4724e0f17b6cb14ac3f2215a3becfd9fb8eb784"
+        "sha256": "sha256:ad79571d145468e07452b103d6261c31bec69fcac557a7143bf3d08f5ed1fd2d"
       },
       {
         "path": "public/styles/shell.css",
@@ -227,7 +227,7 @@
       },
       {
         "path": "scripts/e2e-server.mjs",
-        "sha256": "sha256:b9ed943420bd6f969c3357faa504e2aa7b0dcab0d6ec4265c14817e542b78107"
+        "sha256": "sha256:a6f7b82ac1267f7e56b7a01c270f2b5f5ffbbd5daa449ee5a226d9f17fbcca08"
       },
       {
         "path": "server.mjs",
@@ -258,10 +258,6 @@
         "sha256": "sha256:de10b92dd0c4e0e521201772a7ea87ef4f6481ca90e1636e4d269b9b2092014d"
       },
       {
-        "path": "src/pi-model-catalog.mjs",
-        "sha256": "sha256:32f9e14160db09e1a7bdedceaaaa5149ebef1846ee5f9a89bc4e00fe2e85fe86"
-      },
-      {
         "path": "src/session-catalog-query-service.mjs",
         "sha256": "sha256:df4a028e130d7a59d2762f8be136e3ad832cc8e6afa95fa72fcb75638b8e995a"
       },
@@ -279,7 +275,7 @@
       },
       {
         "path": "src/session-detail-query-service.mjs",
-        "sha256": "sha256:5ad87018e391fb61960e9978776ff977eed5f19a58970170b79a137343d965b9"
+        "sha256": "sha256:cb8f86bbb03ded5f5b9ca4c56431c46201be36205845a34a6b75152432504d24"
       },
       {
         "path": "src/session-directory-query-service.mjs",
@@ -299,7 +295,7 @@
       },
       {
         "path": "src/session-execution-trace-projection.mjs",
-        "sha256": "sha256:6e29cae69d3fdfc8939a97e0b4d644d299286f7ad94c6dbe20daa9245c81ae35"
+        "sha256": "sha256:4ec8ca045a8a8eb01a1f36b8f492f68280a9db2b629af3b857249b198fdd478c"
       },
       {
         "path": "src/session-models.mjs",
@@ -327,11 +323,11 @@
       },
       {
         "path": "src/session-source-context-service.mjs",
-        "sha256": "sha256:c0d1f373d9356ba096fed7e36c640cc2c64aa3784796ff3f460801976d5dbf7e"
+        "sha256": "sha256:4983b99f25b4fa2053ec68451d32515e882fe025f07c49274271db3ce08eccc3"
       },
       {
         "path": "src/session-timing.mjs",
-        "sha256": "sha256:4111498866500c2a5876f694f53beb0f05bf37ed510a9c6dfedb0a7ce0d643a6"
+        "sha256": "sha256:ccea8b565e664bb4546c3080bfd22bf01a3632db7f2b308c1831dd9bd676cd4e"
       },
       {
         "path": "src/session-trace-node-projection.mjs",
@@ -351,15 +347,15 @@
       },
       {
         "path": "test/app-view-stats-context.test.mjs",
-        "sha256": "sha256:6f27e912a62724ca95ae6e9bbbbd44c6977d06082d022195fd3ce6466072bd43"
+        "sha256": "sha256:e36219036043320ec0ae1b6d73b460e710e4955017956ec8771a07c33ce652b8"
       },
       {
         "path": "test/app-view-stats-timing.test.mjs",
-        "sha256": "sha256:3fcb70706a829484c089428a92b3c11c44a5ee61bcae68a19808e89d4f75f2f7"
+        "sha256": "sha256:1ab17f3af9d0f2fdadf93a5f7bca9bd2d985122d6f120bc5428374648f2c9d0f"
       },
       {
         "path": "test/app-view-trace.test.mjs",
-        "sha256": "sha256:b330074eb8b181a9bc58f8e16fea4d6a937ae452bbf037c4ac6a2fb1cacd2adc"
+        "sha256": "sha256:548c8c79f950006768e0642ab7a4a0ddc1a96c95512560c14e4927eae582624a"
       },
       {
         "path": "test/data-sources.test.mjs",
@@ -371,7 +367,7 @@
       },
       {
         "path": "test/e2e/full-content.spec.mjs",
-        "sha256": "sha256:929896cf0a7ae9f0883b7a5a7e1eee6e9aa8cb5bff2c82529a5272a9e5fe2443"
+        "sha256": "sha256:c044f00c15d9b22fb0c98ea6a9cdb9e1e1512971b09bb21827cf9eb994d73f27"
       },
       {
         "path": "test/e2e/list-scope-navigation.spec.mjs",
@@ -388,10 +384,6 @@
       {
         "path": "test/pi-context-events.test.mjs",
         "sha256": "sha256:b76cf5d9cc8ba7c2d468acfcaaf011b12464fd0bef55101a5824acb7aab95a77"
-      },
-      {
-        "path": "test/pi-model-catalog.test.mjs",
-        "sha256": "sha256:e4f095226304e6ffe2c960c4c7eb025547d9f81f62e35843413c812b87744925"
       },
       {
         "path": "test/pi-task-sources.test.mjs",
@@ -423,7 +415,7 @@
       },
       {
         "path": "test/session-events.test.mjs",
-        "sha256": "sha256:f4f0727917e18b9655aecd4e674ff8bc1c1962f6401f164321339d9f4e1aee58"
+        "sha256": "sha256:a6e830304dce7c7dd21b03a5d1301f120ef6e364503664d3491c531d6af78fe7"
       },
       {
         "path": "test/session-models.test.mjs",
@@ -439,7 +431,7 @@
       },
       {
         "path": "test/session-timing.test.mjs",
-        "sha256": "sha256:86cf4afd92b68e2065d234c5a22f651e09bebb4526c92310257b46d330619e9b"
+        "sha256": "sha256:03025ed2be8e321220b881733d22c951d25a9cea046f4400aea056a3db4d5cb4"
       },
       {
         "path": "test/tool-summary.test.mjs",
@@ -515,20 +507,12 @@
         {
           "path": "src/session-source-context-service.mjs",
           "locator": "function getSourceContext(sourceId = \"local\")"
-        },
-        {
-          "path": "src/pi-model-catalog.mjs",
-          "locator": "function createPiModelCatalogFromEnv"
         }
       ],
       "tests": [
         {
           "path": "test/data-sources.test.mjs",
-          "locator": "createDataSourceRegistry only exposes the local Codex source by default"
-        },
-        {
-          "path": "test/pi-model-catalog.test.mjs",
-          "locator": "createPiModelCatalogFromEnv prefers a catalog fixture file"
+          "locator": "createDataSourceRegistry only exposes th"
         }
       ],
       "document": {
@@ -543,8 +527,7 @@
         "src/session-source-context-service.mjs",
         "test/data-sources.test.mjs",
         "src/http-response.mjs",
-        "docs/architecture/README.md",
-        "src/pi-model-catalog.mjs"
+        "docs/architecture/README.md"
       ]
     },
     {
@@ -624,11 +607,11 @@
         },
         {
           "path": "test/tool-summary.test.mjs",
-          "locator": "default rules summarize Pi read, write, and bash rg calls"
+          "locator": "default rules summarize Pi read, write, "
         },
         {
           "path": "test/server-http-smoke.test.mjs",
-          "locator": "HTTP diagnostic endpoints enforce scan and byte budgets"
+          "locator": "HTTP diagnostic endpoints enforce scan a"
         },
         {
           "path": "test/e2e/full-content.spec.mjs",
@@ -640,11 +623,11 @@
         },
         {
           "path": "test/app-view-stats-timing.test.mjs",
-          "locator": "timing view renders session TPS card and per-turn TPS meta"
+          "locator": "timing turn bars scale relative to the l"
         },
         {
           "path": "test/app-view-stats-context.test.mjs",
-          "locator": "buildContextCapacityStats aggregates Codex token-count peaks"
+          "locator": "buildToolContextStats keeps recorded window"
         },
         {
           "path": "test/app-view-trace.test.mjs",
