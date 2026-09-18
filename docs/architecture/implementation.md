@@ -9,7 +9,7 @@
 
 ## 数据源
 
-`src/data-sources.mjs` 创建本机 Codex 与可选 Pi Agent 来源。Pi Agent 可读取直接会话根、任务归档根或评估根；评估根仅发现 UUID 评估目录中的 `pi-stdout.jsonl`，并把评估 ID 纳入会话身份。Pi Agent 会话根存在时成为默认来源，否则使用本机 Codex；来源均只读。
+`src/data-sources.mjs` 创建本机 Codex 与可选 Pi Agent 来源。Pi Agent 可读取直接会话根、任务归档根或评估根；评估根仅发现 UUID 评估目录中 `output/pi-sessions/` 下的 JSONL，并把评估 ID 纳入会话身份。Pi Agent 会话根存在时成为默认来源，否则使用本机 Codex；来源均只读。
 
 ## 会话与阅读投影
 

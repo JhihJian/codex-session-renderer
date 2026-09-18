@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 
 const modelCatalogFileEnvKey = "CODEX_SESSION_RENDERER_PI_MODEL_CATALOG_FILE";
 const defaultRpcCommand = ["pi", "--mode", "rpc", "--no-session"];
@@ -39,9 +40,18 @@ function createStaticModelCatalog(models) {
   };
 }
 
+function resolvePiCommand() {
+  const besideNode = path.join(path.dirname(process.execPath), "pi");
+  return {
+    command: existsSync(besideNode) ? [besideNode, "--mode", "rpc", "--no-session"] : [...defaultRpcCommand],
+    hint: besideNode,
+  };
+}
+
 function createPiModelCatalogService(options = {}) {
   const ttlMs = options.ttlMs ?? defaultRefreshTtlMs;
-  const queryModels = options.queryModels ?? (() => queryPiRpcModels());
+  const resolved = resolvePiCommand();
+  const queryModels = options.queryModels ?? (() => queryPiRpcModels({ command: resolved.command }));
   const now = options.now ?? Date.now;
   let snapshot = null;
   let inFlight = null;

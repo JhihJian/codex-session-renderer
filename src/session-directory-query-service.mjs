@@ -9,7 +9,7 @@ import { stripLongPathPrefix } from "./sqlite-threads.mjs";
 
 const piTaskDirectoryPattern = /^task-[a-z0-9][a-z0-9-]{0,127}$/;
 const evaluationDirectoryPattern = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
-const evaluationSessionFileName = "pi-stdout.jsonl";
+const evaluationSessionsDirectoryParts = ["output", "pi-sessions"];
 
 export function createSessionDirectoryQueryService(dependencies) {
   return {
@@ -87,9 +87,9 @@ async function* walkPiEvaluationSessions(dependencies, evaluationsRoot, options 
     dependencies.throwIfRequestAborted(options.signal);
     if (!evaluation.isDirectory() || !evaluationDirectoryPattern.test(evaluation.name)) continue;
     const evaluationRoot = path.join(evaluationsRoot, evaluation.name);
-    const sessionPath = path.join(evaluationRoot, evaluationSessionFileName);
-    if (!await isRegularDirectory(evaluationRoot) || !await isRegularFile(sessionPath)) continue;
-    yield { filePath: sessionPath, taskId: evaluation.name, archived: false };
+    const sessionsRoot = path.join(evaluationRoot, ...evaluationSessionsDirectoryParts);
+    if (!await isRegularDirectory(evaluationRoot) || !await isRegularDirectory(sessionsRoot)) continue;
+    for await (const filePath of walkJsonl(dependencies, sessionsRoot, options)) yield { filePath, taskId: evaluation.name, archived: false };
   }
 }
 
@@ -97,15 +97,6 @@ async function isRegularDirectory(directoryPath) {
   try {
     const stat = await fs.lstat(directoryPath);
     return stat.isDirectory() && !stat.isSymbolicLink();
-  } catch {
-    return false;
-  }
-}
-
-async function isRegularFile(filePath) {
-  try {
-    const stat = await fs.lstat(filePath);
-    return stat.isFile() && !stat.isSymbolicLink();
   } catch {
     return false;
   }

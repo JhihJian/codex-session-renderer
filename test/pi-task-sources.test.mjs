@@ -59,15 +59,16 @@ test("createDataSourceRegistry supports an evaluation-root Pi Agent source", asy
   }
 });
 
-test("evaluation-root discovery only reads direct Pi stdout files with distinct evaluation IDs", async () => {
+test("evaluation-root discovery only reads Pi sessions below each evaluation output directory", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "csr-pi-evaluation-discovery-"));
   try {
     const evaluationsRoot = path.join(dir, "evaluations");
     const evaluationIds = ["11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"];
     for (const evaluationId of evaluationIds) {
-      await mkdir(path.join(evaluationsRoot, evaluationId), { recursive: true });
-      await writeFile(path.join(evaluationsRoot, evaluationId, "pi-stdout.jsonl"), "{\"type\":\"session\",\"version\":3}\n", "utf8");
-      await writeFile(path.join(evaluationsRoot, evaluationId, "other.jsonl"), "{}\n", "utf8");
+      const sessionsRoot = path.join(evaluationsRoot, evaluationId, "output", "pi-sessions", "2026", "09", "18");
+      await mkdir(sessionsRoot, { recursive: true });
+      await writeFile(path.join(sessionsRoot, "pi-stdout.jsonl"), "{\"type\":\"session\",\"version\":3}\n", "utf8");
+      await writeFile(path.join(evaluationsRoot, evaluationId, "outside-session-root.jsonl"), "{}\n", "utf8");
     }
     await mkdir(path.join(evaluationsRoot, "not-an-evaluation"), { recursive: true });
     await writeFile(path.join(evaluationsRoot, "not-an-evaluation", "pi-stdout.jsonl"), "{}\n", "utf8");
