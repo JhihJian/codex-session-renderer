@@ -94,6 +94,11 @@ process.env.CODEX_HOME = codexHome;
 process.env.HOME = tempRoot;
 process.env.USERPROFILE = tempRoot;
 process.env.PI_AGENT_SESSIONS_ROOT = piSessionsRoot;
+const modelCatalogPath = path.join(tempRoot, "pi-model-catalog.json");
+await writeFile(modelCatalogPath, `${JSON.stringify([
+  { provider: "local-sub2api", id: "gpt-5.6-terra", contextWindow: 1_000_000, maxTokens: 128_000 },
+])}\n`, "utf8");
+process.env.CODEX_SESSION_RENDERER_PI_MODEL_CATALOG_FILE = modelCatalogPath;
 
 process.env.HOST = "127.0.0.1";
 process.env.PORT = process.env.PORT || "4799";

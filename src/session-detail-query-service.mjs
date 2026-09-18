@@ -34,7 +34,7 @@ async function getSessionDetail(dependencies, context, id, options = {}) {
     shouldCache: (detail) => detail.stats?.childThreadCount === 0,
     derive: (rawEvents, stat, signal) => deriveSessionDetail(dependencies, { context, id, session, rawEvents, stat, maxDepth, signal }),
   });
-  return { ...result.value, related: await dependencies.getSessionLineage(context, session, options) };
+  return { ...result.value, modelWindow: sessionModelWindow(context, result.value.session), related: await dependencies.getSessionLineage(context, session, options) };
 }
 
 async function deriveSessionDetail(dependencies, { context, id, session, rawEvents, stat, maxDepth, signal }) {
@@ -68,12 +68,20 @@ function sessionDetailStats(context, session, { stat, rawEvents, analysisEvents,
   };
 }
 
+function sessionModelWindow(context, session) {
+  const catalog = context?.modelCatalog;
+  if (!catalog || !session?.model) return null;
+  const found = catalog.lookupWindow(session.modelProvider || "", session.model);
+  return found ? { ...found, source: "pi-model-catalog" } : null;
+}
+
 async function querySessionView(dependencies, context, id, params, options = {}) {
   const projectionOptions = options.projectionOptions || {};
   const query = parseSessionViewQuery(params);
   const detail = await getSessionDetail(dependencies, context, id, { maxDepth: query.maxDepth, signal: options.signal });
   if (!detail) return null;
-  const base = { session: projectSessionForApi(detail.session, {}, projectionOptions), view: query.view, complete: detail.complete !== false, readState: detail.readState || null, stats: detail.stats, serverTime: new Date().toISOString() };
+  const modelWindow = sessionModelWindow(context, detail.session);
+  const base = { session: projectSessionForApi(detail.session, {}, projectionOptions), view: query.view, complete: detail.complete !== false, readState: detail.readState || null, stats: detail.stats, serverTime: new Date().toISOString(), ...(modelWindow ? { modelWindow } : {}) };
   if (query.view === "compact") return { ...base, compact: detail.compact };
   if (query.view === "turns") return { ...base, turns: detail.turns };
   if (query.view === "trace") return { ...base, trace: detail.trace };

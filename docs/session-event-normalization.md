@@ -173,7 +173,7 @@ Raw event 仍可按需查看完整原始 JSON。默认视图、事件预览和�
 
 ## 上下文容量统计
 
-诊断页“上下文统计诊断”中的“上下文容量”概览基于完整会话口径：最近记录的模型上下文窗口、会话中最大单次请求的上下文占用、最大单次生成输出以及触发的压缩次数。数据来源是客户端轮次投影中的原始记录：Codex 的 `token-count` 项目保留 `info.last_token_usage` 与 `info.context_usage`（含 `limit`），峰值占用取 `last_token_usage.total_tokens`；Pi 助手消息的 `usage` 提取为 `tokenUsage`（含 `inputTokens`、`totalTokens`），峰值占用取 `totalTokens`，单次生成取 `generatedTokens`。占比一律以最近记录的窗口为分母；原始记录没有窗口时可匹配展示规则设置中用户自定义的“模型窗口”配置（按当前模型名大小写不敏感地子串匹配，指标提示标注来源为配置），两者都缺失时只展示绝对 token 和压缩次数，不保留比例占位。压缩次数按会话中的压缩事件计数（Codex `compacted` / `context_compacted` 与 Pi `compaction`）。模型窗口配置仅保存在当前浏览器 localStorage，不进入服务端或原始会话。
+诊断页“上下文统计诊断”中的“上下文容量”概览基于完整会话口径：最近记录的模型上下文窗口、会话中最大单次请求的上下文占用、最大单次生成输出以及触发的压缩次数。数据来源是客户端轮次投影中的原始记录：Codex 的 `token-count` 项目保留 `info.last_token_usage` 与 `info.context_usage`（含 `limit`），峰值占用取 `last_token_usage.total_tokens`；Pi 助手消息的 `usage` 提取为 `tokenUsage`（含 `inputTokens`、`totalTokens`），峰值占用取 `totalTokens`，单次生成取 `generatedTokens`。占比一律以最近记录的窗口为分母；原始记录没有窗口时（Pi 会话不记录窗口），服务端通过本机 Pi 模型目录按会话的 `modelProvider + model` 精确匹配补齐窗口与模型最大输出上限（`src/pi-model-catalog.mjs` 经 `pi --mode rpc` 查询 `get_available_models`，含扩展 provider 注册的模型，默认 10 分钟后台刷新一次，指标提示标注来源为“按 Pi 模型目录匹配”），此时“最大输出上下文”占比以模型最大输出上限为分母，其余以窗口为分母；两者都缺失时只展示绝对 token 和压缩次数，不保留比例占位。压缩次数按会话中的压缩事件计数（Codex `compacted` / `context_compacted` 与 Pi `compaction`）。模型目录只在本机解析，可通过 `CODEX_SESSION_RENDERER_PI_MODEL_CATALOG_FILE` 指向静态 JSON 目录（`[{provider, id, contextWindow, maxTokens}]`）用于测试或离线部署。
 
 ## 完整详情与诊断预算
 

@@ -260,27 +260,16 @@ test("Pi 执行过程区分等待输入、完成工具与缺失时长", async ({
   expect((await page.locator(".trace-duration").allTextContents()).join(" ")).not.toContain("est");
 });
 
-test("模型窗口配置让无窗口会话显示占比", async ({ page }) => {
+test("Pi 模型目录自动补齐无窗口会话的占比", async ({ page }) => {
   await page.goto("/");
   await page.locator("#diagnosticViewButton").click();
   const capacityMetrics = page.locator(".context-diagnostic-section .stats-view-metrics[aria-label='上下文容量概览']");
-  await expect(capacityMetrics).not.toContainText("模型上下文窗口");
-  await expect(capacityMetrics).toContainText("约 8.2K tok");
-
-  await page.locator(".topbar-more > summary").click();
-  await page.locator("#settingsButton").click();
-  await page.locator('[data-settings-view="model-windows"]').first().click();
-  await page.locator("#addModelWindowButton").click();
-  await page.locator('[data-model-window-field="match"]').fill("gpt-5");
-  await page.locator('[data-model-window-field="tokens"]').fill("400000");
-  await page.locator("#saveSettingsButton").click();
-  await expect(page.locator("#settingsDialog")).not.toBeVisible();
-
   await expect(capacityMetrics).toContainText("模型上下文窗口");
-  await expect(capacityMetrics).toContainText("400.0K tok");
-  await expect(capacityMetrics).toContainText("按设置中的模型窗口配置");
+  await expect(capacityMetrics).toContainText("1.0M tok");
+  await expect(capacityMetrics).toContainText("按 Pi 模型目录匹配");
   await expect(capacityMetrics).toContainText("最大上下文占用");
-  await expect(capacityMetrics).toContainText("2.05%");
+  await expect(capacityMetrics).toContainText("0.82%");
   await expect(capacityMetrics).toContainText("最大输出上下文");
-  await expect(capacityMetrics).toContainText("0.05%");
+  await expect(capacityMetrics).toContainText("0.16%");
+  await expect(capacityMetrics).toContainText("占模型最大输出上限");
 });

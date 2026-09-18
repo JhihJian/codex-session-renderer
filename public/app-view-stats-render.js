@@ -91,9 +91,11 @@ function renderStatsInfoView() {
 
 function renderContextCapacityMetrics(capacity) {
   const hasWindow = capacity.contextWindow > 0;
-  const windowHint = capacity.windowSource === "configured" ? "按设置中的模型窗口配置" : "最近记录的窗口配置";
+  const windowHint = capacity.windowSource === "catalog" ? "按 Pi 模型目录匹配" : "最近记录的窗口配置";
   const usedShare = ratioPercent(capacity.maxUsedTokens, capacity.contextWindow);
-  const outputShare = ratioPercent(capacity.maxOutputTokens, capacity.contextWindow);
+  const outputLimit = capacity.maxOutputLimit || capacity.contextWindow;
+  const outputShare = ratioPercent(capacity.maxOutputTokens, outputLimit);
+  const outputHint = capacity.maxOutputLimit && capacity.maxOutputTokens ? `单次最大 ${compactNumber(capacity.maxOutputTokens)} tok 生成 · 占模型最大输出上限` : `单次最大 ${compactNumber(capacity.maxOutputTokens)} tok 生成`;
   return [
     hasWindow
       ? renderStatsMetric("模型上下文窗口", `${compactNumber(capacity.contextWindow)} tok`, windowHint)
@@ -109,7 +111,7 @@ function renderContextCapacityMetrics(capacity) {
       ? renderStatsMetric(
           "最大输出上下文",
           hasWindow ? formatContextRatio(outputShare) : `约 ${compactNumber(capacity.maxOutputTokens)} tok`,
-          hasWindow ? `单次最大 ${compactNumber(capacity.maxOutputTokens)} tok 生成` : "单次响应最大生成 token",
+          hasWindow ? outputHint : "单次响应最大生成 token",
         )
       : "",
     renderStatsMetric("触发压缩", `${compactNumber(capacity.compactCount)} 次`, capacity.compactCount ? "会话中的上下文压缩事件" : "未发生上下文压缩"),

@@ -59,6 +59,7 @@ test("buildContextCapacityStats aggregates Codex token-count peaks, ratios and c
   assert.deepEqual(api.buildContextCapacityStats(detail), {
     contextWindow: 258400,
     windowSource: "recorded",
+    maxOutputLimit: 258400,
     maxUsedTokens: 42382,
     maxOutputTokens: 1019,
     compactCount: 1,
@@ -79,20 +80,16 @@ test("buildContextCapacityStats reads Pi assistant usage without recorded window
   assert.deepEqual(api.buildContextCapacityStats(detail), {
     contextWindow: 0,
     windowSource: "none",
+    maxOutputLimit: 0,
     maxUsedTokens: 8474,
     maxOutputTokens: 179,
     compactCount: 0,
   });
 });
 
-test("model window config fills in missing session window with substring matching", () => {
-  const storage = new Map();
-  globalThis.localStorage = {
-    getItem: (key) => storage.get(key) ?? null,
-    setItem: (key, value) => storage.set(key, String(value)),
-  };
+test("model window catalog fills in missing session window from detail modelWindow", () => {
   const detail = {
-    session: { model: "gpt-5.6-terra" },
+    modelWindow: { contextWindow: 1000000, maxTokens: 128000, source: "pi-model-catalog" },
     turns: [
       {
         items: [
@@ -102,22 +99,23 @@ test("model window config fills in missing session window with substring matchin
     ],
   };
 
-  assert.equal(api.resolveConfiguredContextWindow("GPT-5.6-TERRA", [{ match: "gpt-5", tokens: 400000, enabled: true }]), 400000);
-  assert.equal(api.resolveConfiguredContextWindow("glm-5.3", [{ match: "gpt-5", tokens: 400000, enabled: true }]), 0);
-  assert.equal(api.resolveConfiguredContextWindow("gpt-5", [{ match: "gpt-5", tokens: 400000, enabled: false }]), 0);
-  assert.deepEqual(api.saveModelContextWindows([{ match: " gpt-5 ", tokens: "400000" }, { match: "", tokens: 100 }, { match: "bad", tokens: "nan" }], globalThis.localStorage), [
-    { match: "gpt-5", tokens: 400000, enabled: true },
-  ]);
-  assert.deepEqual(api.loadModelContextWindows(globalThis.localStorage), [{ match: "gpt-5", tokens: 400000, enabled: true }]);
-
+  assert.deepEqual(api.catalogModelWindow(detail), { contextWindow: 1000000, maxOutputTokens: 128000 });
   assert.deepEqual(api.buildContextCapacityStats(detail), {
-    contextWindow: 400000,
-    windowSource: "configured",
+    contextWindow: 1000000,
+    windowSource: "catalog",
+    maxOutputLimit: 128000,
     maxUsedTokens: 7563,
     maxOutputTokens: 179,
     compactCount: 0,
   });
-  delete globalThis.localStorage;
+  assert.deepEqual(api.buildContextCapacityStats({ ...detail, modelWindow: { contextWindow: "bad", maxTokens: null } }), {
+    contextWindow: 0,
+    windowSource: "none",
+    maxOutputLimit: 0,
+    maxUsedTokens: 7563,
+    maxOutputTokens: 179,
+    compactCount: 0,
+  });
 });
 
 test("buildContextCapacityStats ignores invalid or non-positive usage values", () => {
@@ -134,6 +132,7 @@ test("buildContextCapacityStats ignores invalid or non-positive usage values", (
   assert.deepEqual(api.buildContextCapacityStats(detail), {
     contextWindow: 0,
     windowSource: "none",
+    maxOutputLimit: 0,
     maxUsedTokens: 0,
     maxOutputTokens: 4,
     compactCount: 0,

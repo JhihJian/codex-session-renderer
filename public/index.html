@@ -173,10 +173,6 @@
           <button class="settings-tab" id="settingsTabStructured" type="button" role="tab" aria-selected="false" aria-controls="settingsSectionStructured" data-settings-view="structured">
             <span>结构化展示</span>
           </button>
-
-          <button class="settings-tab" id="settingsTabModelWindows" type="button" role="tab" aria-selected="false" aria-controls="settingsSectionModelWindows" data-settings-view="model-windows">
-            <span>模型窗口</span>
-          </button>
         </div>
 
         <div class="settings-panel-body">
@@ -222,19 +218,6 @@
               </div>
             </div>
             <div class="rule-empty compact">命中这些模式时，摘要页和证据卡会使用结构化视图；未命中时仍按普通摘要或原始文本展示。自定义摘要规则影响标题和短摘要，不改变这里的输出解析。</div>
-          </section>
-
-          <section class="settings-section" id="settingsSectionModelWindows" role="tabpanel" aria-labelledby="settingsTabModelWindows" data-settings-panel="model-windows" hidden>
-            <div class="section-title-row">
-              <h3>模型上下文窗口</h3>
-              <span class="muted">会话未记录窗口时使用</span>
-            </div>
-            <div class="summary-rule-list" id="modelWindowList"></div>
-            <div class="settings-actions">
-              <button class="ghost-button" id="addModelWindowButton" type="button">新增模型窗口</button>
-              <button class="ghost-button" id="resetModelWindowsButton" type="button">清空自定义</button>
-            </div>
-            <div class="rule-empty compact">会话原始记录没有上下文窗口时（如 Pi Agent 会话），诊断页按当前模型名匹配这里的配置计算窗口占比。匹配为大小写不敏感的包含关系，例如 gpt-5 可匹配 gpt-5.6-terra。</div>
           </section>
 
 
