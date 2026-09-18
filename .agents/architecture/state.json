@@ -2,12 +2,12 @@
   "version": 4,
   "documentStatus": "active",
   "snapshot": {
-    "commit": "16f248b920ec7379729b36e60b23cd3a950a2f27",
-    "acceptedAt": "2026-09-18T03:06:40.307Z",
+    "commit": "e91b9e49e663d347bb3d8c8cba15d6ac76dff93e",
+    "acceptedAt": "2026-09-18T03:09:08.855Z",
     "files": [
       {
         "path": "README.md",
-        "sha256": "sha256:207b3c0bb90844597be35771ab0594b9d64fc5d19fca76e85cda55355023d446"
+        "sha256": "sha256:8943cd9d846b0886d55718f29fba8db6936db9588499607119b168dca19fb3ac"
       },
       {
         "path": "docs/architecture/README.md",
@@ -15,7 +15,7 @@
       },
       {
         "path": "docs/architecture/implementation.md",
-        "sha256": "sha256:59a2db433e39e2822dadc521da9721198c116d556c3b3d47cb76e571acaf1fa3"
+        "sha256": "sha256:7115701a57c91de210b13edbb7ca6ca1317448e97e211289b5fca851d8491d5b"
       },
       {
         "path": "docs/architecture/modules/session-projection.md",
@@ -259,7 +259,7 @@
       },
       {
         "path": "src/pi-model-catalog.mjs",
-        "sha256": "sha256:30b4e7d1f0d57bdedd9cb03d5505a50da43aab0e21d0c80691a4fe8794fec7e3"
+        "sha256": "sha256:7778e11931bd932e1f8eae7e1d98e6f51d082aaa049addcb397eb641e716bb0f"
       },
       {
         "path": "src/session-catalog-query-service.mjs",
@@ -283,7 +283,7 @@
       },
       {
         "path": "src/session-directory-query-service.mjs",
-        "sha256": "sha256:7e4f6a63328f96d89e5f069ad9337d82f6c9c23636e91c82af67c3e7d4a70f44"
+        "sha256": "sha256:8be4cc86ff11628851da0eb248d3afe93f7600254c117098cdb5483774ff7403"
       },
       {
         "path": "src/session-event-projection.mjs",
@@ -391,7 +391,7 @@
       },
       {
         "path": "test/pi-task-sources.test.mjs",
-        "sha256": "sha256:e79d7a0422e6d9bd777c258b5acff680df80f3a71b103eca391d05b5374ae315"
+        "sha256": "sha256:8cc9a8dd0e3122847fe702a71239664c1af0d5ea75516e1510468abf670002b4"
       },
       {
         "path": "test/raw-event-cache.test.mjs",
