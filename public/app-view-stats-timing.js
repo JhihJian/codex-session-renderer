@@ -21,7 +21,7 @@ function renderTimingView(timing) {
     <div class="timing-section" aria-labelledby="timingDetailHeading">
       <div class="timing-heading"><div><h4 id="timingDetailHeading">会话时间分布</h4><p>等待输入、工具执行与模型响应的时间构成。</p></div><span class="timing-confidence">${escapeHtml(timingKindLabel(session.durationKind))}</span></div>
       ${metrics.length ? `<div class="timing-metrics" aria-label="会话时间概览">${metrics.join("")}</div>` : ""}
-      <p class="timing-note">等待输入仅统计助手最后回复到下一次用户消息的间隔。实际运行时长只统计工具与 LLM 的可关联区间；两者并行时按时间并集计一次。</p>
+      <p class="timing-note">等待输入仅统计助手最后回复到下一次用户消息的间隔。实际运行时长只统计工具与 LLM 的可关联区间；两者并行时按时间并集计一次。平均生成速度为估算口径：生成 token 数除以对应响应区间时长，区间含排队与首字等待。</p>
       <div class="timing-composition" aria-label="实际运行时长构成">
         ${composition.length ? renderTimingComposition(composition) : `<div class="timing-empty"><strong>暂无可关联执行时长</strong><span>会话事件中尚未发现具有完整起止时间的工具或 LLM 记录。</span></div>`}
       </div>
@@ -32,12 +32,19 @@ function renderTimingView(timing) {
 }
 
 function renderTimingMetrics(session) {
+  const llm = session.llm || {};
   return [
     Number.isFinite(session.durationMs) ? renderStatsMetric("总墙钟时长", formatTimingDuration(session.durationMs), "会话开始至最后事件") : "",
     Number.isFinite(session.waitingForInputMs) ? renderStatsMetric("等待输入时长", formatTimingDuration(session.waitingForInputMs), `${session.waitingForInputCount || 0} 段可确认等待`) : "",
     Number.isFinite(session.activeRunMs) ? renderStatsMetric("实际运行时长", formatTimingDuration(session.activeRunMs), "工具与 LLM 时间并集") : "",
     Number.isFinite(session.parallelism?.peak) ? renderStatsMetric("并行峰值", `${session.parallelism.peak} 路`, formatTimingDuration(session.parallelism?.overlapMs, "重叠")) : "",
+    Number.isFinite(llm.generatedTokensPerSecond) ? renderStatsMetric("平均生成速度", formatTokensPerSecond(llm.generatedTokensPerSecond), `${llm.responseCount || 0} 次响应 · 生成 ${compactNumber(llm.generatedTokens)} tok`) : "",
   ].filter(Boolean);
+}
+
+function formatTokensPerSecond(value) {
+  if (!Number.isFinite(value)) return "";
+  return `${value >= 100 ? Math.round(value) : Math.round(value * 10) / 10} tok/s`;
 }
 
 function renderTimingComposition(composition) {
@@ -60,7 +67,12 @@ function renderTimingComposition(composition) {
 function renderTimingTurns(turns = []) {
   if (!turns.length) return "";
   return `<div class="timing-turns"><h4>按轮次查看</h4>${turns.map((turn) => {
-    const meta = [Number.isFinite(turn.durationMs) ? formatTimingDuration(turn.durationMs) : "", timingKindLabel(turn.confidence)].filter(Boolean).join(" · ");
+    const llmBucket = (turn.buckets || []).find((bucket) => bucket.id === "llm_wait");
+    const meta = [
+      Number.isFinite(turn.durationMs) ? formatTimingDuration(turn.durationMs) : "",
+      timingKindLabel(turn.confidence),
+      Number.isFinite(llmBucket?.generatedTokensPerSecond) ? `约 ${formatTokensPerSecond(llmBucket.generatedTokensPerSecond)}` : "",
+    ].filter(Boolean).join(" · ");
     return `<div class="timing-turn"><div class="timing-turn-head"><strong>第 ${turn.turnNumber} 轮</strong>${meta ? `<span>${escapeHtml(meta)}</span>` : ""}</div><div class="timing-turn-bars">${(turn.buckets || []).map((bucket) => `<span class="timing-turn-bar timing-${escapeAttr(bucket.id)}" style="--bar:${Math.max(3, Math.min(100, bucket.sharePercent || 0))}%" title="${escapeAttr(`${bucket.label} ${formatTimingDuration(bucket.coverageMs)}`.trim())}"><i></i></span>`).join("")}</div></div>`;
   }).join("")}</div>`;
 }
@@ -146,5 +158,5 @@ function renderStatsOperationRow(operation, totalEvents, query) {
   `;
 }
 
-  Object.assign(api, { renderTimingView, renderTimingMetrics, renderTimingComposition, renderTimingTurns, timingKindLabel, formatTimingDuration, bindTimingActions, renderStatsMetric, renderStatsEventRows, renderStatsEventRow, renderStatsOperationRow });
+  Object.assign(api, { renderTimingView, renderTimingMetrics, formatTokensPerSecond, renderTimingComposition, renderTimingTurns, timingKindLabel, formatTimingDuration, bindTimingActions, renderStatsMetric, renderStatsEventRows, renderStatsEventRow, renderStatsOperationRow });
 }

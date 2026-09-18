@@ -47,7 +47,7 @@
 .timing-heading h4, .timing-turns h4 { margin: 0; font-size: 14px; }
 .timing-heading p { margin: 3px 0 0; color: var(--text-3); font-size: 10.5px; }
 .timing-confidence, .timing-quality span, .timing-note, .timing-turn-head span { color: var(--text-3); font-size: 11px; }
-.timing-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.timing-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
 .timing-note { margin: 0; }
 .timing-composition { display: grid; gap: 8px; }
 .timing-composition-bar { display: flex; height: 12px; overflow: hidden; border-radius: var(--radius-small); background: var(--bg-sunken); }

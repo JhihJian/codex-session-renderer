@@ -24,7 +24,7 @@ test("正文在每轮末尾展示上下文、生成 Token 和实际执行时长"
   await expect(metrics).toContainText("生成 Token");
   await expect(metrics).toContainText("400");
   await expect(metrics).toContainText("实际执行");
-  await expect(metrics).toContainText("2.5 s");
+  await expect(metrics).toContainText("2.0 s");
   const desktopBody = await page.locator(".compact-thread.root > .compact-thread-body").evaluate((element) => {
     const body = element.getBoundingClientRect();
     const thread = element.parentElement.getBoundingClientRect();

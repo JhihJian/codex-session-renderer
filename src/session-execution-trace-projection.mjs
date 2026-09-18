@@ -173,43 +173,70 @@ function buildInferredResponseIntervals(turns, session) {
   });
 }
 
+// Codex writes token_count right after tool outputs at write time, so its usage describes the
+// response that already ended at the last generated item (reasoning, assistant message, or
+// function_call). Measure from the previous tool output (or turn start) to that last generated
+// item instead of the token_count write timestamp, which can be milliseconds after the boundary.
 function measuredResponseIntervals(turn, turnIndex, session) {
-  let requestBoundary = turn.startedAt;
+  let pendingBoundaryMs = toMs(turn.startedAt);
+  let responseStartMs = null;
+  let responseEndMs = null;
   const intervals = [];
+  const openResponse = (timestampMs) => {
+    if (responseEndMs == null) responseStartMs = pendingBoundaryMs;
+    responseEndMs = Math.max(responseEndMs ?? timestampMs, timestampMs);
+  };
+  const closeResponse = (usage, contextUsage, responseType, eventIndex) => {
+    if (responseStartMs != null && responseEndMs != null && responseEndMs > responseStartMs) {
+      intervals.push({
+        id: `response:${turnIndex}:${eventIndex}`,
+        turnIndex,
+        startedAt: new Date(responseStartMs).toISOString(),
+        completedAt: new Date(responseEndMs).toISOString(),
+        startMs: responseStartMs,
+        endMs: responseEndMs,
+        durationMs: responseEndMs - responseStartMs,
+        durationKind: "estimated",
+        model: turn.context?.model || session.model || null,
+        contextUsage,
+        eventIndex,
+        responseType,
+        outputTokens: usage.outputTokens,
+        reasoningTokens: usage.reasoningTokens || 0,
+        generatedTokens: usage.generatedTokens,
+      });
+    }
+    responseStartMs = null;
+    responseEndMs = null;
+  };
   for (const [itemIndex, item] of turn.items.entries()) {
     if (item.type === "user-message") {
-      requestBoundary = item.timestamp || requestBoundary;
+      const ms = toMs(item.timestamp);
+      if (ms != null) pendingBoundaryMs = ms;
+      responseStartMs = null;
+      responseEndMs = null;
       continue;
     }
-    if (item.type === "tool-call" && item.completedAt) {
-      const completed = toMs(item.completedAt);
-      const current = toMs(requestBoundary);
-      if (completed != null && (current == null || completed > current)) requestBoundary = item.completedAt;
+    if (item.type === "reasoning" || item.type === "assistant-message") {
+      const ms = toMs(item.timestamp);
+      if (ms != null) {
+        openResponse(ms);
+        if (item.type === "assistant-message" && item.tokenUsage) {
+          closeResponse(item.tokenUsage, contextUsageForAssistantMessage(turn.items, itemIndex), "assistant-message", item.sourceIndex ?? null);
+        }
+      }
       continue;
     }
-    if (!item.tokenUsage || !["token-count", "assistant-message"].includes(item.type)) continue;
-    const startMs = toMs(requestBoundary);
-    const endMs = toMs(item.timestamp);
-    if (startMs == null || endMs == null || endMs <= startMs) continue;
-    const outputTokens = item.tokenUsage.outputTokens;
-    const reasoningTokens = item.tokenUsage.reasoningTokens || 0;
-    intervals.push({
-      id: `response:${turnIndex}:${itemIndex}`,
-      turnIndex,
-      startedAt: requestBoundary,
-      completedAt: item.timestamp,
-      startMs,
-      endMs,
-      durationMs: endMs - startMs,
-      durationKind: "estimated",
-      model: turn.context?.model || session.model || null,
-      contextUsage: item.type === "assistant-message" ? contextUsageForAssistantMessage(turn.items, itemIndex) : latestContextUsage(turn.items, itemIndex),
-      eventIndex: item.sourceIndex ?? null,
-      responseType: item.type,
-      outputTokens,
-      reasoningTokens,
-      generatedTokens: item.tokenUsage.generatedTokens,
-    });
+    if (item.type === "tool-call") {
+      const startMs = toMs(item.timestamp);
+      if (startMs != null) openResponse(startMs);
+      const doneMs = toMs(item.completedAt);
+      if (doneMs != null && (pendingBoundaryMs == null || doneMs > pendingBoundaryMs)) pendingBoundaryMs = doneMs;
+      continue;
+    }
+    if (item.type === "token-count" && item.tokenUsage) {
+      closeResponse(item.tokenUsage, latestContextUsage(turn.items, itemIndex), "token-count", item.sourceIndex ?? null);
+    }
   }
   return intervals;
 }

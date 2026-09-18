@@ -133,6 +133,30 @@ test("buildTrace localizes thread, turn, and execution fallback labels", () => {
   );
 });
 
+test("measured response intervals attribute token_count usage to the response that generated it", () => {
+  const events = [
+    { type: "event_msg", timestamp: "2026-09-09T03:00:05.000Z", payload: { type: "user_message", message: "开始" } },
+    { type: "response_item", timestamp: "2026-09-09T03:00:20.000Z", payload: { type: "reasoning", summary: [{ type: "summary_text", text: "思考" }] } },
+    { type: "response_item", timestamp: "2026-09-09T03:00:32.197Z", payload: { type: "function_call", name: "bash", call_id: "call-1", arguments: "pwd" } },
+    { type: "response_item", timestamp: "2026-09-09T03:00:32.268Z", payload: { type: "function_call_output", call_id: "call-1", output: "/data/dev" } },
+    { type: "event_msg", timestamp: "2026-09-09T03:00:32.269Z", payload: { type: "token_count", info: { last_token_usage: { output_tokens: 344, reasoning_output_tokens: 44 } } } },
+    { type: "response_item", timestamp: "2026-09-09T03:00:44.491Z", payload: { type: "reasoning", summary: [{ type: "summary_text", text: "继续" }] } },
+    { type: "response_item", timestamp: "2026-09-09T03:00:48.298Z", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "完成" }] } },
+    { type: "event_msg", timestamp: "2026-09-09T03:00:48.300Z", payload: { type: "token_count", info: { last_token_usage: { output_tokens: 692, reasoning_output_tokens: 556 } } } },
+  ];
+  const turns = buildTurns(events);
+  const trace = buildTrace({ id: "codex-test", title: "Codex" }, events, events.map(normalizeSessionEvent), turns, { children: [] });
+  const responses = trace.timing.responses;
+
+  assert.equal(responses.length, 2);
+  assert.equal(responses[0].startMs, Date.parse("2026-09-09T03:00:05.000Z"));
+  assert.equal(responses[0].endMs, Date.parse("2026-09-09T03:00:32.197Z"));
+  assert.equal(responses[0].generatedTokens, 388);
+  assert.equal(responses[1].startMs, Date.parse("2026-09-09T03:00:32.268Z"));
+  assert.equal(responses[1].endMs, Date.parse("2026-09-09T03:00:48.298Z"));
+  assert.equal(responses[1].generatedTokens, 1_248);
+});
+
 test("buildTrace derives waiting-for-input only between assistant and next user messages", () => {
   const trace = buildTrace(
     { id: "thread-1", title: "" },
