@@ -271,6 +271,7 @@ function buildSessionTiming(trace) {
     return {
       turnNumber: turnIndex + 1,
       turnId: turn.detail?.turn?.id || turn.id,
+      userTitle: turn.title || null,
       startedAt: turn.timestamp || null,
       completedAt: turn.completedAt || null,
       durationMs: turnDuration,

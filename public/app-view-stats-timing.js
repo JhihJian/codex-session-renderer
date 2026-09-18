@@ -64,16 +64,24 @@ function renderTimingComposition(composition) {
   return `<div class="timing-composition-bar" role="img" aria-label="执行时长组合条，总长度等于实际运行时长">${segments}</div><div class="timing-composition-legend-list">${legend}</div>`;
 }
 
+function timingTurnScaleMs(turn) {
+  if (Number.isFinite(turn?.durationMs) && turn.durationMs > 0) return turn.durationMs;
+  return Number.isFinite(turn?.activeRunMs) && turn.activeRunMs > 0 ? turn.activeRunMs : 0;
+}
+
 function renderTimingTurns(turns = []) {
   if (!turns.length) return "";
-  return `<div class="timing-turns"><h4>按轮次查看</h4>${turns.map((turn) => {
+  const maxTurnMs = turns.reduce((max, turn) => Math.max(max, timingTurnScaleMs(turn)), 0);
+  return `<div class="timing-turns"><div class="timing-turns-caption"><h4>按轮次查看</h4><span>条长相对最长轮次时长</span></div>${turns.map((turn) => {
     const llmBucket = (turn.buckets || []).find((bucket) => bucket.id === "llm_wait");
     const meta = [
       Number.isFinite(turn.durationMs) ? formatTimingDuration(turn.durationMs) : "",
       timingKindLabel(turn.confidence),
       Number.isFinite(llmBucket?.generatedTokensPerSecond) ? `约 ${formatTokensPerSecond(llmBucket.generatedTokensPerSecond)}` : "",
     ].filter(Boolean).join(" · ");
-    return `<div class="timing-turn"><div class="timing-turn-head"><strong>第 ${turn.turnNumber} 轮</strong>${meta ? `<span>${escapeHtml(meta)}</span>` : ""}</div><div class="timing-turn-bars">${(turn.buckets || []).map((bucket) => `<span class="timing-turn-bar timing-${escapeAttr(bucket.id)}" style="--bar:${Math.max(3, Math.min(100, bucket.sharePercent || 0))}%" title="${escapeAttr(`${bucket.label} ${formatTimingDuration(bucket.coverageMs)}`.trim())}"><i></i></span>`).join("")}</div></div>`;
+    const turnShare = maxTurnMs > 0 ? Math.max(1, Math.min(100, Math.round((timingTurnScaleMs(turn) / maxTurnMs) * 1000) / 10)) : 100;
+    const userTitle = turn.userTitle ? `<em class="timing-turn-user" title="${escapeAttr(turn.userTitle)}">${escapeHtml(turn.userTitle)}</em>` : "";
+    return `<div class="timing-turn"><div class="timing-turn-head"><strong>第 ${turn.turnNumber} 轮</strong>${userTitle}${meta ? `<span>${escapeHtml(meta)}</span>` : ""}</div><div class="timing-turn-bars" style="--turn:${turnShare}%">${(turn.buckets || []).map((bucket) => `<span class="timing-turn-bar timing-${escapeAttr(bucket.id)}" style="--bar:${Math.max(3, Math.min(100, bucket.sharePercent || 0))}%" title="${escapeAttr(`${bucket.label} ${formatTimingDuration(bucket.coverageMs)} · 占本轮 ${bucket.sharePercent || 0}%`.trim())}"><i></i></span>`).join("")}</div></div>`;
   }).join("")}</div>`;
 }
 
@@ -158,5 +166,5 @@ function renderStatsOperationRow(operation, totalEvents, query) {
   `;
 }
 
-  Object.assign(api, { renderTimingView, renderTimingMetrics, formatTokensPerSecond, renderTimingComposition, renderTimingTurns, timingKindLabel, formatTimingDuration, bindTimingActions, renderStatsMetric, renderStatsEventRows, renderStatsEventRow, renderStatsOperationRow });
+  Object.assign(api, { renderTimingView, renderTimingMetrics, formatTokensPerSecond, renderTimingComposition, renderTimingTurns, timingTurnScaleMs, timingKindLabel, formatTimingDuration, bindTimingActions, renderStatsMetric, renderStatsEventRows, renderStatsEventRow, renderStatsOperationRow });
 }

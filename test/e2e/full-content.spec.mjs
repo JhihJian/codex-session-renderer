@@ -169,24 +169,16 @@ test("诊断统计按工具目标汇总上下文占用", async ({ page }) => {
 
   await expect(page.locator(".context-diagnostic-section > .stats-diagnostic-section-head h3")).toHaveText("上下文统计诊断");
   await expect(page.locator(".timing-diagnostic-section > .stats-diagnostic-section-head h3")).toHaveText("时间统计诊断");
-  const capacityMetrics = page.locator(".context-diagnostic-section .stats-view-metrics[aria-label='上下文容量概览']");
-  await expect(capacityMetrics).toContainText("模型上下文窗口");
-  await expect(capacityMetrics).toContainText("128.0K tok");
-  await expect(capacityMetrics).toContainText("最大上下文占用");
-  await expect(capacityMetrics).toContainText("50.0%");
-  await expect(capacityMetrics).toContainText("最大输出上下文");
-  await expect(capacityMetrics).toContainText("0.25%");
-  await expect(capacityMetrics).toContainText("触发压缩");
-  await expect(capacityMetrics).toContainText("1 次");
+  await expect(page.locator(".stats-view-metrics")).toHaveCount(0);
+  await expect(page.locator(".context-diagnostic-section")).not.toContainText("上下文容量");
   const contextStats = page.locator(".tool-context-stats");
   await expect(contextStats).toContainText("已识别工具上下文");
-  await expect(contextStats).toContainText("最近上下文窗口");
-  await expect(contextStats).toContainText("128.0K tok");
-  await expect(contextStats).toContainText("返回结果");
-  await expect(contextStats).toContainText("相对最近窗口");
+  await expect(contextStats.locator(".tool-context-kpis")).toHaveCount(0);
   await expect(contextStats.locator(".tool-context-table")).toHaveCount(0);
   await expect(contextStats.locator("#toolContextQuery")).toHaveCount(0);
   await contextStats.locator("[data-tool-context-list-toggle]").click();
+  await expect(contextStats).toContainText("返回结果");
+  await expect(contextStats).toContainText("相对最近窗口");
   await expect(contextStats).toContainText("读取文件内容");
   await expect(contextStats).toContainText("README.md");
   const verification = contextStats.locator(".tool-context-row", { hasText: "运行验证" });
@@ -261,18 +253,4 @@ test("Pi 执行过程轮次展示执行耗时，工具保留状态", async ({ pa
   await expect(tool).toContainText("执行成功");
   await expect(page.locator(".trace-tree")).not.toContainText("未记录");
   expect((await page.locator(".trace-duration").allTextContents()).join(" ")).not.toContain("est");
-});
-
-test("Pi 模型目录自动补齐无窗口会话的占比", async ({ page }) => {
-  await page.goto("/");
-  await page.locator("#diagnosticViewButton").click();
-  const capacityMetrics = page.locator(".context-diagnostic-section .stats-view-metrics[aria-label='上下文容量概览']");
-  await expect(capacityMetrics).toContainText("模型上下文窗口");
-  await expect(capacityMetrics).toContainText("1.0M tok");
-  await expect(capacityMetrics).toContainText("按 Pi 模型目录匹配");
-  await expect(capacityMetrics).toContainText("最大上下文占用");
-  await expect(capacityMetrics).toContainText("0.82%");
-  await expect(capacityMetrics).toContainText("最大输出上下文");
-  await expect(capacityMetrics).toContainText("0.16%");
-  await expect(capacityMetrics).toContainText("占模型最大输出上限");
 });

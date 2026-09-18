@@ -171,70 +171,6 @@ function latestContextWindow(detail) {
   return 0;
 }
 
-function catalogModelWindow(detail) {
-  const window = Number(detail?.modelWindow?.contextWindow);
-  const maxOutput = Number(detail?.modelWindow?.maxTokens);
-  return {
-    contextWindow: Number.isFinite(window) && window > 0 ? Math.round(window) : 0,
-    maxOutputTokens: Number.isFinite(maxOutput) && maxOutput > 0 ? Math.round(maxOutput) : 0,
-  };
-}
-
-function buildContextCapacityStats(detail) {
-  const items = (detail?.turns || []).flatMap((turn) => turn.items || []);
-  const recordedWindow = latestContextWindow(detail);
-  const catalog = recordedWindow ? { contextWindow: 0, maxOutputTokens: 0 } : catalogModelWindow(detail);
-  const contextWindow = recordedWindow || catalog.contextWindow;
-  const windowSource = recordedWindow ? "recorded" : catalog.contextWindow ? "catalog" : "none";
-  const maxOutputLimit = catalog.maxOutputTokens || contextWindow;
-  let maxUsedTokens = 0;
-  let maxOutputTokens = 0;
-  let compactCount = 0;
-  for (const item of items) {
-    const usage = contextUsageFromItem(item);
-    if (usage.used > maxUsedTokens) maxUsedTokens = usage.used;
-    if (usage.output > maxOutputTokens) maxOutputTokens = usage.output;
-    if (item.type === "context-compact") compactCount += 1;
-  }
-  return { contextWindow, windowSource, maxOutputLimit, maxUsedTokens, maxOutputTokens, compactCount };
-}
-
-function contextUsageFromItem(item) {
-  if (item.type === "token-count") return contextUsageFromTokenCount(item);
-  if (item.type === "assistant-message") return contextUsageFromAssistant(item);
-  return { used: 0, output: 0 };
-}
-
-function contextUsageFromTokenCount(item) {
-  const usage = item.info?.last_token_usage || item.info?.lastTokenUsage || null;
-  return {
-    used: positiveTokenNumber(tokenCountUsageValue(usage, item, "total")),
-    output: positiveTokenNumber(tokenCountUsageValue(usage, item, "output")),
-  };
-}
-
-function tokenCountUsageValue(usage, item, kind) {
-  const keys = kind === "total" ? ["total_tokens", "totalTokens"] : ["output_tokens", "outputTokens"];
-  const fallbacks = kind === "total" ? [item.info?.context_usage?.used] : [item.tokenUsage?.generatedTokens];
-  for (let index = 0; index < keys.length; index += 1) {
-    const value = usage?.[keys[index]] ?? fallbacks[index];
-    if (value != null) return value;
-  }
-  return fallbacks[fallbacks.length - 1];
-}
-
-function contextUsageFromAssistant(item) {
-  const usage = item.tokenUsage;
-  if (!usage) return { used: 0, output: 0 };
-  const used = positiveTokenNumber(usage.totalTokens ?? (usage.inputTokens != null ? usage.inputTokens + usage.generatedTokens : null));
-  return { used, output: positiveTokenNumber(usage.generatedTokens) };
-}
-
-function positiveTokenNumber(value) {
-  const number = Number(value);
-  return Number.isFinite(number) && number > 0 ? Math.round(number) : 0;
-}
-
 function ratioPercent(value, total) {
   if (!total) return null;
   return (Number(value || 0) / total) * 100;
@@ -330,5 +266,5 @@ function utf8ByteLength(value) {
   return new TextEncoder().encode(String(value || "")).length;
 }
 
-  Object.assign(api, { renderHandoffFact, openHandoffFact, buildEventTypeStats, addToolOutputOperationStats, addToolOutputOperationStat, toolOutputEventForItem, createToolOutputOperation, buildToolContextStats, addToolContextItem, addToolContextRawEventIndex, toolContextQueryMatches, createToolContextGroup, latestContextWindow, buildContextCapacityStats, catalogModelWindow, contextUsageFromItem, contextUsageFromTokenCount, tokenCountUsageValue, contextUsageFromAssistant, positiveTokenNumber, ratioPercent, formatContextRatio, toolContextComparator, eventTypeKey, eventTypeLabel, estimateEventTokens, estimateEventBytes, numericEventTokenValue, approxTokensFromValue, utf8ByteLength });
+  Object.assign(api, { renderHandoffFact, openHandoffFact, buildEventTypeStats, addToolOutputOperationStats, addToolOutputOperationStat, toolOutputEventForItem, createToolOutputOperation, buildToolContextStats, addToolContextItem, addToolContextRawEventIndex, toolContextQueryMatches, createToolContextGroup, latestContextWindow, ratioPercent, formatContextRatio, toolContextComparator, eventTypeKey, eventTypeLabel, estimateEventTokens, estimateEventBytes, numericEventTokenValue, approxTokensFromValue, utf8ByteLength });
 }

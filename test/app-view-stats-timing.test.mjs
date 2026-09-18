@@ -38,6 +38,7 @@ function timingFixture({ withTokens = true } = {}) {
     turns: [{
       turnNumber: 1,
       durationMs: 30_000,
+      userTitle: "帮我优化首页样式",
       confidence: "estimated",
       buckets: withTokens
         ? [{ id: "llm_wait", label: "LLM 等待时长", coverageMs: 10_000, sharePercent: 33.3, generatedTokensPerSecond: 50 }]
@@ -74,4 +75,25 @@ test("timing view renders session TPS card and per-turn TPS meta", () => {
   const noTokenView = api.renderTimingView(timingFixture({ withTokens: false }));
   assert.equal(noTokenView.includes("tok/s"), false);
   assert.equal(noTokenView.includes("约 50"), false);
+});
+
+test("timing turn bars scale relative to the longest turn and show user title", () => {
+  const turns = [
+    ...timingFixture().turns,
+    { turnNumber: 2, durationMs: 60_000, userTitle: "再补一个登录页", confidence: "observed", buckets: [{ id: "tool_execution", label: "工具执行时长", coverageMs: 30_000, sharePercent: 50 }] },
+    { turnNumber: 3, durationMs: null, activeRunMs: 0, confidence: "unavailable", buckets: [] },
+  ];
+  const markup = api.renderTimingTurns(turns);
+  assert.match(markup, /条长相对最长轮次时长/);
+  assert.match(markup, /第 1 轮/);
+  assert.match(markup, /帮我优化首页样式/);
+  assert.match(markup, /再补一个登录页/);
+  const shares = [...markup.matchAll(/--turn:([\d.]+)%/g)].map((match) => match[1]);
+  assert.deepEqual(shares, ["50", "100", "1"]);
+  assert.equal(markup.includes('class="timing-turn-user" title="帮我优化首页样式"'), true);
+});
+
+test("timing turn bars fall back to full width without usable turn durations", () => {
+  const markup = api.renderTimingTurns([{ turnNumber: 1, durationMs: null, confidence: "unavailable", buckets: [] }]);
+  assert.match(markup, /--turn:100%/);
 });

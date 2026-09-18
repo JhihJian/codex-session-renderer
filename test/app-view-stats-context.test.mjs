@@ -12,6 +12,8 @@ globalThis.SessionWorkbench = {
   showToast: () => {},
   setViewMode: () => {},
   openRawEvent: () => {},
+  itemMatches: () => true,
+  readableToolItem: (item) => ({ matched: true, ruleId: "shell", ruleLabel: "运行验证", title: "运行验证", summary: String(item.arguments || "") }),
 };
 
 await import("../public/app-view-stats.js");
@@ -32,109 +34,29 @@ test("latestContextWindow reads the projected context usage limit", () => {
   assert.equal(api.latestContextWindow(detail), 120000);
 });
 
-test("buildContextCapacityStats aggregates Codex token-count peaks, ratios and compaction count", () => {
+test("buildToolContextStats keeps recorded window for ratio sorting and columns", () => {
   const detail = {
     turns: [
       {
         items: [
           {
-            type: "token-count",
-            info: {
-              last_token_usage: { input_tokens: 15577, output_tokens: 641, total_tokens: 16218 },
-              context_usage: { percent: 5, used: 16218, limit: 258400 },
-            },
+            type: "tool-call",
+            name: "bash",
+            arguments: "npm test",
+            output: "ok",
+            sourceIndex: 3,
           },
-          {
-            type: "token-count",
-            info: {
-              last_token_usage: { input_tokens: 41363, output_tokens: 1019, total_tokens: 42382 },
-              context_usage: { percent: 17, used: 42382, limit: 258400 },
-            },
-          },
-          { type: "context-compact", compact: { kind: "pi_compaction" } },
         ],
       },
-    ],
-  };
-  assert.deepEqual(api.buildContextCapacityStats(detail), {
-    contextWindow: 258400,
-    windowSource: "recorded",
-    maxOutputLimit: 258400,
-    maxUsedTokens: 42382,
-    maxOutputTokens: 1019,
-    compactCount: 1,
-  });
-});
-
-test("buildContextCapacityStats reads Pi assistant usage without recorded window", () => {
-  const detail = {
-    turns: [
       {
         items: [
-          { type: "assistant-message", tokenUsage: { outputTokens: 179, reasoningTokens: 0, generatedTokens: 179, inputTokens: 7256, totalTokens: 7563 } },
-          { type: "assistant-message", tokenUsage: { outputTokens: 84, reasoningTokens: 10, generatedTokens: 94, inputTokens: 940, totalTokens: 8474 } },
+          { type: "token-count", info: { context_usage: { percent: 5, used: 64000, limit: 128000 } } },
         ],
       },
     ],
   };
-  assert.deepEqual(api.buildContextCapacityStats(detail), {
-    contextWindow: 0,
-    windowSource: "none",
-    maxOutputLimit: 0,
-    maxUsedTokens: 8474,
-    maxOutputTokens: 179,
-    compactCount: 0,
-  });
-});
-
-test("model window catalog fills in missing session window from detail modelWindow", () => {
-  const detail = {
-    modelWindow: { contextWindow: 1000000, maxTokens: 128000, source: "pi-model-catalog" },
-    turns: [
-      {
-        items: [
-          { type: "assistant-message", tokenUsage: { outputTokens: 179, reasoningTokens: 0, generatedTokens: 179, inputTokens: 7256, totalTokens: 7563 } },
-        ],
-      },
-    ],
-  };
-
-  assert.deepEqual(api.catalogModelWindow(detail), { contextWindow: 1000000, maxOutputTokens: 128000 });
-  assert.deepEqual(api.buildContextCapacityStats(detail), {
-    contextWindow: 1000000,
-    windowSource: "catalog",
-    maxOutputLimit: 128000,
-    maxUsedTokens: 7563,
-    maxOutputTokens: 179,
-    compactCount: 0,
-  });
-  assert.deepEqual(api.buildContextCapacityStats({ ...detail, modelWindow: { contextWindow: "bad", maxTokens: null } }), {
-    contextWindow: 0,
-    windowSource: "none",
-    maxOutputLimit: 0,
-    maxUsedTokens: 7563,
-    maxOutputTokens: 179,
-    compactCount: 0,
-  });
-});
-
-test("buildContextCapacityStats ignores invalid or non-positive usage values", () => {
-  const detail = {
-    turns: [
-      {
-        items: [
-          { type: "token-count", info: { last_token_usage: { output_tokens: "n/a", total_tokens: -5 } } },
-          { type: "assistant-message", tokenUsage: { outputTokens: 3, reasoningTokens: 1, generatedTokens: 4 } },
-        ],
-      },
-    ],
-  };
-  assert.deepEqual(api.buildContextCapacityStats(detail), {
-    contextWindow: 0,
-    windowSource: "none",
-    maxOutputLimit: 0,
-    maxUsedTokens: 0,
-    maxOutputTokens: 4,
-    compactCount: 0,
-  });
+  const stats = api.buildToolContextStats(detail, "", "all", "", "context-share");
+  assert.equal(stats.contextWindow, 128000);
+  assert.equal(stats.groups.length, 1);
+  assert.equal(stats.groups[0].contextWindowShare, 0.00234375);
 });

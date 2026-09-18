@@ -5,16 +5,13 @@
   const rawEventMatches = (...args) => api.rawEventMatches(...args);
   const buildEventTypeStats = (...args) => api.buildEventTypeStats(...args);
   const escapeHtml = (...args) => api.escapeHtml(...args);
-  const renderStatsMetric = (...args) => api.renderStatsMetric(...args);
   const compactNumber = (...args) => api.compactNumber(...args);
   const formatBytes = (...args) => api.formatBytes(...args);
   const renderStatsEventRows = (...args) => api.renderStatsEventRows(...args);
   const renderTimingView = (...args) => api.renderTimingView(...args);
   const bindTimingActions = (...args) => api.bindTimingActions(...args);
   const buildToolContextStats = (...args) => api.buildToolContextStats(...args);
-  const buildContextCapacityStats = (...args) => api.buildContextCapacityStats(...args);
   const formatContextRatio = (...args) => api.formatContextRatio(...args);
-  const ratioPercent = (...args) => api.ratioPercent(...args);
   const escapeAttr = (...args) => api.escapeAttr(...args);
   const openRawEvent = (...args) => api.openRawEvent(...args);
 function renderStatsInfoView() {
@@ -28,11 +25,7 @@ function renderStatsInfoView() {
   const allEvents = detail.events || [];
   const filteredEvents = allEvents.filter((event) => rawEventMatches(event, query, typeFilter));
   const eventTypeStats = buildEventTypeStats({ ...detail, events: filteredEvents });
-  const totalEventTypeStats = buildEventTypeStats(detail);
   const filtered = filteredEvents.length !== allEvents.length;
-  const approxTokens = eventTypeStats.reduce((sum, stat) => sum + stat.approxTokens, 0);
-  const approxBytes = eventTypeStats.reduce((sum, stat) => sum + stat.approxBytes, 0);
-  const topType = eventTypeStats[0];
   const title = filtered ? `${filteredEvents.length} / ${allEvents.length} 个事件` : `${allEvents.length} 个事件`;
   els.statsContent.innerHTML = `
     <div class="stats-view-shell">
@@ -48,18 +41,8 @@ function renderStatsInfoView() {
           <div><p class="eyebrow">上下文</p><h3 id="contextDiagnosticHeading">上下文统计诊断</h3></div>
           <span>当前筛选范围</span>
         </div>
-        <div class="stats-subsection-head"><h4>上下文容量</h4><span>完整会话口径</span></div>
-        <div class="stats-view-metrics" aria-label="上下文容量概览">
-          ${renderContextCapacityMetrics(buildContextCapacityStats(detail))}
-        </div>
         ${renderToolContextStats(detail, query, typeFilter)}
         <div class="stats-subsection-head"><h4>事件概览</h4><span>${escapeHtml(filtered ? "已应用搜索或类型过滤" : "完整事件流")}</span></div>
-      <div class="stats-view-metrics" aria-label="事件统计概要">
-        ${renderStatsMetric("事件类型", eventTypeStats.length, `全部 ${totalEventTypeStats.length} 类`)}
-        ${renderStatsMetric("约 token", compactNumber(approxTokens), "按事件体积估算")}
-        ${renderStatsMetric("事件体积", formatBytes(approxBytes), "raw / payload 体积")}
-        ${renderStatsMetric("最多类型", topType ? topType.label : "无", topType ? `${topType.count} 个事件` : "无事件")}
-      </div>
       ${
         eventTypeStats.length
           ? `<div class="stats-event-table" role="table" aria-label="事件类型统计">
@@ -89,41 +72,9 @@ function renderStatsInfoView() {
   bindToolContextControls();
 }
 
-function renderContextCapacityMetrics(capacity) {
-  const hasWindow = capacity.contextWindow > 0;
-  const windowHint = capacity.windowSource === "catalog" ? "按 Pi 模型目录匹配" : "最近记录的窗口配置";
-  const usedShare = ratioPercent(capacity.maxUsedTokens, capacity.contextWindow);
-  const outputLimit = capacity.maxOutputLimit || capacity.contextWindow;
-  const outputShare = ratioPercent(capacity.maxOutputTokens, outputLimit);
-  const outputHint = capacity.maxOutputLimit && capacity.maxOutputTokens ? `单次最大 ${compactNumber(capacity.maxOutputTokens)} tok 生成 · 占模型最大输出上限` : `单次最大 ${compactNumber(capacity.maxOutputTokens)} tok 生成`;
-  return [
-    hasWindow
-      ? renderStatsMetric("模型上下文窗口", `${compactNumber(capacity.contextWindow)} tok`, windowHint)
-      : "",
-    capacity.maxUsedTokens
-      ? renderStatsMetric(
-          "最大上下文占用",
-          hasWindow ? formatContextRatio(usedShare) : `约 ${compactNumber(capacity.maxUsedTokens)} tok`,
-          hasWindow ? `峰值约 ${compactNumber(capacity.maxUsedTokens)} tok · 单次请求总 token` : "单次请求峰值总 token",
-        )
-      : "",
-    capacity.maxOutputTokens
-      ? renderStatsMetric(
-          "最大输出上下文",
-          hasWindow ? formatContextRatio(outputShare) : `约 ${compactNumber(capacity.maxOutputTokens)} tok`,
-          hasWindow ? outputHint : "单次响应最大生成 token",
-        )
-      : "",
-    renderStatsMetric("触发压缩", `${compactNumber(capacity.compactCount)} 次`, capacity.compactCount ? "会话中的上下文压缩事件" : "未发生上下文压缩"),
-  ]
-    .filter(Boolean)
-    .join("");
-}
-
 function renderToolContextStats(detail, query, typeFilter) {
   const stats = buildToolContextStats(detail, query, typeFilter, state.toolContextQuery, state.toolContextSort);
   const hasContextWindow = stats.contextWindow > 0;
-  const totalShare = formatContextRatio(ratioPercent(stats.contextTokens, stats.contextWindow));
   return `
     <div class="tool-context-stats${hasContextWindow ? " has-context-window" : ""}" aria-labelledby="toolContextStatsHeading">
       <div class="tool-context-stats-head">
@@ -132,13 +83,6 @@ function renderToolContextStats(detail, query, typeFilter) {
           <p>只汇总命中摘要规则且关联了工具输出的记录。</p>
         </div>
         ${stats.groups.length ? `<button class="ghost-button tool-context-list-toggle" type="button" data-tool-context-list-toggle aria-expanded="${state.toolContextListExpanded}">${state.toolContextListExpanded ? "收起工具明细" : `查看工具明细（${stats.groups.length} 个目标）`}</button>` : ""}
-      </div>
-      <div class="tool-context-kpis" aria-label="工具上下文占用概览">
-        <span><strong>${escapeHtml(String(stats.groups.length))}</strong>已识别工具目标</span>
-        ${hasContextWindow ? `<span><strong>${escapeHtml(`${compactNumber(stats.contextWindow)} tok`)}</strong>最近上下文窗口</span>` : ""}
-        <span><strong>${escapeHtml(formatBytes(stats.outputBytes))}</strong>返回结果</span>
-        <span><strong>约 ${escapeHtml(compactNumber(stats.contextTokens))} tok</strong>累计参数与返回</span>
-        ${hasContextWindow ? `<span><strong>${escapeHtml(totalShare)}</strong>相对最近窗口</span>` : ""}
       </div>
       ${
         !stats.groups.length
@@ -232,5 +176,5 @@ function bindToolContextControls() {
   });
 }
 
-  Object.assign(api, { renderStatsInfoView, renderContextCapacityMetrics, renderToolContextStats, renderToolContextList, renderToolContextStatRow, renderToolContextNumber, bindToolContextControls });
+  Object.assign(api, { renderStatsInfoView, renderToolContextStats, renderToolContextList, renderToolContextStatRow, renderToolContextNumber, bindToolContextControls });
 }

@@ -28,6 +28,7 @@ test("session timing classifies trace nodes and preserves source references", ()
         type: "turn",
         index: 0,
         id: "turn:0",
+        title: "修复登录超时",
         timestamp: "2026-07-08T10:00:00.000Z",
         completedAt: "2026-07-08T10:00:20.000Z",
         durationEstimated: false,
@@ -69,6 +70,7 @@ test("session timing classifies trace nodes and preserves source references", ()
   assert.equal(tools.groups[0].averageDurationMs, 6_000);
   assert.equal(timing.buckets.some((bucket) => bucket.id === "subagent_execution"), false);
   assert.equal(timing.turns[0].turnNumber, 1);
+  assert.equal(timing.turns[0].userTitle, "修复登录超时");
   assert.equal(timing.turns[0].activeRunMs, 6_000);
   assert.deepEqual(
     Object.fromEntries(timing.session.executionComposition.map((component) => [component.key, component.durationMs])),

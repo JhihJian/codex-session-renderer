@@ -7,7 +7,6 @@ import {
 } from "./session-detail-coordinator.mjs";
 import { sessionIdFromFile } from "./text-utils.mjs";
 import { createSqliteThreadStore } from "./sqlite-threads.mjs";
-import { createPiModelCatalogFromEnv } from "./pi-model-catalog.mjs";
 
 function readPositiveEnv(name, fallback, maximum) {
   const value = Number(process.env[name]);
@@ -99,9 +98,7 @@ export function createSessionSourceContextService({ maxListSessions }) {
       allSessionCache: null,
       allSessionCacheTime: 0,
       sessionDetailCoordinator: null,
-      modelCatalog: source.kind === "pi-agent" ? createPiModelCatalogFromEnv() : null,
     };
-    context.modelCatalog?.start();
     context.sessionDetailCoordinator = createSessionDetailCoordinator({
       ...sessionDetailCoordinatorOptions(sessionReadGate),
       stat: async (filePath) => requireReadableSessionFile(context, filePath),

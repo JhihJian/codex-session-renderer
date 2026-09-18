@@ -467,7 +467,6 @@
     padding: 12px 12px 0;
   }
 
-  .stats-view-metrics,
   .timing-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     padding: 8px;
@@ -492,10 +491,6 @@
   .tool-context-controls .text-input.compact,
   .tool-context-controls .select-input.compact {
     width: 100%;
-  }
-
-  .tool-context-kpis {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .tool-context-row.header {
