@@ -62,18 +62,27 @@
       "count": 3
     }
   },
-  "public/tool-summary.js": {
+  "public/tool-summary-command-output.js": {
     "complexity": {
-      "count": 11
-    },
-    "max-lines": {
-      "count": 1
-    },
-    "max-lines-per-function": {
+      "count": 4
+    }
+  },
+  "public/tool-summary-patch.js": {
+    "complexity": {
       "count": 1
     },
     "max-statements": {
-      "count": 2
+      "count": 1
+    }
+  },
+  "public/tool-summary-rules.js": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "public/tool-summary.js": {
+    "complexity": {
+      "count": 5
     }
   },
 

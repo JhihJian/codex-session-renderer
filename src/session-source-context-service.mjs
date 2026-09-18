@@ -5,7 +5,7 @@ import {
   createConcurrencyGate,
   createSessionDetailCoordinator,
 } from "./session-detail-coordinator.mjs";
-import { sessionIdFromFile } from "./session-events.mjs";
+import { sessionIdFromFile } from "./text-utils.mjs";
 import { createSqliteThreadStore } from "./sqlite-threads.mjs";
 
 function readPositiveEnv(name, fallback, maximum) {

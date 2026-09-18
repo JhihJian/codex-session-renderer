@@ -1,8 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import "../public/tool-summary-rules.js";
+import "../public/tool-summary-text.js";
+import "../public/tool-summary-patch.js";
+import "../public/tool-summary-command-output.js";
 import "../public/tool-summary.js";
 
 const { commandOutputModel, patchBodyModel, summarizeAuditNode, summarizeToolItem, validateRulesForSave } = globalThis.ToolSummary;
+const require = createRequire(import.meta.url);
 
 test("default rules translate PowerShell UTF-8 raw reads", () => {
   const summary = summarizeToolItem({
@@ -264,4 +270,23 @@ Process exited with code 0`, {
   assert.equal(model.status, "passed");
   assert.match(model.summary, /90 tests/);
   assert.equal(model.metrics.find((metric) => metric.label === "测试").value, "90");
+});
+
+test("CommonJS facade loads its internal dependencies and preserves the public API", () => {
+  const modules = [
+    "../public/tool-summary.js",
+    "../public/tool-summary-command-output.js",
+    "../public/tool-summary-patch.js",
+    "../public/tool-summary-text.js",
+    "../public/tool-summary-rules.js",
+  ];
+  delete globalThis.ToolSummary;
+  delete globalThis.ToolSummaryInternals;
+  for (const modulePath of modules) delete require.cache[require.resolve(modulePath)];
+
+  const api = require("../public/tool-summary.js");
+  assert.equal(api, globalThis.ToolSummary);
+  assert.equal(typeof api.summarizeToolItem, "function");
+  assert.equal(typeof api.commandOutputModel, "function");
+  assert.equal(api.summarizeToolItem({ name: "read", arguments: { path: "README.md" } }).title, "读取文件内容");
 });

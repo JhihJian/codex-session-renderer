@@ -75,15 +75,17 @@ export default defineConfig([
     name: "project/browser-test-bridge",
     files: [
       "public/app-format.js",
-      "public/tool-summary.js",
+      "public/tool-summary*.js",
     ],
     languageOptions: {
       globals: {
         // 这些无构建浏览器脚本同时通过 CommonJS 分支向 Node 测试暴露纯函数。
         module: "readonly",
+        require: "readonly",
       },
     },
   },
+
   {
     name: "project/maintainability",
     files: ["**/*.{js,mjs,cjs}"],
