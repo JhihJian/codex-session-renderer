@@ -22,7 +22,7 @@ globalThis.SessionWorkbench = {
   firstLine: (text) => String(text ?? "").split("\n")[0],
   traceIcon: () => "T",
   readableToolItem: () => ({ matched: false, title: "" }),
-  prettyMaybeJson: (value) => String(value ?? ""),
+  prettyMaybeJson: (value) => (value == null ? "" : JSON.stringify(value, null, 2)),
   formatDate: () => "",
   selectTraceNode: () => {},
   toggleTraceNode: () => {},
@@ -70,6 +70,31 @@ function traceFixture() {
                 children: [],
                 detail: { kind: "item", item: { type: "tool-call", name: "bash", status: "completed", arguments: "pwd", output: "/data" } },
               },
+              {
+                id: "response:0:0",
+                type: "response",
+                label: "模型回复",
+                title: "gpt-5",
+                timestamp: "2026-07-08T10:00:05.000Z",
+                completedAt: "2026-07-08T10:00:25.000Z",
+                durationMs: 20_000,
+                status: null,
+                icon: "llm",
+                children: [],
+                detail: { kind: "response", response: { model: "gpt-5", generatedTokens: 120 } },
+              },
+              {
+                id: "gap:turn:1:0",
+                type: "gap",
+                label: "其他时间",
+                title: "事件写入与调度等未归因间隔",
+                timestamp: "2026-07-08T10:00:30.000Z",
+                durationMs: 6_000,
+                status: null,
+                icon: "gap",
+                children: [],
+                detail: { kind: "gap", note: "轮次执行时长减去已归因子项后的剩余间隔。" },
+              },
             ],
           },
         ],
@@ -98,9 +123,34 @@ test("执行树轮次行展示执行耗时而不是状态", () => {
   const { row } = renderFixture();
   const turnRow = row("turn:1:0");
   assert.match(turnRow, /trace-duration/);
-  assert.match(turnRow, /30s · 估算/);
+  assert.match(turnRow, /30s/);
+  assert.doesNotMatch(turnRow, /估算/);
   assert.doesNotMatch(turnRow, /trace-status/);
   assert.doesNotMatch(turnRow, /执行中/);
+});
+
+test("轮次子项包含模型回复和其他时间且不展示状态", () => {
+  const { row } = renderFixture();
+  const responseRow = row("response:0:0");
+  assert.match(responseRow, /模型回复/);
+  assert.match(responseRow, /gpt-5/);
+  assert.match(responseRow, /20s/);
+  assert.doesNotMatch(responseRow, /trace-status/);
+  const gapRow = row("gap:turn:1:0");
+  assert.match(gapRow, /其他时间/);
+  assert.match(gapRow, /6s/);
+  assert.doesNotMatch(gapRow, /trace-status/);
+});
+
+test("模型回复详情面板展示回复信息", () => {
+  api.state.detail = traceFixture();
+  const responseNode = api.state.detail.trace.root.children[0].children.find((node) => node.type === "response");
+  api.renderToolDetails(responseNode);
+  const detailsHtml = api.els.toolDetailsContent.innerHTML;
+  assert.match(detailsHtml, /节点信息/);
+  assert.match(detailsHtml, /gpt-5/);
+  assert.match(detailsHtml, /generatedTokens/);
+  assert.doesNotMatch(detailsHtml, /tool-details-status/);
 });
 
 test("执行树工具行继续展示状态和耗时", () => {

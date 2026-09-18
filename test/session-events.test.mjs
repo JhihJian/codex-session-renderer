@@ -127,10 +127,15 @@ test("buildTrace localizes thread, turn, and execution fallback labels", () => {
   assert.deepEqual(
     turn.children.map((node) => [node.type, node.label, node.title]),
     [
+      ["response", "模型回复", "模型生成"],
       ["tool", "工具调用", "exec_command"],
+      ["response", "模型回复", "模型生成"],
       ["handoff", "委派", "spawn_agent"],
+      ["response", "模型回复", "模型生成"],
     ],
   );
+  // 子项时长之和等于轮次执行时长。
+  assert.equal(turn.children.reduce((sum, node) => sum + node.durationMs, 0), turn.durationMs);
 });
 
 test("buildTrace estimates open turn duration from last item activity", () => {
@@ -168,6 +173,12 @@ test("buildTrace estimates open turn duration from last item activity", () => {
   assert.equal(turn.completedAt, "2026-07-08T10:00:07.000Z");
   assert.equal(turn.durationMs, 7_000);
   assert.equal(turn.durationEstimated, true);
+
+  // 执行树子项按时长归因：工具、模型回复段（含扣除工具后的生成间隔）与其他时间之和等于轮次执行时长。
+  const responseDurations = turn.children.filter((node) => node.type === "response").map((node) => node.durationMs);
+  assert.deepEqual(responseDurations, [1_000, 4_000]);
+  const childrenSum = turn.children.reduce((sum, node) => sum + node.durationMs, 0);
+  assert.equal(childrenSum, turn.durationMs);
 });
 
 test("buildTrace keeps observed turn duration when turn completion exists", () => {
@@ -852,9 +863,10 @@ test("Pi 内嵌 subagent 显示为批次而不是子会话", () => {
 
   assert.equal(item.embeddedSubagents.status, "partial");
   assert.deepEqual(item.embeddedSubagents.results.map((task) => task.status), ["succeeded", "rate_limited"]);
-  assert.equal(trace.root.children[0].children[0].type, "embedded-subagent");
-  assert.equal(trace.root.children[0].children[0].threadId, undefined);
-  assert.deepEqual(trace.root.children[0].children[0].children.map((node) => node.label), ["子代理：reviewer", "子代理：tester"]);
-  assert.equal(trace.root.children[0].children[0].children[0].threadId, undefined);
+  const batchNode = trace.root.children[0].children.find((node) => node.type === "embedded-subagent");
+  assert.equal(batchNode.type, "embedded-subagent");
+  assert.equal(batchNode.threadId, undefined);
+  assert.deepEqual(batchNode.children.map((node) => node.label), ["子代理：reviewer", "子代理：tester"]);
+  assert.equal(batchNode.children[0].threadId, undefined);
   assert.equal(compact.embeddedSubagents[0].outputSourceIndex, 2);
 });

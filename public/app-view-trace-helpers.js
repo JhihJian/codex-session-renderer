@@ -70,6 +70,8 @@ function traceIcon(node) {
   if (node.icon === "assistant") return "C";
   if (node.icon === "reasoning") return "R";
   if (node.icon === "metric") return "#";
+  if (node.icon === "llm") return "L";
+  if (node.icon === "gap") return "…";
   return "•";
 }
 
@@ -234,20 +236,25 @@ function dateMs(value) {
   return Number.isFinite(time) ? time : null;
 }
 
+const traceTypeLabels = {
+  thread: "线程",
+  turn: "轮次",
+  agent_message: "助手消息",
+  tool: "工具",
+  handoff: "委派",
+  subagent: "子代理",
+  "embedded-subagent": "内嵌子代理批次",
+  "embedded-subagent-task": "内嵌子代理",
+  "lazy-child": "子会话",
+  message: "消息",
+  reasoning: "推理",
+  metric: "指标",
+  response: "模型回复",
+  gap: "其他时间",
+};
+
 function traceTypeLabel(type) {
-  if (type === "thread") return "线程";
-  if (type === "turn") return "轮次";
-  if (type === "agent_message") return "助手消息";
-  if (type === "tool") return "工具";
-  if (type === "handoff") return "委派";
-  if (type === "subagent") return "子代理";
-  if (type === "embedded-subagent") return "内嵌子代理批次";
-  if (type === "embedded-subagent-task") return "内嵌子代理";
-  if (type === "lazy-child") return "子会话";
-  if (type === "message") return "消息";
-  if (type === "reasoning") return "推理";
-  if (type === "metric") return "指标";
-  return type || "节点";
+  return traceTypeLabels[type] || type || "节点";
 }
 
   Object.assign(api, { countItems, latestTokenUsage, findTraceNode, traceNodePreview, sensitiveCopyToast, compactTraceItem, traceNodeLabel, maxNodeDuration, traceIcon, formatDuration, summaryRuleOptions, readableToolItem, itemTitle, itemRef, findItemByRef, itemDebugPreview, itemIcon, eventForItem, samePreview, isUsefulDisplayText, normalizeDisplayText, groupEventsByTurn, humanEventTitle, countErrors, durationBetween, dateMs, traceTypeLabel });

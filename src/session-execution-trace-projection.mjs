@@ -14,6 +14,8 @@ import {
 } from "./session-trace-node-projection.mjs";
 
 function buildTrace(session, rawEvents, normalizedEvents, turns, hierarchy) {
+  const responseIntervals = buildInferredResponseIntervals(turns, session);
+  const responsesByTurnIndex = groupResponsesByTurnIndex(responseIntervals);
   const rootStartedAt = turns[0]?.startedAt || session.startedAt || normalizedEvents[0]?.timestamp || null;
   const eventEndCandidates = [turns.at(-1)?.completedAt, normalizedEvents.at(-1)?.timestamp]
     .filter(Boolean)
@@ -69,22 +71,12 @@ function buildTrace(session, rawEvents, normalizedEvents, turns, hierarchy) {
       children: [],
     };
 
-    for (const [itemIndex, item] of turn.items.entries()) {
-      const itemNode = traceNodeFromItem(item, turnIndex, itemIndex);
-      if (itemNode && isDefaultTraceNodeForPayload(itemNode)) turnNode.children.push(itemNode);
-    }
-
-    const turnStart = toMs(turn.startedAt) ?? -Infinity;
-    const turnEnd = toMs(turn.completedAt) ?? Infinity;
-    for (const child of hierarchy.children) {
-      const spawnEvent = spawnByChildId.get(child.childThreadId);
-      const notificationEvent = notificationByChildId.get(child.childThreadId);
-      const anchor = spawnEvent || notificationEvent;
-      const anchorMs = toMs(anchor?.timestamp);
-      if (anchor && anchorMs != null && anchorMs >= turnStart && anchorMs <= turnEnd) {
-        turnNode.children.push(traceNodeFromChildThread(child, anchor, notificationEvent));
-      }
-    }
+    attachTurnChildren(turnNode, turn, turnIndex, {
+      hierarchy,
+      spawnByChildId,
+      notificationByChildId,
+      responsesByTurnIndex,
+    });
 
     root.children.push(turnNode);
   }
@@ -106,10 +98,157 @@ function buildTrace(session, rawEvents, normalizedEvents, turns, hierarchy) {
       completedAt: rootEndedAt,
       durationMs: root.durationMs,
       estimated: true,
-      responses: buildInferredResponseIntervals(turns, session),
+      responses: responseIntervals,
       inputWaits: buildInputWaitIntervals(turns),
     },
   };
+}
+
+function groupResponsesByTurnIndex(responseIntervals) {
+  const map = new Map();
+  for (const interval of responseIntervals) {
+    const list = map.get(interval.turnIndex) || [];
+    list.push(interval);
+    map.set(interval.turnIndex, list);
+  }
+  return map;
+}
+
+// 轮次于项按时长归因：工具/子代理 + 模型回复区间 + 未归因剩余，按开始时间排序。
+function attachTurnChildren(turnNode, turn, turnIndex, context) {
+  const { hierarchy, spawnByChildId, notificationByChildId, responsesByTurnIndex } = context;
+  for (const [itemIndex, item] of turn.items.entries()) {
+    const itemNode = traceNodeFromItem(item, turnIndex, itemIndex);
+    if (itemNode && isDefaultTraceNodeForPayload(itemNode)) turnNode.children.push(itemNode);
+  }
+  attachTurnChildThreads(turnNode, turn, hierarchy, spawnByChildId, notificationByChildId);
+  attachTurnResponses(turnNode, turn, turnIndex, responsesByTurnIndex);
+  appendUnattributedGapNode(turnNode);
+  turnNode.children.sort(byStartTimestamp);
+}
+
+function attachTurnChildThreads(turnNode, turn, hierarchy, spawnByChildId, notificationByChildId) {
+  const turnStart = toMs(turn.startedAt) ?? -Infinity;
+  const turnEnd = toMs(turn.completedAt) ?? Infinity;
+  for (const child of hierarchy.children) {
+    const spawnEvent = spawnByChildId.get(child.childThreadId);
+    const notificationEvent = notificationByChildId.get(child.childThreadId);
+    const anchor = spawnEvent || notificationEvent;
+    const anchorMs = toMs(anchor?.timestamp);
+    if (anchor && anchorMs != null && anchorMs >= turnStart && anchorMs <= turnEnd) {
+      turnNode.children.push(traceNodeFromChildThread(child, anchor, notificationEvent));
+    }
+  }
+}
+
+function attachTurnResponses(turnNode, turn, turnIndex, responsesByTurnIndex) {
+  const turnStartMs = toMs(turn.startedAt);
+  const turnEndMs = toMs(turnNode.completedAt);
+  if (turnStartMs == null || turnEndMs == null || turnEndMs <= turnStartMs) return;
+  const occupied = turnNode.children
+    .map((node) => ({ startMs: toMs(node.timestamp), endMs: toMs(node.completedAt) }))
+    .filter((span) => span.startMs != null && span.endMs != null && span.endMs > span.startMs)
+    .sort((left, right) => left.startMs - right.startMs);
+  const intervals = responsesByTurnIndex.get(turnIndex) || [];
+  let cursor = turnStartMs;
+  let segmentIndex = 0;
+  for (const span of occupied) {
+    if (span.startMs - cursor >= 1_000) {
+      turnNode.children.push(llmSegmentTraceNode({ turn, turnIndex, segmentIndex, startMs: cursor, endMs: span.startMs, intervals }));
+      segmentIndex += 1;
+    }
+    cursor = Math.max(cursor, span.endMs);
+  }
+  if (turnEndMs - cursor >= 1_000) {
+    turnNode.children.push(llmSegmentTraceNode({ turn, turnIndex, segmentIndex, startMs: cursor, endMs: turnEndMs, intervals }));
+  }
+}
+
+function byStartTimestamp(left, right) {
+  return (toMs(left.timestamp) ?? Infinity) - (toMs(right.timestamp) ?? Infinity);
+}
+
+// 模型回复段：轮次时长扣除工具、子代理等已占用区间后的纯生成间隔，不足 1 秒不展示。
+function llmSegmentTraceNode({ turn, turnIndex, segmentIndex, startMs, endMs, intervals }) {
+  const overlap = pickOverlappingInterval(intervals, startMs, endMs);
+  const usage = overlap?.contextUsage || {};
+  const model = overlap?.model || turn.context?.model || null;
+  return {
+    id: `response:${turnIndex}:${segmentIndex}`,
+    type: "response",
+    label: "模型回复",
+    title: model || "模型生成",
+    timestamp: new Date(startMs).toISOString(),
+    completedAt: new Date(endMs).toISOString(),
+    durationMs: endMs - startMs,
+    durationEstimated: true,
+    status: null,
+    icon: "llm",
+    children: [],
+    detail: {
+      kind: "response",
+      response: {
+        model,
+        responseType: nvl(overlap?.responseType),
+        startedAt: new Date(startMs).toISOString(),
+        completedAt: new Date(endMs).toISOString(),
+        durationMs: endMs - startMs,
+        generatedTokens: nvl(overlap?.generatedTokens),
+        outputTokens: nvl(overlap?.outputTokens),
+        reasoningTokens: nvl(overlap?.reasoningTokens),
+        contextPercent: nvl(usage.percent),
+        contextUsed: nvl(usage.used),
+        contextLimit: nvl(usage.limit),
+        note: "轮次内扣除工具、子代理等占用区间后的模型生成间隔。",
+      },
+    },
+  };
+}
+
+function pickOverlappingInterval(intervals, startMs, endMs) {
+  let best = null;
+  let bestOverlapMs = 0;
+  for (const interval of intervals) {
+    const overlapMs = Math.min(endMs, interval.endMs ?? -Infinity) - Math.max(startMs, interval.startMs ?? Infinity);
+    if (overlapMs > bestOverlapMs) {
+      bestOverlapMs = overlapMs;
+      best = interval;
+    }
+  }
+  return best;
+}
+
+function nvl(value) {
+  return value == null ? null : value;
+}
+
+// 工具、子代理与模型回复之外剩余的时间（事件写入、调度等）集中为一个节点，
+// 让轮次子项时长之和与轮次执行时长对齐；剩余不足 1 秒时不展示。
+function appendUnattributedGapNode(turnNode) {
+  if (!Number.isFinite(turnNode.durationMs)) return;
+  const accountedMs = turnNode.children.reduce(
+    (sum, child) => sum + (Number.isFinite(child.durationMs) ? child.durationMs : 0),
+    0,
+  );
+  const gapMs = turnNode.durationMs - accountedMs;
+  if (gapMs < 1_000) return;
+  turnNode.children.push({
+    id: `gap:${turnNode.id}`,
+    type: "gap",
+    label: "其他时间",
+    title: "事件写入与调度等未归因间隔",
+    timestamp: turnNode.completedAt ?? null,
+    completedAt: null,
+    durationMs: gapMs,
+    durationEstimated: false,
+    status: null,
+    icon: "gap",
+    children: [],
+    detail: {
+      kind: "gap",
+      note: "轮次执行时长减去工具、子代理和模型回复等已归因子项后的剩余间隔。",
+    },
+  });
 }
 
 // Pi 会话没有显式的轮次完成事件，turn.completedAt 保持为空时，用轮内最后一个
@@ -218,6 +357,7 @@ function measuredResponseIntervals(turn, turnIndex, session) {
         generatedTokens: usage.generatedTokens,
       });
     }
+    if (responseEndMs != null && (pendingBoundaryMs == null || responseEndMs > pendingBoundaryMs)) pendingBoundaryMs = responseEndMs;
     responseStartMs = null;
     responseEndMs = null;
   };

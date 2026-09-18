@@ -334,8 +334,8 @@
   background: var(--orange);
 }
 
-.legend-dot.estimated {
-  background: var(--text-3);
+.legend-dot.llm {
+  background: var(--blue);
 }
 
 .trace-tree {
@@ -454,4 +454,13 @@
 .trace-row:has(.trace-icon.tool) .trace-bar i,
 .trace-row:has(.trace-icon.handoff) .trace-bar i {
   background: var(--orange);
+}
+
+.trace-row:has(.trace-icon.llm) .trace-bar i {
+  background: var(--blue);
+}
+
+.trace-icon.llm {
+  background: var(--blue-soft);
+  color: var(--blue);
 }

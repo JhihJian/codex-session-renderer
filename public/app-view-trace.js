@@ -37,7 +37,7 @@ function renderTrace() {
         <div class="trace-legend">
           <span><i class="legend-dot agent"></i>子代理</span>
           <span><i class="legend-dot tool"></i>工具</span>
-          <span><i class="legend-dot estimated"></i>估算时间</span>
+          <span><i class="legend-dot llm"></i>模型回复</span>
         </div>
       </div>
       <div class="trace-tree">${renderTraceNode(root, { maxDuration, depth: 0 })}</div>
@@ -67,7 +67,7 @@ function filterTraceNode(node, query, typeFilter) {
 }
 
 function isDefaultTraceNode(node) {
-  return ["thread", "turn", "tool", "handoff", "subagent", "embedded-subagent", "embedded-subagent-task", "lazy-child"].includes(node.type);
+  return ["thread", "turn", "tool", "handoff", "subagent", "embedded-subagent", "embedded-subagent-task", "lazy-child", "response", "gap"].includes(node.type);
 }
 
 function traceNodeMatchesType(node, typeFilter) {
@@ -75,7 +75,7 @@ function traceNodeMatchesType(node, typeFilter) {
   if (typeFilter === "tool") return node.type === "tool" || node.type === "handoff" || node.type === "subagent" || node.type === "embedded-subagent" || node.type === "embedded-subagent-task";
   if (typeFilter === "output") return Boolean(node.detail?.item?.output);
   if (typeFilter === "reasoning") return node.type === "reasoning";
-  if (typeFilter === "system") return node.type === "event" || node.type === "metric" || node.type === "turn" || node.type === "thread";
+  if (typeFilter === "system") return node.type === "event" || node.type === "metric" || node.type === "turn" || node.type === "thread" || node.type === "response" || node.type === "gap";
   if (typeFilter === "error") return /error|failed|失败|错误/i.test(traceSearchText(node));
   return true;
 }
@@ -140,7 +140,7 @@ function renderTraceNode(node, context) {
           ${argumentPreview ? `<span class="trace-arguments" data-overflow-tooltip title="${escapeAttr(argumentPreview)}">${escapeHtml(argumentPreview)}</span>` : ""}
         </span>
         ${statusValue ? `<span class="trace-status status-${escapeAttr(traceStatusKind(statusValue))}" data-overflow-tooltip>${escapeHtml(traceStatusLabel(statusValue))}</span>` : ""}
-        ${hasDuration ? `<span class="trace-duration" data-overflow-tooltip>${escapeHtml(durationLabel)}${node.durationEstimated ? " · 估算" : ""}</span><span class="trace-bar" aria-hidden="true"><i style="width:${width}%"></i></span>` : ""}
+        ${hasDuration ? `<span class="trace-duration" data-overflow-tooltip>${escapeHtml(durationLabel)}</span><span class="trace-bar" aria-hidden="true"><i style="width:${width}%"></i></span>` : ""}
       </button>
       ${children.length && expanded ? `<div class="trace-children">${children.map((child) => renderTraceNode(child, { ...context, depth: depth + 1 })).join("")}</div>` : ""}
     </div>
@@ -197,9 +197,14 @@ function renderToolDetails(node = null) {
   els.toolDetailsContent.hidden = false;
   const item = fullTraceItem(node);
   const task = node.detail?.task;
+  const detail = node.detail || {};
   const isTool = item?.type === "tool-call" || node.type === "tool" || node.type === "handoff";
   const title = item?.name || node.title || node.label || "执行节点";
-  const argumentsText = item?.arguments ? prettyMaybeJson(item.arguments) : task?.task || "";
+  const argumentsText = item?.arguments
+    ? prettyMaybeJson(item.arguments)
+    : detail.response
+      ? prettyMaybeJson(detail.response)
+      : detail.note || task?.task || "";
   const outputText = item?.output == null || item.output === "" ? "" : String(item.output);
   // 轮次状态多为回放投影产物（如“执行中”），详情面板同样不展示，避免误导。
   const statusValue = node.type === "turn" ? null : node.status || item?.status || task?.status;
