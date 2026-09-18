@@ -122,6 +122,8 @@ function renderTraceNode(node, context) {
   const isTool = item?.type === "tool-call" || node.type === "tool" || node.type === "handoff";
   const title = isTool ? traceToolTitle(item, node) : node.title || "";
   const argumentPreview = isTool ? traceArgumentPreview(item) : "";
+  // 轮次是回放中的容器节点，生命周期状态没有实时含义；右侧固定展示执行耗时。
+  const statusValue = node.type === "turn" ? null : node.status || item?.status || null;
   return `
     <div class="trace-node" style="--depth:${depth}">
       <button class="trace-row${hasDuration ? " has-duration" : ""}${selected}" type="button" data-trace-node-id="${escapeAttr(node.id)}">
@@ -137,7 +139,7 @@ function renderTraceNode(node, context) {
           <span class="trace-title" data-overflow-tooltip>${escapeHtml(title)}</span>
           ${argumentPreview ? `<span class="trace-arguments" data-overflow-tooltip title="${escapeAttr(argumentPreview)}">${escapeHtml(argumentPreview)}</span>` : ""}
         </span>
-        ${node.status || item?.status ? `<span class="trace-status status-${escapeAttr(traceStatusKind(node.status || item?.status))}" data-overflow-tooltip>${escapeHtml(traceStatusLabel(node.status || item?.status))}</span>` : ""}
+        ${statusValue ? `<span class="trace-status status-${escapeAttr(traceStatusKind(statusValue))}" data-overflow-tooltip>${escapeHtml(traceStatusLabel(statusValue))}</span>` : ""}
         ${hasDuration ? `<span class="trace-duration" data-overflow-tooltip>${escapeHtml(durationLabel)}${node.durationEstimated ? " · 估算" : ""}</span><span class="trace-bar" aria-hidden="true"><i style="width:${width}%"></i></span>` : ""}
       </button>
       ${children.length && expanded ? `<div class="trace-children">${children.map((child) => renderTraceNode(child, { ...context, depth: depth + 1 })).join("")}</div>` : ""}
@@ -199,7 +201,8 @@ function renderToolDetails(node = null) {
   const title = item?.name || node.title || node.label || "执行节点";
   const argumentsText = item?.arguments ? prettyMaybeJson(item.arguments) : task?.task || "";
   const outputText = item?.output == null || item.output === "" ? "" : String(item.output);
-  const statusValue = node.status || item?.status || task?.status;
+  // 轮次状态多为回放投影产物（如“执行中”），详情面板同样不展示，避免误导。
+  const statusValue = node.type === "turn" ? null : node.status || item?.status || task?.status;
   const status = traceStatusLabel(statusValue);
   const metadata = [formatDate(node.timestamp), node.durationMs != null ? formatDuration(node.durationMs) : ""].filter(Boolean).join(" · ");
   els.toolDetailsContent.innerHTML = `

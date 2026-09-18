@@ -46,6 +46,7 @@ function buildTrace(session, rawEvents, normalizedEvents, turns, hierarchy) {
 
   for (const [turnIndex, turn] of turns.entries()) {
     const turnSummary = summarizeTurnForTrace(turn, hierarchy);
+    const turnEndedAt = turn.completedAt || lastTurnActivityAt(turn);
     const turnNode = {
       id: `turn:${turn.id}:${turnIndex}`,
       index: turnIndex,
@@ -56,8 +57,8 @@ function buildTrace(session, rawEvents, normalizedEvents, turns, hierarchy) {
         .filter(Boolean)
         .join(" · "),
       timestamp: turn.startedAt,
-      completedAt: turn.completedAt,
-      durationMs: durationMs(turn.startedAt, turn.completedAt),
+      completedAt: turnEndedAt,
+      durationMs: durationMs(turn.startedAt, turnEndedAt),
       durationEstimated: !turn.completedAt,
       status: turn.status || "running",
       icon: "turn",
@@ -109,6 +110,17 @@ function buildTrace(session, rawEvents, normalizedEvents, turns, hierarchy) {
       inputWaits: buildInputWaitIntervals(turns),
     },
   };
+}
+
+// Pi 会话没有显式的轮次完成事件，turn.completedAt 保持为空时，用轮内最后一个
+// 条目的活动时间作为轮次执行时长下界，避免执行视图整列轮次都无法显示耗时。
+function lastTurnActivityAt(turn) {
+  let latestMs = null;
+  for (const item of turn.items || []) {
+    const ms = toMs(item.completedAt || item.timestamp);
+    if (ms != null && (latestMs == null || ms > latestMs)) latestMs = ms;
+  }
+  return latestMs == null ? null : new Date(latestMs).toISOString();
 }
 
 // Input-start telemetry is unavailable, so only use a completed assistant reply

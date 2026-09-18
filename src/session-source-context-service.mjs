@@ -15,23 +15,23 @@ function readPositiveEnv(name, fallback, maximum) {
   return Math.min(Math.floor(value), maximum);
 }
 
+function sessionDetailCoordinatorOptions(readGate) {
+  return {
+    maxConcurrentReads: readPositiveEnv("CODEX_SESSION_DETAIL_MAX_CONCURRENT_READS", 4, 32),
+    diagnosticMaxFileBytes: readPositiveEnv("CODEX_SESSION_DIAGNOSTIC_MAX_FILE_BYTES", 8 * 1024 * 1024, 256 * 1024 * 1024),
+    maxDiagnosticEventScan: readPositiveEnv("CODEX_SESSION_DIAGNOSTIC_MAX_EVENT_SCAN", 100_000, 500_000),
+    maxCacheEntries: readPositiveEnv("CODEX_SESSION_DETAIL_MAX_CACHE_ENTRIES", 24, 2_000),
+    maxCacheBytes: readPositiveEnv("CODEX_SESSION_DETAIL_MAX_CACHE_BYTES", 48 * 1024 * 1024, 512 * 1024 * 1024),
+    readGate,
+  };
+}
+
 export function createSessionSourceContextService({ maxListSessions }) {
   const sessionReadGate = createConcurrencyGate(readPositiveEnv("CODEX_SESSION_DETAIL_MAX_CONCURRENT_READS", 4, 32));
   const dataSources = createDataSourceRegistry();
   const sourceContexts = new Map();
   const piAgentContext = dataSources.getSource("pi-agent");
   if (piAgentContext) getSourceContext(piAgentContext.id);
-
-  function sessionDetailCoordinatorOptions() {
-    return {
-      maxConcurrentReads: readPositiveEnv("CODEX_SESSION_DETAIL_MAX_CONCURRENT_READS", 4, 32),
-      diagnosticMaxFileBytes: readPositiveEnv("CODEX_SESSION_DIAGNOSTIC_MAX_FILE_BYTES", 8 * 1024 * 1024, 256 * 1024 * 1024),
-      maxDiagnosticEventScan: readPositiveEnv("CODEX_SESSION_DIAGNOSTIC_MAX_EVENT_SCAN", 100_000, 500_000),
-      maxCacheEntries: readPositiveEnv("CODEX_SESSION_DETAIL_MAX_CACHE_ENTRIES", 24, 2_000),
-      maxCacheBytes: readPositiveEnv("CODEX_SESSION_DETAIL_MAX_CACHE_BYTES", 48 * 1024 * 1024, 512 * 1024 * 1024),
-      readGate: sessionReadGate,
-    };
-  }
 
   async function regularFileStat(filePath) {
     const stat = await fs.stat(filePath);
@@ -103,7 +103,7 @@ export function createSessionSourceContextService({ maxListSessions }) {
     };
     context.modelCatalog?.start();
     context.sessionDetailCoordinator = createSessionDetailCoordinator({
-      ...sessionDetailCoordinatorOptions(),
+      ...sessionDetailCoordinatorOptions(sessionReadGate),
       stat: async (filePath) => requireReadableSessionFile(context, filePath),
     });
     sourceContexts.set(source.id, context);

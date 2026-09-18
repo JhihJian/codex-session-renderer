@@ -365,6 +365,11 @@
   grid-template-columns: calc(var(--depth) * 22px) 18px 23px minmax(220px, 1fr) 78px 78px minmax(140px, 230px);
 }
 
+/* 显式占位：行内缺少状态单元时（如轮次行），耗时和耗时条仍落在固定列，不左移错位。 */
+.trace-status { grid-column: 5; }
+.trace-row.has-duration .trace-duration { grid-column: 6; }
+.trace-row.has-duration .trace-bar { grid-column: 7; }
+
 .trace-row:hover,
 .trace-row.selected {
   background: color-mix(in srgb, var(--blue-soft) 60%, transparent);

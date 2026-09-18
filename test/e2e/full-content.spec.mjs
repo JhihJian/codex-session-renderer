@@ -249,11 +249,14 @@ test("缺失窗口或轮次指标时不保留未记录占位", async ({ page }) 
   await expect(page.locator(".trace-tree")).not.toContainText("未记录");
 });
 
-test("Pi 执行过程区分等待输入、完成工具与缺失时长", async ({ page }) => {
+test("Pi 执行过程轮次展示执行耗时，工具保留状态", async ({ page }) => {
   await page.goto("/");
   await page.locator("#traceViewButton").click();
   await page.locator("[data-trace-toggle-id]").nth(1).click();
-  await expect(page.locator('.trace-row', { hasText: "等待输入" }).first()).toBeVisible();
+  const turnRow = page.locator('.trace-row[data-trace-node-id^="turn:"]').first();
+  await expect(turnRow.locator(".trace-duration")).toBeVisible();
+  await expect(turnRow).not.toContainText("等待输入");
+  await expect(turnRow).not.toContainText("执行中");
   const tool = page.locator('.trace-row[data-trace-node-id]', { hasText: "bash" }).first();
   await expect(tool).toContainText("执行成功");
   await expect(page.locator(".trace-tree")).not.toContainText("未记录");

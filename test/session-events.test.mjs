@@ -133,6 +133,72 @@ test("buildTrace localizes thread, turn, and execution fallback labels", () => {
   );
 });
 
+test("buildTrace estimates open turn duration from last item activity", () => {
+  const trace = buildTrace(
+    { id: "thread-1", title: "" },
+    [],
+    [],
+    [
+      {
+        id: "turn-1",
+        startedAt: "2026-07-08T10:00:00.000Z",
+        completedAt: null,
+        status: "running",
+        items: [
+          {
+            id: "call-1",
+            type: "tool-call",
+            name: "bash",
+            status: "completed",
+            timestamp: "2026-07-08T10:00:01.000Z",
+            completedAt: "2026-07-08T10:00:03.000Z",
+          },
+          {
+            id: "msg-1",
+            type: "assistant-message",
+            timestamp: "2026-07-08T10:00:07.000Z",
+          },
+        ],
+      },
+    ],
+    { children: [], siblings: [] },
+  );
+
+  const turn = trace.root.children[0];
+  assert.equal(turn.completedAt, "2026-07-08T10:00:07.000Z");
+  assert.equal(turn.durationMs, 7_000);
+  assert.equal(turn.durationEstimated, true);
+});
+
+test("buildTrace keeps observed turn duration when turn completion exists", () => {
+  const trace = buildTrace(
+    { id: "thread-1", title: "" },
+    [],
+    [],
+    [
+      {
+        id: "turn-1",
+        startedAt: "2026-07-08T10:00:00.000Z",
+        completedAt: "2026-07-08T10:00:05.000Z",
+        status: "completed",
+        items: [
+          {
+            id: "msg-1",
+            type: "assistant-message",
+            timestamp: "2026-07-08T10:00:07.000Z",
+          },
+        ],
+      },
+    ],
+    { children: [], siblings: [] },
+  );
+
+  const turn = trace.root.children[0];
+  assert.equal(turn.completedAt, "2026-07-08T10:00:05.000Z");
+  assert.equal(turn.durationMs, 5_000);
+  assert.equal(turn.durationEstimated, false);
+});
+
 test("measured response intervals attribute token_count usage to the response that generated it", () => {
   const events = [
     { type: "event_msg", timestamp: "2026-09-09T03:00:05.000Z", payload: { type: "user_message", message: "开始" } },
