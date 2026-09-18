@@ -223,6 +223,10 @@ const els = {
   addSummaryRuleButton: document.getElementById("addSummaryRuleButton"),
   resetSummaryRulesButton: document.getElementById("resetSummaryRulesButton"),
 
+  modelWindowList: document.getElementById("modelWindowList"),
+  addModelWindowButton: document.getElementById("addModelWindowButton"),
+  resetModelWindowsButton: document.getElementById("resetModelWindowsButton"),
+
   saveSettingsButton: document.getElementById("saveSettingsButton"),
   cancelSettingsButton: document.getElementById("cancelSettingsButton"),
   settingsStatus: document.getElementById("settingsStatus"),
@@ -261,6 +265,7 @@ const rawItemTypeOptions = standardItemTypeOptions.map(([value, label]) => [valu
 const settingsViewOptions = [
   { id: "summary", label: "摘要规则" },
   { id: "structured", label: "结构化展示" },
+  { id: "model-windows", label: "模型窗口" },
 ];
 const settingsViewIds = new Set(settingsViewOptions.map((view) => view.id));
 

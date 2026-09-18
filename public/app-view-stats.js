@@ -171,9 +171,46 @@ function latestContextWindow(detail) {
   return 0;
 }
 
+const modelWindowStorageKey = "codex-session-renderer:model-context-windows";
+
+function normalizeModelWindowEntries(entries) {
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .map((entry) => ({ match: String(entry?.match ?? "").trim(), tokens: Number(entry?.tokens), enabled: entry?.enabled !== false }))
+    .filter((entry) => entry.match && Number.isInteger(entry.tokens) && entry.tokens > 0);
+}
+
+function loadModelContextWindows(storage) {
+  const target = storage ?? globalThis.localStorage;
+  if (!target) return [];
+  try {
+    return normalizeModelWindowEntries(JSON.parse(target.getItem(modelWindowStorageKey) || "[]"));
+  } catch {
+    return [];
+  }
+}
+
+function saveModelContextWindows(entries, storage) {
+  const target = storage ?? globalThis.localStorage;
+  const normalized = normalizeModelWindowEntries(entries);
+  if (target) target.setItem(modelWindowStorageKey, JSON.stringify(normalized));
+  return normalized;
+}
+
+function resolveConfiguredContextWindow(model, entries) {
+  const name = String(model || "").toLowerCase();
+  if (!name) return 0;
+  const active = (entries ?? loadModelContextWindows()).filter((entry) => entry.enabled !== false);
+  const matched = active.find((entry) => name.includes(entry.match.toLowerCase()));
+  return matched ? matched.tokens : 0;
+}
+
 function buildContextCapacityStats(detail) {
   const items = (detail?.turns || []).flatMap((turn) => turn.items || []);
-  const contextWindow = latestContextWindow(detail);
+  const recordedWindow = latestContextWindow(detail);
+  const configuredWindow = recordedWindow ? 0 : resolveConfiguredContextWindow(detail?.session?.model);
+  const contextWindow = recordedWindow || configuredWindow;
+  const windowSource = recordedWindow ? "recorded" : configuredWindow ? "configured" : "none";
   let maxUsedTokens = 0;
   let maxOutputTokens = 0;
   let compactCount = 0;
@@ -183,7 +220,7 @@ function buildContextCapacityStats(detail) {
     if (usage.output > maxOutputTokens) maxOutputTokens = usage.output;
     if (item.type === "context-compact") compactCount += 1;
   }
-  return { contextWindow, maxUsedTokens, maxOutputTokens, compactCount };
+  return { contextWindow, windowSource, maxUsedTokens, maxOutputTokens, compactCount };
 }
 
 function contextUsageFromItem(item) {
@@ -317,5 +354,5 @@ function utf8ByteLength(value) {
   return new TextEncoder().encode(String(value || "")).length;
 }
 
-  Object.assign(api, { renderHandoffFact, openHandoffFact, buildEventTypeStats, addToolOutputOperationStats, addToolOutputOperationStat, toolOutputEventForItem, createToolOutputOperation, buildToolContextStats, addToolContextItem, addToolContextRawEventIndex, toolContextQueryMatches, createToolContextGroup, latestContextWindow, buildContextCapacityStats, contextUsageFromItem, contextUsageFromTokenCount, tokenCountUsageValue, contextUsageFromAssistant, positiveTokenNumber, ratioPercent, formatContextRatio, toolContextComparator, eventTypeKey, eventTypeLabel, estimateEventTokens, estimateEventBytes, numericEventTokenValue, approxTokensFromValue, utf8ByteLength });
+  Object.assign(api, { renderHandoffFact, openHandoffFact, buildEventTypeStats, addToolOutputOperationStats, addToolOutputOperationStat, toolOutputEventForItem, createToolOutputOperation, buildToolContextStats, addToolContextItem, addToolContextRawEventIndex, toolContextQueryMatches, createToolContextGroup, latestContextWindow, buildContextCapacityStats, contextUsageFromItem, contextUsageFromTokenCount, tokenCountUsageValue, contextUsageFromAssistant, positiveTokenNumber, ratioPercent, formatContextRatio, toolContextComparator, eventTypeKey, eventTypeLabel, estimateEventTokens, estimateEventBytes, numericEventTokenValue, approxTokensFromValue, utf8ByteLength, normalizeModelWindowEntries, loadModelContextWindows, saveModelContextWindows, resolveConfiguredContextWindow, modelWindowStorageKey });
 }

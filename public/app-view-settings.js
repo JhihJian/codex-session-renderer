@@ -12,6 +12,7 @@ function openSettingsDialog() {
   state.settingsDialogOpener = opener && opener !== document.body ? opener : els.settingsButton;
   clearSettingsValidationState();
   state.summaryRules = window.ToolSummary?.loadCustomRules?.() || [];
+  state.modelWindows = api.loadModelContextWindows?.() || [];
   normalizeSettingsView();
   state.settingsInitialSnapshot = settingsSnapshot();
   renderSettingsDialog();
@@ -72,7 +73,7 @@ function renderSettingsDialog() {
 }
 
 function settingsSnapshot() {
-  return JSON.stringify({ summaryRules: state.summaryRules || [] });
+  return JSON.stringify({ summaryRules: state.summaryRules || [], modelWindows: state.modelWindows || [] });
 }
 
 function settingsDirty() {
@@ -99,8 +100,10 @@ function restoreSettingsInitialSnapshot() {
   try {
     const snapshot = JSON.parse(state.settingsInitialSnapshot);
     state.summaryRules = Array.isArray(snapshot.summaryRules) ? snapshot.summaryRules : [];
+    state.modelWindows = Array.isArray(snapshot.modelWindows) ? snapshot.modelWindows : [];
   } catch {
     state.summaryRules = window.ToolSummary?.loadCustomRules?.() || [];
+    state.modelWindows = api.loadModelContextWindows?.() || [];
   }
 }
 
@@ -130,7 +133,8 @@ function syncSettingsDirtyState() {
     els.settingsStatus.removeAttribute("aria-live");
     const currentView = settingsViewOptions.find((view) => view.id === state.settingsView);
     const dirtyLabel = dirty ? "有未保存更改" : "没有未保存更改";
-    els.settingsStatus.textContent = `${dirtyLabel} · ${currentView?.label || "展示规则"} · 摘要自定义 ${state.summaryRules.length} 条；配置保存在当前浏览器本地。`;
+    const modelWindowCount = (state.modelWindows || []).filter((entry) => entry.enabled !== false).length;
+    els.settingsStatus.textContent = `${dirtyLabel} · ${currentView?.label || "展示规则"} · 摘要自定义 ${state.summaryRules.length} 条，模型窗口 ${modelWindowCount} 条；配置保存在当前浏览器本地。`;
   }
 }
 
@@ -167,6 +171,12 @@ function settingsOverviewItems() {
       value: "3",
       detail: "Git、搜索、测试检查结构化视图",
     },
+    {
+      id: "model-windows",
+      label: "模型窗口",
+      value: `${(state.modelWindows || []).filter((entry) => entry.enabled !== false).length}`,
+      detail: `${state.modelWindows.length} 条自定义 · 未记录窗口时兜底`,
+    },
   ];
 }
 
@@ -190,7 +200,9 @@ function renderActiveSettingsPanel() {
   if (state.settingsView === "summary") {
     renderSummaryRuleList();
     renderDefaultSummaryRuleList();
-
+  }
+  if (state.settingsView === "model-windows") {
+    renderModelWindowList();
   }
 }
 
@@ -234,8 +246,17 @@ function renderSettingsFieldError(view, index, field) {
 function validateSettingsRulesForSave() {
   return [
     ...(window.ToolSummary?.validateRulesForSave?.(state.summaryRules) || []).map((error) => ({ ...error, view: "summary" })),
-
+    ...validateModelWindows(state.modelWindows),
   ];
+}
+
+function validateModelWindows(entries) {
+  return (entries || []).reduce((errors, entry, index) => {
+    if (!String(entry?.match ?? "").trim()) errors.push({ view: "model-windows", index, field: "match", message: "请填写模型匹配名。" });
+    const tokens = Number(entry?.tokens);
+    if (!Number.isInteger(tokens) || tokens <= 0) errors.push({ view: "model-windows", index, field: "tokens", message: "请填写正整数 token 数。" });
+    return errors;
+  }, []);
 }
 
 function settingsValidationMessage(errors) {
@@ -256,7 +277,7 @@ function settingsInputForError(error) {
   if (!error) return null;
   const selectors = {
     summary: `[data-rule-field="${error.field}"][data-rule-index="${error.index}"]`,
-
+    "model-windows": `[data-model-window-field="${error.field}"][data-rule-index="${error.index}"]`,
   };
   const selector = selectors[error.view];
   return selector ? els.settingsForm?.querySelector(selector) : null;
@@ -348,6 +369,63 @@ function updateSummaryRuleFromInput(input) {
   syncSettingsDirtyState();
 }
 
+function renderModelWindowList() {
+  if (!els.modelWindowList) return;
+  if (!state.modelWindows.length) {
+    els.modelWindowList.innerHTML = `<div class="rule-empty">暂无模型窗口配置。会话未记录窗口时，诊断页无法计算占比；新增配置后按模型名匹配。</div>`;
+    return;
+  }
+  els.modelWindowList.innerHTML = state.modelWindows.map((entry, index) => renderModelWindowEditor(entry, index)).join("");
+  els.modelWindowList.querySelectorAll("[data-model-window-field]").forEach((input) => {
+    input.addEventListener("input", () => updateModelWindowFromInput(input));
+    input.addEventListener("change", () => updateModelWindowFromInput(input));
+  });
+  els.modelWindowList.querySelectorAll("[data-delete-model-window]").forEach((button) => {
+    button.addEventListener("click", () => {
+      clearSettingsValidationState();
+      state.modelWindows.splice(Number(button.dataset.deleteModelWindow), 1);
+      renderSettingsDialog();
+    });
+  });
+}
+
+function renderModelWindowEditor(entry, index) {
+  const enabled = entry.enabled !== false;
+  return `
+    <article class="summary-rule-card">
+      <div class="summary-rule-head">
+        <label class="toggle-control">
+          <input type="checkbox" ${enabled ? "checked" : ""} data-model-window-field="enabled" data-rule-index="${escapeAttr(String(index))}" />
+          <span>启用</span>
+        </label>
+        <button class="ghost-button small danger" type="button" data-delete-model-window="${escapeAttr(String(index))}">删除</button>
+      </div>
+      <div class="summary-rule-grid">
+        <label>
+          <span class="field-label">模型匹配</span>
+          <input class="text-input" type="text" value="${escapeAttr(entry.match || "")}" data-model-window-field="match" data-rule-index="${escapeAttr(String(index))}" placeholder="gpt-5" ${settingsFieldAttrs("model-windows", index, "match")} />
+          ${renderSettingsFieldError("model-windows", index, "match")}
+        </label>
+        <label>
+          <span class="field-label">上下文窗口（token）</span>
+          <input class="text-input" type="text" inputmode="numeric" value="${escapeAttr(String(entry.tokens ?? ""))}" data-model-window-field="tokens" data-rule-index="${escapeAttr(String(index))}" placeholder="400000" ${settingsFieldAttrs("model-windows", index, "tokens")} />
+          ${renderSettingsFieldError("model-windows", index, "tokens")}
+        </label>
+      </div>
+    </article>
+  `;
+}
+
+function updateModelWindowFromInput(input) {
+  clearSettingsValidationFeedback();
+  const index = Number(input.dataset.ruleIndex);
+  const field = input.dataset.modelWindowField;
+  const entry = state.modelWindows[index];
+  if (!entry || !field) return;
+  entry[field] = field === "enabled" ? input.checked : input.value;
+  syncSettingsDirtyState();
+}
+
 async function saveSettingsFromForm(event) {
   event.preventDefault();
   if (!settingsDirty()) {
@@ -365,8 +443,10 @@ async function saveSettingsFromForm(event) {
   }
   clearSettingsValidationState();
   let normalized;
+  let normalizedModelWindows;
   try {
     normalized = window.ToolSummary?.saveCustomRules?.(state.summaryRules) || [];
+    normalizedModelWindows = api.saveModelContextWindows?.(state.modelWindows) || [];
   } catch (error) {
     const message = `保存展示规则失败：${errorTextFromError(error)}`;
     state.settingsFeedbackMessage = message;
@@ -377,6 +457,7 @@ async function saveSettingsFromForm(event) {
   }
 
   state.summaryRules = normalized;
+  state.modelWindows = normalizedModelWindows;
   state.settingsInitialSnapshot = settingsSnapshot();
   renderSettingsDialog();
   try {
@@ -409,5 +490,14 @@ function newSummaryRule() {
   };
 }
 
-  Object.assign(api, { openSettingsDialog, requestCloseSettingsDialog, closeSettingsDialogAndRestoreFocus, restoreSettingsDialogFocus, selectSettingsViewFromEvent, selectSettingsView, normalizeSettingsView, renderSettingsDialog, settingsSnapshot, settingsDirty, stableSettingsJson, stableSettingsValue, restoreSettingsInitialSnapshot, syncSettingsDirtyState, renderSettingsOverview, settingsOverviewItems, renderSettingsTabs, syncSettingsPanelVisibility, renderActiveSettingsPanel, clearSettingsValidationState, clearSettingsValidationFeedback, settingsFieldError, settingsFieldErrorId, settingsFieldAttrs, renderSettingsFieldError, validateSettingsRulesForSave, settingsValidationMessage, focusSettingsValidationError, settingsInputForError, renderSummaryRuleList, renderSummaryRuleEditor, renderDefaultSummaryRuleList, updateSummaryRuleFromInput, saveSettingsFromForm, newSummaryRule });
+function newModelWindowEntry() {
+  return {
+    id: `model-window-${Date.now()}`,
+    match: "",
+    tokens: "",
+    enabled: true,
+  };
+}
+
+  Object.assign(api, { openSettingsDialog, requestCloseSettingsDialog, closeSettingsDialogAndRestoreFocus, restoreSettingsDialogFocus, selectSettingsViewFromEvent, selectSettingsView, normalizeSettingsView, renderSettingsDialog, settingsSnapshot, settingsDirty, stableSettingsJson, stableSettingsValue, restoreSettingsInitialSnapshot, syncSettingsDirtyState, renderSettingsOverview, settingsOverviewItems, renderSettingsTabs, syncSettingsPanelVisibility, renderActiveSettingsPanel, clearSettingsValidationState, clearSettingsValidationFeedback, settingsFieldError, settingsFieldErrorId, settingsFieldAttrs, renderSettingsFieldError, validateSettingsRulesForSave, validateModelWindows, settingsValidationMessage, focusSettingsValidationError, settingsInputForError, renderSummaryRuleList, renderSummaryRuleEditor, renderDefaultSummaryRuleList, updateSummaryRuleFromInput, renderModelWindowList, renderModelWindowEditor, updateModelWindowFromInput, saveSettingsFromForm, newSummaryRule, newModelWindowEntry });
 }

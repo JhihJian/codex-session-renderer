@@ -229,7 +229,7 @@ test("事件统计在工具输出下按摘要规则汇总操作", async ({ page 
 test("缺失窗口或轮次指标时不保留未记录占位", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#compactContent")).not.toContainText("轮末上下文");
-  await expect(page.locator("#compactContent")).not.toContainText("生成 Token");
+  await expect(page.locator("#compactContent")).toContainText("生成 Token");
   await expect(page.locator("#compactContent")).not.toContainText("未记录");
 
   await page.locator("#diagnosticViewButton").click();
@@ -258,4 +258,29 @@ test("Pi 执行过程区分等待输入、完成工具与缺失时长", async ({
   await expect(tool).toContainText("执行成功");
   await expect(page.locator(".trace-tree")).not.toContainText("未记录");
   expect((await page.locator(".trace-duration").allTextContents()).join(" ")).not.toContain("est");
+});
+
+test("模型窗口配置让无窗口会话显示占比", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#diagnosticViewButton").click();
+  const capacityMetrics = page.locator(".context-diagnostic-section .stats-view-metrics[aria-label='上下文容量概览']");
+  await expect(capacityMetrics).not.toContainText("模型上下文窗口");
+  await expect(capacityMetrics).toContainText("约 8.2K tok");
+
+  await page.locator(".topbar-more > summary").click();
+  await page.locator("#settingsButton").click();
+  await page.locator('[data-settings-view="model-windows"]').first().click();
+  await page.locator("#addModelWindowButton").click();
+  await page.locator('[data-model-window-field="match"]').fill("gpt-5");
+  await page.locator('[data-model-window-field="tokens"]').fill("400000");
+  await page.locator("#saveSettingsButton").click();
+  await expect(page.locator("#settingsDialog")).not.toBeVisible();
+
+  await expect(capacityMetrics).toContainText("模型上下文窗口");
+  await expect(capacityMetrics).toContainText("400.0K tok");
+  await expect(capacityMetrics).toContainText("按设置中的模型窗口配置");
+  await expect(capacityMetrics).toContainText("最大上下文占用");
+  await expect(capacityMetrics).toContainText("2.05%");
+  await expect(capacityMetrics).toContainText("最大输出上下文");
+  await expect(capacityMetrics).toContainText("0.05%");
 });

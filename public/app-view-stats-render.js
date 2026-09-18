@@ -91,11 +91,12 @@ function renderStatsInfoView() {
 
 function renderContextCapacityMetrics(capacity) {
   const hasWindow = capacity.contextWindow > 0;
+  const windowHint = capacity.windowSource === "configured" ? "按设置中的模型窗口配置" : "最近记录的窗口配置";
   const usedShare = ratioPercent(capacity.maxUsedTokens, capacity.contextWindow);
   const outputShare = ratioPercent(capacity.maxOutputTokens, capacity.contextWindow);
   return [
     hasWindow
-      ? renderStatsMetric("模型上下文窗口", `${compactNumber(capacity.contextWindow)} tok`, "最近记录的窗口配置")
+      ? renderStatsMetric("模型上下文窗口", `${compactNumber(capacity.contextWindow)} tok`, windowHint)
       : "",
     capacity.maxUsedTokens
       ? renderStatsMetric(

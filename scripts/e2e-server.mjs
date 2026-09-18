@@ -54,11 +54,12 @@ await writeFile(
   piSessionPath,
   `${[
     { type: "session", version: 3, id: piSessionId, timestamp: new Date().toISOString(), cwd: "/workspace/pi-agent" },
+    { type: "model_change", id: "pi-model", timestamp: new Date().toISOString(), provider: "local-sub2api", modelId: "gpt-5.6-terra" },
     { type: "session_info", id: "pi-info", timestamp: new Date().toISOString(), name: "Pi 可切换会话" },
     { type: "message", id: "pi-user", timestamp: new Date().toISOString(), message: { role: "user", content: [{ type: "text", text: "Pi 来源可读会话" }] } },
     { type: "message", id: "pi-tool-call", parentId: "pi-user", timestamp: new Date().toISOString(), message: { role: "assistant", content: [{ type: "text", text: "开始检查" }, { type: "toolCall", id: "pi-trace-tool", name: "bash", arguments: { command: "pwd" } }] } },
     { type: "message", id: "pi-tool-result", parentId: "pi-tool-call", timestamp: new Date().toISOString(), message: { role: "toolResult", toolCallId: "pi-trace-tool", toolName: "bash", content: [{ type: "text", text: "/workspace/pi-agent" }] } },
-    { type: "message", id: "pi-final", parentId: "pi-tool-result", timestamp: new Date().toISOString(), message: { role: "assistant", content: [{ type: "text", text: "检查完成，等待下一次输入。" }] } },
+    { type: "message", id: "pi-final", parentId: "pi-tool-result", timestamp: new Date().toISOString(), message: { role: "assistant", content: [{ type: "text", text: "检查完成，等待下一次输入。" }], usage: { input: 8000, output: 200, reasoning: 10, totalTokens: 8210 } } },
     { type: "message", id: "pi-skill", parentId: "pi-final", timestamp: new Date().toISOString(), message: { role: "user", content: [{ type: "text", text: '<skill name="release-check" location="/workspace/pi-agent/.agents/skills/release-check/SKILL.md">执行发布检查。</skill>\n\n检查当前分支。' }] } },
     { type: "message", id: "pi-skill-read", parentId: "pi-skill", timestamp: new Date().toISOString(), message: { role: "assistant", content: [{ type: "toolCall", id: "pi-read-skill", name: "read", arguments: { path: "/workspace/pi-agent/.agents/skills/release-check/SKILL.md" } }] } },
     { type: "message", id: "pi-skill-output", parentId: "pi-skill-read", timestamp: new Date().toISOString(), message: { role: "toolResult", toolCallId: "pi-read-skill", toolName: "read", content: [{ type: "text", text: "# release-check" }], isError: false } },

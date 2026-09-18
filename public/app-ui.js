@@ -78,6 +78,7 @@ function bindEvents() {
     state.settingsView = "summary";
     renderSettingsDialog();
   });
+  bindModelWindowSettingsActions();
 
   els.sessionSearch.addEventListener("input", () => {
     invalidateSessionListRequests();
@@ -261,6 +262,26 @@ function setPanelInteractivity(panel, open) {
   panel.hidden = !open;
   panel.inert = !open;
   panel.setAttribute("aria-hidden", open ? "false" : "true");
+}
+
+function bindModelWindowSettingsActions() {
+  const api = window.SessionWorkbench;
+  const { state, els } = api;
+  const clearSettingsValidationState = (...args) => api.clearSettingsValidationState(...args);
+  const newModelWindowEntry = (...args) => api.newModelWindowEntry(...args);
+  const renderSettingsDialog = (...args) => api.renderSettingsDialog(...args);
+  els.addModelWindowButton?.addEventListener("click", () => {
+    clearSettingsValidationState();
+    state.modelWindows.push(newModelWindowEntry());
+    state.settingsView = "model-windows";
+    renderSettingsDialog();
+  });
+  els.resetModelWindowsButton?.addEventListener("click", () => {
+    clearSettingsValidationState();
+    state.modelWindows = [];
+    state.settingsView = "model-windows";
+    renderSettingsDialog();
+  });
 }
 
 window.SessionWorkbench.init = init;
