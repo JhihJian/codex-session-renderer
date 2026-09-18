@@ -2,12 +2,12 @@
   "version": 4,
   "documentStatus": "active",
   "snapshot": {
-    "commit": "1106dd10bfd9cc1c89cc9f0932fe9032556954c5",
-    "acceptedAt": "2026-09-18T02:33:47.856Z",
+    "commit": "34d4ab58b1edc9cb3d66e0a74f60e5bd45cd86b2",
+    "acceptedAt": "2026-09-18T03:02:23.356Z",
     "files": [
       {
         "path": "README.md",
-        "sha256": "sha256:08000c89d78f7ae5afef9b1bcd1c5154c22de1438810fbf6e448c70d37a067f2"
+        "sha256": "sha256:f00edaf50395c2c21a010b494a5df408fc48341af2fdcf6942b7f9c13f470cdb"
       },
       {
         "path": "docs/architecture/README.md",
@@ -15,7 +15,7 @@
       },
       {
         "path": "docs/architecture/implementation.md",
-        "sha256": "sha256:6d15871e81bbe2734d99f91fe2fe9d598d8877ff09c95e69a3da50b89024576d"
+        "sha256": "sha256:59a2db433e39e2822dadc521da9721198c116d556c3b3d47cb76e571acaf1fa3"
       },
       {
         "path": "docs/architecture/modules/session-projection.md",
@@ -239,7 +239,7 @@
       },
       {
         "path": "src/data-sources.mjs",
-        "sha256": "sha256:06908de5df136e749c206007800d68d5eeca81b8645cb5ceda902e4c697329a1"
+        "sha256": "sha256:f5781f511cf35cca5446b13d34c2ad7f1a16d2aa143f71342e76394717deba0c"
       },
       {
         "path": "src/event-summary.mjs",
@@ -279,7 +279,7 @@
       },
       {
         "path": "src/session-directory-query-service.mjs",
-        "sha256": "sha256:09ef71f2c4e9b37ae0d3d1ad1ccbc54b539a0cfc7650223a5fe8eb27b14a8067"
+        "sha256": "sha256:7e4f6a63328f96d89e5f069ad9337d82f6c9c23636e91c82af67c3e7d4a70f44"
       },
       {
         "path": "src/session-event-projection.mjs",
@@ -323,7 +323,7 @@
       },
       {
         "path": "src/session-source-context-service.mjs",
-        "sha256": "sha256:65894f5fb1c362a0691029ff738d7dc2cd33a1bb84776e86c835103ec46665b0"
+        "sha256": "sha256:a88c2849e56a037e275537390759bd97366171b966e89aa5000ead6f353992c7"
       },
       {
         "path": "src/session-timing.mjs",
@@ -383,7 +383,7 @@
       },
       {
         "path": "test/pi-task-sources.test.mjs",
-        "sha256": "sha256:ff697bd8ce9e0301a00faa8d85986078cb64893c0d6aa1c5d41e057072152493"
+        "sha256": "sha256:e79d7a0422e6d9bd777c258b5acff680df80f3a71b103eca391d05b5374ae315"
       },
       {
         "path": "test/raw-event-cache.test.mjs",
