@@ -189,7 +189,8 @@ function renderStatusbar() {
   els.statusSession.textContent = state.sessionLoading ? "正在读取：" + selectedSessionDisplayTitle() : state.sessionLoadError ? "读取失败：" + selectedSessionDisplayTitle() : filteredOut ? "当前会话已被筛选隐藏" : session ? "当前：" + selectedSessionDisplayTitle() : "未选择会话";
   els.statusEvents.textContent = String(state.filteredSessions.length || 0) + "/" + String(state.sessions.length || 0) + " 个会话";
   const updated = session?.updatedAt || session?.fileModifiedAt || session?.startedAt;
-  els.statusUpdated.textContent = filteredOut ? "清除搜索或筛选后重新对齐" : stats ? String(stats.eventCount || 0) + " 个事件 · " + String(stats.turnCount || 0) + " 轮次 · " + (formatDate(updated) || "未知时间") : "只读浏览";
+  const live = state.live?.enabled ? `实时：${api.liveConnectionLabel(state.live.connection)} · ${api.liveSessionLabel(state.live.sessionStatus)}` : "";
+  els.statusUpdated.textContent = filteredOut ? "清除搜索或筛选后重新对齐" : live || (stats ? String(stats.eventCount || 0) + " 个事件 · " + String(stats.turnCount || 0) + " 轮次 · " + (formatDate(updated) || "未知时间") : "只读浏览");
 }
 
 function syncStatusbarDataStatus(source = selectedSource()) {

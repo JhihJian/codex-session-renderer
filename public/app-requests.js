@@ -356,6 +356,7 @@ function setAriaBusy(element, busy) {
 }
 
 async function selectSession(id, { announce = true, focusMobilePanel = true, immediateMobilePanel = false } = {}) {
+  api.stopLiveSession?.({ keepEnabled: true });
   sessionAbortController?.abort();
   cancelRawDiagnosticRequest({ clear: true });
   cancelRawEventRequest();
@@ -402,6 +403,7 @@ async function selectSession(id, { announce = true, focusMobilePanel = true, imm
     primeTraceExpansion(detail);
     setWorkbenchStatus(operationKey, `会话已加载：${selectedSessionDisplayTitle()}`, { announce });
     renderAll();
+    if (state.live.enabled) api.startLiveSession?.();
     if (focusMobilePanel && state.mobilePanelNavigationVersion === mobilePanelNavigationVersion) setMobilePanel("thread");
   } catch (error) {
     if (state.sessionRequestKey !== requestKey || state.selectedSourceId !== sourceId) return;
@@ -444,6 +446,7 @@ async function reloadSelectedSessionDetail() {
 }
 
 function clearSelectedSession() {
+  api.stopLiveSession?.();
   sessionAbortController?.abort();
   cancelRawDiagnosticRequest({ clear: true });
   cancelRawEventRequest();

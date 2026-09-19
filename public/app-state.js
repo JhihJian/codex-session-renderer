@@ -57,6 +57,19 @@ const state = {
   sessionTimeFilter: "realtime",
   visibleEvents: 40,
   visibleThreadItems: 140,
+  live: {
+    enabled: false,
+    connection: "stopped",
+    sessionStatus: "unknown",
+    generation: "",
+    nextSequence: 0,
+    events: [],
+    following: true,
+    unseenCount: 0,
+    sourceKey: "",
+    eventSource: null,
+    lastObservedAt: "",
+  },
 
   summaryRules: [],
   settingsView: "summary",
@@ -209,6 +222,8 @@ const els = {
   toast: document.getElementById("toast"),
 
   refreshButton: document.getElementById("refreshButton"),
+  liveModeToggle: document.getElementById("liveModeToggle"),
+  liveStatus: document.getElementById("liveStatus"),
   sourceSelect: document.getElementById("sourceSelect"),
   sourceStatus: document.getElementById("sourceStatus"),
   settingsButton: document.getElementById("settingsButton"),

@@ -98,6 +98,7 @@ function renderThread() {
 function renderCompact() {
   compactTimelineObserver?.disconnect();
   compactTimelineObserver = null;
+  if (state.live?.enabled) return renderLiveCompact();
   const compact = state.detail?.compact || buildCompactFallback(state.detail);
   if (!compact) {
     els.compactContent.innerHTML = emptyState("选择一个会话", "左侧列表展示本机 Codex 会话。");
@@ -192,6 +193,10 @@ function renderCompact() {
       scrollToCompactTarget(row.dataset.compactNavTarget);
     });
   });
+}
+
+function renderLiveCompact() {
+  api.renderLiveTranscript();
 }
 
 function renderCompactTimeline(node) {
@@ -408,5 +413,5 @@ function compactEventFallback(item) {
   };
 }
 
-  Object.assign(api, { renderMainContent, renderThread, renderCompact, renderCompactTimeline, compactTimelineEntries, compactTimelineEntry, compactTurnDuration, aggregateCompactTimelineEntries, withCompactTimelineWeights, renderCompactTimelineEntry, bindCompactTimeline, handleCompactTimelineKeydown, observeCompactTimelineTargets, setCompactTimelineReadingTarget, buildCompactFallback, compactTurnFallback, compactMessageFallback, compactEventFallback });
+  Object.assign(api, { renderMainContent, renderThread, renderCompact, renderLiveCompact, renderCompactTimeline, compactTimelineEntries, compactTimelineEntry, compactTurnDuration, aggregateCompactTimelineEntries, withCompactTimelineWeights, renderCompactTimelineEntry, bindCompactTimeline, handleCompactTimelineKeydown, observeCompactTimelineTargets, setCompactTimelineReadingTarget, buildCompactFallback, compactTurnFallback, compactMessageFallback, compactEventFallback });
 }

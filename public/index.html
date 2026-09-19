@@ -99,6 +99,11 @@
           </div>
 
           <div class="workspace-controls">
+            <label class="live-mode-control" for="liveModeToggle" title="持续接收当前会话已写入的内容和状态">
+              <input id="liveModeToggle" type="checkbox" />
+              <span>实时模式</span>
+            </label>
+            <span class="live-status" id="liveStatus" role="status" aria-live="polite" data-state="stopped">未开启</span>
             <div class="view-switch" role="tablist" aria-label="会话视图">
               <button class="view-tab active" id="compactViewButton" type="button" role="tab" aria-selected="true" aria-controls="compactContent" data-view-mode="compact">正文</button>
               <button class="view-tab" id="traceViewButton" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="executionWorkspace" data-view-mode="trace">执行</button>
@@ -245,6 +250,7 @@
     <script src="./app-requests.js" defer></script>
     <script src="./app-requests-response.js" defer></script>
     <script src="./app-requests-raw.js" defer></script>
+    <script src="./app-live.js" defer></script>
     <script src="./app-view-shared.js" defer></script>
     <script src="./app-view-settings.js" defer></script>
     <script src="./app-view-sessions.js" defer></script>

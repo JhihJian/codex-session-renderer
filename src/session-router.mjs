@@ -15,9 +15,11 @@ const API_HANDLERS = [
   handleSourcesRequest,
   handleSessionListRequest,
   handleSourceSessionListRequest,
+  handleSourceSessionLiveRequest,
   handleSourceEventRequest,
   handleSourceSessionRequest,
   handleSessionQueryRequest,
+  handleSessionLiveRequest,
   handleSessionViewQueryRequest,
   handleSessionEventsQueryRequest,
   handleSourceSessionQueryRequest,
@@ -191,12 +193,32 @@ async function handleSourceSessionRequest({ pathname, res, service, signal }) {
   return true;
 }
 
+async function handleSourceSessionLiveRequest({ pathname, res, service, signal }) {
+  const match = pathname.match(/^\/api\/sources\/([^/]+)\/query\/sessions\/([^/]+)\/live$/);
+  if (!match) return false;
+  const context = resolveSourceOrRespond(res, service.getSourceContext(decodeURIComponent(match[1])));
+  if (!context) return true;
+  const streamed = await service.streamSessionLive(context, decodeURIComponent(match[2]), res, { signal });
+  if (!streamed) sendError(res, 404, "Session not found");
+  return true;
+}
+
 async function handleSessionQueryRequest({ pathname, res, service, url }) {
   if (pathname !== "/api/query/sessions") return false;
   const context = resolveSourceOrRespond(res, resolveRequestSource(service, url));
   if (!context) return true;
   const result = await service.querySessions(context, url.searchParams, queryProjectionOptions(context, url));
   sendJson(res, 200, result);
+  return true;
+}
+
+async function handleSessionLiveRequest({ pathname, res, service, signal, url }) {
+  const match = pathname.match(/^\/api\/query\/sessions\/([^/]+)\/live$/);
+  if (!match) return false;
+  const context = resolveSourceOrRespond(res, resolveRequestSource(service, url));
+  if (!context) return true;
+  const streamed = await service.streamSessionLive(context, decodeURIComponent(match[1]), res, { signal });
+  if (!streamed) sendError(res, 404, "Session not found");
   return true;
 }
 
