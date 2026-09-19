@@ -2,24 +2,24 @@
   "version": 4,
   "documentStatus": "active",
   "snapshot": {
-    "commit": "4e8d6c50816900f731a9758d63281fc5f8f52ce7",
-    "acceptedAt": "2026-09-18T05:35:53.891Z",
+    "commit": "2f46e093d197694a8786aa89ba8ac9b2b5c151cf",
+    "acceptedAt": "2026-09-19T17:41:06.238Z",
     "files": [
       {
         "path": "README.md",
-        "sha256": "sha256:af6a25c0b0188a4f5e769a5df5a54cb508ad88ac38bcd450898e4690e0a7f586"
+        "sha256": "sha256:1645559c17719368e272e92eb3043c63c1ed91ae98fc11c97bc20221aed31575"
       },
       {
         "path": "docs/architecture/README.md",
-        "sha256": "sha256:9b13c217eede945831eb002171e926b0359984e1d81058815a3f685159b418df"
+        "sha256": "sha256:3b65443c79cdd94d09b42fc54a0b840d8b0892f1a70fe657b53c05c72a299ac2"
       },
       {
         "path": "docs/architecture/implementation.md",
-        "sha256": "sha256:7115701a57c91de210b13edbb7ca6ca1317448e97e211289b5fca851d8491d5b"
+        "sha256": "sha256:583c57d43e6df3e82b2aaef28e26641800840a6736b67842ffa12418c1d58af0"
       },
       {
         "path": "docs/architecture/modules/session-projection.md",
-        "sha256": "sha256:92fa374ca6d4f2c3243013cd9a21283a5cbf2ccc23ae4fcb0e5af1fce3bcf6cc"
+        "sha256": "sha256:e39ebd5e51ae22481ea924c2c50b00a72354b7515a6566de42eb2e389b8d62a6"
       },
       {
         "path": "docs/reader-context-events-design.md",
@@ -46,6 +46,10 @@
         "sha256": "sha256:e146548e25e1747e035c224252f2b2f2c9bfa960d95ba6f71fca89f7d0da3731"
       },
       {
+        "path": "public/app-live.js",
+        "sha256": "sha256:ce7a6b02d0fa45c5dff4a343cd097e9315b67c471bb24af323898de4f5348669"
+      },
+      {
         "path": "public/app-requests-raw.js",
         "sha256": "sha256:dad46724935db0b0b994f5d2b18ede10f6b57dccc6660b4cd5e0a12f05a0d713"
       },
@@ -55,15 +59,15 @@
       },
       {
         "path": "public/app-requests.js",
-        "sha256": "sha256:8eda079c8c3ee8b53ba8302c31e982d34fec7adeacbcf38e7c98baedfd6244ed"
+        "sha256": "sha256:7afc906bdcbc1dd7cff6d035ffadcb876f3c9baea28107a93c0e2938a1101f52"
       },
       {
         "path": "public/app-state.js",
-        "sha256": "sha256:48fc647b5592ed03b9eca6e4e579dfa45b6101c87218f70e0fb33e793758d157"
+        "sha256": "sha256:a8d5bc35f7f39189543983cc0d27991128a0e74297b3c86d2483ea2ae95fcc39"
       },
       {
         "path": "public/app-ui.js",
-        "sha256": "sha256:1eaa397685c77ed5d692d5d858371302e80400a70edcf7ee96ec91a6bb68d909"
+        "sha256": "sha256:a71b8d5377967f159832af8ed964de497c69e629805b7b399f4f2c337803f4bf"
       },
       {
         "path": "public/app-view-compact-context.js",
@@ -83,7 +87,7 @@
       },
       {
         "path": "public/app-view-compact.js",
-        "sha256": "sha256:fb2f223576e75b6e2c8e1c06980edd113b561a574a452a0313d70477049e23b9"
+        "sha256": "sha256:0a0cddf19eb9f5aec53a870f919b6f06d137261dc0cb7119c610c8e696b88a58"
       },
       {
         "path": "public/app-view-diagnostic.js",
@@ -103,7 +107,7 @@
       },
       {
         "path": "public/app-view-shell.js",
-        "sha256": "sha256:3651bc863abf18a9bc0d40672b30b911da202de5a4f1fd11c4361a4493a4771f"
+        "sha256": "sha256:21107544a3bb95049deaa1553b761749c5bd2378cbbdbc2d37d5bffe7879a15a"
       },
       {
         "path": "public/app-view-stats-render.js",
@@ -139,7 +143,7 @@
       },
       {
         "path": "public/index.html",
-        "sha256": "sha256:3dff68133325fdb4a90d2826b13baf82ec825a03d248152c3f36a133a97b1b3a"
+        "sha256": "sha256:b3454c0b53b0347fcb8b919be1c5315f94ca031ce13bdeb17eb18e12902f9cfa"
       },
       {
         "path": "public/package.json",
@@ -203,7 +207,7 @@
       },
       {
         "path": "public/styles/workspace.css",
-        "sha256": "sha256:29331b83204e7a860bc5cc41725cb57fcf25ab345163599892a1a567d92716af"
+        "sha256": "sha256:ea325731b83aeb2319f0961694876bf828bf2eba261cab3a598d8df8aa5a7f04"
       },
       {
         "path": "public/tool-summary-command-output.js",
@@ -252,6 +256,14 @@
       {
         "path": "src/jsonl-reader.mjs",
         "sha256": "sha256:ae209e6def46e9af7135459689789f960a8b28575c734ef2169905529f984c0e"
+      },
+      {
+        "path": "src/jsonl-tail-reader.mjs",
+        "sha256": "sha256:5ec86b16b90b9d0e89e755d7ad39e4808fc6c98824dad45d0b7a7f34d6f088be"
+      },
+      {
+        "path": "src/live-session-stream.mjs",
+        "sha256": "sha256:00c2c9f74fc9384a905102cc71be0eb7a26287d54e4c09cf3ac2c523ac9c51fc"
       },
       {
         "path": "src/pi-context-events.mjs",
@@ -311,7 +323,7 @@
       },
       {
         "path": "src/session-query-service.mjs",
-        "sha256": "sha256:cab8e7d5cbf4b16c36e44e09b402dcd321c922bbf2018528107fda378519ff60"
+        "sha256": "sha256:91b2f71311825aec2cd970254f4101ba0dcb4d4cdb64e6f95e93c31762914845"
       },
       {
         "path": "src/session-query.mjs",
@@ -319,7 +331,7 @@
       },
       {
         "path": "src/session-router.mjs",
-        "sha256": "sha256:27d702deff71c7378a62ab35bb44c515879ab7d43521c4ee45d2106397cbbc16"
+        "sha256": "sha256:f6fe2d23a4cdade4469362b3eb18e2cd8e9436adbb9a16baa71dbf231b4298a9"
       },
       {
         "path": "src/session-source-context-service.mjs",
@@ -374,12 +386,20 @@
         "sha256": "sha256:be50da1c2633b22ad69930d745b617340139520bbc127f26eac3784d0ce860dd"
       },
       {
+        "path": "test/e2e/live-mode.spec.mjs",
+        "sha256": "sha256:ab13185bcad86b34e1f9d1b92750bcd9999555a736053533a87451c6dcc8dd53"
+      },
+      {
         "path": "test/e2e/source-helpers.mjs",
         "sha256": "sha256:20a856b6c0007b47269dca30019ae5ce3c24cc20b5668ac7ec04840638942c05"
       },
       {
         "path": "test/e2e/title-consistency.spec.mjs",
         "sha256": "sha256:d84ae7b25ed38fa0d5eb5af0e6da8f888f8cbe0f629c75ca4b604923c0a2a4a9"
+      },
+      {
+        "path": "test/live-session-stream.test.mjs",
+        "sha256": "sha256:b6e9cae4433140ab13fa3105091b31829f9fe3796e702a6993a5246dbe2cd1ef"
       },
       {
         "path": "test/pi-context-events.test.mjs",
@@ -395,7 +415,7 @@
       },
       {
         "path": "test/server-access-control.test.mjs",
-        "sha256": "sha256:ad2aff4076f4cdecaff256886d8b21767de8bf0ca25988fae7350037220aef86"
+        "sha256": "sha256:7b8b773272f4b4b690ec2d80dc215ea6ce5ce0a9841b983f0b5e3764d52191b5"
       },
       {
         "path": "test/server-http-smoke-helpers.mjs",
@@ -460,7 +480,7 @@
     {
       "id": "purpose-readable-session-workbench",
       "kind": "purpose",
-      "summary": "将 Codex 和 Pi Agent 会话投影为阅读与诊断工作台，不对会话内容作正确性、安全性、风险或缺陷归因结论。",
+      "summary": "将 Codex 和 Pi Agent 会话投影为静态或实时的阅读与诊断工作台，不对会话内容作正确性、安全性、风险或缺陷归因结论。",
       "moduleId": "workbench",
       "certainty": "confirmed",
       "evidence": [
@@ -563,7 +583,7 @@
     {
       "id": "module-session-projection",
       "kind": "module",
-      "summary": "会话读取与投影模块负责来源隔离的发现、缓存读取、规范化和阅读投影。",
+      "summary": "会话读取与投影模块负责来源隔离的发现、缓存读取、规范化、静态阅读投影和共享实时事件流。",
       "moduleId": "session-projection",
       "certainty": "confirmed",
       "evidence": [
@@ -594,6 +614,14 @@
         {
           "path": "test/session-events.test.mjs",
           "locator": "buildTrace estimates open turn duration from last item activity"
+        },
+        {
+          "path": "src/live-session-stream.mjs",
+          "locator": "export function createLiveSessionStreamService"
+        },
+        {
+          "path": "public/app-live.js",
+          "locator": "function startLiveSession()"
         }
       ],
       "tests": [
@@ -632,6 +660,14 @@
         {
           "path": "test/app-view-trace.test.mjs",
           "locator": "执行树轮次行展示执行耗时而不是状态"
+        },
+        {
+          "path": "test/live-session-stream.test.mjs",
+          "locator": "live stream appends completed records and resets after replacement"
+        },
+        {
+          "path": "test/e2e/live-mode.spec.mjs",
+          "locator": "实时模式展示当前会话的连续消息和可观察状态"
         }
       ],
       "document": {
@@ -727,13 +763,18 @@
         "test/tool-summary.test.mjs",
         "test/app-view-stats-timing.test.mjs",
         "test/app-view-stats-context.test.mjs",
-        "test/app-view-trace.test.mjs"
+        "test/app-view-trace.test.mjs",
+        "public/app-live.js",
+        "src/jsonl-tail-reader.mjs",
+        "src/live-session-stream.mjs",
+        "test/e2e/live-mode.spec.mjs",
+        "test/live-session-stream.test.mjs"
       ]
     },
     {
       "id": "capability-session-discovery-and-view",
       "kind": "capability",
-      "summary": "服务按来源提供 SQLite 优先、JSONL 回退的会话发现，并派生列表、详情、事件、执行过程、时间统计。",
+      "summary": "服务按来源提供 SQLite 优先、JSONL 回退的会话发现，并派生列表、详情、事件、执行过程、时间统计和实时会话流。",
       "moduleId": "session-projection",
       "certainty": "confirmed",
       "evidence": [
@@ -744,6 +785,10 @@
         {
           "path": "src/session-detail-query-service.mjs",
           "locator": "async function getSessionDetail(dependencies, context, id, options = {})"
+        },
+        {
+          "path": "src/live-session-stream.mjs",
+          "locator": "export function createLiveSessionStreamService"
         }
       ],
       "tests": [
@@ -754,6 +799,10 @@
         {
           "path": "test/session-query.test.mjs",
           "locator": "session query filters root sessions by time, text and child state"
+        },
+        {
+          "path": "test/e2e/live-mode.spec.mjs",
+          "locator": "实时模式展示当前会话的连续消息和可观察状态"
         }
       ],
       "document": {
@@ -778,13 +827,15 @@
         "test/e2e/source-helpers.mjs",
         "test/e2e/title-consistency.spec.mjs",
         "scripts/e2e-server.mjs",
-        "test/e2e/fixture-session.mjs"
+        "test/e2e/fixture-session.mjs",
+        "src/live-session-stream.mjs",
+        "test/e2e/live-mode.spec.mjs"
       ]
     },
     {
       "id": "flow-stable-session-detail",
       "kind": "flow",
-      "summary": "详情协调器按读取开始时的文件签名隔离缓存与共享读取；会话在读取期间追加时保留本次结果，下一次请求以新签名重新读取。",
+      "summary": "静态详情协调器按读取开始时的文件签名隔离缓存与共享读取；实时流仅提交完整行，按文件代际隔离追加事件。",
       "moduleId": "session-projection",
       "certainty": "confirmed",
       "evidence": [
@@ -795,12 +846,20 @@
         {
           "path": "src/session-detail-query-service.mjs",
           "locator": "async function getSessionDetail(dependencies, context, id, options = {})"
+        },
+        {
+          "path": "src/jsonl-tail-reader.mjs",
+          "locator": "export async function readCommittedJsonlChunk"
         }
       ],
       "tests": [
         {
           "path": "test/session-detail-coordinator.test.mjs",
           "locator": "详情协调器在读取中变化时保留本次结果，并按读取开始的版本缓存"
+        },
+        {
+          "path": "test/live-session-stream.test.mjs",
+          "locator": "committed JSONL reader keeps an unfinished tail pending"
         }
       ],
       "document": {
@@ -813,7 +872,10 @@
         "src/session-detail-coordinator.mjs",
         "src/jsonl-reader.mjs",
         "test/session-detail-coordinator.test.mjs",
-        "docs/architecture/modules/session-projection.md"
+        "docs/architecture/modules/session-projection.md",
+        "src/jsonl-tail-reader.mjs",
+        "src/live-session-stream.mjs",
+        "test/live-session-stream.test.mjs"
       ]
     }
   ],
