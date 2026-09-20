@@ -136,15 +136,15 @@
 .trace-token-bar b { display: flex; height: 100%; min-width: 0; }
 .trace-token-legend { display: flex; flex-wrap: wrap; grid-column: 2; gap: 2px 8px; min-width: 0; }
 .trace-token-legend small { color: var(--text-3); font-family: var(--mono); font-size: 9px; white-space: nowrap; }
-.trace-token-legend small.input { color: var(--blue); }
-.trace-token-legend small.output { color: var(--teal); }
+.trace-token-legend small.input { color: #2563eb; }
+.trace-token-legend small.output { color: #16a34a; }
 .trace-token-legend small.reasoning { color: var(--purple); }
 .trace-token-legend small.cache-read { color: var(--orange); }
 .trace-token-legend small.cache-write { color: var(--red); }
 .trace-token-legend small.context-total { color: var(--green); }
 .trace-token-segment { display: block; height: 100%; }
-.trace-token-segment.input { background: var(--blue); }
-.trace-token-segment.output { background: var(--teal); }
+.trace-token-segment.input { background: #2563eb; }
+.trace-token-segment.output { background: #16a34a; }
 .trace-token-segment.reasoning { background: var(--purple); }
 .trace-token-segment.cache-read { background: var(--orange); }
 .trace-token-segment.cache-write { background: var(--red); }
