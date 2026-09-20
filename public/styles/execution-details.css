@@ -103,6 +103,20 @@
   overflow-wrap: anywhere;
 }
 
+.trace-response-output > div {
+  max-height: 48vh;
+  overflow: auto;
+  border: 1px solid var(--hair);
+  border-radius: var(--radius-tool);
+  background: var(--bg-sunken);
+  padding: 10px;
+}
+
+.trace-response-output > div > :first-child { margin-top: 0; }
+.trace-response-output > div > :last-child { margin-bottom: 0; }
+
+.trace-response-actions { margin-top: 10px; }
+
 .trace-main { grid-template-rows: auto auto auto; }
 
 .trace-arguments {

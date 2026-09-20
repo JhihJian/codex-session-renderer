@@ -1,4 +1,4 @@
-import { contextUsageForAssistantMessage, contextUsageFromTokenInfo, durationMs, toMs } from "./session-projection-shared.mjs";
+import { assistantMessageRef, contextUsageForAssistantMessage, contextUsageFromTokenInfo, durationMs, messageRefWithin, toMs } from "./session-projection-shared.mjs";
 import { deriveSessionStatusFromTurns } from "./session-turn-projection.mjs";
 import {
   compactTraceSession,
@@ -12,29 +12,44 @@ import {
   traceNodeFromChildThread,
   traceNodeFromItem,
 } from "./session-trace-node-projection.mjs";
-
 // eslint-disable-next-line max-params -- trace projection consumes the raw, normalized, turn, hierarchy, and source metadata layers together.
 function buildTrace(session, rawEvents, normalizedEvents, turns, hierarchy, options = {}) {
   const responseIntervals = buildInferredResponseIntervals(turns, session, options);
   const responsesByTurnIndex = groupResponsesByTurnIndex(responseIntervals);
+  const traceContext = buildTraceContext(session, normalizedEvents, turns, hierarchy);
+  const root = createTraceRoot(session, hierarchy, turns, traceContext.timing);
+  appendTraceTurns(root, turns, hierarchy, traceContext, responsesByTurnIndex);
+  appendUnplacedChildTraces(root, hierarchy, traceContext);
+  applyExecutionContextMetrics(root);
+  applyTurnModelUsage(root);
+
+  return { root, hierarchy, timing: { ...traceContext.timing, durationMs: root.durationMs, estimated: true, responses: responseIntervals, inputWaits: buildInputWaitIntervals(turns) } };
+}
+
+function buildTraceContext(session, normalizedEvents, turns, hierarchy) {
   const rootStartedAt = turns[0]?.startedAt || session.startedAt || normalizedEvents[0]?.timestamp || null;
   const eventEndCandidates = [turns.at(-1)?.completedAt, normalizedEvents.at(-1)?.timestamp]
     .filter(Boolean)
     .sort((left, right) => (toMs(left) ?? 0) - (toMs(right) ?? 0));
   const rootEndedAt = eventEndCandidates.at(-1) || session.updatedAt || session.fileModifiedAt || null;
   const childById = new Map(hierarchy.children.map((child) => [child.childThreadId, child]));
-  const spawnByChildId = findSpawnAgentEvents(normalizedEvents, childById);
-  const notificationByChildId = findSubagentNotifications(normalizedEvents, childById);
+  return {
+    spawnByChildId: findSpawnAgentEvents(normalizedEvents, childById),
+    notificationByChildId: findSubagentNotifications(normalizedEvents, childById),
+    timing: { startedAt: rootStartedAt, completedAt: rootEndedAt },
+  };
+}
 
-  const root = {
+function createTraceRoot(session, hierarchy, turns, timing) {
+  return {
     id: `thread:${session.id}`,
     type: "thread",
     label: session.agentNickname ? `${session.agentNickname} / ${session.agentRole || "代理"}` : "根会话",
     title: session.title || "未命名会话",
     subtitle: session.id,
-    timestamp: rootStartedAt,
-    completedAt: rootEndedAt,
-    durationMs: durationMs(rootStartedAt, rootEndedAt),
+    timestamp: timing.startedAt,
+    completedAt: timing.completedAt,
+    durationMs: durationMs(timing.startedAt, timing.completedAt),
     durationEstimated: true,
     status: deriveSessionStatusFromTurns(turns) || "unknown",
     icon: "thread",
@@ -46,7 +61,9 @@ function buildTrace(session, rawEvents, normalizedEvents, turns, hierarchy, opti
     },
     children: [],
   };
+}
 
+function appendTraceTurns(root, turns, hierarchy, traceContext, responsesByTurnIndex) {
   for (const [turnIndex, turn] of turns.entries()) {
     const turnSummary = summarizeTurnForTrace(turn, hierarchy);
     const turnEndedAt = turn.completedAt || lastTurnActivityAt(turn);
@@ -74,37 +91,24 @@ function buildTrace(session, rawEvents, normalizedEvents, turns, hierarchy, opti
 
     attachTurnChildren(turnNode, turn, turnIndex, {
       hierarchy,
-      spawnByChildId,
-      notificationByChildId,
+      spawnByChildId: traceContext.spawnByChildId,
+      notificationByChildId: traceContext.notificationByChildId,
       responsesByTurnIndex,
     });
 
     root.children.push(turnNode);
   }
+}
 
+function appendUnplacedChildTraces(root, hierarchy, traceContext) {
   const placedChildIds = new Set(
     root.children.flatMap((turn) => turn.children.filter((node) => node.type === "subagent").map((node) => node.threadId)),
   );
   for (const child of hierarchy.children) {
     if (!placedChildIds.has(child.childThreadId)) {
-      root.children.push(traceNodeFromChildThread(child, spawnByChildId.get(child.childThreadId), notificationByChildId.get(child.childThreadId)));
+      root.children.push(traceNodeFromChildThread(child, traceContext.spawnByChildId.get(child.childThreadId), traceContext.notificationByChildId.get(child.childThreadId)));
     }
   }
-  applyExecutionContextMetrics(root);
-  applyTurnModelUsage(root);
-
-  return {
-    root,
-    hierarchy,
-    timing: {
-      startedAt: rootStartedAt,
-      completedAt: rootEndedAt,
-      durationMs: root.durationMs,
-      estimated: true,
-      responses: responseIntervals,
-      inputWaits: buildInputWaitIntervals(turns),
-    },
-  };
 }
 
 function groupResponsesByTurnIndex(responseIntervals) {
@@ -176,6 +180,7 @@ function llmSegmentTraceNode({ turn, turnIndex, segmentIndex, startMs, endMs, in
   const overlap = pickOverlappingInterval(intervals, startMs, endMs);
   const usage = overlap?.contextUsage || {};
   const model = overlap?.model || turn.context?.model || null;
+  const messageRef = messageRefWithin(overlap?.messageRef, startMs, endMs);
   return {
     id: `response:${turnIndex}:${segmentIndex}`,
     type: "response",
@@ -201,6 +206,7 @@ function llmSegmentTraceNode({ turn, turnIndex, segmentIndex, startMs, endMs, in
         outputTokens: nvl(overlap?.outputTokens),
         reasoningTokens: nvl(overlap?.reasoningTokens),
         ...llmUsageProjection(overlap),
+        messageRef,
         contextPercent: nvl(usage.percent),
         contextUsed: nvl(usage.used),
         contextLimit: nvl(usage.limit),
@@ -429,6 +435,7 @@ function buildInferredResponseIntervals(turns, session, options = {}) {
         contextUsage: context.usage,
         contextSource: context.source,
         eventIndex: item.sourceIndex ?? null,
+        messageRef: assistantMessageRef(turn.items, turnIndex, itemIndex),
         responseType: item.type,
         outputTokens: null,
         reasoningTokens: null,
@@ -446,6 +453,7 @@ function measuredResponseIntervals(turn, turnIndex, session, options = {}) {
   let pendingBoundaryMs = toMs(turn.startedAt);
   let responseStartMs = null;
   let responseEndMs = null;
+  let lastAssistantMessageRef = null;
   const intervals = [];
   const openResponse = (timestampMs) => {
     if (responseEndMs == null) responseStartMs = pendingBoundaryMs;
@@ -466,6 +474,7 @@ function measuredResponseIntervals(turn, turnIndex, session, options = {}) {
         contextUsage: context.usage,
         contextSource: context.source,
         eventIndex,
+        messageRef: lastAssistantMessageRef,
         responseType,
         outputTokens: usage.outputTokens,
         reasoningTokens: usage.reasoningTokens || 0,
@@ -476,6 +485,7 @@ function measuredResponseIntervals(turn, turnIndex, session, options = {}) {
     if (responseEndMs != null && (pendingBoundaryMs == null || responseEndMs > pendingBoundaryMs)) pendingBoundaryMs = responseEndMs;
     responseStartMs = null;
     responseEndMs = null;
+    lastAssistantMessageRef = null;
   };
   for (const [itemIndex, item] of turn.items.entries()) {
     if (item.type === "user-message") {
@@ -483,12 +493,14 @@ function measuredResponseIntervals(turn, turnIndex, session, options = {}) {
       if (ms != null) pendingBoundaryMs = ms;
       responseStartMs = null;
       responseEndMs = null;
+      lastAssistantMessageRef = null;
       continue;
     }
     if (item.type === "reasoning" || item.type === "assistant-message") {
       const ms = toMs(item.timestamp);
       if (ms != null) {
         openResponse(ms);
+        if (item.type === "assistant-message") lastAssistantMessageRef = assistantMessageRef(turn.items, turnIndex, itemIndex);
         if (item.type === "assistant-message" && item.tokenUsage) {
           closeResponse(item.tokenUsage, assistantContextUsage(turn.items, itemIndex, options.modelContextWindow), "assistant-message", item.sourceIndex ?? null);
         }
@@ -508,6 +520,7 @@ function measuredResponseIntervals(turn, turnIndex, session, options = {}) {
   }
   return intervals;
 }
+
 function latestContextUsage(items, itemIndex) {
   for (let index = itemIndex - 1; index >= 0; index -= 1) {
     if (items[index].type === "token-count") {
@@ -528,7 +541,5 @@ function assistantContextUsage(items, itemIndex, modelContextWindow) {
   return { source: "recorded", usage: { used, limit, percent: Math.min(100, Math.round((used / limit) * 1000) / 10) } };
 }
 
-function recordedContextUsage(usage) {
-  return { usage: usage || null, source: usage ? "recorded" : null };
-}
+function recordedContextUsage(usage) { return { usage: usage || null, source: usage ? "recorded" : null }; }
 export { buildTrace };

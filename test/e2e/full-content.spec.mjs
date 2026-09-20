@@ -228,6 +228,12 @@ test("执行树保留模型回复上下文并隐藏工具上下文估算", async
   const tool = page.locator('[data-trace-node-id^="item:"]', { hasText: "npm test" }).first();
   await expect(response).toContainText("返 400 tok");
   await expect(response).toContainText("上下文 50%");
+  await response.click();
+  await expect(page.locator("#toolDetailsContent")).toContainText("模型输出");
+  await expect(page.locator("#toolDetailsContent")).toContainText("已使用固定隔离样本加载工作台");
+  await page.locator("#toolDetailsContent [data-response-raw-event-index]").click();
+  await expect(page.locator("#rawContent")).toContainText("事件 3");
+  await page.locator("#traceViewButton").click();
   const desktopMetrics = await response.evaluate((row) => {
     const duration = row.querySelector(".trace-duration").getBoundingClientRect();
     const context = row.querySelector(".trace-context-summary").getBoundingClientRect();

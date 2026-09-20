@@ -389,9 +389,29 @@ function toMs(value) {
   return Number.isFinite(ms) ? ms : null;
 }
 
+function assistantMessageRef(items, turnIndex, itemIndex) {
+  const item = items?.[itemIndex];
+  if (item?.type !== "assistant-message") return null;
+  return {
+    turnIndex,
+    itemIndex,
+    itemId: item.id || null,
+    sourceIndex: item.sourceIndex ?? null,
+    messageId: item.messageId || null,
+    timestamp: item.timestamp || null,
+    textLength: String(item.text || "").length,
+  };
+}
+
+function messageRefWithin(messageRef, startMs, endMs) {
+  const timestampMs = toMs(messageRef?.timestamp);
+  if (timestampMs == null || timestampMs < startMs || timestampMs > endMs) return null;
+  return messageRef;
+}
 
 export {
   addTruncatedField,
+  assistantMessageRef,
   compactChildBase,
   compactChildPlaceholder,
   compactCompactSession,
@@ -400,6 +420,7 @@ export {
   contextUsageFromTokenInfo,
   durationMs,
   limitText,
+  messageRefWithin,
   parseJsonObject,
   subagentNotificationAgentIds,
   subagentNotificationPayload,

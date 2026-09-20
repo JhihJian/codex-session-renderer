@@ -13,6 +13,8 @@
   const readableToolItem = (...args) => api.readableToolItem(...args);
   const prettyMaybeJson = (...args) => api.prettyMaybeJson(...args);
   const formatDate = (...args) => api.formatDate(...args);
+  const renderMarkdownMessage = (...args) => api.renderMarkdownMessage(...args);
+  const openRawEvent = (...args) => api.openRawEvent(...args);
 function renderTrace() {
   const detail = state.detail;
   if (!detail?.trace?.root) {
@@ -291,6 +293,13 @@ function fullTraceItem(node) {
   return state.detail?.turns?.[Number(match[1])]?.items?.[Number(match[2])] || compact;
 }
 
+function traceResponseItem(node) {
+  const ref = node?.detail?.response?.messageRef;
+  if (!ref || !Number.isInteger(ref.turnIndex) || !Number.isInteger(ref.itemIndex)) return null;
+  const item = state.detail?.turns?.[ref.turnIndex]?.items?.[ref.itemIndex] || null;
+  return item?.type === "assistant-message" ? item : null;
+}
+
 function traceArgumentPreview(item) {
   if (!item?.arguments) return "";
   const value = prettyMaybeJson(item.arguments).replace(/\s+/g, " ").trim();
@@ -329,6 +338,8 @@ function renderToolDetails(node = null) {
   const item = fullTraceItem(node);
   const task = node.detail?.task;
   const detail = node.detail || {};
+  const responseItem = node.type === "response" ? traceResponseItem(node) : null;
+  const responseSourceIndex = responseItem?.sourceIndex ?? detail.response?.messageRef?.sourceIndex ?? null;
   const isTool = item?.type === "tool-call" || node.type === "tool" || node.type === "handoff";
   const title = item?.name || node.title || node.label || "执行节点";
   const argumentsText = item?.arguments
@@ -349,9 +360,14 @@ function renderToolDetails(node = null) {
     </div>
     ${metadata ? `<div class="tool-details-meta">${escapeHtml(metadata)}</div>` : ""}
     ${renderTraceContextDetails(contextMetrics)}
+    ${responseItem?.text ? `<section class="tool-details-section trace-response-output"><h4>模型输出</h4><div>${renderMarkdownMessage(responseItem.text, "")}</div></section>` : ""}
+    ${responseSourceIndex != null ? `<div class="trace-response-actions"><button class="ghost-button small" type="button" data-response-raw-event-index="${escapeAttr(String(responseSourceIndex))}">查看原始事件</button></div>` : ""}
     ${argumentsText ? `<section class="tool-details-section"><h4>${isTool ? "调用参数" : "节点信息"}</h4><pre>${escapeHtml(argumentsText)}</pre></section>` : ""}
     ${outputText ? `<section class="tool-details-section"><h4>返回结果</h4><pre>${escapeHtml(outputText)}</pre></section>` : ""}
   `;
+  els.toolDetailsContent.querySelector("[data-response-raw-event-index]")?.addEventListener("click", () => {
+    void openRawEvent(Number(responseSourceIndex));
+  });
 }
 
 function renderTraceContextDetails(metrics) {
@@ -366,5 +382,5 @@ function renderTraceContextDetails(metrics) {
   return `<section class="trace-context-details"><h4>${heading}</h4><div>${values.map(([label, value]) => `<span><em>${escapeHtml(label)}</em><strong>${escapeHtml(value)}</strong></span>`).join("")}</div></section>`;
 }
 
-  Object.assign(api, { renderTrace, filterTraceNode, isDefaultTraceNode, traceNodeMatchesType, traceSearchText, renderTraceNode, traceContextMetrics, renderTraceResultMetrics, traceNodeModelUsage, renderTurnTokenBars, renderTraceUsageMetrics, renderTraceContextSummary, traceContextUsageTitle, traceContextSourceLabel, formatTraceTokenCount, formatTraceCost, formatTraceContextPercent, formatTraceContextChange, traceToolTitle, fullTraceItem, traceArgumentPreview, traceStatusKind, traceStatusLabel, renderToolDetails, renderTraceContextDetails });
+  Object.assign(api, { renderTrace, filterTraceNode, isDefaultTraceNode, traceNodeMatchesType, traceSearchText, renderTraceNode, traceContextMetrics, renderTraceResultMetrics, traceNodeModelUsage, renderTurnTokenBars, renderTraceUsageMetrics, renderTraceContextSummary, traceContextUsageTitle, traceContextSourceLabel, formatTraceTokenCount, formatTraceCost, formatTraceContextPercent, formatTraceContextChange, traceToolTitle, fullTraceItem, traceResponseItem, traceArgumentPreview, traceStatusKind, traceStatusLabel, renderToolDetails, renderTraceContextDetails });
 }

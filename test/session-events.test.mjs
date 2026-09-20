@@ -234,8 +234,18 @@ test("measured response intervals attribute token_count usage to the response th
   assert.equal(responses[1].endMs, Date.parse("2026-09-09T03:00:48.298Z"));
   assert.equal(responses[1].generatedTokens, 1_248);
   assert.deepEqual(responses[1].contextUsage, { used: 36_000, limit: 100_000, percent: 36 });
+  assert.deepEqual(responses[1].messageRef, {
+    turnIndex: 0,
+    itemIndex: 5,
+    itemId: "item-5",
+    sourceIndex: 6,
+    messageId: null,
+    timestamp: "2026-09-09T03:00:48.298Z",
+    textLength: 2,
+  });
   const executionNodes = trace.root.children[0].children;
   const responseNode = executionNodes.find((node) => node.type === "response");
+  const finalResponseNode = executionNodes.filter((node) => node.type === "response").at(-1);
   const toolNode = executionNodes.find((node) => node.type === "tool");
   assert.deepEqual(responseNode.detail.contextMetrics, {
     source: "recorded",
@@ -251,6 +261,8 @@ test("measured response intervals attribute token_count usage to the response th
     resultTokenKind: "estimated",
     changePercent: null,
   });
+  assert.deepEqual(finalResponseNode.detail.response.messageRef, responses[1].messageRef);
+  assert.doesNotMatch(JSON.stringify(finalResponseNode.detail.response), /完成/);
 });
 
 test("Pi LLM input token usage uses the configured model window and recalibrates tool estimates", () => {
