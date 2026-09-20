@@ -253,6 +253,29 @@ test("measured response intervals attribute token_count usage to the response th
   });
 });
 
+test("Pi LLM input token usage uses the configured model window and recalibrates tool estimates", () => {
+  const turns = [{
+    id: "pi-turn",
+    startedAt: "2026-09-20T10:00:00.000Z",
+    context: { model: "gpt-5.6-terra" },
+    items: [
+      { type: "user-message", timestamp: "2026-09-20T10:00:00.000Z", sourceIndex: 0 },
+      { type: "assistant-message", timestamp: "2026-09-20T10:00:10.000Z", sourceIndex: 1, tokenUsage: { inputTokens: 50_000, generatedTokens: 80, outputTokens: 80 } },
+      { type: "tool-call", timestamp: "2026-09-20T10:00:11.000Z", completedAt: "2026-09-20T10:00:12.000Z", sourceIndex: 2, output: "abcd" },
+      { type: "assistant-message", timestamp: "2026-09-20T10:00:20.000Z", sourceIndex: 3, tokenUsage: { inputTokens: 60_000, generatedTokens: 120, outputTokens: 120 } },
+    ],
+  }];
+  const trace = buildTrace({ id: "pi-test", title: "Pi", model: "gpt-5.6-terra" }, [], [], turns, { children: [] }, { modelContextWindow: 100_000 });
+  const executionNodes = trace.root.children[0].children.filter((node) => node.type === "response" || node.type === "tool");
+
+  assert.deepEqual(executionNodes.map((node) => node.detail.contextMetrics), [
+    { source: "model-estimated", usage: { used: 50_000, limit: 100_000, percent: 50 }, resultTokens: 80, resultTokenKind: "recorded", changePercent: null },
+    { source: "estimated", usage: { used: 50_001, limit: 100_000, percent: 50 }, resultTokens: 1, resultTokenKind: "estimated", changePercent: 0 },
+    { source: "model-estimated", usage: { used: 60_000, limit: 100_000, percent: 60 }, resultTokens: 120, resultTokenKind: "recorded", changePercent: 10 },
+  ]);
+  assert.deepEqual(trace.timing.responses.map((response) => response.contextSource), ["model-estimated", "model-estimated"]);
+});
+
 test("buildTrace derives waiting-for-input only between assistant and next user messages", () => {
   const trace = buildTrace(
     { id: "thread-1", title: "" },

@@ -28,23 +28,24 @@ async function getSessionDetail(dependencies, context, id, options = {}) {
   const session = await dependencies.getSessionById(context, id, { signal: options.signal });
   if (!session || !await dependencies.sessionFileExists(context, session, options)) return null;
   const maxDepth = options.maxDepth ?? 3;
+  const modelContextWindow = await dependencies.modelContextWindow?.(context, session.model) || null;
   const result = await context.sessionDetailCoordinator.read(session, {
-    cacheKey: `detail:${context.source.id}:${id}:maxDepth=${maxDepth}`,
+    cacheKey: `detail:${context.source.id}:${id}:maxDepth=${maxDepth}:modelContextWindow=${modelContextWindow || "none"}`,
     signal: options.signal,
     shouldCache: (detail) => detail.stats?.childThreadCount === 0,
-    derive: (rawEvents, stat, signal) => deriveSessionDetail(dependencies, { context, id, session, rawEvents, stat, maxDepth, signal }),
+    derive: (rawEvents, stat, signal) => deriveSessionDetail(dependencies, { context, id, session, rawEvents, stat, maxDepth, modelContextWindow, signal }),
   });
   return { ...result.value, related: await dependencies.getSessionLineage(context, session, options) };
 }
 
-async function deriveSessionDetail(dependencies, { context, id, session, rawEvents, stat, maxDepth, signal }) {
+async function deriveSessionDetail(dependencies, { context, id, session, rawEvents, stat, maxDepth, modelContextWindow, signal }) {
   dependencies.throwIfRequestAborted(signal);
   const sessionWithStat = withFileStat(session, stat);
   const hierarchy = await dependencies.getThreadHierarchy(context, id, { signal });
   const analysisEvents = rawEvents.map(analysisEventFromRaw);
   const turns = buildTurns(rawEvents);
   const sessionForDetail = { ...sessionWithStat, status: deriveSessionStatusFromTurns(turns) };
-  const trace = buildTrace(sessionForDetail, rawEvents, analysisEvents, turns, hierarchy);
+  const trace = buildTrace(sessionForDetail, rawEvents, analysisEvents, turns, hierarchy, { modelContextWindow });
   const timing = buildSessionTiming(trace);
   return {
     complete: true,
@@ -144,6 +145,7 @@ async function deriveCompactChild(dependencies, { context, threadId, session, ev
   const hierarchy = await dependencies.getThreadHierarchy(context, threadId, { signal });
   const turns = buildTurns(events);
   const normalizedEvents = events.map(analysisEventFromRaw);
-  const timing = buildSessionTiming(buildTrace(childSession, events, normalizedEvents, turns, hierarchy));
+  const modelContextWindow = await dependencies.modelContextWindow?.(context, childSession.model) || null;
+  const timing = buildSessionTiming(buildTrace(childSession, events, normalizedEvents, turns, hierarchy, { modelContextWindow }));
   return buildCompactView(dependencies, context, { session: childSession, normalizedEvents, turns, hierarchy, timing, options: { depth: parentContext.depth + 1, maxDepth: parentContext.maxDepth, signal } });
 }

@@ -179,7 +179,7 @@ function renderTraceResultMetrics(metrics) {
 function renderTraceContextSummary(metrics) {
   if (!metrics || !Number.isFinite(metrics.usage?.percent)) return "";
   const usage = Number.isFinite(metrics.usage?.percent)
-    ? `<span title="${escapeAttr(traceContextUsageTitle(metrics))}">上下文 ${escapeHtml(formatTraceContextPercent(metrics.usage.percent))}${metrics.source === "estimated" ? "（估算）" : "（记录）"}</span>`
+    ? `<span title="${escapeAttr(traceContextUsageTitle(metrics))}">上下文 ${escapeHtml(formatTraceContextPercent(metrics.usage.percent))}（${escapeHtml(traceContextSourceLabel(metrics.source))}）</span>`
     : "";
   const change = Number.isFinite(metrics.changePercent)
     ? `<span class="trace-context-change ${metrics.changePercent < 0 ? "decrease" : "increase"}">${escapeHtml(formatTraceContextChange(metrics.changePercent))}</span>`
@@ -190,10 +190,16 @@ function renderTraceContextSummary(metrics) {
 function traceContextUsageTitle(metrics) {
   const usage = metrics.usage || {};
   const values = [
-    metrics.source === "estimated" ? "基于工具返回 token 的上下文估算" : "LLM 结束时记录的上下文快照",
+    metrics.source === "estimated" ? "基于工具返回 token 的上下文估算" : metrics.source === "model-estimated" ? "基于模型定义窗口与 LLM 输入 token 的上下文估算" : "LLM 结束时记录的上下文快照",
     Number.isFinite(usage.used) && Number.isFinite(usage.limit) ? `${formatTraceTokenCount(usage.used)} / ${formatTraceTokenCount(usage.limit)} tok` : "",
   ].filter(Boolean);
   return values.join(" · ");
+}
+
+function traceContextSourceLabel(source) {
+  if (source === "estimated") return "估算";
+  if (source === "model-estimated") return "模型估算";
+  return "记录";
 }
 
 function formatTraceTokenCount(value) {
@@ -293,11 +299,11 @@ function renderTraceContextDetails(metrics) {
   const usage = metrics.usage || {};
   const values = [
     Number.isFinite(metrics.resultTokens) ? ["返回 token", `${metrics.resultTokenKind === "estimated" ? "估算 " : ""}${formatTraceTokenCount(metrics.resultTokens)} tok`] : null,
-    Number.isFinite(usage.percent) ? ["上下文占用", `${Number.isFinite(usage.used) && Number.isFinite(usage.limit) ? `${formatTraceTokenCount(usage.used)} / ${formatTraceTokenCount(usage.limit)} · ` : ""}${formatTraceContextPercent(usage.percent)}${metrics.source === "estimated" ? "（估算）" : "（记录）"}`] : null,
+    Number.isFinite(usage.percent) ? ["上下文占用", `${Number.isFinite(usage.used) && Number.isFinite(usage.limit) ? `${formatTraceTokenCount(usage.used)} / ${formatTraceTokenCount(usage.limit)} · ` : ""}${formatTraceContextPercent(usage.percent)}（${traceContextSourceLabel(metrics.source)}）`] : null,
     Number.isFinite(metrics.changePercent) ? ["上下文变化", formatTraceContextChange(metrics.changePercent)] : null,
   ].filter(Boolean);
   return `<section class="trace-context-details"><h4>上下文指标</h4><div>${values.map(([label, value]) => `<span><em>${escapeHtml(label)}</em><strong>${escapeHtml(value)}</strong></span>`).join("")}</div></section>`;
 }
 
-  Object.assign(api, { renderTrace, filterTraceNode, isDefaultTraceNode, traceNodeMatchesType, traceSearchText, renderTraceNode, traceContextMetrics, renderTraceResultMetrics, renderTraceContextSummary, traceContextUsageTitle, formatTraceTokenCount, formatTraceContextPercent, formatTraceContextChange, traceToolTitle, fullTraceItem, traceArgumentPreview, traceStatusKind, traceStatusLabel, renderToolDetails, renderTraceContextDetails });
+  Object.assign(api, { renderTrace, filterTraceNode, isDefaultTraceNode, traceNodeMatchesType, traceSearchText, renderTraceNode, traceContextMetrics, renderTraceResultMetrics, renderTraceContextSummary, traceContextUsageTitle, traceContextSourceLabel, formatTraceTokenCount, formatTraceContextPercent, formatTraceContextChange, traceToolTitle, fullTraceItem, traceArgumentPreview, traceStatusKind, traceStatusLabel, renderToolDetails, renderTraceContextDetails });
 }

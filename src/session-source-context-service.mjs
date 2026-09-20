@@ -97,6 +97,9 @@ export function createSessionSourceContextService({ maxListSessions }) {
       sessionCacheByScope: new Map(),
       allSessionCache: null,
       allSessionCacheTime: 0,
+      modelStorePath: source.modelStorePath || null,
+      modelContextWindows: null,
+      modelStoreStamp: null,
       sessionDetailCoordinator: null,
     };
     context.sessionDetailCoordinator = createSessionDetailCoordinator({
@@ -121,7 +124,39 @@ export function createSessionSourceContextService({ maxListSessions }) {
       originalCodexHome: context.originalCodexHome,
     }),
     sourceSessionRootIsReadable,
+    modelContextWindow,
   };
+
+}
+
+async function modelContextWindow(context, modelId) {
+  if (context.source.kind !== "pi-agent" || !context.modelStorePath || !modelId) return null;
+  let stat;
+  try {
+    stat = await fs.stat(context.modelStorePath);
+  } catch {
+    return null;
+  }
+  if (!stat.isFile()) return null;
+  const stamp = `${stat.mtimeMs}:${stat.size}`;
+  if (context.modelStoreStamp !== stamp) {
+    try {
+      const store = JSON.parse(await fs.readFile(context.modelStorePath, "utf8"));
+      context.modelContextWindows = collectModelContextWindows(store);
+      context.modelStoreStamp = stamp;
+    } catch {
+      return null;
+    }
+  }
+  const contextWindow = context.modelContextWindows?.get(String(modelId)) || null;
+  return Number.isFinite(contextWindow) && contextWindow > 0 ? contextWindow : null;
+}
+
+function collectModelContextWindows(value, result = new Map()) {
+  if (!value || typeof value !== "object") return result;
+  if (typeof value.id === "string" && Number.isFinite(value.contextWindow)) result.set(value.id, Math.round(value.contextWindow));
+  for (const child of Object.values(value)) collectModelContextWindows(child, result);
+  return result;
 }
 
 export function throwIfRequestAborted(signal) {

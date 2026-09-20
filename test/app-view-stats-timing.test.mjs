@@ -116,3 +116,8 @@ test("timing turn bars fall back to full width without usable turn durations", (
   const markup = api.renderTimingTurns([{ turnNumber: 1, durationMs: null, confidence: "unavailable", buckets: [] }]);
   assert.match(markup, /--turn:100%/);
 });
+
+test("timing steps distinguish model-window estimates from recorded snapshots", () => {
+  assert.equal(api.contextSourceLabel("model-estimated"), "模型估算");
+  assert.match(api.renderTimingStep({ traceNodeId: "response-1", bucketId: "llm_wait", label: "gpt-5.6-terra", durationMs: 1_000, contextUsage: { percent: 18.4, used: 50_000, limit: 272_000 }, contextSource: "model-estimated" }), /18.4%（模型估算）/);
+});

@@ -175,6 +175,12 @@ test("执行树工具行继续展示状态和耗时", () => {
   assert.match(toolRow, /\+0.1%/);
 });
 
+test("模型定义窗口推导的上下文明确标记为模型估算", () => {
+  assert.equal(api.traceContextSourceLabel("model-estimated"), "模型估算");
+  assert.match(api.renderTraceContextSummary({ source: "model-estimated", usage: { percent: 18.4, used: 50_000, limit: 272_000 } }), /上下文 18.4%（模型估算）/);
+  assert.match(api.traceContextUsageTitle({ source: "model-estimated", usage: { percent: 18.4, used: 50_000, limit: 272_000 } }), /模型定义窗口与 LLM 输入 token/);
+});
+
 test("轮次详情面板不再展示生命周期状态", () => {
   api.state.detail = traceFixture();
   const turnNode = api.state.detail.trace.root.children[0];

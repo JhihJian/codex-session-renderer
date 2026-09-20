@@ -13,8 +13,9 @@ import {
   traceNodeFromItem,
 } from "./session-trace-node-projection.mjs";
 
-function buildTrace(session, rawEvents, normalizedEvents, turns, hierarchy) {
-  const responseIntervals = buildInferredResponseIntervals(turns, session);
+// eslint-disable-next-line max-params -- trace projection consumes the raw, normalized, turn, hierarchy, and source metadata layers together.
+function buildTrace(session, rawEvents, normalizedEvents, turns, hierarchy, options = {}) {
+  const responseIntervals = buildInferredResponseIntervals(turns, session, options);
   const responsesByTurnIndex = groupResponsesByTurnIndex(responseIntervals);
   const rootStartedAt = turns[0]?.startedAt || session.startedAt || normalizedEvents[0]?.timestamp || null;
   const eventEndCandidates = [turns.at(-1)?.completedAt, normalizedEvents.at(-1)?.timestamp]
@@ -201,6 +202,7 @@ function llmSegmentTraceNode({ turn, turnIndex, segmentIndex, startMs, endMs, in
         contextPercent: nvl(usage.percent),
         contextUsed: nvl(usage.used),
         contextLimit: nvl(usage.limit),
+        contextSource: overlap?.contextSource || null,
         note: "轮次内扣除工具、子代理等占用区间后的模型生成间隔。",
       },
     },
@@ -241,7 +243,7 @@ function applyExecutionContextMetrics(root) {
       const metrics = executionContextMetrics({
         previous: current,
         usage,
-        source: usage ? "recorded" : "unavailable",
+        source: usage ? response.contextSource || "recorded" : "unavailable",
         resultTokens: response.generatedTokens,
         resultTokenKind: Number.isFinite(response.generatedTokens) ? "recorded" : null,
       });
@@ -371,9 +373,9 @@ function buildInputWaitIntervals(turns) {
   });
 }
 
-function buildInferredResponseIntervals(turns, session) {
+function buildInferredResponseIntervals(turns, session, options = {}) {
   return turns.flatMap((turn, turnIndex) => {
-    const measured = measuredResponseIntervals(turn, turnIndex, session);
+    const measured = measuredResponseIntervals(turn, turnIndex, session, options);
     if (measured.length) return measured;
     let previousBoundary = turn.startedAt;
     return turn.items.flatMap((item, itemIndex) => {
@@ -387,7 +389,9 @@ function buildInferredResponseIntervals(turns, session) {
       const endMs = toMs(end);
       previousBoundary = end || previousBoundary;
       if (startMs == null || endMs == null || endMs <= startMs) return [];
-      const contextUsage = item.type === "assistant-message" ? contextUsageForAssistantMessage(turn.items, itemIndex) : latestContextUsage(turn.items, itemIndex);
+      const context = item.type === "assistant-message"
+        ? assistantContextUsage(turn.items, itemIndex, options.modelContextWindow)
+        : recordedContextUsage(latestContextUsage(turn.items, itemIndex));
       return [{
         id: `response:${turnIndex}:${itemIndex}`,
         turnIndex,
@@ -398,7 +402,8 @@ function buildInferredResponseIntervals(turns, session) {
         durationMs: endMs - startMs,
         durationKind: "estimated",
         model: turn.context?.model || session.model || null,
-        contextUsage,
+        contextUsage: context.usage,
+        contextSource: context.source,
         eventIndex: item.sourceIndex ?? null,
         responseType: item.type,
         outputTokens: null,
@@ -413,7 +418,7 @@ function buildInferredResponseIntervals(turns, session) {
 // response that already ended at the last generated item (reasoning, assistant message, or
 // function_call). Measure from the previous tool output (or turn start) to that last generated
 // item instead of the token_count write timestamp, which can be milliseconds after the boundary.
-function measuredResponseIntervals(turn, turnIndex, session) {
+function measuredResponseIntervals(turn, turnIndex, session, options = {}) {
   let pendingBoundaryMs = toMs(turn.startedAt);
   let responseStartMs = null;
   let responseEndMs = null;
@@ -422,7 +427,7 @@ function measuredResponseIntervals(turn, turnIndex, session) {
     if (responseEndMs == null) responseStartMs = pendingBoundaryMs;
     responseEndMs = Math.max(responseEndMs ?? timestampMs, timestampMs);
   };
-  const closeResponse = (usage, contextUsage, responseType, eventIndex) => {
+  const closeResponse = (usage, context, responseType, eventIndex) => {
     if (responseStartMs != null && responseEndMs != null && responseEndMs > responseStartMs) {
       intervals.push({
         id: `response:${turnIndex}:${eventIndex}`,
@@ -434,7 +439,8 @@ function measuredResponseIntervals(turn, turnIndex, session) {
         durationMs: responseEndMs - responseStartMs,
         durationKind: "estimated",
         model: turn.context?.model || session.model || null,
-        contextUsage,
+        contextUsage: context.usage,
+        contextSource: context.source,
         eventIndex,
         responseType,
         outputTokens: usage.outputTokens,
@@ -459,7 +465,7 @@ function measuredResponseIntervals(turn, turnIndex, session) {
       if (ms != null) {
         openResponse(ms);
         if (item.type === "assistant-message" && item.tokenUsage) {
-          closeResponse(item.tokenUsage, contextUsageForAssistantMessage(turn.items, itemIndex), "assistant-message", item.sourceIndex ?? null);
+          closeResponse(item.tokenUsage, assistantContextUsage(turn.items, itemIndex, options.modelContextWindow), "assistant-message", item.sourceIndex ?? null);
         }
       }
       continue;
@@ -472,7 +478,7 @@ function measuredResponseIntervals(turn, turnIndex, session) {
       continue;
     }
     if (item.type === "token-count" && item.tokenUsage) {
-      closeResponse(item.tokenUsage, contextUsageFromTokenInfo(item.info) || latestContextUsage(turn.items, itemIndex), "token-count", item.sourceIndex ?? null);
+      closeResponse(item.tokenUsage, recordedContextUsage(contextUsageFromTokenInfo(item.info) || latestContextUsage(turn.items, itemIndex)), "token-count", item.sourceIndex ?? null);
     }
   }
   return intervals;
@@ -486,6 +492,23 @@ function latestContextUsage(items, itemIndex) {
     }
   }
   return null;
+}
+
+function assistantContextUsage(items, itemIndex, modelContextWindow) {
+  const recorded = contextUsageForAssistantMessage(items, itemIndex);
+  if (recorded) return recordedContextUsage(recorded);
+  const inputTokens = items[itemIndex]?.tokenUsage?.inputTokens;
+  if (!Number.isFinite(inputTokens) || !Number.isFinite(modelContextWindow) || modelContextWindow <= 0) return { usage: null, source: null };
+  const used = Math.round(inputTokens);
+  const limit = Math.round(modelContextWindow);
+  return {
+    source: "model-estimated",
+    usage: { used, limit, percent: Math.min(100, Math.round((used / limit) * 1000) / 10) },
+  };
+}
+
+function recordedContextUsage(usage) {
+  return { usage: usage || null, source: usage ? "recorded" : null };
 }
 
 
