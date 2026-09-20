@@ -29,6 +29,7 @@ export function createSessionQueryService() {
     getSessionLineage: catalogQueries.getSessionLineage,
     getThreadHierarchy: catalogQueries.getThreadHierarchy,
     sessionFileExists: sourceContexts.sessionFileExists,
+    modelContextWindow: sourceContexts.modelContextWindow,
     throwIfRequestAborted,
   });
   const eventQueries = createSessionEventQueryService({
