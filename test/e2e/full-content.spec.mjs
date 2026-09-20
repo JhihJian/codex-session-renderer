@@ -217,6 +217,25 @@ test("时间诊断逐步骤展示返回 token 与上下文变化", async ({ page
   expect(layout.scroll).toBeLessThanOrEqual(layout.client);
 });
 
+test("执行树展示 LLM 记录上下文与工具返回估算", async ({ page }) => {
+  await page.goto("/");
+  await selectCodexSource(page);
+  await page.locator("#traceViewButton").click();
+  await expect(page.locator('[data-trace-node-id^="turn:"]')).toBeVisible();
+  await page.locator('[data-trace-toggle-id^="turn:"]').click();
+
+  const response = page.locator('[data-trace-node-id^="response:"]').first();
+  const tool = page.locator('[data-trace-node-id^="item:"]', { hasText: "npm test" }).first();
+  await expect(response).toContainText("返 400 tok");
+  await expect(response).toContainText("上下文 50%");
+  await expect(tool).toContainText("返");
+  await expect(tool).toContainText("上下文");
+  await expect(tool).toContainText("估");
+  await tool.click();
+  await expect(page.locator("#toolDetailsContent")).toContainText("上下文指标");
+  await expect(page.locator("#toolDetailsContent")).toContainText("估算");
+});
+
 test("事件统计在工具输出下按摘要规则汇总操作", async ({ page }) => {
   await page.goto("/");
   await selectCodexSource(page);

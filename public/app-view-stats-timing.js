@@ -21,7 +21,7 @@ function renderTimingView(timing) {
     <div class="timing-section" aria-labelledby="timingDetailHeading">
       <div class="timing-heading"><div><h4 id="timingDetailHeading">会话时间分布</h4><p>等待输入、工具执行与模型响应的时间构成。</p></div><span class="timing-confidence">${escapeHtml(timingKindLabel(session.durationKind))}</span></div>
       ${metrics.length ? `<div class="timing-metrics" aria-label="会话时间概览">${metrics.join("")}</div>` : ""}
-      <p class="timing-note">等待输入仅统计助手最后回复到下一次用户消息的间隔。实际运行时长只统计工具与 LLM 的可关联区间；两者并行时按时间并集计一次。LLM 并发只统计可关联 LLM 请求区间，不计工具或子代理。平均生成速度为估算口径：生成 token 数除以对应响应区间时长，区间含排队与首字等待。</p>
+      <p class="timing-note">LLM 上下文仅在结束后记录了可解析 token_count 或 Pi 用量时显示为“记录”；工具在已有上下文窗口基线时，按返回 token 累加显示“估算”。没有窗口基线时不推断百分比。等待输入仅统计助手最后回复到下一次用户消息的间隔。实际运行时长只统计工具与 LLM 的可关联区间；两者并行时按时间并集计一次。LLM 并发只统计可关联 LLM 请求区间，不计工具或子代理。平均生成速度为估算口径：生成 token 数除以对应响应区间时长，区间含排队与首字等待。</p>
       <div class="timing-composition" aria-label="实际运行时长构成">
         ${composition.length ? renderTimingComposition(composition) : `<div class="timing-empty"><strong>暂无可关联执行时长</strong><span>会话事件中尚未发现具有完整起止时间的工具或 LLM 记录。</span></div>`}
       </div>
@@ -49,7 +49,7 @@ function renderTimingStep(step) {
     ? `${step.resultTokenKind === "estimated" ? "约 " : ""}${compactNumber(step.resultTokens)} tok`
     : "未记录";
   const contextValue = Number.isFinite(context?.percent)
-    ? `${context.used != null && context.limit != null ? `${compactNumber(context.used)} / ${compactNumber(context.limit)} · ` : ""}${formatContextPercent(context.percent)}`
+    ? `${context.used != null && context.limit != null ? `${compactNumber(context.used)} / ${compactNumber(context.limit)} · ` : ""}${formatContextPercent(context.percent)}${step.contextSource === "estimated" ? "（估算）" : "（记录）"}`
     : "未记录";
   const change = Number.isFinite(step.contextChangePercent) ? formatContextChange(step.contextChangePercent) : "未记录";
   const label = step.bucketId === "llm_wait" ? `LLM · ${step.label}` : step.label;

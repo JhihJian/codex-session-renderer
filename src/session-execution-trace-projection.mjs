@@ -89,6 +89,7 @@ function buildTrace(session, rawEvents, normalizedEvents, turns, hierarchy) {
       root.children.push(traceNodeFromChildThread(child, spawnByChildId.get(child.childThreadId), notificationByChildId.get(child.childThreadId)));
     }
   }
+  applyExecutionContextMetrics(root);
 
   return {
     root,
@@ -190,6 +191,7 @@ function llmSegmentTraceNode({ turn, turnIndex, segmentIndex, startMs, endMs, in
       response: {
         model,
         responseType: nvl(overlap?.responseType),
+        sourceEventIndex: nvl(overlap?.eventIndex),
         startedAt: new Date(startMs).toISOString(),
         completedAt: new Date(endMs).toISOString(),
         durationMs: endMs - startMs,
@@ -220,6 +222,89 @@ function pickOverlappingInterval(intervals, startMs, endMs) {
 
 function nvl(value) {
   return value == null ? null : value;
+}
+
+function applyExecutionContextMetrics(root) {
+  const nodes = (root.children || [])
+    .flatMap((turn, turnIndex) => (turn.children || []).map((node) => ({ node, turnIndex })))
+    .filter(({ node }) => node.type === "response" || node.type === "tool")
+    .sort((left, right) => (
+      (toMs(left.node.timestamp) ?? Infinity) - (toMs(right.node.timestamp) ?? Infinity)
+      || left.turnIndex - right.turnIndex
+      || executionNodeOrder(left.node) - executionNodeOrder(right.node)
+    ));
+  let current = null;
+  for (const { node } of nodes) {
+    if (node.type === "response") {
+      const response = node.detail?.response || {};
+      const usage = responseContextUsage(response);
+      const metrics = executionContextMetrics({
+        previous: current,
+        usage,
+        source: usage ? "recorded" : "unavailable",
+        resultTokens: response.generatedTokens,
+        resultTokenKind: Number.isFinite(response.generatedTokens) ? "recorded" : null,
+      });
+      node.detail.contextMetrics = metrics;
+      current = usableContextBaseline(usage) ? usage : null;
+      continue;
+    }
+    const item = node.detail?.item || {};
+    const resultTokens = estimateOutputTokens(item.output);
+    const usage = estimateContextUsage(current, resultTokens);
+    node.detail.contextMetrics = executionContextMetrics({
+      previous: current,
+      usage,
+      source: usage ? "estimated" : "unavailable",
+      resultTokens,
+      resultTokenKind: resultTokens == null ? null : "estimated",
+    });
+    if (usage) current = usage;
+  }
+}
+
+function executionNodeOrder(node) {
+  return node.type === "response" ? 0 : 1;
+}
+
+function responseContextUsage(response) {
+  if (!Number.isFinite(response.contextPercent)) return null;
+  const usage = { percent: response.contextPercent };
+  if (Number.isFinite(response.contextUsed)) usage.used = Math.round(response.contextUsed);
+  if (Number.isFinite(response.contextLimit)) usage.limit = Math.round(response.contextLimit);
+  return usage;
+}
+
+function estimateOutputTokens(output) {
+  if (output == null || output === "") return null;
+  return Math.max(1, Math.ceil(Buffer.byteLength(String(output), "utf8") / 4));
+}
+
+function usableContextBaseline(usage) {
+  return Number.isFinite(usage?.used) && Number.isFinite(usage?.limit) && usage.limit > 0;
+}
+
+function estimateContextUsage(previous, resultTokens) {
+  if (!usableContextBaseline(previous) || !Number.isFinite(resultTokens)) return null;
+  const used = previous.used + resultTokens;
+  return {
+    used,
+    limit: previous.limit,
+    percent: Math.min(100, Math.round((used / previous.limit) * 1000) / 10),
+  };
+}
+
+function executionContextMetrics({ previous, usage, source, resultTokens, resultTokenKind }) {
+  const changePercent = Number.isFinite(usage?.percent) && Number.isFinite(previous?.percent)
+    ? Math.round((usage.percent - previous.percent) * 10) / 10
+    : null;
+  return {
+    source,
+    usage,
+    resultTokens: Number.isFinite(resultTokens) ? resultTokens : null,
+    resultTokenKind,
+    changePercent,
+  };
 }
 
 // 工具、子代理与模型回复之外剩余的时间（事件写入、调度等）集中为一个节点，

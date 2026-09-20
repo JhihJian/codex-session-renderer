@@ -234,6 +234,23 @@ test("measured response intervals attribute token_count usage to the response th
   assert.equal(responses[1].endMs, Date.parse("2026-09-09T03:00:48.298Z"));
   assert.equal(responses[1].generatedTokens, 1_248);
   assert.deepEqual(responses[1].contextUsage, { used: 36_000, limit: 100_000, percent: 36 });
+  const executionNodes = trace.root.children[0].children;
+  const responseNode = executionNodes.find((node) => node.type === "response");
+  const toolNode = executionNodes.find((node) => node.type === "tool");
+  assert.deepEqual(responseNode.detail.contextMetrics, {
+    source: "recorded",
+    usage: { used: 40_000, limit: 100_000, percent: 40 },
+    resultTokens: 388,
+    resultTokenKind: "recorded",
+    changePercent: null,
+  });
+  assert.deepEqual(toolNode.detail.contextMetrics, {
+    source: "estimated",
+    usage: { used: 40_003, limit: 100_000, percent: 40 },
+    resultTokens: 3,
+    resultTokenKind: "estimated",
+    changePercent: 0,
+  });
 });
 
 test("buildTrace derives waiting-for-input only between assistant and next user messages", () => {

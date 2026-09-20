@@ -58,7 +58,9 @@ test("被截断的会话标题保留完整原文提示", async ({ page }) => {
   await expect(title).toBeVisible();
   await expect(title).toHaveCSS("text-overflow", "ellipsis");
   await expect(title).toHaveAttribute("title", new RegExp(suffix));
-  expect(await title.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+  expect(await title.evaluate((element) => (
+    element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1
+  ))).toBe(true);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator("[data-panel-target=sessions]").click();

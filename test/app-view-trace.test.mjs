@@ -68,7 +68,11 @@ function traceFixture() {
                 completedAt: "2026-07-08T10:00:05.000Z",
                 durationMs: 4_000,
                 children: [],
-                detail: { kind: "item", item: { type: "tool-call", name: "bash", status: "completed", arguments: "pwd", output: "/data" } },
+                detail: {
+                  kind: "item",
+                  item: { type: "tool-call", name: "bash", status: "completed", arguments: "pwd", output: "/data" },
+                  contextMetrics: { source: "estimated", usage: { percent: 50.1, used: 50_100, limit: 100_000 }, resultTokens: 100, resultTokenKind: "estimated", changePercent: 0.1 },
+                },
               },
               {
                 id: "response:0:0",
@@ -81,7 +85,11 @@ function traceFixture() {
                 status: null,
                 icon: "llm",
                 children: [],
-                detail: { kind: "response", response: { model: "gpt-5", generatedTokens: 120 } },
+                detail: {
+                  kind: "response",
+                  response: { model: "gpt-5", generatedTokens: 120, contextPercent: 50, contextUsed: 50_000, contextLimit: 100_000 },
+                  contextMetrics: { source: "recorded", usage: { percent: 50, used: 50_000, limit: 100_000 }, resultTokens: 120, resultTokenKind: "recorded", changePercent: -2 },
+                },
               },
               {
                 id: "gap:turn:1:0",
@@ -135,6 +143,9 @@ test("轮次子项包含模型回复和其他时间且不展示状态", () => {
   assert.match(responseRow, /模型回复/);
   assert.match(responseRow, /gpt-5/);
   assert.match(responseRow, /20s/);
+  assert.match(responseRow, /返 120 tok/);
+  assert.match(responseRow, /上下文 50%（记录）/);
+  assert.match(responseRow, /-2%/);
   assert.doesNotMatch(responseRow, /trace-status/);
   const gapRow = row("gap:turn:1:0");
   assert.match(gapRow, /其他时间/);
@@ -159,6 +170,9 @@ test("执行树工具行继续展示状态和耗时", () => {
   assert.match(toolRow, /trace-status status-success/);
   assert.match(toolRow, /执行成功/);
   assert.match(toolRow, /trace-duration/);
+  assert.match(toolRow, /返 100 tok/);
+  assert.match(toolRow, /上下文 50.1%（估算）/);
+  assert.match(toolRow, /\+0.1%/);
 });
 
 test("轮次详情面板不再展示生命周期状态", () => {
@@ -176,4 +190,7 @@ test("工具详情面板继续展示状态", () => {
   api.renderToolDetails(toolNode);
   assert.match(api.els.toolDetailsContent.innerHTML, /tool-details-status status-success/);
   assert.match(api.els.toolDetailsContent.innerHTML, /执行成功/);
+  assert.match(api.els.toolDetailsContent.innerHTML, /上下文指标/);
+  assert.match(api.els.toolDetailsContent.innerHTML, /估算 100 tok/);
+  assert.match(api.els.toolDetailsContent.innerHTML, /50.1%（估算）/);
 });

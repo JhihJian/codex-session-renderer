@@ -12,6 +12,7 @@ function intervalFromNode(node, parentTurnIndex = null) {
   const durationMs = startMs != null && endMs != null && endMs >= startMs ? endMs - startMs : null;
   const item = node?.detail?.item || {};
   const event = node?.detail?.event || node?.detail?.spawnEvent || node?.detail?.notificationEvent || {};
+  const contextMetrics = node?.detail?.contextMetrics || null;
   const turnIndex = node?.type === "turn" ? node.index ?? parentTurnIndex : parentTurnIndex;
   if (durationMs == null) return {
     node,
@@ -21,6 +22,8 @@ function intervalFromNode(node, parentTurnIndex = null) {
     startMs,
     endMs,
     eventIndex: item.sourceIndex ?? item.outputSourceIndex ?? event.index ?? null,
+    contextMetrics,
+    contextUsage: contextMetrics?.usage || null,
   };
   return {
     node,
@@ -30,6 +33,8 @@ function intervalFromNode(node, parentTurnIndex = null) {
     startMs,
     endMs,
     eventIndex: item.sourceIndex ?? item.outputSourceIndex ?? event.index ?? null,
+    contextMetrics,
+    contextUsage: contextMetrics?.usage || null,
   };
 }
 
@@ -117,7 +122,8 @@ function confidenceFor(intervals) {
 // eslint-disable-next-line complexity
 function nodeRef(item) {
   const detail = item.node.detail?.item || {};
-  const resultTokens = item.generatedTokens ?? toolResultTokens(detail.output);
+  const contextMetrics = item.contextMetrics || item.node.detail?.contextMetrics || null;
+  const resultTokens = item.generatedTokens ?? contextMetrics?.resultTokens ?? toolResultTokens(detail.output);
   return {
     traceNodeId: item.node.id,
     turnIndex: item.turnIndex,
@@ -128,9 +134,11 @@ function nodeRef(item) {
     label: item.model || detail.name || item.node.title || item.node.type,
     toolName: item.model || detail.name || null,
     model: item.model || null,
-    contextUsage: item.contextUsage || detail.contextUsage || null,
+    contextUsage: item.contextUsage || detail.contextUsage || contextMetrics?.usage || null,
     resultTokens,
-    resultTokenKind: item.generatedTokens != null ? "recorded" : resultTokens != null ? "estimated" : null,
+    resultTokenKind: item.generatedTokens != null ? "recorded" : contextMetrics?.resultTokenKind || (resultTokens != null ? "estimated" : null),
+    contextSource: contextMetrics?.source || (item.contextUsage ? "recorded" : null),
+    contextChangePercent: contextMetrics?.changePercent ?? null,
     outputTokens: item.outputTokens ?? detail.outputTokens ?? null,
     reasoningTokens: item.reasoningTokens ?? detail.reasoningTokens ?? null,
     generatedTokens: item.generatedTokens ?? detail.generatedTokens ?? null,
@@ -151,7 +159,9 @@ function contextSnapshots(trace, intervals) {
     if (!Number.isFinite(usage?.percent) || !Number.isFinite(time)) return;
     snapshots.push({ usage, time, eventIndex });
   };
-  for (const item of intervals) add(item.contextUsage, item.endMs, item.eventIndex);
+  for (const item of intervals) {
+    if (item.contextMetrics?.source !== "estimated") add(item.contextUsage, item.endMs, item.eventIndex);
+  }
   const walk = (node) => {
     if (!node) return;
     const item = node.detail?.item || {};
@@ -195,8 +205,9 @@ function buildSteps(trace, intervals) {
         ...ref,
         bucketId: item.bucketId,
         contextUsage: snapshot?.usage || ref.contextUsage || null,
-        contextChangePercent: snapshot?.deltaPercent ?? null,
+        contextChangePercent: ref.contextChangePercent ?? snapshot?.deltaPercent ?? null,
         contextRecordedAt: snapshot?.time != null ? new Date(snapshot.time).toISOString() : null,
+        contextSource: ref.contextSource || (snapshot ? "recorded" : null),
       };
     })
     .sort((left, right) => (left.eventIndex ?? Infinity) - (right.eventIndex ?? Infinity) || (left.traceNodeId || "").localeCompare(right.traceNodeId || ""));

@@ -514,7 +514,8 @@
 
 .details-panel .trace-label,
 .details-panel .trace-title,
-.details-panel .trace-arguments {
+.details-panel .trace-arguments,
+.details-panel .trace-context-metrics {
   grid-column: 1;
 }
 
