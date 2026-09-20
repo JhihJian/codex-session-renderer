@@ -141,6 +141,7 @@ function renderTraceNode(node, context) {
           <span class="trace-title" data-overflow-tooltip>${escapeHtml(title)}</span>
           ${argumentPreview ? `<span class="trace-arguments" data-overflow-tooltip title="${escapeAttr(argumentPreview)}">${escapeHtml(argumentPreview)}</span>` : ""}
           ${renderTraceResultMetrics(contextMetrics, traceNodeModelUsage(node))}
+          ${renderTurnTokenBars(node)}
         </span>
         ${statusValue ? `<span class="trace-status status-${escapeAttr(traceStatusKind(statusValue))}" data-overflow-tooltip>${escapeHtml(traceStatusLabel(statusValue))}</span>` : ""}
         ${hasDuration ? `<span class="trace-duration" data-overflow-tooltip>${escapeHtml(durationLabel)}</span>${contextSummary}<span class="trace-bar" aria-hidden="true"><i style="width:${width}%"></i></span>` : ""}
@@ -179,6 +180,39 @@ function renderTraceResultMetrics(metrics, response = null) {
 
 function traceNodeModelUsage(node) {
   return node?.detail?.response || node?.detail?.modelUsage || null;
+}
+
+function renderTurnTokenBars(node) {
+  if (node?.type !== "turn") return "";
+  const usage = node.detail?.modelUsage;
+  if (!usage) return "";
+  const generated = [usage.inputTokens, usage.outputTokens, usage.reasoningTokens];
+  const generatedTotal = sumFinite(generated);
+  const cacheTotal = sumFinite([usage.cacheReadTokens, usage.cacheWriteTokens]);
+  const total = usage.totalTokens;
+  const contextLimit = node.detail?.modelContextUsage?.usage?.limit;
+  return `<span class="trace-token-bars">${[
+    renderTokenBar("入 / 出 / 推理", generated, generatedTotal, ["input", "output", "reasoning"], { fillPercent: 100 }),
+    renderTokenBar("缓存读 / 写", [usage.cacheReadTokens, usage.cacheWriteTokens], cacheTotal, ["cache-read", "cache-write"], { fillPercent: ratioPercent(cacheTotal, total) }),
+    renderTokenBar("总用量 / 窗口", [total], total, ["context-total"], { fillPercent: ratioPercent(total, contextLimit), limit: contextLimit }),
+  ].filter(Boolean).join("")}</span>`;
+}
+
+function renderTokenBar(label, values, segmentTotal, classes, { fillPercent, limit = null }) {
+  if (!Number.isFinite(segmentTotal) || segmentTotal < 0 || !Number.isFinite(fillPercent)) return "";
+  const detail = `${label}：${values.map((value) => `${formatTraceTokenCount(value || 0)} tok`).join(" / ")}${limit ? ` · 窗口 ${formatTraceTokenCount(limit)} tok` : ""}`;
+  const segments = values.map((value, index) => `<i class="trace-token-segment ${classes[index]}" style="width:${ratioPercent(value, segmentTotal)}%" title="${escapeAttr(`${label.split(" / ")[index] || label} ${formatTraceTokenCount(value || 0)} tok · ${ratioPercent(value, segmentTotal)}%`)}"></i>`).join("");
+  return `<span class="trace-token-bar" title="${escapeAttr(detail)}"><em>${escapeHtml(label)}</em><span><b style="width:${Math.min(100, fillPercent)}%">${segments}</b></span></span>`;
+}
+
+function sumFinite(values) {
+  const known = values.filter(Number.isFinite);
+  return known.length ? known.reduce((sum, value) => sum + value, 0) : null;
+}
+
+function ratioPercent(value, total) {
+  if (!Number.isFinite(value) || !Number.isFinite(total) || total <= 0) return value === 0 && total === 0 ? 0 : NaN;
+  return Math.round((value / total) * 1000) / 10;
 }
 
 function renderTraceUsageMetrics(response) {
@@ -328,5 +362,5 @@ function renderTraceContextDetails(metrics) {
   return `<section class="trace-context-details"><h4>上下文指标</h4><div>${values.map(([label, value]) => `<span><em>${escapeHtml(label)}</em><strong>${escapeHtml(value)}</strong></span>`).join("")}</div></section>`;
 }
 
-  Object.assign(api, { renderTrace, filterTraceNode, isDefaultTraceNode, traceNodeMatchesType, traceSearchText, renderTraceNode, traceContextMetrics, renderTraceResultMetrics, traceNodeModelUsage, renderTraceUsageMetrics, renderTraceContextSummary, traceContextUsageTitle, traceContextSourceLabel, formatTraceTokenCount, formatTraceCost, formatTraceContextPercent, formatTraceContextChange, traceToolTitle, fullTraceItem, traceArgumentPreview, traceStatusKind, traceStatusLabel, renderToolDetails, renderTraceContextDetails });
+  Object.assign(api, { renderTrace, filterTraceNode, isDefaultTraceNode, traceNodeMatchesType, traceSearchText, renderTraceNode, traceContextMetrics, renderTraceResultMetrics, traceNodeModelUsage, renderTurnTokenBars, renderTraceUsageMetrics, renderTraceContextSummary, traceContextUsageTitle, traceContextSourceLabel, formatTraceTokenCount, formatTraceCost, formatTraceContextPercent, formatTraceContextChange, traceToolTitle, fullTraceItem, traceArgumentPreview, traceStatusKind, traceStatusLabel, renderToolDetails, renderTraceContextDetails });
 }

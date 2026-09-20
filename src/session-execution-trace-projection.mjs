@@ -285,21 +285,24 @@ function applyTurnModelUsage(root) {
   for (const turn of root.children || []) {
     if (turn.type !== "turn") continue;
     const responses = (turn.children || []).filter((node) => node.type === "response").map((node) => node.detail?.response || {});
-    const usage = summarizeModelUsage(responses);
-    if (usage) turn.detail.modelUsage = usage;
+    const usage = summarizeModelUsage(responses); if (usage) turn.detail.modelUsage = usage;
+    const context = latestTurnContextMetrics(turn.children || []); if (context) turn.detail.modelContextUsage = context;
   }
 }
 
 function summarizeModelUsage(responses) {
   const fields = ["inputTokens", "outputTokens", "reasoningTokens", "cacheReadTokens", "cacheWriteTokens", "totalTokens", "cost"];
-  const usage = {};
-  let available = false;
+  const usage = {}; let available = false;
   for (const field of fields) {
     const values = responses.map((response) => response[field]).filter(Number.isFinite);
-    usage[field] = values.length ? values.reduce((sum, value) => sum + value, 0) : null;
-    available ||= values.length > 0;
+    usage[field] = values.length ? values.reduce((sum, value) => sum + value, 0) : null; available ||= values.length > 0;
   }
   return available ? usage : null;
+}
+
+function latestTurnContextMetrics(nodes) {
+  for (let index = nodes.length - 1; index >= 0; index -= 1) { const metrics = nodes[index].detail?.contextMetrics; if (Number.isFinite(metrics?.usage?.limit) && metrics.usage.limit > 0) return { usage: metrics.usage, source: metrics.source }; }
+  return null;
 }
 
 function responseContextUsage(response) {
