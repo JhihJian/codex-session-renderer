@@ -2,8 +2,8 @@
   "version": 4,
   "documentStatus": "active",
   "snapshot": {
-    "commit": "476863fe20efad99e19fda5762dacdecce9cb7f3",
-    "acceptedAt": "2026-09-20T04:19:34.732Z",
+    "commit": "0a929e459f1478f14f9997ccf2161713826f6fad",
+    "acceptedAt": "2026-09-20T04:29:09.629Z",
     "files": [
       {
         "path": "README.md",
@@ -19,7 +19,7 @@
       },
       {
         "path": "docs/architecture/modules/session-projection.md",
-        "sha256": "sha256:570260910dbb3ede94b42160d7a55e8ee9973b9ca3ec515378379d9e917f7fc3"
+        "sha256": "sha256:24445cc3d9994dc9e84289b67fb2b4b3930c00d16203ee212b915ddfa46b9db5"
       },
       {
         "path": "docs/reader-context-events-design.md",
@@ -27,7 +27,7 @@
       },
       {
         "path": "docs/session-event-normalization.md",
-        "sha256": "sha256:0236558f6bb9de073069764f58a2ff951306561bcc5d975f1dc773f5f74af63a"
+        "sha256": "sha256:723fb22af271146cf58430923f37f7627823f6948940cb080d08ab7ebaf35cc2"
       },
       {
         "path": "eslint-suppressions.json",
@@ -115,7 +115,7 @@
       },
       {
         "path": "public/app-view-stats-timing.js",
-        "sha256": "sha256:5fc1e8938ecc8afd1cf9b9bba8e95929c77e98105e3b973db07126df54e49ab3"
+        "sha256": "sha256:dd9759e72530b653ecc98172e2450117661a3ecf1a514edaf1ac9f3015e8b189"
       },
       {
         "path": "public/app-view-stats.js",
@@ -135,7 +135,7 @@
       },
       {
         "path": "public/app-view-trace.js",
-        "sha256": "sha256:59e4b787eda22bcecfc7fffbb1205219acb45ed3f7c467cf8d994e1533e8ad71"
+        "sha256": "sha256:485480e162bb6fa48f65be7c550a4396d1ce0ab9b90fc608028596a580ce3aa9"
       },
       {
         "path": "public/app.js",
@@ -307,7 +307,7 @@
       },
       {
         "path": "src/session-execution-trace-projection.mjs",
-        "sha256": "sha256:406ca9b8707fe6af0888a2068a21f8b3dbc9acb61393ef2e491baa736d554197"
+        "sha256": "sha256:27a2f20dac4cb89e6fd61d7ae741abe50046e1c278c921c5b16bf2e1c6ec294b"
       },
       {
         "path": "src/session-models.mjs",
@@ -339,7 +339,7 @@
       },
       {
         "path": "src/session-timing.mjs",
-        "sha256": "sha256:e6af77fccab95ba8a4249595005c72e293b388c5607aa1fa2e4b33b079915f25"
+        "sha256": "sha256:59866090ec48dbd020108328b1387e712b42ca50e56737e24c7a1f959fe5e278"
       },
       {
         "path": "src/session-trace-node-projection.mjs",
@@ -363,11 +363,11 @@
       },
       {
         "path": "test/app-view-stats-timing.test.mjs",
-        "sha256": "sha256:193b40f55c8ee04ba3f1d6d55613bdbe1642c77b369503572602930213d3f2a4"
+        "sha256": "sha256:397e86dcaf6f6cda4ebea237510f9e79bced59886b51d126b441d5e82df8d191"
       },
       {
         "path": "test/app-view-trace.test.mjs",
-        "sha256": "sha256:9a1d27cdd417f530968b3f28fdf4e77151af71846a25b09ffdbfe41f3e2ab0aa"
+        "sha256": "sha256:837eac67d652f5dc8fbef06e3cc932d80982e8fbdd7c7aa866a8dd06382c5df7"
       },
       {
         "path": "test/data-sources.test.mjs",
@@ -379,7 +379,7 @@
       },
       {
         "path": "test/e2e/full-content.spec.mjs",
-        "sha256": "sha256:500462ea26be037f5cc34c4afd091e906533bcc67771b1fd55762fa64162153b"
+        "sha256": "sha256:9ae704ec9ae0c2ae1290adfae551b1276c41d69b39130e2e5bffcbea08567281"
       },
       {
         "path": "test/e2e/list-scope-navigation.spec.mjs",
@@ -435,7 +435,7 @@
       },
       {
         "path": "test/session-events.test.mjs",
-        "sha256": "sha256:39a786dbe041e44915fbc43ac50e15a709ebe4abbeb97f6463b921caab686c1c"
+        "sha256": "sha256:f298fcad98b01b3da94e2801de7890e62fe76c257bf0c2ad9844da4fefda033f"
       },
       {
         "path": "test/session-models.test.mjs",
@@ -451,7 +451,7 @@
       },
       {
         "path": "test/session-timing.test.mjs",
-        "sha256": "sha256:313342e10bffee0f52bbbb26a871b3746ac14a1a40e7e30dd8b3612422712494"
+        "sha256": "sha256:cc1bb09459604c3a1310fe404530815214bf651410ad9d7bb9319f8283924863"
       },
       {
         "path": "test/tool-summary.test.mjs",
@@ -675,7 +675,7 @@
         },
         {
           "path": "test/e2e/full-content.spec.mjs",
-          "locator": "执行树展示 LLM 记录上下文与工具返回估算"
+          "locator": "执行树保留模型回复上下文并隐藏工具上下文估算"
         },
         {
           "path": "test/live-session-stream.test.mjs",
