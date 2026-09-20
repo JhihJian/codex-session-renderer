@@ -90,7 +90,7 @@ function tokenUsageFromSource(source) {
   const totalTokens = firstTokenNumber(source, ["total_tokens", "totalTokens"]);
   const cacheReadTokens = firstTokenNumber(source, ["cache_read_tokens", "cacheReadTokens", "cacheRead"]);
   const cacheWriteTokens = firstTokenNumber(source, ["cache_write_tokens", "cacheWriteTokens", "cacheWrite"]);
-  const cost = firstUsageNumber(source, ["cost", "costUsd", "cost_usd"]);
+  const cost = firstUsageNumber(source, ["cost", "costUsd", "cost_usd"]) ?? firstUsageNumber(source.cost, ["total"]);
   if (inputTokens != null) usage.inputTokens = inputTokens;
   if (totalTokens != null) usage.totalTokens = totalTokens;
   if (cacheReadTokens != null) usage.cacheReadTokens = cacheReadTokens;

@@ -149,7 +149,7 @@ test("normalizer keeps input and total tokens when usage records them", () => {
     message: {
       role: "assistant",
       content: [{ type: "text", text: "done" }],
-      usage: { input: 7256, output: 179, cacheRead: 128, cacheWrite: 64, reasoning: 0, totalTokens: 7563, cost: 0.0123 },
+      usage: { input: 7256, output: 179, cacheRead: 128, cacheWrite: 64, reasoning: 0, totalTokens: 7563, cost: { total: 0.0123 } },
     },
   });
   const codex = normalizeSessionEvent({
