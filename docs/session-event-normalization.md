@@ -173,6 +173,8 @@ Raw event 仍可按需查看完整原始 JSON。默认视图、事件预览和�
 
 每个分类保留 `nodeRefs`，包括 `traceNodeId`、轮次索引和原始事件索引，前端可从时间投入条跳转到 Audit 或 Raw。时间区间的 `durationKind` 使用 `observed`、`estimated`、`partial` 和 `unavailable`，会话和分类的 `confidence` 使用 `observed`、`mixed`、`estimated` 和 `unavailable`。缺少开始或结束事件的项目计入质量摘要，并以部分区间或估算状态展示。
 
+`timing.steps` 按事件顺序保留每个 LLM 或工具执行区间的耗时、返回 token、上下文快照及相邻快照的上下文占用率差。LLM 返回 token 使用原始 token 用量；工具返回 token 缺少原始遥测时，按 UTF-8 返回内容估算并在界面标为“约”。步骤上下文选取其结束时间最接近的已记录快照；上下文变化是记录快照间的绝对百分比差，以带正负号的百分点展示。没有输出或上下文遥测时保持“未记录”，不将缺失值补写为精确数据。
+
 `timing` 还从轮次开始或上一条工具、上下文边界到 reasoning 或 assistant 事件推导 LLM 等待区间。原始 JSONL 没有稳定的 API `response.started` / `response.completed` 生命周期时，这些区间标记为 `estimated`，而非精确 API 耗时。Codex 的 `token_count.info.last_token_usage` 与 Pi 助手消息的 `usage` 若包含输出 token，会关联到本次 LLM 等待，展示输出 token 加推理 token 的总生成量及 `token/s`。速率的分母是上述推导区间，不是供应商逐 token 的流式遥测，缺少明确用量时不会按字符数估算。子代理只有同时拥有父会话中的启动事件和完成通知时才计入运行时长，内嵌子代理结果和子会话文件更新时间都不足以推断时长。工具时长仍来自同一调用的调用与返回事件。`GET /api/query/sessions/:id/view?view=timing` 返回与详情中相同的 `timing` 投影。搜索、类型筛选和事件统计不改变完整会话时间口径。
 
 ## 按轮次时间视图

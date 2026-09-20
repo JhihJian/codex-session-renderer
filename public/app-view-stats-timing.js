@@ -25,10 +25,50 @@ function renderTimingView(timing) {
       <div class="timing-composition" aria-label="实际运行时长构成">
         ${composition.length ? renderTimingComposition(composition) : `<div class="timing-empty"><strong>暂无可关联执行时长</strong><span>会话事件中尚未发现具有完整起止时间的工具或 LLM 记录。</span></div>`}
       </div>
+      ${renderTimingSteps(timing.steps)}
       ${renderTimingTurns(timing.turns)}
       <div class="timing-quality"><strong>时间数据质量</strong><span>估算 ${quality.estimatedCount || 0} 项 · 缺少开始 ${quality.missingStartCount || 0} 项 · 缺少结束 ${quality.missingEndCount || 0} 项 · 未关联 ${quality.unlinkedCount || 0} 项</span></div>
     </div>
   `;
+}
+
+function renderTimingSteps(steps = []) {
+  if (!steps.length) return "";
+  return `<div class="timing-steps" aria-labelledby="timingStepsHeading">
+    <div class="timing-steps-caption"><h4 id="timingStepsHeading">步骤明细</h4><span>上下文变化取相邻记录快照的占用率差</span></div>
+    <div class="timing-steps-table" role="table" aria-label="步骤时间、返回 token 与上下文占用">
+      <div class="timing-step header" role="row"><span role="columnheader">步骤</span><span role="columnheader">耗时</span><span role="columnheader">返回 token</span><span role="columnheader">上下文占用</span><span role="columnheader">上下文变化</span></div>
+      ${steps.map(renderTimingStep).join("")}
+    </div>
+  </div>`;
+}
+
+function renderTimingStep(step) {
+  const context = step.contextUsage;
+  const resultTokens = Number.isFinite(step.resultTokens)
+    ? `${step.resultTokenKind === "estimated" ? "约 " : ""}${compactNumber(step.resultTokens)} tok`
+    : "未记录";
+  const contextValue = Number.isFinite(context?.percent)
+    ? `${context.used != null && context.limit != null ? `${compactNumber(context.used)} / ${compactNumber(context.limit)} · ` : ""}${formatContextPercent(context.percent)}`
+    : "未记录";
+  const change = Number.isFinite(step.contextChangePercent) ? formatContextChange(step.contextChangePercent) : "未记录";
+  const label = step.bucketId === "llm_wait" ? `LLM · ${step.label}` : step.label;
+  return `<button class="timing-step" type="button" role="row" data-timing-node-id="${escapeAttr(step.traceNodeId || "")}" data-timing-event-index="${escapeAttr(step.eventIndex ?? "")}">
+    <span class="timing-step-label" role="cell" title="${escapeAttr(label)}">${escapeHtml(label)}</span>
+    <span role="cell">${escapeHtml(step.durationMs == null ? "未记录" : formatTimingDuration(step.durationMs))}</span>
+    <span role="cell">${escapeHtml(resultTokens)}</span>
+    <span role="cell" title="${escapeAttr(step.contextRecordedAt ? `记录于 ${step.contextRecordedAt}` : "")}">${escapeHtml(contextValue)}</span>
+    <span class="timing-context-change ${step.contextChangePercent < 0 ? "decrease" : "increase"}" role="cell">${escapeHtml(change)}</span>
+  </button>`;
+}
+
+function formatContextPercent(value) {
+  return `${Math.round(value * 10) / 10}%`;
+}
+
+function formatContextChange(value) {
+  const rounded = Math.round(value * 10) / 10;
+  return `${rounded >= 0 ? "+" : ""}${rounded}%`;
 }
 
 function renderTimingMetrics(session) {
@@ -166,5 +206,5 @@ function renderStatsOperationRow(operation, totalEvents, query) {
   `;
 }
 
-  Object.assign(api, { renderTimingView, renderTimingMetrics, formatTokensPerSecond, renderTimingComposition, renderTimingTurns, timingTurnScaleMs, timingKindLabel, formatTimingDuration, bindTimingActions, renderStatsMetric, renderStatsEventRows, renderStatsEventRow, renderStatsOperationRow });
+  Object.assign(api, { renderTimingView, renderTimingMetrics, renderTimingSteps, renderTimingStep, formatContextPercent, formatContextChange, formatTokensPerSecond, renderTimingComposition, renderTimingTurns, timingTurnScaleMs, timingKindLabel, formatTimingDuration, bindTimingActions, renderStatsMetric, renderStatsEventRows, renderStatsEventRow, renderStatsOperationRow });
 }

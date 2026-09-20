@@ -216,10 +216,10 @@ test("measured response intervals attribute token_count usage to the response th
     { type: "response_item", timestamp: "2026-09-09T03:00:20.000Z", payload: { type: "reasoning", summary: [{ type: "summary_text", text: "思考" }] } },
     { type: "response_item", timestamp: "2026-09-09T03:00:32.197Z", payload: { type: "function_call", name: "bash", call_id: "call-1", arguments: "pwd" } },
     { type: "response_item", timestamp: "2026-09-09T03:00:32.268Z", payload: { type: "function_call_output", call_id: "call-1", output: "/data/dev" } },
-    { type: "event_msg", timestamp: "2026-09-09T03:00:32.269Z", payload: { type: "token_count", info: { last_token_usage: { output_tokens: 344, reasoning_output_tokens: 44 } } } },
+    { type: "event_msg", timestamp: "2026-09-09T03:00:32.269Z", payload: { type: "token_count", info: { total_token_usage: { total_tokens: 40_000 }, model_context_window: 100_000, last_token_usage: { output_tokens: 344, reasoning_output_tokens: 44 } } } },
     { type: "response_item", timestamp: "2026-09-09T03:00:44.491Z", payload: { type: "reasoning", summary: [{ type: "summary_text", text: "继续" }] } },
     { type: "response_item", timestamp: "2026-09-09T03:00:48.298Z", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "完成" }] } },
-    { type: "event_msg", timestamp: "2026-09-09T03:00:48.300Z", payload: { type: "token_count", info: { last_token_usage: { output_tokens: 692, reasoning_output_tokens: 556 } } } },
+    { type: "event_msg", timestamp: "2026-09-09T03:00:48.300Z", payload: { type: "token_count", info: { total_token_usage: { total_tokens: 36_000 }, model_context_window: 100_000, last_token_usage: { output_tokens: 692, reasoning_output_tokens: 556 } } } },
   ];
   const turns = buildTurns(events);
   const trace = buildTrace({ id: "codex-test", title: "Codex" }, events, events.map(normalizeSessionEvent), turns, { children: [] });
@@ -229,9 +229,11 @@ test("measured response intervals attribute token_count usage to the response th
   assert.equal(responses[0].startMs, Date.parse("2026-09-09T03:00:05.000Z"));
   assert.equal(responses[0].endMs, Date.parse("2026-09-09T03:00:32.197Z"));
   assert.equal(responses[0].generatedTokens, 388);
+  assert.deepEqual(responses[0].contextUsage, { used: 40_000, limit: 100_000, percent: 40 });
   assert.equal(responses[1].startMs, Date.parse("2026-09-09T03:00:32.268Z"));
   assert.equal(responses[1].endMs, Date.parse("2026-09-09T03:00:48.298Z"));
   assert.equal(responses[1].generatedTokens, 1_248);
+  assert.deepEqual(responses[1].contextUsage, { used: 36_000, limit: 100_000, percent: 36 });
 });
 
 test("buildTrace derives waiting-for-input only between assistant and next user messages", () => {

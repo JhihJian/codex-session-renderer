@@ -80,6 +80,22 @@ test("timing view renders session TPS card and per-turn TPS meta", () => {
   assert.equal(noTokenView.includes("约 50"), false);
 });
 
+test("timing steps render returned tokens, context occupancy, and signed change", () => {
+  const markup = api.renderTimingSteps([
+    { traceNodeId: "response-1", eventIndex: 1, bucketId: "llm_wait", label: "gpt-5", durationMs: 3_000, resultTokens: 120, resultTokenKind: "recorded", contextUsage: { percent: 42, used: 42_000, limit: 100_000 }, contextChangePercent: 2.5, contextRecordedAt: "2026-07-08T10:00:03.000Z" },
+    { traceNodeId: "tool-1", eventIndex: 2, bucketId: "tool_execution", label: "bash", durationMs: 1_000, resultTokens: 8, resultTokenKind: "estimated", contextUsage: { percent: 38 }, contextChangePercent: -4, contextRecordedAt: "2026-07-08T10:00:04.000Z" },
+  ]);
+
+  assert.match(markup, /步骤明细/);
+  assert.match(markup, /LLM · gpt-5/);
+  assert.match(markup, /120 tok/);
+  assert.match(markup, /约 8 tok/);
+  assert.match(markup, /42000 \/ 100000 · 42%/);
+  assert.match(markup, /\+2.5%/);
+  assert.match(markup, /-4%/);
+  assert.equal(api.formatContextChange(0), "+0%");
+});
+
 test("timing turn bars scale relative to the longest turn and show user title", () => {
   const turns = [
     ...timingFixture().turns,

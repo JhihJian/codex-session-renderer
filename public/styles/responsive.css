@@ -472,6 +472,26 @@
     padding: 8px;
   }
 
+  .timing-steps-caption { align-items: flex-start; flex-direction: column; gap: 2px; }
+
+  .timing-step.header { display: none; }
+
+  .timing-step:not(.header) {
+    grid-template-areas:
+      "step duration"
+      "tokens context"
+      "change change";
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 8px;
+    padding: 9px 10px;
+  }
+
+  .timing-step-label { grid-area: step; }
+  .timing-step:not(.header) > :nth-child(2) { grid-area: duration; }
+  .timing-step:not(.header) > :nth-child(3) { grid-area: tokens; }
+  .timing-step:not(.header) > :nth-child(4) { grid-area: context; text-align: right; }
+  .timing-step:not(.header) > :nth-child(5) { grid-area: change; }
+
 
   .stats-event-table {
     min-width: 640px;

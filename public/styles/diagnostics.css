@@ -64,6 +64,20 @@
 .timing-composition-legend.timing-composition-parallel i { background: var(--teal); }
 .timing-turns { display: grid; gap: 6px; }
 .timing-turns { margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--hair); }
+.timing-steps { display: grid; gap: 6px; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--hair); }
+.timing-steps-caption { display: flex; min-width: 0; align-items: baseline; justify-content: space-between; gap: 10px; }
+.timing-steps-caption h4 { margin: 0; font-size: 14px; }
+.timing-steps-caption span { color: var(--text-3); font-size: 10.5px; }
+.timing-steps-table { display: grid; overflow: hidden; border: 1px solid var(--hair); border-radius: var(--radius-tool); background: var(--bg-sunken); }
+.timing-step { display: grid; grid-template-columns: minmax(160px, 1.6fr) 78px 108px minmax(130px, 1.2fr) 92px; align-items: center; gap: 9px; min-width: 0; min-height: 38px; border: 0; border-bottom: 1px solid var(--hair); background: transparent; color: var(--text-2); font-family: var(--mono); font-size: 10.5px; padding: 7px 10px; text-align: left; }
+.timing-step:last-child { border-bottom: 0; }
+.timing-step:not(.header) { cursor: pointer; }
+.timing-step:not(.header):hover, .timing-step:not(.header):focus-visible { background: color-mix(in srgb, var(--blue-soft) 28%, transparent); outline: 0; }
+.timing-step.header { min-height: 30px; background: color-mix(in srgb, var(--bg-elev) 72%, var(--bg-sunken)); color: var(--text-3); font-family: var(--sans); font-size: 10px; font-weight: 760; }
+.timing-step > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timing-step-label { color: var(--text); font-family: var(--sans); font-size: 11px; font-weight: 700; }
+.timing-context-change.increase { color: var(--orange); }
+.timing-context-change.decrease { color: var(--teal); }
 .timing-turns-caption { display: flex; min-width: 0; align-items: baseline; justify-content: space-between; gap: 10px; }
 .timing-turns-caption span { color: var(--text-3); font-size: 10.5px; white-space: nowrap; }
 .timing-turn { display: grid; gap: 5px; }

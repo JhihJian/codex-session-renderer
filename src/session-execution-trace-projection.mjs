@@ -387,7 +387,7 @@ function measuredResponseIntervals(turn, turnIndex, session) {
       continue;
     }
     if (item.type === "token-count" && item.tokenUsage) {
-      closeResponse(item.tokenUsage, latestContextUsage(turn.items, itemIndex), "token-count", item.sourceIndex ?? null);
+      closeResponse(item.tokenUsage, contextUsageFromTokenInfo(item.info) || latestContextUsage(turn.items, itemIndex), "token-count", item.sourceIndex ?? null);
     }
   }
   return intervals;

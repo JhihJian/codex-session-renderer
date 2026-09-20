@@ -197,6 +197,26 @@ test("诊断统计按工具目标汇总上下文占用", async ({ page }) => {
   await expect(page.locator("#rawContent .raw-preview")).toContainText("FULL_TOOL_OUTPUT_END");
 });
 
+test("时间诊断逐步骤展示返回 token 与上下文变化", async ({ page }) => {
+  await page.goto("/");
+  await selectCodexSource(page);
+  await page.locator("#diagnosticViewButton").click();
+
+  const steps = page.locator(".timing-steps");
+  await expect(steps).toContainText("步骤明细");
+  await expect(steps).toContainText("返回 token");
+  await expect(steps).toContainText("上下文占用");
+  await expect(steps).toContainText("上下文变化");
+  await expect(steps).toContainText("LLM · gpt-5");
+  await expect(steps).toContainText("400 tok");
+  await expect(steps).toContainText("约");
+  await expect(steps).toContainText("50%");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const layout = await steps.locator(".timing-steps-table").evaluate((element) => ({ client: element.clientWidth, scroll: element.scrollWidth }));
+  expect(layout.scroll).toBeLessThanOrEqual(layout.client);
+});
+
 test("事件统计在工具输出下按摘要规则汇总操作", async ({ page }) => {
   await page.goto("/");
   await selectCodexSource(page);

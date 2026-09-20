@@ -117,6 +117,7 @@ function confidenceFor(intervals) {
 // eslint-disable-next-line complexity
 function nodeRef(item) {
   const detail = item.node.detail?.item || {};
+  const resultTokens = item.generatedTokens ?? toolResultTokens(detail.output);
   return {
     traceNodeId: item.node.id,
     turnIndex: item.turnIndex,
@@ -128,6 +129,8 @@ function nodeRef(item) {
     toolName: item.model || detail.name || null,
     model: item.model || null,
     contextUsage: item.contextUsage || detail.contextUsage || null,
+    resultTokens,
+    resultTokenKind: item.generatedTokens != null ? "recorded" : resultTokens != null ? "estimated" : null,
     outputTokens: item.outputTokens ?? detail.outputTokens ?? null,
     reasoningTokens: item.reasoningTokens ?? detail.reasoningTokens ?? null,
     generatedTokens: item.generatedTokens ?? detail.generatedTokens ?? null,
@@ -135,6 +138,68 @@ function nodeRef(item) {
     status: detail.status || item.node.status || null,
     arguments: detail.arguments || null,
   };
+}
+
+function toolResultTokens(output) {
+  if (output == null || output === "") return null;
+  return Math.max(1, Math.ceil(Buffer.byteLength(String(output), "utf8") / 4));
+}
+
+function contextSnapshots(trace, intervals) {
+  const snapshots = [];
+  const add = (usage, time, eventIndex = null) => {
+    if (!Number.isFinite(usage?.percent) || !Number.isFinite(time)) return;
+    snapshots.push({ usage, time, eventIndex });
+  };
+  for (const item of intervals) add(item.contextUsage, item.endMs, item.eventIndex);
+  const walk = (node) => {
+    if (!node) return;
+    const item = node.detail?.item || {};
+    add(item.info?.context_usage, Date.parse(node.timestamp || ""), item.sourceIndex ?? null);
+    for (const child of node.children || []) walk(child);
+  };
+  walk(trace?.root);
+  const seen = new Set();
+  return snapshots
+    .sort((left, right) => left.time - right.time || (left.eventIndex ?? Infinity) - (right.eventIndex ?? Infinity))
+    .filter((snapshot) => {
+      const key = `${snapshot.time}:${snapshot.eventIndex ?? ""}:${snapshot.usage.percent}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map((snapshot, index, values) => ({
+      ...snapshot,
+      deltaPercent: index === 0 ? null : Math.round((snapshot.usage.percent - values[index - 1].usage.percent) * 10) / 10,
+    }));
+}
+
+function closestContextSnapshot(snapshots, item) {
+  if (item.contextUsage && Number.isFinite(item.contextUsage.percent)) {
+    return snapshots.find((snapshot) => snapshot.eventIndex === item.eventIndex && snapshot.usage.percent === item.contextUsage.percent)
+      || { usage: item.contextUsage, deltaPercent: null };
+  }
+  if (!snapshots.length || item.endMs == null) return null;
+  return snapshots.reduce((closest, snapshot) => (
+    Math.abs(snapshot.time - item.endMs) < Math.abs(closest.time - item.endMs) ? snapshot : closest
+  ));
+}
+
+function buildSteps(trace, intervals) {
+  const snapshots = contextSnapshots(trace, intervals);
+  return intervals
+    .map((item) => {
+      const ref = nodeRef(item);
+      const snapshot = closestContextSnapshot(snapshots, item);
+      return {
+        ...ref,
+        bucketId: item.bucketId,
+        contextUsage: snapshot?.usage || ref.contextUsage || null,
+        contextChangePercent: snapshot?.deltaPercent ?? null,
+        contextRecordedAt: snapshot?.time != null ? new Date(snapshot.time).toISOString() : null,
+      };
+    })
+    .sort((left, right) => (left.eventIndex ?? Infinity) - (right.eventIndex ?? Infinity) || (left.traceNodeId || "").localeCompare(right.traceNodeId || ""));
 }
 
 function buildGroups(intervals) {
@@ -240,6 +305,7 @@ function buildSessionTiming(trace) {
   const endMs = Date.parse(completedAt || "");
   const durationMs = Number.isFinite(startMs) && Number.isFinite(endMs) && endMs >= startMs ? endMs - startMs : null;
   const intervals = [...walkTrace(trace?.root), ...responseIntervals(trace)];
+  const steps = buildSteps(trace, intervals);
   const completeIntervals = intervals.filter((item) => item.durationMs != null);
   const executionCoverage = coveredMs(completeIntervals.map((item) => ({ startMs: item.startMs, endMs: item.endMs })));
   const completeLlmIntervals = completeIntervals.filter((item) => item.bucketId === "llm_wait");
@@ -285,7 +351,7 @@ function buildSessionTiming(trace) {
     };
   });
   return {
-    version: 1,
+    version: 2,
     session: {
       startedAt,
       completedAt,
@@ -304,6 +370,7 @@ function buildSessionTiming(trace) {
       },
     },
     buckets,
+    steps,
     turns,
     quality,
   };

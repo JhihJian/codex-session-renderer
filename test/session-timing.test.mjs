@@ -150,6 +150,39 @@ test("session timing reports generated tokens and estimated LLM throughput", () 
   assert.deepEqual(timing.session.llm, { generatedTokens: 500, generatedTokensPerSecond: 50, responseCount: 1 });
 });
 
+test("session timing reports each step's result tokens and recorded context change", () => {
+  const timing = buildSessionTiming({
+    timing: {
+      responses: [
+        { id: "response-1", turnIndex: 0, startedAt: "2026-07-08T10:00:00.000Z", completedAt: "2026-07-08T10:00:04.000Z", startMs: Date.parse("2026-07-08T10:00:00.000Z"), endMs: Date.parse("2026-07-08T10:00:04.000Z"), durationMs: 4_000, eventIndex: 1, generatedTokens: 120, contextUsage: { percent: 40, used: 40_000, limit: 100_000 } },
+        { id: "response-2", turnIndex: 0, startedAt: "2026-07-08T10:00:08.000Z", completedAt: "2026-07-08T10:00:12.000Z", startMs: Date.parse("2026-07-08T10:00:08.000Z"), endMs: Date.parse("2026-07-08T10:00:12.000Z"), durationMs: 4_000, eventIndex: 4, generatedTokens: 80, contextUsage: { percent: 44, used: 44_000, limit: 100_000 } },
+      ],
+    },
+    root: {
+      type: "thread",
+      children: [{
+        type: "turn",
+        index: 0,
+        children: [{
+          type: "tool",
+          id: "tool-1",
+          timestamp: "2026-07-08T10:00:05.000Z",
+          completedAt: "2026-07-08T10:00:07.000Z",
+          detail: { item: { sourceIndex: 2, name: "bash", output: "abcd" } },
+          children: [],
+        }],
+      }],
+    },
+  });
+
+  assert.equal(timing.version, 2);
+  assert.equal(timing.steps.length, 3);
+  assert.deepEqual(timing.steps.map((step) => step.resultTokens), [120, 1, 80]);
+  assert.deepEqual(timing.steps.map((step) => step.resultTokenKind), ["recorded", "estimated", "recorded"]);
+  assert.deepEqual(timing.steps.map((step) => step.contextUsage?.percent), [40, 40, 44]);
+  assert.deepEqual(timing.steps.map((step) => step.contextChangePercent), [null, null, 4]);
+});
+
 test("session timing reports partial nodes without inventing duration", () => {
   const timing = buildSessionTiming({
     timing: { startedAt: "2026-07-08T10:00:00.000Z", completedAt: "2026-07-08T10:00:05.000Z", estimated: true },
