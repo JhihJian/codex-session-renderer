@@ -203,8 +203,10 @@ function renderTurnTokenBars(node) {
 function renderTokenBar(label, values, segmentTotal, classes, { fillPercent, limit = null }) {
   if (!Number.isFinite(segmentTotal) || segmentTotal < 0 || !Number.isFinite(fillPercent)) return "";
   const detail = `${label}：${values.map((value) => `${formatTraceTokenCount(value || 0)} tok`).join(" / ")}${limit ? ` · 窗口 ${formatTraceTokenCount(limit)} tok` : ""}`;
-  const segments = values.map((value, index) => `<i class="trace-token-segment ${classes[index]}" style="width:${ratioPercent(value, segmentTotal)}%" title="${escapeAttr(`${label.split(" / ")[index] || label} ${formatTraceTokenCount(value || 0)} tok · ${ratioPercent(value, segmentTotal)}%`)}"></i>`).join("");
-  return `<span class="trace-token-bar" title="${escapeAttr(detail)}"><em>${escapeHtml(label)}</em><span><b style="width:${Math.min(100, fillPercent)}%">${segments}</b></span></span>`;
+  const entries = values.map((value, index) => ({ label: label.split(" / ")[index] || label, value: value || 0, percent: ratioPercent(value, segmentTotal), className: classes[index] }));
+  const segments = entries.map((entry) => `<i class="trace-token-segment ${entry.className}" style="width:${entry.percent}%" title="${escapeAttr(`${entry.label} ${formatTraceTokenCount(entry.value)} tok · ${entry.percent}%`)}"></i>`).join("");
+  const legend = entries.map((entry) => `<small class="${entry.className}">${escapeHtml(`${entry.label} ${formatTraceTokenCount(entry.value)} tok · ${entry.percent}%`)}</small>`).join("");
+  return `<span class="trace-token-bar" title="${escapeAttr(detail)}"><em>${escapeHtml(label)}</em><span><b style="width:${Math.min(100, fillPercent)}%">${segments}</b></span><span class="trace-token-legend">${legend}</span></span>`;
 }
 
 function sumFinite(values) {
