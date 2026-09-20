@@ -75,9 +75,12 @@ function renderSessionList() {
   bindSessionDirectoryTree();
   els.sessionList.querySelectorAll("[data-session-id]").forEach((row) => {
     const activate = () => selectSession(row.dataset.sessionId, { immediateMobilePanel: true });
-    row.addEventListener("click", (event) => { if (!event.target.closest("a")) activate(); });
+    row.addEventListener("click", (event) => {
+      if (event.target.closest("a")) event.preventDefault();
+      activate();
+    });
     row.addEventListener("keydown", (event) => {
-      if (event.target.closest("a") || (event.key !== "Enter" && event.key !== " ")) return;
+      if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
       activate();
     });

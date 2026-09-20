@@ -16,9 +16,12 @@ const longTitleSessionId = "88888888-8888-4888-8888-888888888888";
 const longTitleSuffix = "CHROMIUM_LONG_TITLE_SUFFIX";
 const longTypeSuffix = "CHROMIUM_LONG_TITLE_ERROR_TOOL_AFTER_DISPLAY_LIMIT";
 const longCanonicalTitle = `Chromium 标题前缀 ${"x".repeat(1000)} ${longTitleSuffix} ${longTypeSuffix}`;
+const markdownTitleSessionId = "99999999-9999-4999-8999-999999999999";
+const markdownTitle = "侧边栏 [外部跳转](https://example.test/sidebar-title)";
 const codexGoalControl = knownCodexGoalControlText(codexGoalObjective, 0);
 const codexGoalSessionPath = path.join(sessionDir, `rollout-2025-01-02T03-04-06-${codexGoalSessionId}.jsonl`);
 const longTitleSessionPath = path.join(sessionDir, `rollout-2025-01-02T03-04-07-${longTitleSessionId}.jsonl`);
+const markdownTitleSessionPath = path.join(sessionDir, `rollout-2025-01-02T03-04-08-${markdownTitleSessionId}.jsonl`);
 const piSessionsRoot = path.join(tempRoot, ".pi", "agent", "sessions");
 const piSessionId = "44444444-4444-4444-8444-444444444444";
 const piSessionPath = path.join(piSessionsRoot, "e2e-pi-session.jsonl");
@@ -45,10 +48,16 @@ await writeFile(
   `${JSON.stringify({ type: "session_meta", payload: { cwd: "/workspace/long-title" } })}\n${JSON.stringify({ type: "event_msg", payload: { type: "user_message", message: "Chromium 长标题详情" } })}\n`,
   "utf8",
 );
-await writeFile(path.join(codexHome, "session_index.jsonl"), `${JSON.stringify({ id: sessionId, thread_name: sessionTitle })}\n${JSON.stringify({ id: codexGoalSessionId, thread_name: codexGoalControl })}\n${JSON.stringify({ id: longTitleSessionId, thread_name: longCanonicalTitle })}\n`, "utf8");
+await writeFile(
+  markdownTitleSessionPath,
+  `${JSON.stringify({ type: "session_meta", payload: { cwd: "/workspace/markdown-title" } })}\n${JSON.stringify({ type: "event_msg", payload: { type: "user_message", message: "Markdown 标题详情" } })}\n`,
+  "utf8",
+);
+await writeFile(path.join(codexHome, "session_index.jsonl"), `${JSON.stringify({ id: sessionId, thread_name: sessionTitle })}\n${JSON.stringify({ id: codexGoalSessionId, thread_name: codexGoalControl })}\n${JSON.stringify({ id: longTitleSessionId, thread_name: longCanonicalTitle })}\n${JSON.stringify({ id: markdownTitleSessionId, thread_name: markdownTitle })}\n`, "utf8");
 await utimes(sessionPath, new Date(), new Date());
 await utimes(codexGoalSessionPath, new Date(Date.now() - 1000), new Date(Date.now() - 1000));
 await utimes(longTitleSessionPath, new Date(Date.now() - 2000), new Date(Date.now() - 2000));
+await utimes(markdownTitleSessionPath, new Date(Date.now() - 3000), new Date(Date.now() - 3000));
 await mkdir(piSessionsRoot, { recursive: true });
 await writeFile(
   piSessionPath,

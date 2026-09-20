@@ -65,6 +65,21 @@ test("被截断的会话标题保留完整原文提示", async ({ page }) => {
   await expect(title).toContainText(suffix);
 });
 
+test("侧边栏 Markdown 标题链接不会离开工作台，并照常选择会话", async ({ page }) => {
+  await page.goto("/");
+  await selectCodexSource(page);
+  const row = page.locator('[data-session-id="99999999-9999-4999-8999-999999999999"]');
+  const link = row.locator(".session-title a");
+  await expect(link).toHaveAttribute("href", "https://example.test/sidebar-title");
+  const initialUrl = page.url();
+
+  await link.click();
+
+  await expect.poll(() => page.url()).toBe(initialUrl);
+  await expect(row).toHaveAttribute("aria-current", "true");
+  await expect(page.locator("#sessionTitle")).toContainText("外部跳转");
+});
+
 test("长标题后段类型筛选由服务端完成", async ({ page }) => {
   const localSuffix = "CHROMIUM_LONG_TITLE_ERROR_TOOL_AFTER_DISPLAY_LIMIT";
   await page.goto("/");
