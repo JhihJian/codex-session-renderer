@@ -190,11 +190,13 @@ function renderTurnTokenBars(node) {
   const generatedTotal = sumFinite(generated);
   const cacheTotal = sumFinite([usage.cacheReadTokens, usage.cacheWriteTokens]);
   const total = usage.totalTokens;
-  const contextLimit = node.detail?.modelContextUsage?.usage?.limit;
+  const contextUsage = node.detail?.modelContextUsage?.usage;
+  const contextUsed = contextUsage?.used;
+  const contextLimit = contextUsage?.limit;
   return `<span class="trace-token-bars">${[
     renderTokenBar("入 / 出 / 推理", generated, generatedTotal, ["input", "output", "reasoning"], { fillPercent: 100 }),
     renderTokenBar("缓存读 / 写", [usage.cacheReadTokens, usage.cacheWriteTokens], cacheTotal, ["cache-read", "cache-write"], { fillPercent: ratioPercent(cacheTotal, total) }),
-    renderTokenBar("总用量 / 窗口", [total], total, ["context-total"], { fillPercent: ratioPercent(total, contextLimit), limit: contextLimit }),
+    renderTokenBar("轮末上下文 / 窗口", [contextUsed], contextUsed, ["context-total"], { fillPercent: ratioPercent(contextUsed, contextLimit), limit: contextLimit }),
   ].filter(Boolean).join("")}</span>`;
 }
 
