@@ -409,6 +409,19 @@ function messageRefWithin(messageRef, startMs, endMs) {
   return messageRef;
 }
 
+function thinkingRefFromItem(items, turnIndex, itemIndex) {
+  const item = items?.[itemIndex];
+  if (item?.type !== "reasoning" && !item?.reasoning) return null;
+  return {
+    turnIndex,
+    itemIndex,
+    sourceIndex: item.sourceIndex ?? null,
+    timestamp: item.timestamp || null,
+    textLength: String(item.text || item.reasoning?.summary || "").length,
+    encrypted: Boolean(item.encrypted || item.reasoning?.encrypted),
+  };
+}
+
 export {
   addTruncatedField,
   assistantMessageRef,
@@ -424,5 +437,6 @@ export {
   parseJsonObject,
   subagentNotificationAgentIds,
   subagentNotificationPayload,
+  thinkingRefFromItem,
   toMs,
 };

@@ -243,6 +243,14 @@ test("measured response intervals attribute token_count usage to the response th
     timestamp: "2026-09-09T03:00:48.298Z",
     textLength: 2,
   });
+  assert.deepEqual(responses[1].thinkingRefs, [{
+    turnIndex: 0,
+    itemIndex: 4,
+    sourceIndex: 5,
+    timestamp: "2026-09-09T03:00:44.491Z",
+    textLength: 2,
+    encrypted: false,
+  }]);
   const executionNodes = trace.root.children[0].children;
   const responseNode = executionNodes.find((node) => node.type === "response");
   const finalResponseNode = executionNodes.filter((node) => node.type === "response").at(-1);
@@ -262,6 +270,7 @@ test("measured response intervals attribute token_count usage to the response th
     changePercent: null,
   });
   assert.deepEqual(finalResponseNode.detail.response.messageRef, responses[1].messageRef);
+  assert.deepEqual(finalResponseNode.detail.response.thinkingRefs, responses[1].thinkingRefs);
   assert.doesNotMatch(JSON.stringify(finalResponseNode.detail.response), /完成/);
 });
 

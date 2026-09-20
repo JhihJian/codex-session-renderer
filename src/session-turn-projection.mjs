@@ -123,6 +123,8 @@ function buildTurns(events) {
           attachments: event.attachments,
           messageId: event.messageId,
           tokenUsage: event.tokenUsage,
+          reasoning: event.reasoning,
+          encrypted: Boolean(event.reasoning?.encrypted),
         });
       }
       for (const toolCall of event.toolCalls || []) registerEmbeddedToolCall(current, activeCall, event, toolCall, sourceIndex);

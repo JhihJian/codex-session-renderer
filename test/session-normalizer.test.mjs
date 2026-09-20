@@ -143,6 +143,17 @@ test("normalizer extracts generated token usage from Codex and Pi records", () =
   assert.deepEqual(pi.tokenUsage, { outputTokens: 42, reasoningTokens: 8, generatedTokens: 50 });
 });
 
+test("normalizer keeps Pi assistant thinking as a displayable reasoning summary", () => {
+  const normalized = normalizeSessionEvent({
+    type: "message",
+    message: { role: "assistant", content: [{ type: "thinking", thinking: "正在核对会话事件。", thinkingSignature: "opaque" }, { type: "text", text: "继续处理。" }] },
+  });
+
+  assert.equal(normalized.reasoning.summary, "正在核对会话事件。");
+  assert.equal(normalized.reasoning.encrypted, true);
+  assert.equal(normalized.text, "继续处理。");
+});
+
 test("normalizer keeps input and total tokens when usage records them", () => {
   const pi = normalizeSessionEvent({
     type: "message",

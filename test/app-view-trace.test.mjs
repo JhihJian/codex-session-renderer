@@ -40,7 +40,7 @@ function traceFixture() {
     session: { title: "示例会话" },
     turns: [{
       items: [
-        { type: "assistant-message", sourceIndex: 42, text: "这是完整的模型输出。\n\n包含第二段内容。" },
+        { type: "assistant-message", sourceIndex: 42, text: "这是完整的模型输出。\n\n包含第二段内容。", reasoning: { summary: "先确认关联的原始事件。", encrypted: true } },
       ],
     }],
     trace: {
@@ -94,7 +94,7 @@ function traceFixture() {
                 children: [],
                 detail: {
                   kind: "response",
-                  response: { model: "gpt-5", generatedTokens: 120, inputTokens: 1_000, outputTokens: 80, reasoningTokens: 40, cacheReadTokens: 500, cacheWriteTokens: 20, totalTokens: 1_640, cost: 0.0123, contextPercent: 50, contextUsed: 50_000, contextLimit: 100_000, messageRef: { turnIndex: 0, itemIndex: 0, sourceIndex: 42, textLength: 18 } },
+                  response: { model: "gpt-5", generatedTokens: 120, inputTokens: 1_000, outputTokens: 80, reasoningTokens: 40, cacheReadTokens: 500, cacheWriteTokens: 20, totalTokens: 1_640, cost: 0.0123, contextPercent: 50, contextUsed: 50_000, contextLimit: 100_000, messageRef: { turnIndex: 0, itemIndex: 0, sourceIndex: 42, textLength: 18 }, thinkingRefs: [{ turnIndex: 0, itemIndex: 0, sourceIndex: 42, textLength: 11, encrypted: true }] },
                   contextMetrics: { source: "recorded", usage: { percent: 50, used: 50_000, limit: 100_000 }, resultTokens: 120, resultTokenKind: "recorded", changePercent: -2 },
                 },
               },
@@ -171,6 +171,8 @@ test("模型回复详情面板展示回复信息", () => {
   assert.match(detailsHtml, /generatedTokens/);
   assert.match(detailsHtml, /模型输出/);
   assert.match(detailsHtml, /这是完整的模型输出/);
+  assert.match(detailsHtml, /模型推理/);
+  assert.match(detailsHtml, /先确认关联的原始事件/);
   assert.match(detailsHtml, /data-response-raw-event-index="42"/);
   assert.doesNotMatch(detailsHtml, /tool-details-status/);
 });

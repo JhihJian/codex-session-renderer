@@ -380,17 +380,24 @@ function piAgentContentText(content) {
 }
 
 function extractReasoning(payload, raw, semanticKind) {
-  const source = payload.type === "reasoning" ? payload : isObject(raw.reasoning) ? raw.reasoning : null;
+  const source = payload.type === "reasoning" ? payload : isObject(raw.reasoning) ? raw.reasoning : piThinkingContent(raw);
   if (!source && semanticKind !== "reasoning") return null;
-  const encryptedContent = source?.encrypted_content ?? payload.encrypted_content ?? raw.encrypted_content;
-  const summary = Array.isArray(source?.summary)
-    ? source.summary.map((part) => part?.text ?? part?.value ?? (typeof part === "string" ? part : "")).filter(Boolean).join("\n")
-    : "";
+  const encryptedContent = source?.encrypted_content ?? payload.encrypted_content ?? raw.encrypted_content ?? source?.thinkingSignature;
+  const summary = typeof source?.thinking === "string"
+    ? source.thinking
+    : Array.isArray(source?.summary)
+      ? source.summary.map((part) => part?.text ?? part?.value ?? (typeof part === "string" ? part : "")).filter(Boolean).join("\n")
+      : "";
   return {
     encrypted: encryptedContent != null,
     encryptedLength: encryptedContent == null ? 0 : String(encryptedContent).length,
     summary,
   };
+}
+
+function piThinkingContent(raw) {
+  const content = raw?.message?.content;
+  return Array.isArray(content) ? content.find((part) => isObject(part) && part.type === "thinking") || null : null;
 }
 
 function extractCompact(payload, raw, kind, rawType) {

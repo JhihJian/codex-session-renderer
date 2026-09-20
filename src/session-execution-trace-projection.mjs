@@ -1,4 +1,4 @@
-import { assistantMessageRef, contextUsageForAssistantMessage, contextUsageFromTokenInfo, durationMs, messageRefWithin, toMs } from "./session-projection-shared.mjs";
+import { assistantMessageRef, contextUsageForAssistantMessage, contextUsageFromTokenInfo, durationMs, messageRefWithin, thinkingRefFromItem, toMs } from "./session-projection-shared.mjs";
 import { deriveSessionStatusFromTurns } from "./session-turn-projection.mjs";
 import {
   compactTraceSession,
@@ -171,9 +171,7 @@ function attachTurnResponses(turnNode, turn, turnIndex, responsesByTurnIndex) {
   }
 }
 
-function byStartTimestamp(left, right) {
-  return (toMs(left.timestamp) ?? Infinity) - (toMs(right.timestamp) ?? Infinity);
-}
+function byStartTimestamp(left, right) { return (toMs(left.timestamp) ?? Infinity) - (toMs(right.timestamp) ?? Infinity); }
 
 // 模型回复段：轮次时长扣除工具、子代理等已占用区间后的纯生成间隔，不足 1 秒不展示。
 function llmSegmentTraceNode({ turn, turnIndex, segmentIndex, startMs, endMs, intervals }) {
@@ -207,6 +205,7 @@ function llmSegmentTraceNode({ turn, turnIndex, segmentIndex, startMs, endMs, in
         reasoningTokens: nvl(overlap?.reasoningTokens),
         ...llmUsageProjection(overlap),
         messageRef,
+        thinkingRefs: overlap?.thinkingRefs || [],
         contextPercent: nvl(usage.percent),
         contextUsed: nvl(usage.used),
         contextLimit: nvl(usage.limit),
@@ -230,9 +229,7 @@ function pickOverlappingInterval(intervals, startMs, endMs) {
   return best;
 }
 
-function nvl(value) {
-  return value == null ? null : value;
-}
+function nvl(value) { return value == null ? null : value; }
 
 function llmUsageProjection(usage) {
   return {
@@ -281,9 +278,7 @@ function applyExecutionContextMetrics(root) {
   }
 }
 
-function executionNodeOrder(node) {
-  return node.type === "response" ? 0 : 1;
-}
+function executionNodeOrder(node) { return node.type === "response" ? 0 : 1; }
 
 function applyTurnModelUsage(root) {
   for (const turn of root.children || []) {
@@ -436,6 +431,7 @@ function buildInferredResponseIntervals(turns, session, options = {}) {
         contextSource: context.source,
         eventIndex: item.sourceIndex ?? null,
         messageRef: assistantMessageRef(turn.items, turnIndex, itemIndex),
+        thinkingRefs: [thinkingRefFromItem(turn.items, turnIndex, itemIndex)].filter(Boolean),
         responseType: item.type,
         outputTokens: null,
         reasoningTokens: null,
@@ -454,6 +450,7 @@ function measuredResponseIntervals(turn, turnIndex, session, options = {}) {
   let responseStartMs = null;
   let responseEndMs = null;
   let lastAssistantMessageRef = null;
+  let thinkingRefs = [];
   const intervals = [];
   const openResponse = (timestampMs) => {
     if (responseEndMs == null) responseStartMs = pendingBoundaryMs;
@@ -475,6 +472,7 @@ function measuredResponseIntervals(turn, turnIndex, session, options = {}) {
         contextSource: context.source,
         eventIndex,
         messageRef: lastAssistantMessageRef,
+        thinkingRefs,
         responseType,
         outputTokens: usage.outputTokens,
         reasoningTokens: usage.reasoningTokens || 0,
@@ -486,6 +484,7 @@ function measuredResponseIntervals(turn, turnIndex, session, options = {}) {
     responseStartMs = null;
     responseEndMs = null;
     lastAssistantMessageRef = null;
+    thinkingRefs = [];
   };
   for (const [itemIndex, item] of turn.items.entries()) {
     if (item.type === "user-message") {
@@ -494,12 +493,15 @@ function measuredResponseIntervals(turn, turnIndex, session, options = {}) {
       responseStartMs = null;
       responseEndMs = null;
       lastAssistantMessageRef = null;
+      thinkingRefs = [];
       continue;
     }
     if (item.type === "reasoning" || item.type === "assistant-message") {
       const ms = toMs(item.timestamp);
       if (ms != null) {
         openResponse(ms);
+        const thinkingRef = thinkingRefFromItem(turn.items, turnIndex, itemIndex);
+        if (thinkingRef) thinkingRefs.push(thinkingRef);
         if (item.type === "assistant-message") lastAssistantMessageRef = assistantMessageRef(turn.items, turnIndex, itemIndex);
         if (item.type === "assistant-message" && item.tokenUsage) {
           closeResponse(item.tokenUsage, assistantContextUsage(turn.items, itemIndex, options.modelContextWindow), "assistant-message", item.sourceIndex ?? null);
@@ -521,15 +523,7 @@ function measuredResponseIntervals(turn, turnIndex, session, options = {}) {
   return intervals;
 }
 
-function latestContextUsage(items, itemIndex) {
-  for (let index = itemIndex - 1; index >= 0; index -= 1) {
-    if (items[index].type === "token-count") {
-      const usage = contextUsageFromTokenInfo(items[index].info);
-      if (usage) return usage;
-    }
-  }
-  return null;
-}
+function latestContextUsage(items, itemIndex) { for (let index = itemIndex - 1; index >= 0; index -= 1) { if (items[index].type === "token-count") { const usage = contextUsageFromTokenInfo(items[index].info); if (usage) return usage; } } return null; }
 
 function assistantContextUsage(items, itemIndex, modelContextWindow) {
   const recorded = contextUsageForAssistantMessage(items, itemIndex);

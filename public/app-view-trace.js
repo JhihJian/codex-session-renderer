@@ -300,6 +300,15 @@ function traceResponseItem(node) {
   return item?.type === "assistant-message" ? item : null;
 }
 
+function traceResponseThinkingItems(node) {
+  const refs = node?.detail?.response?.thinkingRefs || [];
+  return refs.map((ref) => state.detail?.turns?.[ref.turnIndex]?.items?.[ref.itemIndex]).filter(Boolean);
+}
+
+function responseThinkingText(item) {
+  return item.type === "reasoning" ? item.text || "" : item.reasoning?.summary || "";
+}
+
 function traceArgumentPreview(item) {
   if (!item?.arguments) return "";
   const value = prettyMaybeJson(item.arguments).replace(/\s+/g, " ").trim();
@@ -339,6 +348,7 @@ function renderToolDetails(node = null) {
   const task = node.detail?.task;
   const detail = node.detail || {};
   const responseItem = node.type === "response" ? traceResponseItem(node) : null;
+  const thinkingItems = node.type === "response" ? traceResponseThinkingItems(node) : [];
   const responseSourceIndex = responseItem?.sourceIndex ?? detail.response?.messageRef?.sourceIndex ?? null;
   const isTool = item?.type === "tool-call" || node.type === "tool" || node.type === "handoff";
   const title = item?.name || node.title || node.label || "执行节点";
@@ -361,6 +371,7 @@ function renderToolDetails(node = null) {
     ${metadata ? `<div class="tool-details-meta">${escapeHtml(metadata)}</div>` : ""}
     ${renderTraceContextDetails(contextMetrics)}
     ${responseItem?.text ? `<section class="tool-details-section trace-response-output"><h4>模型输出</h4><div>${renderMarkdownMessage(responseItem.text, "")}</div></section>` : ""}
+    ${thinkingItems.map((item) => `<section class="tool-details-section trace-response-output"><h4>模型推理</h4><div>${responseThinkingText(item) ? renderMarkdownMessage(responseThinkingText(item), "") : "推理内容已加密存储，当前没有可展示的明文摘要。"}</div></section>`).join("")}
     ${responseSourceIndex != null ? `<div class="trace-response-actions"><button class="ghost-button small" type="button" data-response-raw-event-index="${escapeAttr(String(responseSourceIndex))}">查看原始事件</button></div>` : ""}
     ${argumentsText ? `<section class="tool-details-section"><h4>${isTool ? "调用参数" : "节点信息"}</h4><pre>${escapeHtml(argumentsText)}</pre></section>` : ""}
     ${outputText ? `<section class="tool-details-section"><h4>返回结果</h4><pre>${escapeHtml(outputText)}</pre></section>` : ""}
@@ -382,5 +393,5 @@ function renderTraceContextDetails(metrics) {
   return `<section class="trace-context-details"><h4>${heading}</h4><div>${values.map(([label, value]) => `<span><em>${escapeHtml(label)}</em><strong>${escapeHtml(value)}</strong></span>`).join("")}</div></section>`;
 }
 
-  Object.assign(api, { renderTrace, filterTraceNode, isDefaultTraceNode, traceNodeMatchesType, traceSearchText, renderTraceNode, traceContextMetrics, renderTraceResultMetrics, traceNodeModelUsage, renderTurnTokenBars, renderTraceUsageMetrics, renderTraceContextSummary, traceContextUsageTitle, traceContextSourceLabel, formatTraceTokenCount, formatTraceCost, formatTraceContextPercent, formatTraceContextChange, traceToolTitle, fullTraceItem, traceResponseItem, traceArgumentPreview, traceStatusKind, traceStatusLabel, renderToolDetails, renderTraceContextDetails });
+  Object.assign(api, { renderTrace, filterTraceNode, isDefaultTraceNode, traceNodeMatchesType, traceSearchText, renderTraceNode, traceContextMetrics, renderTraceResultMetrics, traceNodeModelUsage, renderTurnTokenBars, renderTraceUsageMetrics, renderTraceContextSummary, traceContextUsageTitle, traceContextSourceLabel, formatTraceTokenCount, formatTraceCost, formatTraceContextPercent, formatTraceContextChange, traceToolTitle, fullTraceItem, traceResponseItem, traceResponseThinkingItems, responseThinkingText, traceArgumentPreview, traceStatusKind, traceStatusLabel, renderToolDetails, renderTraceContextDetails });
 }
