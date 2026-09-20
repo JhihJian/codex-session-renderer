@@ -199,6 +199,7 @@ function llmSegmentTraceNode({ turn, turnIndex, segmentIndex, startMs, endMs, in
         generatedTokens: nvl(overlap?.generatedTokens),
         outputTokens: nvl(overlap?.outputTokens),
         reasoningTokens: nvl(overlap?.reasoningTokens),
+        ...llmUsageProjection(overlap),
         contextPercent: nvl(usage.percent),
         contextUsed: nvl(usage.used),
         contextLimit: nvl(usage.limit),
@@ -224,6 +225,16 @@ function pickOverlappingInterval(intervals, startMs, endMs) {
 
 function nvl(value) {
   return value == null ? null : value;
+}
+
+function llmUsageProjection(usage) {
+  return {
+    inputTokens: nvl(usage?.inputTokens),
+    cacheReadTokens: nvl(usage?.cacheReadTokens),
+    cacheWriteTokens: nvl(usage?.cacheWriteTokens),
+    totalTokens: nvl(usage?.totalTokens),
+    cost: nvl(usage?.cost),
+  };
 }
 
 function applyExecutionContextMetrics(root) {
@@ -446,6 +457,7 @@ function measuredResponseIntervals(turn, turnIndex, session, options = {}) {
         outputTokens: usage.outputTokens,
         reasoningTokens: usage.reasoningTokens || 0,
         generatedTokens: usage.generatedTokens,
+        ...llmUsageProjection(usage),
       });
     }
     if (responseEndMs != null && (pendingBoundaryMs == null || responseEndMs > pendingBoundaryMs)) pendingBoundaryMs = responseEndMs;

@@ -88,8 +88,14 @@ function tokenUsageFromSource(source) {
   const usage = { outputTokens, reasoningTokens, generatedTokens: outputTokens + reasoningTokens };
   const inputTokens = firstTokenNumber(source, ["input_tokens", "inputTokens", "prompt_tokens", "promptTokens", "input"]);
   const totalTokens = firstTokenNumber(source, ["total_tokens", "totalTokens"]);
+  const cacheReadTokens = firstTokenNumber(source, ["cache_read_tokens", "cacheReadTokens", "cacheRead"]);
+  const cacheWriteTokens = firstTokenNumber(source, ["cache_write_tokens", "cacheWriteTokens", "cacheWrite"]);
+  const cost = firstUsageNumber(source, ["cost", "costUsd", "cost_usd"]);
   if (inputTokens != null) usage.inputTokens = inputTokens;
   if (totalTokens != null) usage.totalTokens = totalTokens;
+  if (cacheReadTokens != null) usage.cacheReadTokens = cacheReadTokens;
+  if (cacheWriteTokens != null) usage.cacheWriteTokens = cacheWriteTokens;
+  if (cost != null) usage.cost = cost;
   return usage;
 }
 
@@ -97,6 +103,14 @@ function firstTokenNumber(source, keys) {
   for (const key of keys) {
     const value = Number(source?.[key]);
     if (Number.isFinite(value) && value >= 0) return Math.round(value);
+  }
+  return null;
+}
+
+function firstUsageNumber(source, keys) {
+  for (const key of keys) {
+    const value = Number(source?.[key]);
+    if (Number.isFinite(value) && value >= 0) return value;
   }
   return null;
 }

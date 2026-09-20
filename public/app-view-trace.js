@@ -140,7 +140,7 @@ function renderTraceNode(node, context) {
           <span class="trace-label" data-overflow-tooltip>${escapeHtml(node.label || node.type)}</span>
           <span class="trace-title" data-overflow-tooltip>${escapeHtml(title)}</span>
           ${argumentPreview ? `<span class="trace-arguments" data-overflow-tooltip title="${escapeAttr(argumentPreview)}">${escapeHtml(argumentPreview)}</span>` : ""}
-          ${renderTraceResultMetrics(contextMetrics)}
+          ${renderTraceResultMetrics(contextMetrics, node.detail?.response)}
         </span>
         ${statusValue ? `<span class="trace-status status-${escapeAttr(traceStatusKind(statusValue))}" data-overflow-tooltip>${escapeHtml(traceStatusLabel(statusValue))}</span>` : ""}
         ${hasDuration ? `<span class="trace-duration" data-overflow-tooltip>${escapeHtml(durationLabel)}</span>${contextSummary}<span class="trace-bar" aria-hidden="true"><i style="width:${width}%"></i></span>` : ""}
@@ -168,12 +168,31 @@ function traceContextMetrics(node) {
   };
 }
 
-function renderTraceResultMetrics(metrics) {
+function renderTraceResultMetrics(metrics, response = null) {
   if (!metrics || (!Number.isFinite(metrics.resultTokens) && !Number.isFinite(metrics.usage?.percent))) return "";
   const tokens = Number.isFinite(metrics.resultTokens)
     ? `<span title="${escapeAttr(`${metrics.resultTokenKind === "estimated" ? "估算" : "记录"}返回 token`)}">返 ${escapeHtml(formatTraceTokenCount(metrics.resultTokens))} tok</span>`
     : "";
-  return tokens ? `<span class="trace-result-metrics">${tokens}</span>` : "";
+  const usage = renderTraceUsageMetrics(response);
+  return tokens || usage ? `<span class="trace-result-metrics">${tokens}${usage}</span>` : "";
+}
+
+function renderTraceUsageMetrics(response) {
+  const fields = [
+    ["入", response?.inputTokens, "tok"],
+    ["出", response?.outputTokens, "tok"],
+    ["推理", response?.reasoningTokens, "tok"],
+    ["缓存读", response?.cacheReadTokens, "tok"],
+    ["缓存写", response?.cacheWriteTokens, "tok"],
+    ["总", response?.totalTokens, "tok"],
+    ["成本", response?.cost, "USD"],
+  ].filter(([, value]) => Number.isFinite(value));
+  if (!fields.length) return "";
+  return `<span class="trace-usage-metrics">${fields.map(([label, value, unit]) => `${label} ${unit === "USD" ? `$${formatTraceCost(value)}` : `${formatTraceTokenCount(value)} ${unit}`}`).join(" · ")}</span>`;
+}
+
+function formatTraceCost(value) {
+  return Number(value).toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 function renderTraceContextSummary(metrics) {
@@ -305,5 +324,5 @@ function renderTraceContextDetails(metrics) {
   return `<section class="trace-context-details"><h4>上下文指标</h4><div>${values.map(([label, value]) => `<span><em>${escapeHtml(label)}</em><strong>${escapeHtml(value)}</strong></span>`).join("")}</div></section>`;
 }
 
-  Object.assign(api, { renderTrace, filterTraceNode, isDefaultTraceNode, traceNodeMatchesType, traceSearchText, renderTraceNode, traceContextMetrics, renderTraceResultMetrics, renderTraceContextSummary, traceContextUsageTitle, traceContextSourceLabel, formatTraceTokenCount, formatTraceContextPercent, formatTraceContextChange, traceToolTitle, fullTraceItem, traceArgumentPreview, traceStatusKind, traceStatusLabel, renderToolDetails, renderTraceContextDetails });
+  Object.assign(api, { renderTrace, filterTraceNode, isDefaultTraceNode, traceNodeMatchesType, traceSearchText, renderTraceNode, traceContextMetrics, renderTraceResultMetrics, renderTraceUsageMetrics, renderTraceContextSummary, traceContextUsageTitle, traceContextSourceLabel, formatTraceTokenCount, formatTraceCost, formatTraceContextPercent, formatTraceContextChange, traceToolTitle, fullTraceItem, traceArgumentPreview, traceStatusKind, traceStatusLabel, renderToolDetails, renderTraceContextDetails });
 }

@@ -126,3 +126,11 @@ test("timing steps distinguish model-window estimates from recorded snapshots", 
   assert.equal(api.contextSourceLabel("model-estimated"), "模型估算");
   assert.match(api.renderTimingStep({ traceNodeId: "response-1", bucketId: "llm_wait", label: "gpt-5.6-terra", durationMs: 1_000, contextUsage: { percent: 18.4, used: 50_000, limit: 272_000 }, contextSource: "model-estimated" }), /18.4%（模型估算）/);
 });
+
+test("timing metrics summarize complete recorded LLM usage", () => {
+  const metrics = api.renderTimingUsageMetrics({ inputTokens: 1_200, outputTokens: 300, reasoningTokens: 80, cacheReadTokens: 600, cacheWriteTokens: 20, totalTokens: 2_200, cost: 0.0123 }).join("");
+  assert.match(metrics, /模型输入/);
+  assert.match(metrics, /缓存读取/);
+  assert.match(metrics, /模型总用量/);
+  assert.match(metrics, /\$0.0123/);
+});

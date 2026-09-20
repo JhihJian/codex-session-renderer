@@ -127,6 +127,8 @@
   line-height: 1.25;
 }
 
+.trace-usage-metrics { display: block; margin-top: 2px; overflow-wrap: anywhere; }
+
 .trace-context-change.increase { color: var(--orange); }
 .trace-context-change.decrease { color: var(--teal); }
 

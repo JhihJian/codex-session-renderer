@@ -420,7 +420,7 @@ test("compactTurnsForClient keeps token usage for context diagnostics", () => {
   const compactTurns = compactTurnsForClient(buildTurns(events));
   const item = compactTurns[0].items.find((entry) => entry.type === "assistant-message");
 
-  assert.deepEqual(item.tokenUsage, { outputTokens: 179, reasoningTokens: 0, generatedTokens: 179, inputTokens: 7256, totalTokens: 7563 });
+  assert.deepEqual(item.tokenUsage, { outputTokens: 179, reasoningTokens: 0, generatedTokens: 179, inputTokens: 7256, totalTokens: 7563, cacheReadTokens: 128 });
 });
 
 test("compactTurnForView keeps all assistant messages", () => {

@@ -87,7 +87,7 @@ function traceFixture() {
                 children: [],
                 detail: {
                   kind: "response",
-                  response: { model: "gpt-5", generatedTokens: 120, contextPercent: 50, contextUsed: 50_000, contextLimit: 100_000 },
+                  response: { model: "gpt-5", generatedTokens: 120, inputTokens: 1_000, outputTokens: 80, reasoningTokens: 40, cacheReadTokens: 500, cacheWriteTokens: 20, totalTokens: 1_640, cost: 0.0123, contextPercent: 50, contextUsed: 50_000, contextLimit: 100_000 },
                   contextMetrics: { source: "recorded", usage: { percent: 50, used: 50_000, limit: 100_000 }, resultTokens: 120, resultTokenKind: "recorded", changePercent: -2 },
                 },
               },
@@ -144,6 +144,7 @@ test("轮次子项包含模型回复和其他时间且不展示状态", () => {
   assert.match(responseRow, /gpt-5/);
   assert.match(responseRow, /20s/);
   assert.match(responseRow, /返 120 tok/);
+  assert.match(responseRow, /入 1K tok · 出 80 tok · 推理 40 tok · 缓存读 500 tok · 缓存写 20 tok · 总 1.6K tok · 成本 \$0.0123/);
   assert.match(responseRow, /上下文 50%（记录）/);
   assert.match(responseRow, /-2%/);
   assert.doesNotMatch(responseRow, /trace-status/);

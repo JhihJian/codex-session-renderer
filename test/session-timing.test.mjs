@@ -147,7 +147,12 @@ test("session timing reports generated tokens and estimated LLM throughput", () 
   assert.equal(response.generatedTokensPerSecond, 50);
   assert.equal(response.groups[0].generatedTokens, 500);
   assert.equal(response.groups[0].generatedTokensPerSecond, 50);
-  assert.deepEqual(timing.session.llm, { generatedTokens: 500, generatedTokensPerSecond: 50, responseCount: 1 });
+  assert.deepEqual(timing.session.llm, {
+    generatedTokens: 500,
+    generatedTokensPerSecond: 50,
+    responseCount: 1,
+    usage: { inputTokens: null, outputTokens: 300, reasoningTokens: 200, cacheReadTokens: null, cacheWriteTokens: null, totalTokens: null, cost: null },
+  });
 });
 
 test("session timing reports each step's result tokens and recorded context change", () => {

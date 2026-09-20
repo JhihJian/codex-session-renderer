@@ -63,7 +63,7 @@ function responseIntervals(trace) {
       completedAt: response.completedAt,
       durationEstimated: true,
       status: "inferred",
-      detail: { item: { name: response.model || "未知模型", sourceIndex: response.eventIndex, contextUsage: response.contextUsage, contextSource: response.contextSource, responseType: response.responseType, outputTokens: response.outputTokens, reasoningTokens: response.reasoningTokens, generatedTokens: response.generatedTokens } },
+      detail: { item: { name: response.model || "未知模型", sourceIndex: response.eventIndex, contextUsage: response.contextUsage, contextSource: response.contextSource, responseType: response.responseType, outputTokens: response.outputTokens, reasoningTokens: response.reasoningTokens, generatedTokens: response.generatedTokens, inputTokens: response.inputTokens, cacheReadTokens: response.cacheReadTokens, cacheWriteTokens: response.cacheWriteTokens, totalTokens: response.totalTokens, cost: response.cost } },
     },
     turnIndex: response.turnIndex,
     bucketId: "llm_wait",
@@ -78,6 +78,11 @@ function responseIntervals(trace) {
     outputTokens: response.outputTokens,
     reasoningTokens: response.reasoningTokens,
     generatedTokens: response.generatedTokens,
+    inputTokens: response.inputTokens,
+    cacheReadTokens: response.cacheReadTokens,
+    cacheWriteTokens: response.cacheWriteTokens,
+    totalTokens: response.totalTokens,
+    cost: response.cost,
   }));
 }
 
@@ -143,6 +148,11 @@ function nodeRef(item) {
     outputTokens: item.outputTokens ?? detail.outputTokens ?? null,
     reasoningTokens: item.reasoningTokens ?? detail.reasoningTokens ?? null,
     generatedTokens: item.generatedTokens ?? detail.generatedTokens ?? null,
+    inputTokens: item.inputTokens ?? detail.inputTokens ?? null,
+    cacheReadTokens: item.cacheReadTokens ?? detail.cacheReadTokens ?? null,
+    cacheWriteTokens: item.cacheWriteTokens ?? detail.cacheWriteTokens ?? null,
+    totalTokens: item.totalTokens ?? detail.totalTokens ?? null,
+    cost: item.cost ?? detail.cost ?? null,
     callId: detail.callId || null,
     status: detail.status || item.node.status || null,
     arguments: detail.arguments || null,
@@ -359,6 +369,7 @@ function buildSessionTiming(trace) {
         generatedTokens: llmBucket?.generatedTokens || null,
         generatedTokensPerSecond: llmBucket?.generatedTokensPerSecond || null,
         responseCount: llmBucket?.count || 0,
+        usage: summarizeLlmUsage(completeLlmIntervals),
       },
     },
     buckets,
@@ -416,6 +427,16 @@ function timingTurnBuckets(intervals, durationMs) {
   return bucketDefinitions
     .map(([id, label]) => buildBucket(id, label, intervals.filter((item) => item.bucketId === id), durationMs || 0))
     .filter((bucket) => bucket.count > 0);
+}
+
+function summarizeLlmUsage(intervals) {
+  const fields = ["inputTokens", "outputTokens", "reasoningTokens", "cacheReadTokens", "cacheWriteTokens", "totalTokens", "cost"];
+  const summary = {};
+  for (const field of fields) {
+    const values = intervals.map((item) => item[field]).filter(Number.isFinite);
+    summary[field] = values.length ? values.reduce((sum, value) => sum + value, 0) : null;
+  }
+  return summary;
 }
 
 function latestTurnContext(steps, turnIndex) {

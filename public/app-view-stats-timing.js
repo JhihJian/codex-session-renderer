@@ -85,7 +85,27 @@ function renderTimingMetrics(session) {
     Number.isFinite(session.activeRunMs) ? renderStatsMetric("实际运行时长", formatTimingDuration(session.activeRunMs), "工具与 LLM 时间并集") : "",
     Number.isFinite(session.parallelism?.peak) ? renderStatsMetric("LLM 并发峰值", `${session.parallelism.peak} 路`, formatTimingDuration(session.parallelism?.overlapMs, "LLM 请求重叠")) : "",
     Number.isFinite(llm.generatedTokensPerSecond) ? renderStatsMetric("平均生成速度", formatTokensPerSecond(llm.generatedTokensPerSecond), `${llm.responseCount || 0} 次响应 · 生成 ${compactNumber(llm.generatedTokens)} tok`) : "",
+    ...renderTimingUsageMetrics(llm.usage),
   ].filter(Boolean);
+}
+
+function renderTimingUsageMetrics(usage = {}) {
+  const fields = [
+    ["模型输入", usage.inputTokens, "tok"],
+    ["模型输出", usage.outputTokens, "tok"],
+    ["推理 Token", usage.reasoningTokens, "tok"],
+    ["缓存读取", usage.cacheReadTokens, "tok"],
+    ["缓存写入", usage.cacheWriteTokens, "tok"],
+    ["模型总用量", usage.totalTokens, "tok"],
+    ["模型成本", usage.cost, "USD"],
+  ];
+  return fields.map(([label, value, unit]) => Number.isFinite(value)
+    ? renderStatsMetric(label, unit === "USD" ? `$${formatUsageCost(value)}` : `${compactNumber(value)} tok`, "LLM 原始用量记录")
+    : "");
+}
+
+function formatUsageCost(value) {
+  return Number(value).toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 function formatTokensPerSecond(value) {
@@ -219,5 +239,5 @@ function renderStatsOperationRow(operation, totalEvents, query) {
   `;
 }
 
-  Object.assign(api, { renderTimingView, renderTimingMetrics, renderTimingSteps, renderTimingStep, formatContextPercent, contextSourceLabel, formatContextChange, formatTokensPerSecond, renderTimingComposition, renderTimingTurns, formatTurnContext, timingTurnScaleMs, timingKindLabel, formatTimingDuration, bindTimingActions, renderStatsMetric, renderStatsEventRows, renderStatsEventRow, renderStatsOperationRow });
+  Object.assign(api, { renderTimingView, renderTimingMetrics, renderTimingUsageMetrics, formatUsageCost, renderTimingSteps, renderTimingStep, formatContextPercent, contextSourceLabel, formatContextChange, formatTokensPerSecond, renderTimingComposition, renderTimingTurns, formatTurnContext, timingTurnScaleMs, timingKindLabel, formatTimingDuration, bindTimingActions, renderStatsMetric, renderStatsEventRows, renderStatsEventRow, renderStatsOperationRow });
 }
