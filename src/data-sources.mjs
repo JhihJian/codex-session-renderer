@@ -88,7 +88,7 @@ function createPiAgentDataSource({ agentHome, sessionsRoot, tasksRoot, evaluatio
     codexHome: agentHome,
     originalCodexHome: agentHome,
     sessionsRoot,
-    modelStorePath: path.join(agentHome, "models-store.json"),
+    modelStorePath: path.join(path.dirname(sessionsRoot), "models-store.json"),
     taskSessionsRoot: tasksRoot,
     evaluationSessionsRoot: evaluationsRoot,
     sessionIndexPath: path.join(agentHome, "session_index.jsonl"),
