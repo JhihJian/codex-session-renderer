@@ -242,7 +242,8 @@ function buildSessionTiming(trace) {
   const intervals = [...walkTrace(trace?.root), ...responseIntervals(trace)];
   const completeIntervals = intervals.filter((item) => item.durationMs != null);
   const executionCoverage = coveredMs(completeIntervals.map((item) => ({ startMs: item.startMs, endMs: item.endMs })));
-  const parallelism = overlapMs(completeIntervals.map((item) => ({ startMs: item.startMs, endMs: item.endMs })));
+  const completeLlmIntervals = completeIntervals.filter((item) => item.bucketId === "llm_wait");
+  const parallelism = overlapMs(completeLlmIntervals.map((item) => ({ startMs: item.startMs, endMs: item.endMs })));
   const inputWaits = (trace?.timing?.inputWaits || []).filter((wait) => Number.isFinite(wait.startMs) && Number.isFinite(wait.endMs) && wait.endMs >= wait.startMs);
   const waitingForInputMs = coveredMs(inputWaits);
   const activeRunMs = executionCoverage;

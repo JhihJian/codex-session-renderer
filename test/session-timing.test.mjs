@@ -61,7 +61,7 @@ test("session timing classifies trace nodes and preserves source references", ()
 
   assert.equal(timing.session.durationMs, 20_000);
   assert.equal(timing.session.coverageMs, 6_000);
-  assert.equal(timing.session.parallelism.peak, 1);
+  assert.equal(timing.session.parallelism.peak, 0);
   assert.equal(timing.session.parallelism.overlapMs, 0);
   assert.equal(tools.coverageMs, 6_000);
   assert.equal(tools.nodeRefs[0].eventIndex, 4);
@@ -79,6 +79,30 @@ test("session timing classifies trace nodes and preserves source references", ()
     },
   );
   assert.equal(timing.session.executionComposition.reduce((sum, component) => sum + component.durationMs, 0), timing.session.activeRunMs);
+});
+
+test("session timing counts only overlapping LLM requests as parallelism", () => {
+  const timing = buildSessionTiming({
+    timing: {
+      responses: [
+        { id: "response-1", turnIndex: 0, startedAt: "2026-07-08T10:00:01.000Z", completedAt: "2026-07-08T10:00:08.000Z", startMs: Date.parse("2026-07-08T10:00:01.000Z"), endMs: Date.parse("2026-07-08T10:00:08.000Z"), durationMs: 7_000 },
+        { id: "response-2", turnIndex: 0, startedAt: "2026-07-08T10:00:02.000Z", completedAt: "2026-07-08T10:00:09.000Z", startMs: Date.parse("2026-07-08T10:00:02.000Z"), endMs: Date.parse("2026-07-08T10:00:09.000Z"), durationMs: 7_000 },
+      ],
+    },
+    root: {
+      type: "thread",
+      children: [{
+        type: "tool",
+        id: "tool-1",
+        timestamp: "2026-07-08T10:00:00.000Z",
+        completedAt: "2026-07-08T10:00:10.000Z",
+        detail: { item: { name: "bash" } },
+        children: [],
+      }],
+    },
+  });
+
+  assert.deepEqual(timing.session.parallelism, { peak: 2, overlapMs: 6_000 });
 });
 
 test("session timing exposes inferred LLM response intervals with model and context", () => {

@@ -57,6 +57,8 @@ test("formatTokensPerSecond keeps readable precision", () => {
 
 test("timing metrics include session TPS card only when token data exists", () => {
   const withTokens = api.renderTimingMetrics(timingFixture().session).join("");
+  assert.match(withTokens, /LLM 并发峰值/);
+  assert.match(withTokens, /LLM 请求重叠 0s/);
   assert.match(withTokens, /平均生成速度/);
   assert.match(withTokens, /50 tok\/s/);
   assert.match(withTokens, /2 次响应 · 生成 500 tok/);
@@ -68,6 +70,7 @@ test("timing metrics include session TPS card only when token data exists", () =
 test("timing view renders session TPS card and per-turn TPS meta", () => {
   const markup = api.renderTimingView(timingFixture());
   assert.match(markup, /平均生成速度/);
+  assert.match(markup, /LLM 并发只统计可关联 LLM 请求区间/);
   assert.match(markup, /50 tok\/s/);
   assert.match(markup, /约 50 tok\/s/);
   assert.match(markup, /含排队与首字等待/);
