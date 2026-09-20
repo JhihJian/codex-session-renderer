@@ -17,10 +17,12 @@ function renderTimingView(timing) {
   const composition = session.executionComposition || [];
   const quality = timing.quality || {};
   const metrics = renderTimingMetrics(session);
+  const usage = renderTimingUsageCharts(session.llm?.usage, session.llm?.responseCount);
   return `
     <div class="timing-section" aria-labelledby="timingDetailHeading">
       <div class="timing-heading"><div><h4 id="timingDetailHeading">会话时间分布</h4><p>等待输入、工具执行与模型响应的时间构成。</p></div><span class="timing-confidence">${escapeHtml(timingKindLabel(session.durationKind))}</span></div>
       ${metrics.length ? `<div class="timing-metrics" aria-label="会话时间概览">${metrics.join("")}</div>` : ""}
+      ${usage}
       <p class="timing-note">模型回复的上下文用量显示为“记录”；工具执行不展示上下文用量。等待输入仅统计助手最后回复到下一次用户消息的间隔。实际运行时长只统计工具与 LLM 的可关联区间；两者并行时按时间并集计一次。LLM 并发只统计可关联 LLM 请求区间，不计工具或子代理。平均生成速度为估算口径：生成 token 数除以对应响应区间时长，区间含排队与首字等待。</p>
       <div class="timing-composition" aria-label="实际运行时长构成">
         ${composition.length ? renderTimingComposition(composition) : `<div class="timing-empty"><strong>暂无可关联执行时长</strong><span>会话事件中尚未发现具有完整起止时间的工具或 LLM 记录。</span></div>`}
@@ -84,8 +86,25 @@ function renderTimingMetrics(session) {
     Number.isFinite(session.activeRunMs) ? renderStatsMetric("实际运行时长", formatTimingDuration(session.activeRunMs), "工具与 LLM 时间并集") : "",
     Number.isFinite(session.parallelism?.peak) ? renderStatsMetric("LLM 并发峰值", `${session.parallelism.peak} 路`, formatTimingDuration(session.parallelism?.overlapMs, "LLM 请求重叠")) : "",
     Number.isFinite(llm.generatedTokensPerSecond) ? renderStatsMetric("平均生成速度", formatTokensPerSecond(llm.generatedTokensPerSecond), `${llm.responseCount || 0} 次响应 · 生成 ${compactNumber(llm.generatedTokens)} tok`) : "",
-    ...renderTimingUsageMetrics(llm.usage),
   ].filter(Boolean);
+}
+
+function renderTimingUsageCharts(usage = {}, responseCount = 0) {
+  const generated = [["输入", usage.inputTokens, "input"], ["输出", usage.outputTokens, "output"], ["推理", usage.reasoningTokens, "reasoning"]];
+  const cache = [["缓存读", usage.cacheReadTokens, "cache-read"], ["缓存写", usage.cacheWriteTokens, "cache-write"]];
+  const charts = [renderUsageChart("生成构成", generated), renderUsageChart("缓存活动", cache)].filter(Boolean);
+  if (!charts.length) return "";
+  const summary = [Number.isFinite(usage.totalTokens) ? `总用量 ${compactNumber(usage.totalTokens)} tok` : "总用量未记录", Number.isFinite(usage.cost) ? `成本 $${formatUsageCost(usage.cost)}` : "成本未记录", `${responseCount} 次响应`].join(" · ");
+  return `<section class="timing-usage-charts" aria-label="模型用量图表"><div class="timing-usage-head"><h4>模型用量</h4><span>${escapeHtml(summary)}</span></div>${charts.join("")}</section>`;
+}
+
+function renderUsageChart(title, entries) {
+  const known = entries.filter(([, value]) => Number.isFinite(value));
+  if (!known.length) return "";
+  const total = known.reduce((sum, [, value]) => sum + value, 0);
+  const segments = known.map(([label, value, kind]) => ({ label, value, kind, percent: total > 0 ? Math.round((value / total) * 1000) / 10 : 0 }));
+  const tooltip = `${title}：${segments.map((item) => `${item.label} ${compactNumber(item.value)} tok · ${item.percent}%`).join(" / ")}`;
+  return `<div class="timing-usage-chart" title="${escapeAttr(tooltip)}"><div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(`${compactNumber(total)} tok`)}</span></div><div class="timing-usage-bar">${segments.map((item) => `<i class="${escapeAttr(item.kind)}" style="width:${item.percent}%" title="${escapeAttr(`${item.label} ${compactNumber(item.value)} tok · ${item.percent}%`)}"></i>`).join("")}</div><div class="timing-usage-legend">${segments.map((item) => `<span class="${escapeAttr(item.kind)}">${escapeHtml(`${item.label} ${compactNumber(item.value)} tok · ${item.percent}%`)}</span>`).join("")}</div></div>`;
 }
 
 function renderTimingUsageMetrics(usage = {}) {
@@ -238,5 +257,5 @@ function renderStatsOperationRow(operation, totalEvents, query) {
   `;
 }
 
-  Object.assign(api, { renderTimingView, renderTimingMetrics, renderTimingUsageMetrics, formatUsageCost, renderTimingSteps, renderTimingStep, formatContextPercent, contextSourceLabel, formatContextChange, formatTokensPerSecond, renderTimingComposition, renderTimingTurns, formatTurnContext, timingTurnScaleMs, timingKindLabel, formatTimingDuration, bindTimingActions, renderStatsMetric, renderStatsEventRows, renderStatsEventRow, renderStatsOperationRow });
+  Object.assign(api, { renderTimingView, renderTimingMetrics, renderTimingUsageMetrics, renderTimingUsageCharts, renderUsageChart, formatUsageCost, renderTimingSteps, renderTimingStep, formatContextPercent, contextSourceLabel, formatContextChange, formatTokensPerSecond, renderTimingComposition, renderTimingTurns, formatTurnContext, timingTurnScaleMs, timingKindLabel, formatTimingDuration, bindTimingActions, renderStatsMetric, renderStatsEventRows, renderStatsEventRow, renderStatsOperationRow });
 }

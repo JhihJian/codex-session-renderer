@@ -177,7 +177,7 @@ Raw event 仍可按需查看完整原始 JSON。默认视图、事件预览和�
 
 执行树的模型回复和工具节点同时携带 `contextMetrics`。模型回复关联的 `token_count`、Pi 原始用量或匹配模型窗口后的 `inputTokens` 均按“记录”展示。工具节点的 `contextMetrics` 仅保留返回 token，`usage` 和上下文变化为空，因此工具节点不得展示上下文百分比或变化。
 
-`timing` 还从轮次开始或上一条工具、上下文边界到 reasoning 或 assistant 事件推导 LLM 等待区间。原始 JSONL 没有稳定的 API `response.started` / `response.completed` 生命周期时，这些区间标记为 `estimated`，而非精确 API 耗时。Codex 的 `token_count.info.last_token_usage` 与 Pi 助手消息的 `usage` 若包含输出 token，会关联到本次 LLM 等待，展示输入、输出、推理、缓存读写、总用量、成本及输出 token 加推理 token 的总生成量和 `token/s`。执行树同时显示单次 LLM 的完整原始用量和轮次内模型回复的汇总用量；轮次节点以生成构成、缓存构成及轮末上下文相对窗口三条分段条展示，每段常驻显示 token 与比例，悬浮提示补充详情和窗口。轮内累计 `totalTokens` 是多次调用的计费用量，不能与单次上下文窗口直接比较。时间诊断汇总会话级用量。速率的分母是上述推导区间，不是供应商逐 token 的流式遥测，缺少明确用量时不会按字符数估算。子代理只有同时拥有父会话中的启动事件和完成通知时才计入运行时长，内嵌子代理结果和子会话文件更新时间都不足以推断时长。工具时长仍来自同一调用的调用与返回事件。`GET /api/query/sessions/:id/view?view=timing` 返回与详情中相同的 `timing` 投影。搜索、类型筛选和事件统计不改变完整会话时间口径。
+`timing` 还从轮次开始或上一条工具、上下文边界到 reasoning 或 assistant 事件推导 LLM 等待区间。原始 JSONL 没有稳定的 API `response.started` / `response.completed` 生命周期时，这些区间标记为 `estimated`，而非精确 API 耗时。Codex 的 `token_count.info.last_token_usage` 与 Pi 助手消息的 `usage` 若包含输出 token，会关联到本次 LLM 等待，展示输入、输出、推理、缓存读写、总用量、成本及输出 token 加推理 token 的总生成量和 `token/s`。执行树同时显示单次 LLM 的完整原始用量和轮次内模型回复的汇总用量；轮次节点以生成构成、缓存构成及轮末上下文相对窗口三条分段条展示，每段常驻显示 token 与比例，悬浮提示补充详情和窗口。轮内累计 `totalTokens` 是多次调用的计费用量，不能与单次上下文窗口直接比较。时间诊断以会话级生成构成和缓存活动分段条为主要模型用量展示，总用量、成本和响应数只作图表辅助摘要。速率的分母是上述推导区间，不是供应商逐 token 的流式遥测，缺少明确用量时不会按字符数估算。子代理只有同时拥有父会话中的启动事件和完成通知时才计入运行时长，内嵌子代理结果和子会话文件更新时间都不足以推断时长。工具时长仍来自同一调用的调用与返回事件。`GET /api/query/sessions/:id/view?view=timing` 返回与详情中相同的 `timing` 投影。搜索、类型筛选和事件统计不改变完整会话时间口径。
 
 ## 按轮次时间视图
 

@@ -49,6 +49,22 @@
 .timing-confidence, .timing-quality span, .timing-note, .timing-turn-head span { color: var(--text-3); font-size: 11px; }
 .timing-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
 .timing-note { margin: 0; }
+.timing-usage-charts { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--hair); border-radius: var(--radius-tool); background: var(--bg-sunken); }
+.timing-usage-head { display: flex; min-width: 0; align-items: baseline; justify-content: space-between; gap: 10px; }
+.timing-usage-head h4 { margin: 0; font-size: 12px; }
+.timing-usage-head span { min-width: 0; overflow: hidden; color: var(--text-3); font-family: var(--mono); font-size: 10px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.timing-usage-chart { display: grid; gap: 4px; min-width: 0; }
+.timing-usage-chart > div:first-child { display: flex; justify-content: space-between; gap: 8px; color: var(--text-3); font-family: var(--mono); font-size: 10px; }
+.timing-usage-chart strong { color: var(--text-2); font-family: var(--sans); font-size: 11px; }
+.timing-usage-bar { display: flex; height: 8px; overflow: hidden; border-radius: 2px; background: var(--bg-elev); }
+.timing-usage-bar i { display: block; min-width: 0; }
+.timing-usage-bar .input { background: #2563eb; } .timing-usage-legend .input { color: #2563eb; }
+.timing-usage-bar .output { background: #16a34a; } .timing-usage-legend .output { color: #16a34a; }
+.timing-usage-bar .reasoning { background: var(--purple); } .timing-usage-legend .reasoning { color: var(--purple); }
+.timing-usage-bar .cache-read { background: var(--orange); } .timing-usage-legend .cache-read { color: var(--orange); }
+.timing-usage-bar .cache-write { background: var(--red); } .timing-usage-legend .cache-write { color: var(--red); }
+.timing-usage-legend { display: flex; flex-wrap: wrap; gap: 3px 10px; }
+.timing-usage-legend span { font-family: var(--mono); font-size: 9px; }
 .timing-composition { display: grid; gap: 8px; }
 .timing-composition-bar { display: flex; height: 12px; overflow: hidden; border-radius: var(--radius-small); background: var(--bg-sunken); }
 .timing-composition-segment { min-width: 0; flex: var(--segment) 1 0; border: 0; background: var(--orange); cursor: pointer; padding: 0; }

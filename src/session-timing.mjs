@@ -331,6 +331,7 @@ function buildSessionTiming(trace) {
   const completeIntervals = intervals.filter((item) => item.durationMs != null);
   const executionCoverage = coveredMs(completeIntervals.map((item) => ({ startMs: item.startMs, endMs: item.endMs })));
   const completeLlmIntervals = completeIntervals.filter((item) => item.bucketId === "llm_wait");
+  const llmIntervals = intervals.filter((item) => item.bucketId === "llm_wait");
   const parallelism = overlapMs(completeLlmIntervals.map((item) => ({ startMs: item.startMs, endMs: item.endMs })));
   const inputWaits = (trace?.timing?.inputWaits || []).filter((wait) => Number.isFinite(wait.startMs) && Number.isFinite(wait.endMs) && wait.endMs >= wait.startMs);
   const waitingForInputMs = coveredMs(inputWaits);
@@ -369,7 +370,7 @@ function buildSessionTiming(trace) {
         generatedTokens: llmBucket?.generatedTokens || null,
         generatedTokensPerSecond: llmBucket?.generatedTokensPerSecond || null,
         responseCount: llmBucket?.count || 0,
-        usage: summarizeLlmUsage(completeLlmIntervals),
+        usage: summarizeLlmUsage(llmIntervals),
       },
     },
     buckets,
