@@ -140,7 +140,7 @@ function renderTraceNode(node, context) {
           <span class="trace-label" data-overflow-tooltip>${escapeHtml(node.label || node.type)}</span>
           <span class="trace-title" data-overflow-tooltip>${escapeHtml(title)}</span>
           ${argumentPreview ? `<span class="trace-arguments" data-overflow-tooltip title="${escapeAttr(argumentPreview)}">${escapeHtml(argumentPreview)}</span>` : ""}
-          ${renderTraceResultMetrics(contextMetrics, node.detail?.response)}
+          ${renderTraceResultMetrics(contextMetrics, traceNodeModelUsage(node))}
         </span>
         ${statusValue ? `<span class="trace-status status-${escapeAttr(traceStatusKind(statusValue))}" data-overflow-tooltip>${escapeHtml(traceStatusLabel(statusValue))}</span>` : ""}
         ${hasDuration ? `<span class="trace-duration" data-overflow-tooltip>${escapeHtml(durationLabel)}</span>${contextSummary}<span class="trace-bar" aria-hidden="true"><i style="width:${width}%"></i></span>` : ""}
@@ -169,12 +169,16 @@ function traceContextMetrics(node) {
 }
 
 function renderTraceResultMetrics(metrics, response = null) {
-  if (!metrics || (!Number.isFinite(metrics.resultTokens) && !Number.isFinite(metrics.usage?.percent))) return "";
-  const tokens = Number.isFinite(metrics.resultTokens)
+  if (!metrics && !response) return "";
+  const tokens = Number.isFinite(metrics?.resultTokens)
     ? `<span title="${escapeAttr(`${metrics.resultTokenKind === "estimated" ? "估算" : "记录"}返回 token`)}">返 ${escapeHtml(formatTraceTokenCount(metrics.resultTokens))} tok</span>`
     : "";
   const usage = renderTraceUsageMetrics(response);
   return tokens || usage ? `<span class="trace-result-metrics">${tokens}${usage}</span>` : "";
+}
+
+function traceNodeModelUsage(node) {
+  return node?.detail?.response || node?.detail?.modelUsage || null;
 }
 
 function renderTraceUsageMetrics(response) {
@@ -324,5 +328,5 @@ function renderTraceContextDetails(metrics) {
   return `<section class="trace-context-details"><h4>上下文指标</h4><div>${values.map(([label, value]) => `<span><em>${escapeHtml(label)}</em><strong>${escapeHtml(value)}</strong></span>`).join("")}</div></section>`;
 }
 
-  Object.assign(api, { renderTrace, filterTraceNode, isDefaultTraceNode, traceNodeMatchesType, traceSearchText, renderTraceNode, traceContextMetrics, renderTraceResultMetrics, renderTraceUsageMetrics, renderTraceContextSummary, traceContextUsageTitle, traceContextSourceLabel, formatTraceTokenCount, formatTraceCost, formatTraceContextPercent, formatTraceContextChange, traceToolTitle, fullTraceItem, traceArgumentPreview, traceStatusKind, traceStatusLabel, renderToolDetails, renderTraceContextDetails });
+  Object.assign(api, { renderTrace, filterTraceNode, isDefaultTraceNode, traceNodeMatchesType, traceSearchText, renderTraceNode, traceContextMetrics, renderTraceResultMetrics, traceNodeModelUsage, renderTraceUsageMetrics, renderTraceContextSummary, traceContextUsageTitle, traceContextSourceLabel, formatTraceTokenCount, formatTraceCost, formatTraceContextPercent, formatTraceContextChange, traceToolTitle, fullTraceItem, traceArgumentPreview, traceStatusKind, traceStatusLabel, renderToolDetails, renderTraceContextDetails });
 }

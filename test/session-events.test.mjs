@@ -274,6 +274,15 @@ test("Pi LLM input token usage uses the configured model window and recalibrates
     { source: "model-estimated", usage: { used: 60_000, limit: 100_000, percent: 60 }, resultTokens: 120, resultTokenKind: "recorded", changePercent: 10 },
   ]);
   assert.deepEqual(trace.timing.responses.map((response) => response.contextSource), ["model-estimated", "model-estimated"]);
+  assert.deepEqual(trace.root.children[0].detail.modelUsage, {
+    inputTokens: 110_000,
+    outputTokens: 200,
+    reasoningTokens: 0,
+    cacheReadTokens: null,
+    cacheWriteTokens: null,
+    totalTokens: null,
+    cost: null,
+  });
 });
 
 test("buildTrace derives waiting-for-input only between assistant and next user messages", () => {

@@ -398,6 +398,7 @@ function buildTimingTurn(turn, turnIndex, intervals, steps) {
     ...duration,
     confidence: confidenceFor(completeTurnIntervals),
     activeRunMs: coveredMs(completeTurnIntervals.map((item) => ({ startMs: item.startMs, endMs: item.endMs }))),
+    llmUsage: summarizeLlmUsage(turnIntervals.filter((item) => item.bucketId === "llm_wait")),
     ...timingTurnContext(steps, turnIndex),
     buckets: timingTurnBuckets(turnIntervals, duration.durationMs),
   };

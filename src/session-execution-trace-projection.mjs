@@ -91,6 +91,7 @@ function buildTrace(session, rawEvents, normalizedEvents, turns, hierarchy, opti
     }
   }
   applyExecutionContextMetrics(root);
+  applyTurnModelUsage(root);
 
   return {
     root,
@@ -278,6 +279,27 @@ function applyExecutionContextMetrics(root) {
 
 function executionNodeOrder(node) {
   return node.type === "response" ? 0 : 1;
+}
+
+function applyTurnModelUsage(root) {
+  for (const turn of root.children || []) {
+    if (turn.type !== "turn") continue;
+    const responses = (turn.children || []).filter((node) => node.type === "response").map((node) => node.detail?.response || {});
+    const usage = summarizeModelUsage(responses);
+    if (usage) turn.detail.modelUsage = usage;
+  }
+}
+
+function summarizeModelUsage(responses) {
+  const fields = ["inputTokens", "outputTokens", "reasoningTokens", "cacheReadTokens", "cacheWriteTokens", "totalTokens", "cost"];
+  const usage = {};
+  let available = false;
+  for (const field of fields) {
+    const values = responses.map((response) => response[field]).filter(Number.isFinite);
+    usage[field] = values.length ? values.reduce((sum, value) => sum + value, 0) : null;
+    available ||= values.length > 0;
+  }
+  return available ? usage : null;
 }
 
 function responseContextUsage(response) {
@@ -495,7 +517,6 @@ function measuredResponseIntervals(turn, turnIndex, session, options = {}) {
   }
   return intervals;
 }
-
 function latestContextUsage(items, itemIndex) {
   for (let index = itemIndex - 1; index >= 0; index -= 1) {
     if (items[index].type === "token-count") {
@@ -513,15 +534,10 @@ function assistantContextUsage(items, itemIndex, modelContextWindow) {
   if (!Number.isFinite(inputTokens) || !Number.isFinite(modelContextWindow) || modelContextWindow <= 0) return { usage: null, source: null };
   const used = Math.round(inputTokens);
   const limit = Math.round(modelContextWindow);
-  return {
-    source: "model-estimated",
-    usage: { used, limit, percent: Math.min(100, Math.round((used / limit) * 1000) / 10) },
-  };
+  return { source: "model-estimated", usage: { used, limit, percent: Math.min(100, Math.round((used / limit) * 1000) / 10) } };
 }
 
 function recordedContextUsage(usage) {
   return { usage: usage || null, source: usage ? "recorded" : null };
 }
-
-
 export { buildTrace };
