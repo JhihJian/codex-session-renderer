@@ -228,12 +228,22 @@ test("执行树展示 LLM 记录上下文与工具返回估算", async ({ page }
   const tool = page.locator('[data-trace-node-id^="item:"]', { hasText: "npm test" }).first();
   await expect(response).toContainText("返 400 tok");
   await expect(response).toContainText("上下文 50%");
+  const desktopMetrics = await response.evaluate((row) => {
+    const duration = row.querySelector(".trace-duration").getBoundingClientRect();
+    const context = row.querySelector(".trace-context-summary").getBoundingClientRect();
+    return { duration: { right: duration.right, top: duration.top }, context: { left: context.left, top: context.top } };
+  });
+  expect(desktopMetrics.context.left).toBeGreaterThanOrEqual(desktopMetrics.duration.right - 1);
+  expect(Math.abs(desktopMetrics.context.top - desktopMetrics.duration.top)).toBeLessThanOrEqual(1);
   await expect(tool).toContainText("返");
   await expect(tool).toContainText("上下文");
   await expect(tool).toContainText("估");
   await tool.click();
   await expect(page.locator("#toolDetailsContent")).toContainText("上下文指标");
   await expect(page.locator("#toolDetailsContent")).toContainText("估算");
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mobileLayout = await response.evaluate((row) => ({ client: row.clientWidth, scroll: row.scrollWidth }));
+  expect(mobileLayout.scroll).toBeLessThanOrEqual(mobileLayout.client);
 });
 
 test("事件统计在工具输出下按摘要规则汇总操作", async ({ page }) => {

@@ -482,11 +482,12 @@
 }
 
 .details-panel .trace-row,
-.details-panel .trace-row.has-duration {
+.details-panel .trace-row.has-duration,
+.details-panel .trace-row.has-duration.has-context {
   grid-template-columns: 18px 23px minmax(0, 1fr) auto;
-  grid-template-rows: auto auto;
+  grid-template-rows: auto auto auto;
   gap: 4px 7px;
-  min-height: 54px;
+  min-height: 68px;
   padding: 6px 12px;
 }
 
@@ -507,7 +508,7 @@
 
 .details-panel .trace-main {
   grid-column: 3;
-  grid-row: 1 / span 2;
+  grid-row: 1 / span 3;
   grid-template-columns: minmax(0, 1fr);
   gap: 2px;
 }
@@ -515,7 +516,7 @@
 .details-panel .trace-label,
 .details-panel .trace-title,
 .details-panel .trace-arguments,
-.details-panel .trace-context-metrics {
+.details-panel .trace-result-metrics {
   grid-column: 1;
 }
 
@@ -527,6 +528,11 @@
 .details-panel .trace-duration {
   grid-column: 4;
   grid-row: 2;
+}
+
+.details-panel .trace-context-summary {
+  grid-column: 4;
+  grid-row: 3;
 }
 
 .tool-details-content:not([hidden]) {

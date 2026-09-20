@@ -123,11 +123,12 @@ function renderTraceNode(node, context) {
   const title = isTool ? traceToolTitle(item, node) : node.title || "";
   const argumentPreview = isTool ? traceArgumentPreview(item) : "";
   const contextMetrics = traceContextMetrics(node);
+  const contextSummary = renderTraceContextSummary(contextMetrics);
   // 轮次是回放中的容器节点，生命周期状态没有实时含义；右侧固定展示执行耗时。
   const statusValue = node.type === "turn" ? null : node.status || item?.status || null;
   return `
     <div class="trace-node" style="--depth:${depth}">
-      <button class="trace-row${hasDuration ? " has-duration" : ""}${selected}" type="button" data-trace-node-id="${escapeAttr(node.id)}">
+      <button class="trace-row${hasDuration ? " has-duration" : ""}${contextSummary ? " has-context" : ""}${selected}" type="button" data-trace-node-id="${escapeAttr(node.id)}">
         <span class="trace-indent" aria-hidden="true"></span>
         ${
           children.length
@@ -139,10 +140,10 @@ function renderTraceNode(node, context) {
           <span class="trace-label" data-overflow-tooltip>${escapeHtml(node.label || node.type)}</span>
           <span class="trace-title" data-overflow-tooltip>${escapeHtml(title)}</span>
           ${argumentPreview ? `<span class="trace-arguments" data-overflow-tooltip title="${escapeAttr(argumentPreview)}">${escapeHtml(argumentPreview)}</span>` : ""}
-          ${renderTraceContextMetrics(contextMetrics)}
+          ${renderTraceResultMetrics(contextMetrics)}
         </span>
         ${statusValue ? `<span class="trace-status status-${escapeAttr(traceStatusKind(statusValue))}" data-overflow-tooltip>${escapeHtml(traceStatusLabel(statusValue))}</span>` : ""}
-        ${hasDuration ? `<span class="trace-duration" data-overflow-tooltip>${escapeHtml(durationLabel)}</span><span class="trace-bar" aria-hidden="true"><i style="width:${width}%"></i></span>` : ""}
+        ${hasDuration ? `<span class="trace-duration" data-overflow-tooltip>${escapeHtml(durationLabel)}</span>${contextSummary}<span class="trace-bar" aria-hidden="true"><i style="width:${width}%"></i></span>` : ""}
       </button>
       ${children.length && expanded ? `<div class="trace-children">${children.map((child) => renderTraceNode(child, { ...context, depth: depth + 1 })).join("")}</div>` : ""}
     </div>
@@ -167,18 +168,23 @@ function traceContextMetrics(node) {
   };
 }
 
-function renderTraceContextMetrics(metrics) {
+function renderTraceResultMetrics(metrics) {
   if (!metrics || (!Number.isFinite(metrics.resultTokens) && !Number.isFinite(metrics.usage?.percent))) return "";
   const tokens = Number.isFinite(metrics.resultTokens)
     ? `<span title="${escapeAttr(`${metrics.resultTokenKind === "estimated" ? "估算" : "记录"}返回 token`)}">返 ${escapeHtml(formatTraceTokenCount(metrics.resultTokens))} tok</span>`
     : "";
+  return tokens ? `<span class="trace-result-metrics">${tokens}</span>` : "";
+}
+
+function renderTraceContextSummary(metrics) {
+  if (!metrics || !Number.isFinite(metrics.usage?.percent)) return "";
   const usage = Number.isFinite(metrics.usage?.percent)
     ? `<span title="${escapeAttr(traceContextUsageTitle(metrics))}">上下文 ${escapeHtml(formatTraceContextPercent(metrics.usage.percent))}${metrics.source === "estimated" ? "（估算）" : "（记录）"}</span>`
     : "";
   const change = Number.isFinite(metrics.changePercent)
     ? `<span class="trace-context-change ${metrics.changePercent < 0 ? "decrease" : "increase"}">${escapeHtml(formatTraceContextChange(metrics.changePercent))}</span>`
     : "";
-  return `<span class="trace-context-metrics">${tokens}${usage}${change}</span>`;
+  return `<span class="trace-context-summary">${usage}${change}</span>`;
 }
 
 function traceContextUsageTitle(metrics) {
@@ -293,5 +299,5 @@ function renderTraceContextDetails(metrics) {
   return `<section class="trace-context-details"><h4>上下文指标</h4><div>${values.map(([label, value]) => `<span><em>${escapeHtml(label)}</em><strong>${escapeHtml(value)}</strong></span>`).join("")}</div></section>`;
 }
 
-  Object.assign(api, { renderTrace, filterTraceNode, isDefaultTraceNode, traceNodeMatchesType, traceSearchText, renderTraceNode, traceContextMetrics, renderTraceContextMetrics, traceContextUsageTitle, formatTraceTokenCount, formatTraceContextPercent, formatTraceContextChange, traceToolTitle, fullTraceItem, traceArgumentPreview, traceStatusKind, traceStatusLabel, renderToolDetails, renderTraceContextDetails });
+  Object.assign(api, { renderTrace, filterTraceNode, isDefaultTraceNode, traceNodeMatchesType, traceSearchText, renderTraceNode, traceContextMetrics, renderTraceResultMetrics, renderTraceContextSummary, traceContextUsageTitle, formatTraceTokenCount, formatTraceContextPercent, formatTraceContextChange, traceToolTitle, fullTraceItem, traceArgumentPreview, traceStatusKind, traceStatusLabel, renderToolDetails, renderTraceContextDetails });
 }
