@@ -71,7 +71,7 @@ function traceFixture() {
                 detail: {
                   kind: "item",
                   item: { type: "tool-call", name: "bash", status: "completed", arguments: "pwd", output: "/data" },
-                  contextMetrics: { source: "estimated", usage: { percent: 50.1, used: 50_100, limit: 100_000 }, resultTokens: 100, resultTokenKind: "estimated", changePercent: 0.1 },
+                  contextMetrics: { source: null, usage: null, resultTokens: 100, resultTokenKind: "estimated", changePercent: null },
                 },
               },
               {
@@ -172,14 +172,14 @@ test("执行树工具行继续展示状态和耗时", () => {
   assert.match(toolRow, /执行成功/);
   assert.match(toolRow, /trace-duration/);
   assert.match(toolRow, /返 100 tok/);
-  assert.match(toolRow, /上下文 50.1%（估算）/);
-  assert.match(toolRow, /\+0.1%/);
+  assert.doesNotMatch(toolRow, /上下文/);
+  assert.match(toolRow, /估算返回 token/);
 });
 
-test("模型定义窗口推导的上下文明确标记为模型估算", () => {
-  assert.equal(api.traceContextSourceLabel("model-estimated"), "模型估算");
-  assert.match(api.renderTraceContextSummary({ source: "model-estimated", usage: { percent: 18.4, used: 50_000, limit: 272_000 } }), /上下文 18.4%（模型估算）/);
-  assert.match(api.traceContextUsageTitle({ source: "model-estimated", usage: { percent: 18.4, used: 50_000, limit: 272_000 } }), /模型定义窗口与 LLM 输入 token/);
+test("模型回复上下文不展示估算来源", () => {
+  assert.equal(api.traceContextSourceLabel("recorded"), "记录");
+  assert.match(api.renderTraceContextSummary({ source: "recorded", usage: { percent: 18.4, used: 50_000, limit: 272_000 } }), /上下文 18.4%（记录）/);
+  assert.doesNotMatch(api.traceContextUsageTitle({ source: "recorded", usage: { percent: 18.4, used: 50_000, limit: 272_000 } }), /估算/);
 });
 
 test("轮次详情面板不再展示生命周期状态", () => {
@@ -197,7 +197,7 @@ test("工具详情面板继续展示状态", () => {
   api.renderToolDetails(toolNode);
   assert.match(api.els.toolDetailsContent.innerHTML, /tool-details-status status-success/);
   assert.match(api.els.toolDetailsContent.innerHTML, /执行成功/);
-  assert.match(api.els.toolDetailsContent.innerHTML, /上下文指标/);
+  assert.match(api.els.toolDetailsContent.innerHTML, /返回指标/);
   assert.match(api.els.toolDetailsContent.innerHTML, /估算 100 tok/);
-  assert.match(api.els.toolDetailsContent.innerHTML, /50.1%（估算）/);
+  assert.doesNotMatch(api.els.toolDetailsContent.innerHTML, /上下文/);
 });

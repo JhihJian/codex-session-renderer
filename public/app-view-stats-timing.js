@@ -21,7 +21,7 @@ function renderTimingView(timing) {
     <div class="timing-section" aria-labelledby="timingDetailHeading">
       <div class="timing-heading"><div><h4 id="timingDetailHeading">会话时间分布</h4><p>等待输入、工具执行与模型响应的时间构成。</p></div><span class="timing-confidence">${escapeHtml(timingKindLabel(session.durationKind))}</span></div>
       ${metrics.length ? `<div class="timing-metrics" aria-label="会话时间概览">${metrics.join("")}</div>` : ""}
-      <p class="timing-note">LLM 原始上下文快照显示为“记录”；Pi 会话缺少快照时，使用模型定义窗口和 LLM 输入 token 显示为“模型估算”。工具在已有基线时按返回 token 累加显示“估算”，下一次 LLM 用量会重新校准。等待输入仅统计助手最后回复到下一次用户消息的间隔。实际运行时长只统计工具与 LLM 的可关联区间；两者并行时按时间并集计一次。LLM 并发只统计可关联 LLM 请求区间，不计工具或子代理。平均生成速度为估算口径：生成 token 数除以对应响应区间时长，区间含排队与首字等待。</p>
+      <p class="timing-note">模型回复的上下文用量显示为“记录”；工具执行不展示上下文用量。等待输入仅统计助手最后回复到下一次用户消息的间隔。实际运行时长只统计工具与 LLM 的可关联区间；两者并行时按时间并集计一次。LLM 并发只统计可关联 LLM 请求区间，不计工具或子代理。平均生成速度为估算口径：生成 token 数除以对应响应区间时长，区间含排队与首字等待。</p>
       <div class="timing-composition" aria-label="实际运行时长构成">
         ${composition.length ? renderTimingComposition(composition) : `<div class="timing-empty"><strong>暂无可关联执行时长</strong><span>会话事件中尚未发现具有完整起止时间的工具或 LLM 记录。</span></div>`}
       </div>
@@ -68,7 +68,6 @@ function formatContextPercent(value) {
 
 function contextSourceLabel(source) {
   if (source === "estimated") return "估算";
-  if (source === "model-estimated") return "模型估算";
   return "记录";
 }
 

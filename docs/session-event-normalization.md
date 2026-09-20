@@ -173,9 +173,9 @@ Raw event 仍可按需查看完整原始 JSON。默认视图、事件预览和�
 
 每个分类保留 `nodeRefs`，包括 `traceNodeId`、轮次索引和原始事件索引，前端可从时间投入条跳转到 Audit 或 Raw。时间诊断的轮次行展示该轮事件顺序最后一个可用上下文占用及其来源，作为轮末状态，不将没有可靠窗口的轮次补写为占用率。时间区间的 `durationKind` 使用 `observed`、`estimated`、`partial` 和 `unavailable`，会话和分类的 `confidence` 使用 `observed`、`mixed`、`estimated` 和 `unavailable`。缺少开始或结束事件的项目计入质量摘要，并以部分区间或估算状态展示。
 
-`timing.steps` 按事件顺序保留每个 LLM 或工具执行区间的耗时、返回 token、上下文快照及相邻快照的上下文占用率差。LLM 返回 token 使用原始 token 用量；工具返回 token 缺少原始遥测时，按 UTF-8 返回内容估算并在界面标为“约”。步骤上下文优先使用结束时间最接近的原始快照；Pi 事件缺少窗口时，若其会话模型可在同一 Pi 数据源的 `models-store.json` 精确匹配上下文窗口，则用该次 `inputTokens` 生成“模型估算”快照。工具在此基线后累计返回 token，直至下一次 LLM 快照或输入用量重新校准。上下文变化以带正负号的百分点展示，没有输出或可靠窗口时保持“未记录”。
+`timing.steps` 按事件顺序保留每个 LLM 或工具执行区间的耗时和返回 token；LLM 步骤保留上下文快照及相邻快照的上下文占用率差。LLM 返回 token 使用原始 token 用量；工具返回 token 缺少原始遥测时，按 UTF-8 返回内容估算并在界面标为“约”。Pi 事件缺少窗口时，若其会话模型可在同一 Pi 数据源的 `models-store.json` 精确匹配上下文窗口，则用该次 `inputTokens` 形成模型回复的上下文记录。工具不再按返回 token 推导上下文快照或变化。上下文变化以带正负号的百分点展示，没有输出或可靠窗口时保持“未记录”。
 
-执行树的模型回复和工具节点同时携带 `contextMetrics`。模型回复关联的 `token_count` 或 Pi 原始用量包含可解析窗口/百分比时标记为“记录”；Pi 原始用量只包含 `inputTokens` 时，只有该模型可在同一数据源的 `models-store.json` 中精确匹配窗口，才标记为“模型估算”。要把工具中间状态折算为百分比，必须同时具有已用 token 与上下文窗口。满足任一基线后，工具节点按 UTF-8 返回内容估算 token 并累计到最近上下文用量，标记为“估算”，直到后续 LLM 记录快照或输入用量重新校准。缺少窗口基线时，工具仍可显示返回 token，但不得展示上下文百分比或变化。
+执行树的模型回复和工具节点同时携带 `contextMetrics`。模型回复关联的 `token_count`、Pi 原始用量或匹配模型窗口后的 `inputTokens` 均按“记录”展示。工具节点的 `contextMetrics` 仅保留返回 token，`usage` 和上下文变化为空，因此工具节点不得展示上下文百分比或变化。
 
 `timing` 还从轮次开始或上一条工具、上下文边界到 reasoning 或 assistant 事件推导 LLM 等待区间。原始 JSONL 没有稳定的 API `response.started` / `response.completed` 生命周期时，这些区间标记为 `estimated`，而非精确 API 耗时。Codex 的 `token_count.info.last_token_usage` 与 Pi 助手消息的 `usage` 若包含输出 token，会关联到本次 LLM 等待，展示输入、输出、推理、缓存读写、总用量、成本及输出 token 加推理 token 的总生成量和 `token/s`。执行树同时显示单次 LLM 的完整原始用量和轮次内模型回复的汇总用量；轮次节点以生成构成、缓存构成及轮末上下文相对窗口三条分段条展示，每段常驻显示 token 与比例，悬浮提示补充详情和窗口。轮内累计 `totalTokens` 是多次调用的计费用量，不能与单次上下文窗口直接比较。时间诊断汇总会话级用量。速率的分母是上述推导区间，不是供应商逐 token 的流式遥测，缺少明确用量时不会按字符数估算。子代理只有同时拥有父会话中的启动事件和完成通知时才计入运行时长，内嵌子代理结果和子会话文件更新时间都不足以推断时长。工具时长仍来自同一调用的调用与返回事件。`GET /api/query/sessions/:id/view?view=timing` 返回与详情中相同的 `timing` 投影。搜索、类型筛选和事件统计不改变完整会话时间口径。
 

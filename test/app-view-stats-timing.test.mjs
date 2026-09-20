@@ -83,7 +83,7 @@ test("timing view renders session TPS card and per-turn TPS meta", () => {
 test("timing steps render returned tokens, context occupancy, and signed change", () => {
   const markup = api.renderTimingSteps([
     { traceNodeId: "response-1", eventIndex: 1, bucketId: "llm_wait", label: "gpt-5", durationMs: 3_000, resultTokens: 120, resultTokenKind: "recorded", contextUsage: { percent: 42, used: 42_000, limit: 100_000 }, contextChangePercent: 2.5, contextRecordedAt: "2026-07-08T10:00:03.000Z" },
-    { traceNodeId: "tool-1", eventIndex: 2, bucketId: "tool_execution", label: "bash", durationMs: 1_000, resultTokens: 8, resultTokenKind: "estimated", contextUsage: { percent: 38 }, contextChangePercent: -4, contextRecordedAt: "2026-07-08T10:00:04.000Z" },
+    { traceNodeId: "tool-1", eventIndex: 2, bucketId: "tool_execution", label: "bash", durationMs: 1_000, resultTokens: 8, resultTokenKind: "estimated", contextUsage: null, contextChangePercent: null, contextRecordedAt: null },
   ]);
 
   assert.match(markup, /步骤明细/);
@@ -92,7 +92,7 @@ test("timing steps render returned tokens, context occupancy, and signed change"
   assert.match(markup, /约 8 tok/);
   assert.match(markup, /42000 \/ 100000 · 42%/);
   assert.match(markup, /\+2.5%/);
-  assert.match(markup, /-4%/);
+  assert.doesNotMatch(markup, /-4%/);
   assert.equal(api.formatContextChange(0), "+0%");
 });
 
@@ -117,14 +117,15 @@ test("timing turn bars fall back to full width without usable turn durations", (
   assert.match(markup, /--turn:100%/);
 });
 
-test("timing turn shows its final context occupancy and source", () => {
-  assert.equal(api.formatTurnContext({ contextUsage: { percent: 18.4 }, contextSource: "model-estimated" }), "上下文 18.4%（模型估算）");
-  assert.match(api.renderTimingTurns([{ turnNumber: 1, durationMs: 1_000, confidence: "estimated", contextUsage: { percent: 18.4 }, contextSource: "model-estimated", buckets: [] }]), /上下文 18.4%（模型估算）/);
+test("timing turn shows its final context occupancy as recorded", () => {
+  assert.equal(api.formatTurnContext({ contextUsage: { percent: 18.4 }, contextSource: "recorded" }), "上下文 18.4%（记录）");
+  assert.match(api.renderTimingTurns([{ turnNumber: 1, durationMs: 1_000, confidence: "estimated", contextUsage: { percent: 18.4 }, contextSource: "recorded", buckets: [] }]), /上下文 18.4%（记录）/);
 });
 
-test("timing steps distinguish model-window estimates from recorded snapshots", () => {
-  assert.equal(api.contextSourceLabel("model-estimated"), "模型估算");
-  assert.match(api.renderTimingStep({ traceNodeId: "response-1", bucketId: "llm_wait", label: "gpt-5.6-terra", durationMs: 1_000, contextUsage: { percent: 18.4, used: 50_000, limit: 272_000 }, contextSource: "model-estimated" }), /18.4%（模型估算）/);
+test("timing steps show model response context as recorded", () => {
+  assert.equal(api.contextSourceLabel("recorded"), "记录");
+  assert.match(api.renderTimingStep({ traceNodeId: "response-1", bucketId: "llm_wait", label: "gpt-5.6-terra", durationMs: 1_000, contextUsage: { percent: 18.4, used: 50_000, limit: 272_000 }, contextSource: "recorded" }), /18.4%（记录）/);
+  assert.doesNotMatch(api.renderTimingStep({ traceNodeId: "tool-1", bucketId: "tool_execution", label: "bash", durationMs: 1_000, resultTokens: 8, resultTokenKind: "estimated", contextUsage: null, contextSource: null }), /上下文/);
 });
 
 test("timing metrics summarize complete recorded LLM usage", () => {

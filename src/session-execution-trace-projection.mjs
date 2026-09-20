@@ -265,15 +265,13 @@ function applyExecutionContextMetrics(root) {
     }
     const item = node.detail?.item || {};
     const resultTokens = estimateOutputTokens(item.output);
-    const usage = estimateContextUsage(current, resultTokens);
     node.detail.contextMetrics = executionContextMetrics({
-      previous: current,
-      usage,
-      source: usage ? "estimated" : "unavailable",
+      previous: null,
+      usage: null,
+      source: null,
       resultTokens,
       resultTokenKind: resultTokens == null ? null : "estimated",
     });
-    if (usage) current = usage;
   }
 }
 
@@ -320,16 +318,6 @@ function estimateOutputTokens(output) {
 
 function usableContextBaseline(usage) {
   return Number.isFinite(usage?.used) && Number.isFinite(usage?.limit) && usage.limit > 0;
-}
-
-function estimateContextUsage(previous, resultTokens) {
-  if (!usableContextBaseline(previous) || !Number.isFinite(resultTokens)) return null;
-  const used = previous.used + resultTokens;
-  return {
-    used,
-    limit: previous.limit,
-    percent: Math.min(100, Math.round((used / previous.limit) * 1000) / 10),
-  };
 }
 
 function executionContextMetrics({ previous, usage, source, resultTokens, resultTokenKind }) {
@@ -537,7 +525,7 @@ function assistantContextUsage(items, itemIndex, modelContextWindow) {
   if (!Number.isFinite(inputTokens) || !Number.isFinite(modelContextWindow) || modelContextWindow <= 0) return { usage: null, source: null };
   const used = Math.round(inputTokens);
   const limit = Math.round(modelContextWindow);
-  return { source: "model-estimated", usage: { used, limit, percent: Math.min(100, Math.round((used / limit) * 1000) / 10) } };
+  return { source: "recorded", usage: { used, limit, percent: Math.min(100, Math.round((used / limit) * 1000) / 10) } };
 }
 
 function recordedContextUsage(usage) {

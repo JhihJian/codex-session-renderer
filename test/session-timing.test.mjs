@@ -175,7 +175,7 @@ test("session timing reports each step's result tokens and recorded context chan
           completedAt: "2026-07-08T10:00:07.000Z",
           detail: {
             item: { sourceIndex: 2, name: "bash", output: "abcd" },
-            contextMetrics: { source: "estimated", usage: { percent: 41, used: 41_000, limit: 100_000 }, resultTokens: 1_000, resultTokenKind: "estimated", changePercent: 1 },
+            contextMetrics: { source: null, usage: null, resultTokens: 1_000, resultTokenKind: "estimated", changePercent: null },
           },
           children: [],
         }],
@@ -187,9 +187,9 @@ test("session timing reports each step's result tokens and recorded context chan
   assert.equal(timing.steps.length, 3);
   assert.deepEqual(timing.steps.map((step) => step.resultTokens), [120, 1_000, 80]);
   assert.deepEqual(timing.steps.map((step) => step.resultTokenKind), ["recorded", "estimated", "recorded"]);
-  assert.deepEqual(timing.steps.map((step) => step.contextUsage?.percent), [40, 41, 44]);
-  assert.deepEqual(timing.steps.map((step) => step.contextChangePercent), [null, 1, 4]);
-  assert.deepEqual(timing.steps.map((step) => step.contextSource), ["recorded", "estimated", "recorded"]);
+  assert.deepEqual(timing.steps.map((step) => step.contextUsage?.percent ?? null), [40, null, 44]);
+  assert.deepEqual(timing.steps.map((step) => step.contextChangePercent), [null, null, 4]);
+  assert.deepEqual(timing.steps.map((step) => step.contextSource), ["recorded", null, "recorded"]);
   assert.deepEqual(timing.turns[0].contextUsage, { percent: 44, used: 44_000, limit: 100_000 });
   assert.equal(timing.turns[0].contextSource, "recorded");
   assert.equal(timing.turns[0].contextChangePercent, 4);

@@ -217,7 +217,7 @@ test("时间诊断逐步骤展示返回 token 与上下文变化", async ({ page
   expect(layout.scroll).toBeLessThanOrEqual(layout.client);
 });
 
-test("执行树展示 LLM 记录上下文与工具返回估算", async ({ page }) => {
+test("执行树保留模型回复上下文并隐藏工具上下文估算", async ({ page }) => {
   await page.goto("/");
   await selectCodexSource(page);
   await page.locator("#traceViewButton").click();
@@ -236,10 +236,11 @@ test("执行树展示 LLM 记录上下文与工具返回估算", async ({ page }
   expect(desktopMetrics.context.left).toBeGreaterThanOrEqual(desktopMetrics.duration.right - 1);
   expect(Math.abs(desktopMetrics.context.top - desktopMetrics.duration.top)).toBeLessThanOrEqual(1);
   await expect(tool).toContainText("返");
-  await expect(tool).toContainText("上下文");
-  await expect(tool).toContainText("估");
+  await expect(tool).not.toContainText("上下文");
+  await expect(tool).not.toContainText("估算");
   await tool.click();
-  await expect(page.locator("#toolDetailsContent")).toContainText("上下文指标");
+  await expect(page.locator("#toolDetailsContent")).toContainText("返回指标");
+  await expect(page.locator("#toolDetailsContent")).not.toContainText("上下文");
   await expect(page.locator("#toolDetailsContent")).toContainText("估算");
   await page.setViewportSize({ width: 390, height: 844 });
   const mobileLayout = await response.evaluate((row) => ({ client: row.clientWidth, scroll: row.scrollWidth }));

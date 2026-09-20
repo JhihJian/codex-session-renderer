@@ -211,7 +211,7 @@ function buildSteps(trace, intervals) {
   return intervals
     .map((item) => {
       const ref = nodeRef(item);
-      const snapshot = closestContextSnapshot(snapshots, item);
+      const snapshot = item.bucketId === "llm_wait" ? closestContextSnapshot(snapshots, item) : null;
       return {
         ...ref,
         bucketId: item.bucketId,

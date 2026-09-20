@@ -245,11 +245,11 @@ test("measured response intervals attribute token_count usage to the response th
     changePercent: null,
   });
   assert.deepEqual(toolNode.detail.contextMetrics, {
-    source: "estimated",
-    usage: { used: 40_003, limit: 100_000, percent: 40 },
+    source: null,
+    usage: null,
     resultTokens: 3,
     resultTokenKind: "estimated",
-    changePercent: 0,
+    changePercent: null,
   });
 });
 
@@ -269,11 +269,11 @@ test("Pi LLM input token usage uses the configured model window and recalibrates
   const executionNodes = trace.root.children[0].children.filter((node) => node.type === "response" || node.type === "tool");
 
   assert.deepEqual(executionNodes.map((node) => node.detail.contextMetrics), [
-    { source: "model-estimated", usage: { used: 50_000, limit: 100_000, percent: 50 }, resultTokens: 80, resultTokenKind: "recorded", changePercent: null },
-    { source: "estimated", usage: { used: 50_001, limit: 100_000, percent: 50 }, resultTokens: 1, resultTokenKind: "estimated", changePercent: 0 },
-    { source: "model-estimated", usage: { used: 60_000, limit: 100_000, percent: 60 }, resultTokens: 120, resultTokenKind: "recorded", changePercent: 10 },
+    { source: "recorded", usage: { used: 50_000, limit: 100_000, percent: 50 }, resultTokens: 80, resultTokenKind: "recorded", changePercent: null },
+    { source: null, usage: null, resultTokens: 1, resultTokenKind: "estimated", changePercent: null },
+    { source: "recorded", usage: { used: 60_000, limit: 100_000, percent: 60 }, resultTokens: 120, resultTokenKind: "recorded", changePercent: 10 },
   ]);
-  assert.deepEqual(trace.timing.responses.map((response) => response.contextSource), ["model-estimated", "model-estimated"]);
+  assert.deepEqual(trace.timing.responses.map((response) => response.contextSource), ["recorded", "recorded"]);
   assert.deepEqual(trace.root.children[0].detail.modelUsage, {
     inputTokens: 110_000,
     outputTokens: 200,

@@ -251,7 +251,7 @@ function renderTraceContextSummary(metrics) {
 function traceContextUsageTitle(metrics) {
   const usage = metrics.usage || {};
   const values = [
-    metrics.source === "estimated" ? "基于工具返回 token 的上下文估算" : metrics.source === "model-estimated" ? "基于模型定义窗口与 LLM 输入 token 的上下文估算" : "LLM 结束时记录的上下文快照",
+    metrics.source === "estimated" ? "基于工具返回 token 的上下文估算" : "LLM 结束时记录的上下文快照",
     Number.isFinite(usage.used) && Number.isFinite(usage.limit) ? `${formatTraceTokenCount(usage.used)} / ${formatTraceTokenCount(usage.limit)} tok` : "",
   ].filter(Boolean);
   return values.join(" · ");
@@ -259,7 +259,6 @@ function traceContextUsageTitle(metrics) {
 
 function traceContextSourceLabel(source) {
   if (source === "estimated") return "估算";
-  if (source === "model-estimated") return "模型估算";
   return "记录";
 }
 
@@ -363,7 +362,8 @@ function renderTraceContextDetails(metrics) {
     Number.isFinite(usage.percent) ? ["上下文占用", `${Number.isFinite(usage.used) && Number.isFinite(usage.limit) ? `${formatTraceTokenCount(usage.used)} / ${formatTraceTokenCount(usage.limit)} · ` : ""}${formatTraceContextPercent(usage.percent)}（${traceContextSourceLabel(metrics.source)}）`] : null,
     Number.isFinite(metrics.changePercent) ? ["上下文变化", formatTraceContextChange(metrics.changePercent)] : null,
   ].filter(Boolean);
-  return `<section class="trace-context-details"><h4>上下文指标</h4><div>${values.map(([label, value]) => `<span><em>${escapeHtml(label)}</em><strong>${escapeHtml(value)}</strong></span>`).join("")}</div></section>`;
+  const heading = Number.isFinite(usage.percent) || Number.isFinite(metrics.changePercent) ? "上下文指标" : "返回指标";
+  return `<section class="trace-context-details"><h4>${heading}</h4><div>${values.map(([label, value]) => `<span><em>${escapeHtml(label)}</em><strong>${escapeHtml(value)}</strong></span>`).join("")}</div></section>`;
 }
 
   Object.assign(api, { renderTrace, filterTraceNode, isDefaultTraceNode, traceNodeMatchesType, traceSearchText, renderTraceNode, traceContextMetrics, renderTraceResultMetrics, traceNodeModelUsage, renderTurnTokenBars, renderTraceUsageMetrics, renderTraceContextSummary, traceContextUsageTitle, traceContextSourceLabel, formatTraceTokenCount, formatTraceCost, formatTraceContextPercent, formatTraceContextChange, traceToolTitle, fullTraceItem, traceArgumentPreview, traceStatusKind, traceStatusLabel, renderToolDetails, renderTraceContextDetails });
