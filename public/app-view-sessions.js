@@ -19,7 +19,6 @@
   const renderMarkdownTitle = (...args) => api.renderMarkdownTitle(...args);
   const formatShortDate = (...args) => api.formatShortDate(...args);
   const buildEvidenceId = (...args) => api.buildEvidenceId(...args);
-  const formatDate = (...args) => api.formatDate(...args);
   const latestTokenUsage = (...args) => api.latestTokenUsage(...args);
   const countItems = (...args) => api.countItems(...args);
   const compactNumber = (...args) => api.compactNumber(...args);
@@ -346,10 +345,13 @@ function renderThreadHeader() {
     return;
   }
   els.sessionTitle.innerHTML = renderMarkdownTitle(session.title || "未命名会话");
-  const parts = [session.sourceLabel || selectedSource()?.label, session.model, session.reasoningEffort, formatDate(session.updatedAt)].filter(Boolean);
-  els.sessionMetaLabel.textContent = parts.join(" · ") || session.id;
+  els.sessionMetaLabel.textContent = sessionFileLocation(session);
   renderSessionLineage();
   renderSessionHandoff();
+}
+
+function sessionFileLocation(session = {}) {
+  return session.relativePath || session.path || session.id || "未选择";
 }
 
 function renderSessionLineage() {
@@ -481,5 +483,5 @@ function tokenUsageTotal(usage) {
   return null;
 }
 
-  Object.assign(api, { renderSessionList, renderSessionListActionEmptyState, bindSessionListEmptyActions, mergedVisibleSessions, findSessionSummary, currentSessionFilteredOut, clearSessionFiltersForSelectedSession, returnToRealtimeSessions, reloadCurrentSessionListForFilters, renderSessionFilterNotice, selectedSessionDisplayTitle, sessionPlaceholderState, renderSessionPlaceholder, syncSessionTimeFilter, sessionTimeFilterCopy, renderSessionDirectoryTree, renderSessionDirectoryNode, sessionDirectoryKey, directoryContainsSelectedSession, bindSessionDirectoryTree, renderSessionRow, evidenceScopeForSession, sessionEvidenceId, rawEventEvidenceId, traceNodeEvidenceId, itemEvidenceId, sessionStatusLabel, renderThreadHeader, renderSessionLineage, renderStats, renderSessionHandoff, sessionHandoffFacts, handoffSessionStatus, handoffChildText, handoffFact, tokenUsageTotal });
+  Object.assign(api, { renderSessionList, renderSessionListActionEmptyState, bindSessionListEmptyActions, mergedVisibleSessions, findSessionSummary, currentSessionFilteredOut, clearSessionFiltersForSelectedSession, returnToRealtimeSessions, reloadCurrentSessionListForFilters, renderSessionFilterNotice, selectedSessionDisplayTitle, sessionPlaceholderState, renderSessionPlaceholder, syncSessionTimeFilter, sessionTimeFilterCopy, renderSessionDirectoryTree, renderSessionDirectoryNode, sessionDirectoryKey, directoryContainsSelectedSession, bindSessionDirectoryTree, renderSessionRow, evidenceScopeForSession, sessionEvidenceId, rawEventEvidenceId, traceNodeEvidenceId, itemEvidenceId, sessionStatusLabel, renderThreadHeader, sessionFileLocation, renderSessionLineage, renderStats, renderSessionHandoff, sessionHandoffFacts, handoffSessionStatus, handoffChildText, handoffFact, tokenUsageTotal });
 }

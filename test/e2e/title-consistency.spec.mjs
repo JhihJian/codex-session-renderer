@@ -23,6 +23,16 @@ test("严格 Goal 标题在列表、ARIA 与移动端详情保持投影后的同
   await expect(page.locator("#sessionTitle")).toHaveText(objective);
 });
 
+test("详情头部元信息显示会话文件位置而不是用户输入", async ({ page }) => {
+  const userInput = "验证工作台的 Chromium 交互契约";
+  await page.goto("/");
+  await selectCodexSource(page);
+  await page.locator("#sessionList .session-row", { hasText: "确定性 Chromium 验证会话" }).click();
+
+  await expect(page.locator("#sessionMetaLabel")).toHaveText("sessions/isolated/rollout-2025-01-02T03-04-05-33333333-3333-4333-8333-333333333333.jsonl");
+  await expect(page.locator("#sessionMetaLabel")).not.toHaveText(userInput);
+});
+
 test("长标题在列表、ARIA 与详情中完整保留", async ({ page }) => {
   const suffix = "CHROMIUM_LONG_TITLE_SUFFIX";
   await page.goto("/");
