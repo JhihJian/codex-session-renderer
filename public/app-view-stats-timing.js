@@ -115,6 +115,12 @@ function timingTurnScaleMs(turn) {
   return Number.isFinite(turn?.activeRunMs) && turn.activeRunMs > 0 ? turn.activeRunMs : 0;
 }
 
+function formatTurnContext(turn) {
+  const context = turn?.contextUsage;
+  if (!Number.isFinite(context?.percent)) return "";
+  return `上下文 ${formatContextPercent(context.percent)}（${contextSourceLabel(turn.contextSource)}）`;
+}
+
 function renderTimingTurns(turns = []) {
   if (!turns.length) return "";
   const maxTurnMs = turns.reduce((max, turn) => Math.max(max, timingTurnScaleMs(turn)), 0);
@@ -124,6 +130,7 @@ function renderTimingTurns(turns = []) {
       Number.isFinite(turn.durationMs) ? formatTimingDuration(turn.durationMs) : "",
       timingKindLabel(turn.confidence),
       Number.isFinite(llmBucket?.generatedTokensPerSecond) ? `约 ${formatTokensPerSecond(llmBucket.generatedTokensPerSecond)}` : "",
+      formatTurnContext(turn),
     ].filter(Boolean).join(" · ");
     const turnShare = maxTurnMs > 0 ? Math.max(1, Math.min(100, Math.round((timingTurnScaleMs(turn) / maxTurnMs) * 1000) / 10)) : 100;
     const userTitle = turn.userTitle ? `<em class="timing-turn-user" title="${escapeAttr(turn.userTitle)}">${escapeHtml(turn.userTitle)}</em>` : "";
@@ -212,5 +219,5 @@ function renderStatsOperationRow(operation, totalEvents, query) {
   `;
 }
 
-  Object.assign(api, { renderTimingView, renderTimingMetrics, renderTimingSteps, renderTimingStep, formatContextPercent, contextSourceLabel, formatContextChange, formatTokensPerSecond, renderTimingComposition, renderTimingTurns, timingTurnScaleMs, timingKindLabel, formatTimingDuration, bindTimingActions, renderStatsMetric, renderStatsEventRows, renderStatsEventRow, renderStatsOperationRow });
+  Object.assign(api, { renderTimingView, renderTimingMetrics, renderTimingSteps, renderTimingStep, formatContextPercent, contextSourceLabel, formatContextChange, formatTokensPerSecond, renderTimingComposition, renderTimingTurns, formatTurnContext, timingTurnScaleMs, timingKindLabel, formatTimingDuration, bindTimingActions, renderStatsMetric, renderStatsEventRows, renderStatsEventRow, renderStatsOperationRow });
 }

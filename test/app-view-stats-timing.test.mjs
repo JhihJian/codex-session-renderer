@@ -117,6 +117,11 @@ test("timing turn bars fall back to full width without usable turn durations", (
   assert.match(markup, /--turn:100%/);
 });
 
+test("timing turn shows its final context occupancy and source", () => {
+  assert.equal(api.formatTurnContext({ contextUsage: { percent: 18.4 }, contextSource: "model-estimated" }), "上下文 18.4%（模型估算）");
+  assert.match(api.renderTimingTurns([{ turnNumber: 1, durationMs: 1_000, confidence: "estimated", contextUsage: { percent: 18.4 }, contextSource: "model-estimated", buckets: [] }]), /上下文 18.4%（模型估算）/);
+});
+
 test("timing steps distinguish model-window estimates from recorded snapshots", () => {
   assert.equal(api.contextSourceLabel("model-estimated"), "模型估算");
   assert.match(api.renderTimingStep({ traceNodeId: "response-1", bucketId: "llm_wait", label: "gpt-5.6-terra", durationMs: 1_000, contextUsage: { percent: 18.4, used: 50_000, limit: 272_000 }, contextSource: "model-estimated" }), /18.4%（模型估算）/);

@@ -185,6 +185,9 @@ test("session timing reports each step's result tokens and recorded context chan
   assert.deepEqual(timing.steps.map((step) => step.contextUsage?.percent), [40, 41, 44]);
   assert.deepEqual(timing.steps.map((step) => step.contextChangePercent), [null, 1, 4]);
   assert.deepEqual(timing.steps.map((step) => step.contextSource), ["recorded", "estimated", "recorded"]);
+  assert.deepEqual(timing.turns[0].contextUsage, { percent: 44, used: 44_000, limit: 100_000 });
+  assert.equal(timing.turns[0].contextSource, "recorded");
+  assert.equal(timing.turns[0].contextChangePercent, 4);
 });
 
 test("session timing reports partial nodes without inventing duration", () => {

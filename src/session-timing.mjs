@@ -341,27 +341,7 @@ function buildSessionTiming(trace) {
     notes: trace?.timing?.estimated ? ["会话边界由首末有效事件推算"] : [],
   };
   const llmBucket = buckets.find((bucket) => bucket.id === "llm_wait");
-  const turns = (trace?.root?.children || []).filter((node) => node.type === "turn").map((turn, turnIndex) => {
-    const turnIntervals = intervals.filter((item) => item.turnIndex === turnIndex);
-    const completeTurnIntervals = turnIntervals.filter((item) => item.durationMs != null);
-    const turnStart = Date.parse(turn.timestamp || "");
-    const turnEnd = Date.parse(turn.completedAt || "");
-    const turnDuration = Number.isFinite(turnStart) && Number.isFinite(turnEnd) && turnEnd >= turnStart ? turnEnd - turnStart : null;
-    return {
-      turnNumber: turnIndex + 1,
-      turnId: turn.detail?.turn?.id || turn.id,
-      userTitle: turn.title || null,
-      startedAt: turn.timestamp || null,
-      completedAt: turn.completedAt || null,
-      durationMs: turnDuration,
-      durationKind: turnDuration == null ? "partial" : turn.durationEstimated ? "estimated" : "observed",
-      confidence: confidenceFor(completeTurnIntervals),
-      activeRunMs: coveredMs(completeTurnIntervals.map((item) => ({ startMs: item.startMs, endMs: item.endMs }))),
-      buckets: bucketDefinitions
-        .map(([id, label]) => buildBucket(id, label, turnIntervals.filter((item) => item.bucketId === id), turnDuration || 0))
-        .filter((bucket) => bucket.count > 0),
-    };
-  });
+  const turns = buildTimingTurns(trace, intervals, steps);
   return {
     version: 2,
     session: {
@@ -386,6 +366,66 @@ function buildSessionTiming(trace) {
     turns,
     quality,
   };
+}
+
+function buildTimingTurns(trace, intervals, steps) {
+  return (trace?.root?.children || [])
+    .filter((node) => node.type === "turn")
+    .map((turn, turnIndex) => buildTimingTurn(turn, turnIndex, intervals, steps));
+}
+
+function buildTimingTurn(turn, turnIndex, intervals, steps) {
+  const turnIntervals = intervals.filter((item) => item.turnIndex === turnIndex);
+  const completeTurnIntervals = turnIntervals.filter((item) => item.durationMs != null);
+  const duration = timingTurnDuration(turn);
+  return {
+    turnNumber: turnIndex + 1,
+    turnId: timingTurnId(turn),
+    userTitle: turn.title || null,
+    startedAt: turn.timestamp || null,
+    completedAt: turn.completedAt || null,
+    ...duration,
+    confidence: confidenceFor(completeTurnIntervals),
+    activeRunMs: coveredMs(completeTurnIntervals.map((item) => ({ startMs: item.startMs, endMs: item.endMs }))),
+    ...timingTurnContext(steps, turnIndex),
+    buckets: timingTurnBuckets(turnIntervals, duration.durationMs),
+  };
+}
+
+function timingTurnId(turn) {
+  return turn.detail?.turn?.id || turn.id;
+}
+
+function timingTurnDuration(turn) {
+  const start = Date.parse(turn.timestamp || "");
+  const end = Date.parse(turn.completedAt || "");
+  const durationMs = Number.isFinite(start) && Number.isFinite(end) && end >= start ? end - start : null;
+  return { durationMs, durationKind: durationMs == null ? "partial" : turn.durationEstimated ? "estimated" : "observed" };
+}
+
+function timingTurnContext(steps, turnIndex) {
+  const context = latestTurnContext(steps, turnIndex);
+  return {
+    contextUsage: context?.usage || null,
+    contextSource: context?.source || null,
+    contextChangePercent: context?.changePercent ?? null,
+  };
+}
+
+function timingTurnBuckets(intervals, durationMs) {
+  return bucketDefinitions
+    .map(([id, label]) => buildBucket(id, label, intervals.filter((item) => item.bucketId === id), durationMs || 0))
+    .filter((bucket) => bucket.count > 0);
+}
+
+function latestTurnContext(steps, turnIndex) {
+  for (let index = steps.length - 1; index >= 0; index -= 1) {
+    const step = steps[index];
+    if (step.turnIndex === turnIndex && Number.isFinite(step.contextUsage?.percent)) {
+      return { usage: step.contextUsage, source: step.contextSource, changePercent: step.contextChangePercent };
+    }
+  }
+  return null;
 }
 
 export { buildSessionTiming, coveredMs, mergeIntervals, overlapMs };
