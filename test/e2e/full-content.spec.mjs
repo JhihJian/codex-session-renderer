@@ -93,6 +93,16 @@ test("原始事件详情完整展示大型工具输出", async ({ page }) => {
   }));
   expect(previewScroll.overflowY).toBe("auto");
   expect(previewScroll.scrollHeight).toBeGreaterThan(previewScroll.clientHeight);
+
+  const rawList = page.locator(".raw-view-list");
+  const listScroll = await rawList.evaluate((element) => {
+    element.scrollTop = Math.min(160, element.scrollHeight - element.clientHeight);
+    return { before: element.scrollTop, canScroll: element.scrollHeight > element.clientHeight };
+  });
+  expect(listScroll.canScroll).toBe(true);
+  await page.locator('[data-raw-event-index="6"]').evaluate((element) => element.click());
+  await expect(page.locator("#rawContent .raw-preview")).toContainText("FULL_TOOL_OUTPUT_END");
+  await expect.poll(() => rawList.evaluate((element) => element.scrollTop)).toBe(listScroll.before);
 });
 
 test("正文、执行和诊断作为完整主工作区互斥切换", async ({ page }) => {

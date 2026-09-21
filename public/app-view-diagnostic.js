@@ -39,6 +39,8 @@ function renderRawView() {
 function renderRawDiagnostic(detail) {
   const model = rawDiagnosticRenderModel(detail);
   const { diagnostic, currentPage } = model;
+  const previousList = els.rawContent.querySelector(".raw-view-list");
+  const previousScrollTop = previousList?.scrollTop ?? null;
   const header = rawDiagnosticHeader(model);
   if (!currentPage) {
     els.rawContent.innerHTML = `${header}${rawDiagnosticEmptyMarkup(diagnostic)}`;
@@ -48,6 +50,7 @@ function renderRawDiagnostic(detail) {
   }
   els.rawContent.innerHTML = rawDiagnosticResultsMarkup(model, header);
   bindRawDiagnosticActions();
+  if (previousScrollTop != null) els.rawContent.querySelector(".raw-view-list").scrollTop = previousScrollTop;
 }
 
 function rawDiagnosticRenderModel(detail) {
