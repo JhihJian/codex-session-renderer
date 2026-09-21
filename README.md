@@ -11,8 +11,7 @@ Codex 会话工作台是只读的会话浏览器。它把 Codex 与 Pi Agent 的
 产品核心目标是让会话记录更易读，并让用户以固定顺序完成理解：先连续阅读当前会话，再定位另一段会话，最后按需分析执行细节。
 
 - 默认界面是会话目录和正文组成的两栏阅读器。目录首屏只保留数据源、搜索和会话结果，并按工作目录组织为可折叠的项目树，会话作为目录叶子显示；时间与类型条件按需展开；正文不保留常驻执行目录、统计条或工具详情栏。
-- 正文工具栏可开启实时模式。它只订阅当前会话，以连续消息、工具活动和可观察的会话状态展示已完整写入 JSONL 的新内容；用户离开底部后停止自动跟随并提示新增内容。实时模式不提供输入或执行控制，关闭后恢复同一会话的完整静态阅读投影。
-- 会话状态由 JSONL 文件尾部推导：已完成、失败、已中断、等待输入为终态或空闲态；显示“运行中”要求文件仍在持续写入，超过阈值（默认 30 分钟，可用 `CODEX_SESSION_STALE_RUNNING_MS` 调整）没有新写入且缺少终态事件的会话显示“已停止”，避免把早已结束的会话误标为运行中。列表、详情和实时模式共用同一规则。
+- 会话状态由 JSONL 文件尾部推导：已完成、失败、已中断、等待输入为终态或空闲态；显示“运行中”要求文件仍在持续写入，超过阈值（默认 30 分钟，可用 `CODEX_SESSION_STALE_RUNNING_MS` 调整）没有新写入且缺少终态事件的会话显示“已停止”，避免把早已结束的会话误标为运行中。列表和详情共用同一规则。
 - 会话正文按轮次完整显示用户输入、助手消息、推理摘要、工具参数和输出，不按字符数裁剪正文。原始事件列表按页加载，选中任一事件后显示该事件的完整 JSON。
 - 正文在每轮末尾显示可证明的轮末上下文占用、生成 Token 和实际执行时长，并显示有持久化证据的上下文事件：Codex/Pi 的压缩时间和摘要、Pi 会话中的 Skill 指令块，以及 `read` 读取 `SKILL.md` 的记录与工具结果。启动时的系统提示、可用工具或 Skills 索引未写入 JSONL，不会由当前磁盘状态反推为历史事件。
 - 会话标题在目录中最多显示两行，只有实际超出时才使用省略号；路径、状态、统计和执行链路等受限概览文本在实际被截断时可悬停查看完整原文，避免长文本破坏页面布局。
@@ -34,7 +33,7 @@ Pi Agent 会话目录可用时，工作台默认展示 Pi 数据源；未发现 
 
 ## 完整详情与诊断预算
 
-完整详情、compact/view 和 turns/trace 读取当前会话的完整 JSONL，不因文件大小或事件数降级。详情缓存以读取开始时的文件签名区分版本，文件更新后下一次请求会重新读取。实时模式使用独立的同会话共享 SSE 流，文件监听只作为重新检查信号；只有换行结束的 JSONL 记录会被广播，截断、替换或重建会切换文件代际并让浏览器重新取得快照。
+完整详情、compact/view 和 turns/trace 读取当前会话的完整 JSONL，不因文件大小或事件数降级。详情缓存以读取开始时的文件签名区分版本，文件更新后下一次请求会重新读取。
 
 原始事件分页是独立诊断入口，受 `CODEX_SESSION_DIAGNOSTIC_MAX_FILE_BYTES` 和 `CODEX_SESSION_DIAGNOSTIC_MAX_EVENT_SCAN` 约束。详情并发、诊断上限和缓存可分别通过 `CODEX_SESSION_DETAIL_MAX_CONCURRENT_READS`、`CODEX_SESSION_DIAGNOSTIC_MAX_FILE_BYTES`、`CODEX_SESSION_DIAGNOSTIC_MAX_EVENT_SCAN`、`CODEX_SESSION_DETAIL_MAX_CACHE_ENTRIES` 与 `CODEX_SESSION_DETAIL_MAX_CACHE_BYTES` 配置。
 
@@ -60,7 +59,7 @@ npm start
 
 ### 临时打开单个会话
 
-页面右上角“更多操作”中的“打开本机会话”可临时读取一个本机绝对路径的 `.jsonl` 会话文件。该文件不会加入默认会话目录、索引或配置，刷新列表时只会重新读取当前文件；临时会话不提供实时模式。关闭页面后临时路径不会保留。
+页面右上角“更多操作”中的“打开本机会话”可临时读取一个本机绝对路径的 `.jsonl` 会话文件。该文件不会加入默认会话目录、索引或配置，刷新列表时只会重新读取当前文件。关闭页面后临时路径不会保留。
 
 例如：
 
@@ -82,7 +81,7 @@ npm run test:e2e
 
 - `server.mjs`：HTTP 服务装配入口；路由分派位于 `src/session-router.mjs`，会话查询服务由 `src/session-query-service.mjs` 装配。
 - `src/session-*-projection.mjs`：按轮次、紧凑阅读、执行追踪和追踪节点职责构建会话投影，`src/session-events.mjs` 保留兼容导出门面。
-- `src/session-*-query-service.mjs`：按来源上下文、目录、会话目录、详情和原始事件查询拆分只读读取服务；`src/live-session-stream.mjs` 维护实时会话的共享 SSE 订阅。
-- `public/app.js`：浏览器初始化入口。`public/app-state.js`、`public/app-requests*.js`、`public/app-live.js`、`public/app-view-*.js` 与 `public/app-ui.js` 通过 `SessionWorkbench` 注册表分别承担状态、请求、实时订阅、视图和交互。
+- `src/session-*-query-service.mjs`：按来源上下文、目录、会话目录、详情和原始事件查询拆分只读读取服务。
+- `public/app.js`：浏览器初始化入口。`public/app-state.js`、`public/app-requests*.js`、`public/app-view-*.js` 与 `public/app-ui.js` 通过 `SessionWorkbench` 注册表分别承担状态、请求、视图和交互。
 - `public/styles.css`：浏览器样式入口，按原有层叠顺序导入 `public/styles/` 下的基础、工作区、阅读、视图与响应式样式。
 - `public/tool-summary.js`：可配置的工具调用可读摘要。

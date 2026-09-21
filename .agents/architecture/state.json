@@ -46,10 +46,6 @@
         "sha256": "sha256:e146548e25e1747e035c224252f2b2f2c9bfa960d95ba6f71fca89f7d0da3731"
       },
       {
-        "path": "public/app-live.js",
-        "sha256": "sha256:1706388b42f537a077f5da070a62f04b4c849cacd9f6f9d92d7a08aa31b83b5c"
-      },
-      {
         "path": "public/app-requests-raw.js",
         "sha256": "sha256:6ced45606257a4397b207866781747d7285a9ee96e3ccf4c2ead5ac22144c539"
       },
@@ -266,14 +262,6 @@
         "sha256": "sha256:ae209e6def46e9af7135459689789f960a8b28575c734ef2169905529f984c0e"
       },
       {
-        "path": "src/jsonl-tail-reader.mjs",
-        "sha256": "sha256:2a2b844da03d5b28a66fbd1fe58921306637fd47f119a4182dff453129cc12c0"
-      },
-      {
-        "path": "src/live-session-stream.mjs",
-        "sha256": "sha256:1f5d8d8b9b9e849651208a1a23a892ec49bd20d8765c920755b15b3058a0289c"
-      },
-      {
         "path": "src/pi-context-events.mjs",
         "sha256": "sha256:de10b92dd0c4e0e521201772a7ea87ef4f6481ca90e1636e4d269b9b2092014d"
       },
@@ -398,10 +386,6 @@
         "sha256": "sha256:be50da1c2633b22ad69930d745b617340139520bbc127f26eac3784d0ce860dd"
       },
       {
-        "path": "test/e2e/live-mode.spec.mjs",
-        "sha256": "sha256:ab13185bcad86b34e1f9d1b92750bcd9999555a736053533a87451c6dcc8dd53"
-      },
-      {
         "path": "test/e2e/source-helpers.mjs",
         "sha256": "sha256:20a856b6c0007b47269dca30019ae5ce3c24cc20b5668ac7ec04840638942c05"
       },
@@ -412,10 +396,6 @@
       {
         "path": "test/e2e/title-consistency.spec.mjs",
         "sha256": "sha256:20667a5f63dc8b686f8b934bdbe1f486f7843a81e0160e0a55493240c6fc2817"
-      },
-      {
-        "path": "test/live-session-stream.test.mjs",
-        "sha256": "sha256:1b4e69a7eac015a552377ccabfe7d770b4242e883cd8265fba44ba9557420de6"
       },
       {
         "path": "test/pi-context-events.test.mjs",
@@ -500,7 +480,7 @@
     {
       "id": "purpose-readable-session-workbench",
       "kind": "purpose",
-      "summary": "将 Codex 和 Pi Agent 会话投影为静态或实时的阅读与诊断工作台，不对会话内容作正确性、安全性、风险或缺陷归因结论。",
+      "summary": "将 Codex 和 Pi Agent 会话投影为阅读与诊断工作台，不对会话内容作正确性、安全性、风险或缺陷归因结论。",
       "moduleId": "workbench",
       "certainty": "confirmed",
       "evidence": [
@@ -535,9 +515,7 @@
         "src/session-status.mjs",
         "src/session-query-service.mjs",
         "src/session-directory-query-service.mjs",
-        "src/session-catalog-query-service.mjs",
-        "src/live-session-stream.mjs",
-        "src/jsonl-tail-reader.mjs"
+        "src/session-catalog-query-service.mjs"
       ]
     },
     {
@@ -610,7 +588,7 @@
     {
       "id": "module-session-projection",
       "kind": "module",
-      "summary": "会话读取与投影模块负责来源隔离的发现、缓存读取、规范化、静态阅读投影和共享实时事件流。",
+      "summary": "会话读取与投影模块负责来源隔离的发现、缓存读取、规范化和阅读投影。",
       "moduleId": "session-projection",
       "certainty": "confirmed",
       "evidence": [
@@ -649,14 +627,6 @@
         {
           "path": "test/session-events.test.mjs",
           "locator": "buildTrace estimates open turn duration from last item activity"
-        },
-        {
-          "path": "src/live-session-stream.mjs",
-          "locator": "export function createLiveSessionStreamService"
-        },
-        {
-          "path": "public/app-live.js",
-          "locator": "function startLiveSession()"
         },
         {
           "path": "src/session-status.mjs",
@@ -707,14 +677,6 @@
         {
           "path": "test/e2e/full-content.spec.mjs",
           "locator": "执行树保留模型回复上下文并隐藏工具上下文估算"
-        },
-        {
-          "path": "test/live-session-stream.test.mjs",
-          "locator": "live stream appends completed records and resets after replacement"
-        },
-        {
-          "path": "test/e2e/live-mode.spec.mjs",
-          "locator": "实时模式展示当前会话的连续消息和可观察状态"
         },
         {
           "path": "test/session-status.test.mjs",
@@ -815,11 +777,6 @@
         "test/app-view-stats-timing.test.mjs",
         "test/app-view-stats-context.test.mjs",
         "test/app-view-trace.test.mjs",
-        "public/app-live.js",
-        "src/jsonl-tail-reader.mjs",
-        "src/live-session-stream.mjs",
-        "test/e2e/live-mode.spec.mjs",
-        "test/live-session-stream.test.mjs",
         "src/session-status.mjs",
         "src/async-concurrency.mjs",
         "test/session-status.test.mjs"
@@ -828,7 +785,7 @@
     {
       "id": "capability-session-discovery-and-view",
       "kind": "capability",
-      "summary": "服务按来源提供 SQLite 优先、JSONL 回退的会话发现，并派生列表、详情、事件、执行过程、时间统计和实时会话流。",
+      "summary": "服务按来源提供 SQLite 优先、JSONL 回退的会话发现，并派生列表、详情、事件、执行过程、时间统计。",
       "moduleId": "session-projection",
       "certainty": "confirmed",
       "evidence": [
@@ -843,10 +800,6 @@
         {
           "path": "src/session-timing.mjs",
           "locator": "function buildSessionTiming(trace)"
-        },
-        {
-          "path": "src/live-session-stream.mjs",
-          "locator": "export function createLiveSessionStreamService"
         },
         {
           "path": "src/session-directory-query-service.mjs",
@@ -865,10 +818,6 @@
         {
           "path": "test/app-view-stats-timing.test.mjs",
           "locator": "timing steps render returned tokens, context occupancy, and signed change"
-        },
-        {
-          "path": "test/e2e/live-mode.spec.mjs",
-          "locator": "实时模式展示当前会话的连续消息和可观察状态"
         },
         {
           "path": "test/session-status.test.mjs",
@@ -898,14 +847,11 @@
         "test/e2e/title-consistency.spec.mjs",
         "scripts/e2e-server.mjs",
         "test/e2e/fixture-session.mjs",
-        "src/live-session-stream.mjs",
-        "test/e2e/live-mode.spec.mjs",
         "src/session-status.mjs",
         "src/async-concurrency.mjs",
         "test/session-status.test.mjs",
         "src/session-query-service.mjs",
         "src/session-directory-query-service.mjs",
-        "src/jsonl-tail-reader.mjs",
         "public/app-temporary-session.js",
         "test/e2e/temporary-session.spec.mjs"
       ]
@@ -913,7 +859,7 @@
     {
       "id": "flow-stable-session-detail",
       "kind": "flow",
-      "summary": "静态详情协调器按读取开始时的文件签名隔离缓存与共享读取；实时流仅提交完整行，按文件代际隔离追加事件。",
+      "summary": "详情协调器按读取开始时的文件签名隔离缓存与共享读取；会话在读取期间追加时保留本次结果，下一次请求以新签名重新读取。",
       "moduleId": "session-projection",
       "certainty": "confirmed",
       "evidence": [
@@ -926,10 +872,6 @@
           "locator": "async function getSessionDetail(dependencies, context, id, options = {})"
         },
         {
-          "path": "src/jsonl-tail-reader.mjs",
-          "locator": "export async function readCommittedJsonlChunk"
-        },
-        {
           "path": "src/session-status.mjs",
           "locator": "function applyStaleRunningStatus"
         }
@@ -938,14 +880,6 @@
         {
           "path": "test/session-detail-coordinator.test.mjs",
           "locator": "详情协调器在读取中变化时保留本次结果，并按读取开始的版本缓存"
-        },
-        {
-          "path": "test/live-session-stream.test.mjs",
-          "locator": "committed JSONL reader keeps an unfinished tail pending"
-        },
-        {
-          "path": "test/live-session-stream.test.mjs",
-          "locator": "live stream heartbeats carry a stale-downgraded session status"
         }
       ],
       "document": {
@@ -959,9 +893,6 @@
         "src/jsonl-reader.mjs",
         "test/session-detail-coordinator.test.mjs",
         "docs/architecture/modules/session-projection.md",
-        "src/jsonl-tail-reader.mjs",
-        "src/live-session-stream.mjs",
-        "test/live-session-stream.test.mjs",
         "src/session-status.mjs",
         "src/session-query-service.mjs",
         "src/session-directory-query-service.mjs",

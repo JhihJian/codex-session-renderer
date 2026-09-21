@@ -2,7 +2,6 @@ import { createSessionCatalogQueryService } from "./session-catalog-query-servic
 import { createSessionDetailQueryService } from "./session-detail-query-service.mjs";
 import { createSessionDirectoryQueryService } from "./session-directory-query-service.mjs";
 import { createSessionEventQueryService } from "./session-event-query-service.mjs";
-import { createLiveSessionStreamService } from "./live-session-stream.mjs";
 import { createSessionSourceContextService, throwIfRequestAborted } from "./session-source-context-service.mjs";
 
 export function createSessionQueryService() {
@@ -38,11 +37,6 @@ export function createSessionQueryService() {
     sessionFileExists: sourceContexts.sessionFileExists,
     sessionFileStat: sourceContexts.sessionFileStat,
     throwIfRequestAborted,
-  });
-  const liveStreams = createLiveSessionStreamService({
-    getSessionById: catalogQueries.getSessionById,
-    sessionFileExists: sourceContexts.sessionFileExists,
-    sessionFileStat: sourceContexts.sessionFileStat,
   });
 
   async function temporarySession(filePath, options = {}) {
@@ -88,6 +82,5 @@ export function createSessionQueryService() {
     getTemporarySessionEvent,
     openTemporarySession,
     queryTemporarySessionEvents,
-    streamSessionLive: liveStreams.streamSession,
   };
 }

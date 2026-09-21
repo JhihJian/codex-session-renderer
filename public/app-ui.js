@@ -6,7 +6,6 @@
   const refreshCurrentSessionList = (...args) => api.refreshCurrentSessionList(...args);
   const handleMarkdownCodeCopy = (...args) => api.handleMarkdownCodeCopy(...args);
   const selectSource = (...args) => api.selectSource(...args);
-  const toggleLiveMode = (...args) => api.toggleLiveMode(...args);
   const openSettingsDialog = (...args) => api.openSettingsDialog(...args);
   const bindTemporarySessionDialog = (...args) => api.bindTemporarySessionDialog(...args);
   const requestCloseSettingsDialog = (...args) => api.requestCloseSettingsDialog(...args);
@@ -60,7 +59,6 @@ function bindEvents() {
   });
   document.addEventListener("keydown", handleDialogEscapeKey);
   els.sourceSelect.addEventListener("change", () => selectSource(els.sourceSelect.value));
-  els.liveModeToggle?.addEventListener("change", toggleLiveMode);
   els.settingsButton?.addEventListener("click", openSettingsDialog);
   els.closeSettingsDialogButton?.addEventListener("click", requestCloseSettingsDialog);
   els.cancelSettingsButton?.addEventListener("click", requestCloseSettingsDialog);
