@@ -228,7 +228,8 @@ test("measured response intervals attribute token_count usage to the response th
   assert.equal(responses.length, 2);
   assert.equal(responses[0].startMs, Date.parse("2026-09-09T03:00:05.000Z"));
   assert.equal(responses[0].endMs, Date.parse("2026-09-09T03:00:32.197Z"));
-  assert.equal(responses[0].generatedTokens, 388);
+  assert.equal(responses[0].generatedTokens, 390);
+  assert.equal(responses[0].toolCallTokens, 2);
   assert.deepEqual(responses[0].contextUsage, { used: 40_000, limit: 100_000, percent: 40 });
   assert.equal(responses[1].startMs, Date.parse("2026-09-09T03:00:32.268Z"));
   assert.equal(responses[1].endMs, Date.parse("2026-09-09T03:00:48.298Z"));
@@ -258,7 +259,7 @@ test("measured response intervals attribute token_count usage to the response th
   assert.deepEqual(responseNode.detail.contextMetrics, {
     source: "recorded",
     usage: { used: 40_000, limit: 100_000, percent: 40 },
-    resultTokens: 388,
+    resultTokens: 390,
     resultTokenKind: "recorded",
     changePercent: null,
   });
@@ -272,6 +273,21 @@ test("measured response intervals attribute token_count usage to the response th
   assert.deepEqual(finalResponseNode.detail.response.messageRef, responses[1].messageRef);
   assert.deepEqual(finalResponseNode.detail.response.thinkingRefs, responses[1].thinkingRefs);
   assert.doesNotMatch(JSON.stringify(finalResponseNode.detail.response), /完成/);
+});
+
+test("measured response intervals include tool call commands in generated tokens", () => {
+  const events = [
+    { type: "event_msg", timestamp: "2026-09-09T04:00:00.000Z", payload: { type: "user_message", message: "检查" } },
+    { type: "response_item", timestamp: "2026-09-09T04:00:02.000Z", payload: { type: "function_call", name: "exec_command", call_id: "call-1", arguments: "{\"cmd\":\"npm test\"}" } },
+    { type: "response_item", timestamp: "2026-09-09T04:00:03.000Z", payload: { type: "function_call_output", call_id: "call-1", output: "done" } },
+    { type: "event_msg", timestamp: "2026-09-09T04:00:03.100Z", payload: { type: "token_count", info: { last_token_usage: { output_tokens: 40, reasoning_output_tokens: 10 } } } },
+  ];
+  const turns = buildTurns(events);
+  const trace = buildTrace({ id: "codex-tool-call", title: "Codex" }, events, events.map(normalizeSessionEvent), turns, { children: [] });
+  const response = trace.timing.responses[0];
+
+  assert.equal(response.toolCallTokens, Math.ceil(Buffer.byteLength("exec_command\n{\"cmd\":\"npm test\"}", "utf8") / 4));
+  assert.equal(response.generatedTokens, 50 + response.toolCallTokens);
 });
 
 test("Pi LLM input token usage uses the configured model window and recalibrates tool estimates", () => {

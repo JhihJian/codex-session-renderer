@@ -422,6 +422,22 @@ function thinkingRefFromItem(items, turnIndex, itemIndex) {
   };
 }
 
+function estimateToolCallTokensInInterval(items, startMs, endMs) {
+  return (items || [])
+    .filter((item) => item.type === "tool-call")
+    .filter((item) => {
+      const timestampMs = toMs(item.timestamp);
+      return timestampMs != null && timestampMs >= startMs && timestampMs <= endMs;
+    })
+    .reduce((total, item) => {
+      const command = [item.name, item.arguments]
+        .filter((value) => value != null && value !== "")
+        .map((value) => typeof value === "string" ? value : JSON.stringify(value))
+        .join("\n");
+      return command ? total + Math.max(1, Math.ceil(Buffer.byteLength(command, "utf8") / 4)) : total;
+    }, 0);
+}
+
 export {
   addTruncatedField,
   assistantMessageRef,
@@ -432,6 +448,7 @@ export {
   contextUsageForAssistantMessage,
   contextUsageFromTokenInfo,
   durationMs,
+  estimateToolCallTokensInInterval,
   limitText,
   messageRefWithin,
   parseJsonObject,

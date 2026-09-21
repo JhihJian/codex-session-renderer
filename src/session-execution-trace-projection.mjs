@@ -1,4 +1,4 @@
-import { assistantMessageRef, contextUsageForAssistantMessage, contextUsageFromTokenInfo, durationMs, messageRefWithin, thinkingRefFromItem, toMs } from "./session-projection-shared.mjs";
+import { assistantMessageRef, contextUsageForAssistantMessage, contextUsageFromTokenInfo, durationMs, estimateToolCallTokensInInterval, messageRefWithin, thinkingRefFromItem, toMs } from "./session-projection-shared.mjs";
 import { deriveSessionStatusFromTurns } from "./session-turn-projection.mjs";
 import {
   compactTraceSession,
@@ -203,6 +203,7 @@ function llmSegmentTraceNode({ turn, turnIndex, segmentIndex, startMs, endMs, in
         generatedTokens: nvl(overlap?.generatedTokens),
         outputTokens: nvl(overlap?.outputTokens),
         reasoningTokens: nvl(overlap?.reasoningTokens),
+        toolCallTokens: nvl(overlap?.toolCallTokens),
         ...llmUsageProjection(overlap),
         messageRef,
         thinkingRefs: overlap?.thinkingRefs || [],
@@ -458,6 +459,7 @@ function measuredResponseIntervals(turn, turnIndex, session, options = {}) {
   };
   const closeResponse = (usage, context, responseType, eventIndex) => {
     if (responseStartMs != null && responseEndMs != null && responseEndMs > responseStartMs) {
+      const toolCallTokens = estimateToolCallTokensInInterval(turn.items, responseStartMs, responseEndMs);
       intervals.push({
         id: `response:${turnIndex}:${eventIndex}`,
         turnIndex,
@@ -476,7 +478,8 @@ function measuredResponseIntervals(turn, turnIndex, session, options = {}) {
         responseType,
         outputTokens: usage.outputTokens,
         reasoningTokens: usage.reasoningTokens || 0,
-        generatedTokens: usage.generatedTokens,
+        toolCallTokens,
+        generatedTokens: usage.generatedTokens + toolCallTokens,
         ...llmUsageProjection(usage),
       });
     }

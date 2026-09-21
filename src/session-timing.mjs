@@ -63,7 +63,7 @@ function responseIntervals(trace) {
       completedAt: response.completedAt,
       durationEstimated: true,
       status: "inferred",
-      detail: { item: { name: response.model || "未知模型", sourceIndex: response.eventIndex, contextUsage: response.contextUsage, contextSource: response.contextSource, responseType: response.responseType, outputTokens: response.outputTokens, reasoningTokens: response.reasoningTokens, generatedTokens: response.generatedTokens, inputTokens: response.inputTokens, cacheReadTokens: response.cacheReadTokens, cacheWriteTokens: response.cacheWriteTokens, totalTokens: response.totalTokens, cost: response.cost } },
+      detail: { item: { name: response.model || "未知模型", sourceIndex: response.eventIndex, contextUsage: response.contextUsage, contextSource: response.contextSource, responseType: response.responseType, outputTokens: response.outputTokens, reasoningTokens: response.reasoningTokens, toolCallTokens: response.toolCallTokens, generatedTokens: response.generatedTokens, inputTokens: response.inputTokens, cacheReadTokens: response.cacheReadTokens, cacheWriteTokens: response.cacheWriteTokens, totalTokens: response.totalTokens, cost: response.cost } },
     },
     turnIndex: response.turnIndex,
     bucketId: "llm_wait",
@@ -77,6 +77,7 @@ function responseIntervals(trace) {
     contextSource: response.contextSource || null,
     outputTokens: response.outputTokens,
     reasoningTokens: response.reasoningTokens,
+    toolCallTokens: response.toolCallTokens,
     generatedTokens: response.generatedTokens,
     inputTokens: response.inputTokens,
     cacheReadTokens: response.cacheReadTokens,
@@ -147,6 +148,7 @@ function nodeRef(item) {
     contextChangePercent: contextMetrics?.changePercent ?? null,
     outputTokens: item.outputTokens ?? detail.outputTokens ?? null,
     reasoningTokens: item.reasoningTokens ?? detail.reasoningTokens ?? null,
+    toolCallTokens: item.toolCallTokens ?? detail.toolCallTokens ?? null,
     generatedTokens: item.generatedTokens ?? detail.generatedTokens ?? null,
     inputTokens: item.inputTokens ?? detail.inputTokens ?? null,
     cacheReadTokens: item.cacheReadTokens ?? detail.cacheReadTokens ?? null,
@@ -240,6 +242,7 @@ function buildGroups(intervals) {
     const complete = group.intervals.filter((item) => item.durationMs != null);
     const durations = complete.map((item) => item.durationMs).sort((a, b) => a - b);
     const generatedTokens = complete.reduce((sum, item) => sum + (Number.isFinite(item.generatedTokens) ? item.generatedTokens : 0), 0);
+    const toolCallTokens = complete.reduce((sum, item) => sum + (Number.isFinite(item.toolCallTokens) ? item.toolCallTokens : 0), 0);
     const tokenDurationMs = complete.reduce((sum, item) => sum + (Number.isFinite(item.generatedTokens) ? item.durationMs : 0), 0);
     return {
       key: group.key,
@@ -250,6 +253,7 @@ function buildGroups(intervals) {
       averageDurationMs: durations.length ? Math.round(durations.reduce((sum, duration) => sum + duration, 0) / durations.length) : null,
       maxDurationMs: durations.at(-1) ?? null,
       generatedTokens: generatedTokens || null,
+      toolCallTokens: toolCallTokens || null,
       generatedTokensPerSecond: generatedTokens && tokenDurationMs ? Math.round(((generatedTokens * 1000) / tokenDurationMs) * 100) / 100 : null,
       failedCount: group.intervals.filter((item) => /fail|error|abort/i.test(item.node.status || item.node.detail?.item?.status || "")).length,
       incompleteCount: group.intervals.filter((item) => item.durationMs == null).length,
@@ -263,6 +267,7 @@ function buildBucket(id, label, intervals, totalMs) {
   const coverage = coveredMs(complete.map((item) => ({ startMs: item.startMs, endMs: item.endMs })));
   const overlap = overlapMs(complete.map((item) => ({ startMs: item.startMs, endMs: item.endMs })));
   const generatedTokens = complete.reduce((sum, item) => sum + (Number.isFinite(item.generatedTokens) ? item.generatedTokens : 0), 0);
+  const toolCallTokens = complete.reduce((sum, item) => sum + (Number.isFinite(item.toolCallTokens) ? item.toolCallTokens : 0), 0);
   const tokenDurationMs = complete.reduce((sum, item) => sum + (Number.isFinite(item.generatedTokens) ? item.durationMs : 0), 0);
   return {
     id,
@@ -274,6 +279,7 @@ function buildBucket(id, label, intervals, totalMs) {
     confidence: confidenceFor(complete),
     overlapMs: overlap.overlapMs,
     generatedTokens: generatedTokens || null,
+    toolCallTokens: toolCallTokens || null,
     generatedTokensPerSecond: generatedTokens && tokenDurationMs ? Math.round(((generatedTokens * 1000) / tokenDurationMs) * 100) / 100 : null,
     groups: buildGroups(intervals),
     nodeRefs: intervals.map(nodeRef),
@@ -368,6 +374,7 @@ function buildSessionTiming(trace) {
       parallelism,
       llm: {
         generatedTokens: llmBucket?.generatedTokens || null,
+        toolCallTokens: llmBucket?.toolCallTokens || null,
         generatedTokensPerSecond: llmBucket?.generatedTokensPerSecond || null,
         responseCount: llmBucket?.count || 0,
         usage: summarizeLlmUsage(llmIntervals),
