@@ -1,463 +1,10 @@
 {
   "version": 4,
-  "documentStatus": "active",
+  "documentStatus": "candidate",
   "snapshot": {
     "commit": "a40587e13837b56e4a9cde0fddf6a7c3aa51d9af",
     "acceptedAt": "2026-09-21T07:38:10.520Z",
-    "files": [
-      {
-        "path": "README.md",
-        "sha256": "sha256:37b82d2258122b9a2093a6c1dc8cd7d0331efe7c643247e88aaf3091453dacff"
-      },
-      {
-        "path": "docs/architecture/README.md",
-        "sha256": "sha256:3b65443c79cdd94d09b42fc54a0b840d8b0892f1a70fe657b53c05c72a299ac2"
-      },
-      {
-        "path": "docs/architecture/implementation.md",
-        "sha256": "sha256:ffcc0ae08b98fb769dfaaac27a457a201045a73cc894db45168cc2cc62efb746"
-      },
-      {
-        "path": "docs/architecture/modules/session-projection.md",
-        "sha256": "sha256:7d63c6ef251a7cc6849185636aed2adc3afdb758b8520b656328cfb68319ed77"
-      },
-      {
-        "path": "docs/reader-context-events-design.md",
-        "sha256": "sha256:04f60dce31e6b30e792f333fd4997058b2004f5f7eee866f8a7685e6cd8d3d84"
-      },
-      {
-        "path": "docs/session-event-normalization.md",
-        "sha256": "sha256:6d09400f603dc04bcc7331aba45a5efebdaa73f777663ae21ed4f6ebb6867528"
-      },
-      {
-        "path": "eslint-suppressions.json",
-        "sha256": "sha256:0e6ff2d5bae1d10e49c8bf7af28d9b171e156b713c26566acfdc09d310d705e5"
-      },
-      {
-        "path": "eslint.config.js",
-        "sha256": "sha256:32b3a057f1155a754bf8611648f169cd24aa562d7cd0b044864058c150a2793d"
-      },
-      {
-        "path": "package.json",
-        "sha256": "sha256:5cbceeb1fc73dc0ba6981f76ffdfa1d8f070c44781a5dc64b9af776a98327ca0"
-      },
-      {
-        "path": "public/app-format.js",
-        "sha256": "sha256:e146548e25e1747e035c224252f2b2f2c9bfa960d95ba6f71fca89f7d0da3731"
-      },
-      {
-        "path": "public/app-requests-raw.js",
-        "sha256": "sha256:6ced45606257a4397b207866781747d7285a9ee96e3ccf4c2ead5ac22144c539"
-      },
-      {
-        "path": "public/app-requests-response.js",
-        "sha256": "sha256:90c3a9f2adbd5c2509ca7b79dfd9a14f5e04bffb4816e00a0b83ffd991f94cee"
-      },
-      {
-        "path": "public/app-requests.js",
-        "sha256": "sha256:af1eeec94a6213f809c741c3f4667c35598336696c9ce2e060855d1543aa43e2"
-      },
-      {
-        "path": "public/app-state.js",
-        "sha256": "sha256:86773fd57939d41a08c4a45f54478bba6f9132cb74fbb8c627c435b7e4b2f0d4"
-      },
-      {
-        "path": "public/app-temporary-session.js",
-        "sha256": "sha256:bf52c16c0a14728fa1c407f219ea6fd92f950f0cace72e6ec58a1c97018a4aa2"
-      },
-      {
-        "path": "public/app-ui.js",
-        "sha256": "sha256:68d78efbedfedd5d857b431f0f1a9e7e385302751df9218323b8ae60c8d116da"
-      },
-      {
-        "path": "public/app-view-compact-context.js",
-        "sha256": "sha256:d09b5f3e0c577555a3eca4867530ded3e4bca744c766c1a46d2b6fbba7ac9c16"
-      },
-      {
-        "path": "public/app-view-compact-filter.js",
-        "sha256": "sha256:8e9fa2b039e015b70c1bd6f2ca8505c4eacda50ac6e7be8ca72b18698e36aae1"
-      },
-      {
-        "path": "public/app-view-compact-outline.js",
-        "sha256": "sha256:9d453fa695665a4a2687dbec4fd0b5e034694fede3703f58d050169eeeb1c140"
-      },
-      {
-        "path": "public/app-view-compact-thread.js",
-        "sha256": "sha256:c3ef61f7f3b93ef5e35fc4599c26d8fa87a9a5aad6d55b7e2152da22f6f04092"
-      },
-      {
-        "path": "public/app-view-compact.js",
-        "sha256": "sha256:0a0cddf19eb9f5aec53a870f919b6f06d137261dc0cb7119c610c8e696b88a58"
-      },
-      {
-        "path": "public/app-view-diagnostic.js",
-        "sha256": "sha256:876fd439217b46ba9fc0ec0c5bd168dc3d47ef8bf32362b6ea5edd1fe2a6a1c3"
-      },
-      {
-        "path": "public/app-view-sessions.js",
-        "sha256": "sha256:f7dc9583644fa3c7ff5dd9d3da92e4ee10952ecbe5d4b39c236f3881bbbcb28e"
-      },
-      {
-        "path": "public/app-view-settings.js",
-        "sha256": "sha256:b699db47eee9244f56d24d8df0eb16b036a70a8a7ce80ac001fdc3e987c7240c"
-      },
-      {
-        "path": "public/app-view-shared.js",
-        "sha256": "sha256:1ea14c75a6a697639ac74bc709642754928cacace950de64fd21023349540466"
-      },
-      {
-        "path": "public/app-view-shell.js",
-        "sha256": "sha256:21107544a3bb95049deaa1553b761749c5bd2378cbbdbc2d37d5bffe7879a15a"
-      },
-      {
-        "path": "public/app-view-stats-render.js",
-        "sha256": "sha256:53c764aaaca5cc70d000778b9a438d2bbc2a9c516de8f863cf5b473486da1c92"
-      },
-      {
-        "path": "public/app-view-stats-timing.js",
-        "sha256": "sha256:a27b20481506fc3c4b1ce41d40e9d6f452ac725cdb58c5e2e68512a5ea9cbf48"
-      },
-      {
-        "path": "public/app-view-stats.js",
-        "sha256": "sha256:2a949a25d5316f4c49a13057d081efd81a0a12ea4c58b33351bfabfecc7d3d31"
-      },
-      {
-        "path": "public/app-view-terminal.js",
-        "sha256": "sha256:4ee8e490bb2a617d8b61242b93595fa305835432164f96db8c09b6a91dfa0a9e"
-      },
-      {
-        "path": "public/app-view-trace-content.js",
-        "sha256": "sha256:fa01cb30df59c33b0a38d148d33e680c8635c16e7f23c38580cee0fb8396a486"
-      },
-      {
-        "path": "public/app-view-trace-helpers.js",
-        "sha256": "sha256:0f35ff2031133b3b3a3737a989ed06fb1d66146f0dce9187480d8d917ccce9e9"
-      },
-      {
-        "path": "public/app-view-trace.js",
-        "sha256": "sha256:fcea1ae394086afcee48f7cfe0613e2c73456fe72282c6395391021f385c37c0"
-      },
-      {
-        "path": "public/app.js",
-        "sha256": "sha256:c4c9c28dcc52b5ee588f8189e9a5d56096735a6491a4228601767b76607f14ac"
-      },
-      {
-        "path": "public/index.html",
-        "sha256": "sha256:0b6de5b2fdef7572ad0045789216d9d77da5d583f7ba54f60612aadd531d00e2"
-      },
-      {
-        "path": "public/package.json",
-        "sha256": "sha256:73513439b93b2391b8a67720b5e0959f46afc909c1f0fc7dd73b79c5ae36bda7"
-      },
-      {
-        "path": "public/raw-event-cache.js",
-        "sha256": "sha256:dcd8efe6e9336f7b318b1f45040c6ad26622155e104f0adbb70567440e4a523c"
-      },
-      {
-        "path": "public/styles.css",
-        "sha256": "sha256:22926492bbd952703c8c7c8be4c2c84796ff4dc3d5d15043dd5061aeb8ea0c60"
-      },
-      {
-        "path": "public/styles/audit-detail.css",
-        "sha256": "sha256:6388f8182668163a14f3e7565a20a2572a9a9ff9b53cb973e90bf4c5056fca9b"
-      },
-      {
-        "path": "public/styles/audit-overview.css",
-        "sha256": "sha256:e4c2bee35d0307cd1e6202f41c489b65ad861ea412ccf066a4a16ee4a4d089e0"
-      },
-      {
-        "path": "public/styles/compact.css",
-        "sha256": "sha256:c30e47200d6242600f7a6b9763fb1aa2b31f2cc75709f00220dec04dd1fc68d0"
-      },
-      {
-        "path": "public/styles/diagnostics.css",
-        "sha256": "sha256:329cceb22f05b02130aedf5999832af421932559503dd35ea23348addf516400"
-      },
-      {
-        "path": "public/styles/execution-details.css",
-        "sha256": "sha256:f18c5c1bc0f6246d2826e2d67ec006faa9db18800a1b508f330a55f1c14e9f3b"
-      },
-      {
-        "path": "public/styles/foundation.css",
-        "sha256": "sha256:4d088f28659b7f485d9f04ad768fa2dc948cb83b10567af35ef597f48acb8494"
-      },
-      {
-        "path": "public/styles/inspector.css",
-        "sha256": "sha256:450139a4d77fb2fcf1664a776a07add9645c1be1d55d71411b3aa62c769d7c2f"
-      },
-      {
-        "path": "public/styles/raw-trace.css",
-        "sha256": "sha256:66c3ff3de440a2faffb849616d1e8103736e78219ef0b452f443a6f7c038b4b0"
-      },
-      {
-        "path": "public/styles/reader.css",
-        "sha256": "sha256:28ba8283235813717124b2eccb4550b27278d7bfec4c5de9aee8f764769890f1"
-      },
-      {
-        "path": "public/styles/responsive.css",
-        "sha256": "sha256:70c60e479f0867a8293392322c777ecd6e37bd2a0fcfc4a5e175466912c04ebf"
-      },
-      {
-        "path": "public/styles/shell.css",
-        "sha256": "sha256:78ff816417d48d5c5236fda8b30403bf392c93b0c60d8bde9cccec7b9d8111b2"
-      },
-      {
-        "path": "public/styles/terminal.css",
-        "sha256": "sha256:bcdc140d50acd267f784da20bbcd8c9b396e00dc4f8a9ae4d1bca6c7c25886a2"
-      },
-      {
-        "path": "public/styles/workspace.css",
-        "sha256": "sha256:0315e35ab2ccc13cc4a68047fad19d55e4d16d20fe3a8548977ad525fe3fe442"
-      },
-      {
-        "path": "public/tool-summary-command-output.js",
-        "sha256": "sha256:63c977389649f43b4284136ac5af65851cf96a433ac999c49e770edef83a177c"
-      },
-      {
-        "path": "public/tool-summary-patch.js",
-        "sha256": "sha256:b8b55a964baba1c2f95d30b26bddc39be4230796902e015e9d65388087178cf0"
-      },
-      {
-        "path": "public/tool-summary-rules.js",
-        "sha256": "sha256:bcebb727ffd1e59856a8325e2036c580782e730f309100825b748b5ca29c82f1"
-      },
-      {
-        "path": "public/tool-summary-text.js",
-        "sha256": "sha256:b3113c91cebf9ad23c087f82e58dc05ad9e6db6f42afff48108a1f1b81bcb430"
-      },
-      {
-        "path": "public/tool-summary.js",
-        "sha256": "sha256:ad3764ba1a308fa06bf328962be73966bd15db138eb33a865e9ec8cb5838d2b4"
-      },
-      {
-        "path": "scripts/e2e-server.mjs",
-        "sha256": "sha256:8dce4548668b6af58ab62710ecbb8102cc26473a099a0ae2206463ee5ae9affa"
-      },
-      {
-        "path": "server.mjs",
-        "sha256": "sha256:d2d05823ccf45100ebceddfa4e549cac464c289aa9c8650df74fc358356e7285"
-      },
-      {
-        "path": "src/access-control.mjs",
-        "sha256": "sha256:77dd682be1f66b4cea2625d67e5f1aed6804a5d6331dbb8b55c9d3dc6fa950fe"
-      },
-      {
-        "path": "src/async-concurrency.mjs",
-        "sha256": "sha256:f36f68e170c606ad60c0283d9393e7aaec1fc1ad2dcfdc3832524ce6815dd1b5"
-      },
-      {
-        "path": "src/data-sources.mjs",
-        "sha256": "sha256:4b85376e11d32fd0805b93e47f113aa7848f270a71237bd161123ad39768fac1"
-      },
-      {
-        "path": "src/event-summary.mjs",
-        "sha256": "sha256:d04af923d369dde9f72af0e13c94ee40bd98b5f6eaa1fd0d7d9c937eaef0e592"
-      },
-      {
-        "path": "src/http-response.mjs",
-        "sha256": "sha256:9ca3f0eff6d1352c6d55ecb954c6bc7549d9cdbd31071f02ab9b070af1c14e8d"
-      },
-      {
-        "path": "src/jsonl-reader.mjs",
-        "sha256": "sha256:ae209e6def46e9af7135459689789f960a8b28575c734ef2169905529f984c0e"
-      },
-      {
-        "path": "src/pi-context-events.mjs",
-        "sha256": "sha256:de10b92dd0c4e0e521201772a7ea87ef4f6481ca90e1636e4d269b9b2092014d"
-      },
-      {
-        "path": "src/session-catalog-query-service.mjs",
-        "sha256": "sha256:d09c8537c53717c896d147119e5588465a4731953bac50362117445671901c5c"
-      },
-      {
-        "path": "src/session-catalog.mjs",
-        "sha256": "sha256:f55a6189486e3f11a5fc0a4c0da1457fe454266151321390a7c62152726d276a"
-      },
-      {
-        "path": "src/session-compact-reading-projection.mjs",
-        "sha256": "sha256:a1c2aee782672f38a4e036dbece6741800ae0cdd8dbecd847469586c43faead4"
-      },
-      {
-        "path": "src/session-detail-coordinator.mjs",
-        "sha256": "sha256:458aee0c7ab6e7a21354c6de4a3fa5fa9c17da32cdde83e017d8527779febab4"
-      },
-      {
-        "path": "src/session-detail-query-service.mjs",
-        "sha256": "sha256:4bbd27323a932e41a3d292beae147583cbf020ecbf3b0b7f2d656610da8eb77b"
-      },
-      {
-        "path": "src/session-directory-query-service.mjs",
-        "sha256": "sha256:7bb6f2dfefdbbadae180eb20521a60326d94e0c8e2d910b2b905280eba4e2656"
-      },
-      {
-        "path": "src/session-event-projection.mjs",
-        "sha256": "sha256:4587a96896fa60afa7386fd9461ac191f60b16b3adcf8f0d5b3187ec1de7b538"
-      },
-      {
-        "path": "src/session-event-query-service.mjs",
-        "sha256": "sha256:5547713ea8f4ce7ab3d51c2badc84b431ff369f379f82a126f3d20fc8cf9117a"
-      },
-      {
-        "path": "src/session-events.mjs",
-        "sha256": "sha256:dbc89f3e012b3889d03bb7476285f260c376e31bc4bf8ba12fe79ecc32783371"
-      },
-      {
-        "path": "src/session-execution-trace-projection.mjs",
-        "sha256": "sha256:099092e05f084efad83dc6afab9c69408647689d8526e662e2a1bc46583c90db"
-      },
-      {
-        "path": "src/session-models.mjs",
-        "sha256": "sha256:2bdd47f13dd184a9c9bb7050c8c16a0095ee7be0745fc5ae58716f81d7cb8d17"
-      },
-      {
-        "path": "src/session-normalizer.mjs",
-        "sha256": "sha256:60861a999edb1712184a2e75e7809651bb3ea07d78942de82b07cdba20b24f5a"
-      },
-      {
-        "path": "src/session-projection-shared.mjs",
-        "sha256": "sha256:cb5ab317affcc0e19d58380287965ddf4581341b1e32c82e8faf686a7213c571"
-      },
-      {
-        "path": "src/session-query-service.mjs",
-        "sha256": "sha256:1d72a01f0d071ab4add8d6267a898a659a4652b1bc1f512a7061ed6c37aa8a90"
-      },
-      {
-        "path": "src/session-query.mjs",
-        "sha256": "sha256:621e8322021a8b192b06794b0090fe017018252ae3f4d3eee407d4c8fd6b60e0"
-      },
-      {
-        "path": "src/session-router.mjs",
-        "sha256": "sha256:3003f0652fecd981831daddec2fb124271e9b8f06af74a80f631e873430cbb9f"
-      },
-      {
-        "path": "src/session-source-context-service.mjs",
-        "sha256": "sha256:b4eacb97685edb2228930c57b78571005b5ad8eda45b1c2f4bc716e8c5dbb987"
-      },
-      {
-        "path": "src/session-status.mjs",
-        "sha256": "sha256:bfee9b479b71b2532f11b59264b679d536f7f75147f344be42f2889dd7852052"
-      },
-      {
-        "path": "src/session-timing.mjs",
-        "sha256": "sha256:676044ded098c815da83f10d640d25d7b599527c36e824bb742227030ea6fa3e"
-      },
-      {
-        "path": "src/session-trace-node-projection.mjs",
-        "sha256": "sha256:f94d205af2da40c6f345cbde23e13c099aa4862a9df5e66e0ed37b8314ee81ad"
-      },
-      {
-        "path": "src/session-turn-projection.mjs",
-        "sha256": "sha256:ee28b7f770af8ca1e27c69c679a35c8b63c9c3fc6404a713424e35e06ca19b3a"
-      },
-      {
-        "path": "src/sqlite-threads.mjs",
-        "sha256": "sha256:a98b88f33dc21b8f5254e21cc99cae3c4ef6f82a99703c97dfe8dfa1758697e8"
-      },
-      {
-        "path": "test/app-format.test.mjs",
-        "sha256": "sha256:1d94a1a44e1391553ebcf64028275455a65a3018acf3078f7c24c4ba57bdb27a"
-      },
-      {
-        "path": "test/app-view-stats-context.test.mjs",
-        "sha256": "sha256:e36219036043320ec0ae1b6d73b460e710e4955017956ec8771a07c33ce652b8"
-      },
-      {
-        "path": "test/app-view-stats-timing.test.mjs",
-        "sha256": "sha256:397e86dcaf6f6cda4ebea237510f9e79bced59886b51d126b441d5e82df8d191"
-      },
-      {
-        "path": "test/app-view-trace.test.mjs",
-        "sha256": "sha256:3289f9acf220e908d66b5af12b62736f752e21866c30bff88275bc91b80440ce"
-      },
-      {
-        "path": "test/data-sources.test.mjs",
-        "sha256": "sha256:703ffcd1592b5a7bacdbebd86e631fb77e7b1b12dbc969122960f0b1dbebd061"
-      },
-      {
-        "path": "test/e2e/fixture-session.mjs",
-        "sha256": "sha256:79e948b85155d61892139a79ac1ad16d687a14d1aa55b8af6759660d9c3488c4"
-      },
-      {
-        "path": "test/e2e/full-content.spec.mjs",
-        "sha256": "sha256:da7dccd69679eab90b647e58b6d12b5dba701c47e9f174ff3d0a1dbbb13ceda1"
-      },
-      {
-        "path": "test/e2e/list-scope-navigation.spec.mjs",
-        "sha256": "sha256:be50da1c2633b22ad69930d745b617340139520bbc127f26eac3784d0ce860dd"
-      },
-      {
-        "path": "test/e2e/source-helpers.mjs",
-        "sha256": "sha256:20a856b6c0007b47269dca30019ae5ce3c24cc20b5668ac7ec04840638942c05"
-      },
-      {
-        "path": "test/e2e/temporary-session.spec.mjs",
-        "sha256": "sha256:7bd3ee9a2f2637effc740544e43f229346b3265fd8f681122910b2117de48f53"
-      },
-      {
-        "path": "test/e2e/title-consistency.spec.mjs",
-        "sha256": "sha256:20667a5f63dc8b686f8b934bdbe1f486f7843a81e0160e0a55493240c6fc2817"
-      },
-      {
-        "path": "test/pi-context-events.test.mjs",
-        "sha256": "sha256:b76cf5d9cc8ba7c2d468acfcaaf011b12464fd0bef55101a5824acb7aab95a77"
-      },
-      {
-        "path": "test/pi-task-sources.test.mjs",
-        "sha256": "sha256:8cc9a8dd0e3122847fe702a71239664c1af0d5ea75516e1510468abf670002b4"
-      },
-      {
-        "path": "test/raw-event-cache.test.mjs",
-        "sha256": "sha256:a8179bf137d49224a4608b18923ce39e9785492bfafb82f42476e8ea74caf0ce"
-      },
-      {
-        "path": "test/server-access-control.test.mjs",
-        "sha256": "sha256:7b8b773272f4b4b690ec2d80dc215ea6ce5ce0a9841b983f0b5e3764d52191b5"
-      },
-      {
-        "path": "test/server-http-smoke-helpers.mjs",
-        "sha256": "sha256:bc43999706e4f0eefd9cf8c888d0300634aa5bb9dad4f3894637f4dcdb2d4224"
-      },
-      {
-        "path": "test/server-http-smoke.test.mjs",
-        "sha256": "sha256:ef7ac963625c08d8c122225378b88e184f2ae3409ec6fc3a0514f8c244f5137c"
-      },
-      {
-        "path": "test/session-catalog.test.mjs",
-        "sha256": "sha256:3f68736bddb47150fc25e46d8d1a1e156dd59fb94a0e6eb3860cfeb5466a99ce"
-      },
-      {
-        "path": "test/session-detail-coordinator.test.mjs",
-        "sha256": "sha256:811bf7daa8c407fc73fefabe4bc1e9b3e8effd2446569e2f42579277cfe451c4"
-      },
-      {
-        "path": "test/session-events.test.mjs",
-        "sha256": "sha256:e639ccbb84b7cec4303e3d29dc41709938b1b742afd878c5400b2d3e02d9dc19"
-      },
-      {
-        "path": "test/session-models.test.mjs",
-        "sha256": "sha256:c0c49dba4ecd70b670febdcf0e4d8ed3e610be5737bc23e231e741f2426e5339"
-      },
-      {
-        "path": "test/session-normalizer.test.mjs",
-        "sha256": "sha256:42271e9397d7e745f9fdd4199cb7eb9b81e53e0628701cfa3940bc784d73f4a4"
-      },
-      {
-        "path": "test/session-query.test.mjs",
-        "sha256": "sha256:7642851fd48c9cb05edbea078e7d170c9106e56cd0142b5280e4014fd7697606"
-      },
-      {
-        "path": "test/session-status.test.mjs",
-        "sha256": "sha256:a7abf2c14d093458c402477ad4f1a62525a89160f2bf4e8b8a7e7d8569d6b8cf"
-      },
-      {
-        "path": "test/session-timing.test.mjs",
-        "sha256": "sha256:94ce4277f555b04f153ccd25d04533fa493d3dfeca7347349707b58297404b69"
-      },
-      {
-        "path": "test/tool-summary.test.mjs",
-        "sha256": "sha256:c3f91d689b0e499b5b1325feee59ec3a0d9025775a034e47b4ea37f5ba03b5a4"
-      }
-    ]
+    "files": []
   },
   "documents": [
     {
@@ -901,5 +448,148 @@
     }
   ],
   "openQuestions": [],
-  "pendingImpact": null
+  "pendingImpact": {
+    "baseCommit": "a40587e13837b56e4a9cde0fddf6a7c3aa51d9af",
+    "changedPaths": [
+      ".agents/architecture/state.json",
+      ".agents/flows/realtime-readonly-session-delivery/FLOW.md",
+      "README.md",
+      "docs/architecture/README.md",
+      "docs/architecture/implementation.md",
+      "docs/architecture/modules/session-projection.md",
+      "public/app-live.js",
+      "public/app-requests.js",
+      "public/app-state.js",
+      "public/app-ui.js",
+      "public/app-view-compact.js",
+      "public/app-view-shell.js",
+      "public/index.html",
+      "public/styles/workspace.css",
+      "src/live-session-stream.mjs",
+      "src/session-query-service.mjs",
+      "src/session-router.mjs",
+      "test/e2e/live-mode.spec.mjs",
+      "test/e2e/temporary-session.spec.mjs",
+      "test/live-session-stream.test.mjs",
+      "test/server-access-control.test.mjs"
+    ],
+    "itemIds": [
+      "purpose-readable-session-workbench",
+      "boundary-source-records-and-local-derivatives",
+      "external-boundary-http-authentication",
+      "module-session-projection",
+      "capability-session-discovery-and-view",
+      "flow-stable-session-detail"
+    ],
+    "assessments": [
+      {
+        "itemId": "purpose-readable-session-workbench",
+        "result": "updated",
+        "reason": "移除实时模式后，工作台目的恢复为静态会话阅读与诊断。",
+        "evidence": {
+          "path": "README.md",
+          "locator": "本项目专注于会话的展示效果"
+        }
+      },
+      {
+        "itemId": "boundary-source-records-and-local-derivatives",
+        "result": "unaffected",
+        "reason": "删除实时订阅不改变原始会话只读和展示结果派生边界。",
+        "evidence": {
+          "path": "README.md",
+          "locator": "原始会话文件不会被修改"
+        }
+      },
+      {
+        "itemId": "external-boundary-http-authentication",
+        "result": "unaffected",
+        "reason": "删除实时端点不改变主 HTTP 服务的认证规则。",
+        "evidence": {
+          "path": "src/access-control.mjs",
+          "locator": "function assertSecureListenConfig(options = {})"
+        }
+      },
+      {
+        "itemId": "module-session-projection",
+        "result": "updated",
+        "reason": "会话投影模块移除实时流责任，保留列表、详情、诊断和状态推导职责。",
+        "evidence": {
+          "path": "docs/architecture/modules/session-projection.md",
+          "locator": "## 实现定位"
+        }
+      },
+      {
+        "itemId": "capability-session-discovery-and-view",
+        "result": "updated",
+        "reason": "查询服务不再公开实时会话流，能力恢复为静态列表和详情查询。",
+        "evidence": {
+          "path": "src/session-query-service.mjs",
+          "locator": "export function createSessionQueryService()"
+        }
+      },
+      {
+        "itemId": "flow-stable-session-detail",
+        "result": "updated",
+        "reason": "静态详情文件签名和尾部状态推导继续生效，实时代际规则已删除。",
+        "evidence": {
+          "path": "src/session-status.mjs",
+          "locator": "function applyStaleRunningStatus"
+        }
+      }
+    ],
+    "unmappedPaths": [
+      ".agents/flows/realtime-readonly-session-delivery/FLOW.md",
+      "public/app-live.js",
+      "src/live-session-stream.mjs",
+      "test/e2e/live-mode.spec.mjs",
+      "test/live-session-stream.test.mjs"
+    ],
+    "pathAssessments": [
+      {
+        "path": ".agents/flows/realtime-readonly-session-delivery/FLOW.md",
+        "result": "unaffected",
+        "reason": "实时交付 Flow 已删除，不参与当前运行时架构。",
+        "evidence": {
+          "path": "README.md",
+          "locator": "本项目专注于会话的展示效果"
+        }
+      },
+      {
+        "path": "public/app-live.js",
+        "result": "unaffected",
+        "reason": "实时浏览器状态和展示模块已删除。",
+        "evidence": {
+          "path": "public/index.html",
+          "locator": "会话视图"
+        }
+      },
+      {
+        "path": "src/live-session-stream.mjs",
+        "result": "unaffected",
+        "reason": "实时服务端订阅中心已删除，静态查询服务保持当前职责。",
+        "evidence": {
+          "path": "src/session-query-service.mjs",
+          "locator": "export function createSessionQueryService()"
+        }
+      },
+      {
+        "path": "test/e2e/live-mode.spec.mjs",
+        "result": "unaffected",
+        "reason": "实时模式端到端测试随功能删除。",
+        "evidence": {
+          "path": "test/e2e/full-content.spec.mjs",
+          "locator": "正文、执行和诊断作为完整主工作区互斥切换"
+        }
+      },
+      {
+        "path": "test/live-session-stream.test.mjs",
+        "result": "unaffected",
+        "reason": "实时流单元测试随功能删除，通用尾部状态测试继续保留。",
+        "evidence": {
+          "path": "test/session-status.test.mjs",
+          "locator": "readCommittedJsonlChunk"
+        }
+      }
+    ]
+  }
 }

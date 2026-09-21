@@ -20,7 +20,7 @@
     invalidateSessionListRequests();
     cancelAlternateLocalSourceDiscovery();
     state.temporarySessionPath = requestedPath;
-    state.live.enabled = false;
+
     state.sources = state.sources.filter((source) => source.id !== "temporary");
     state.sources.push(temporarySource());
     state.selectedSourceId = "temporary";
