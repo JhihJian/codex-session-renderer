@@ -41,14 +41,26 @@ async function readBytes(filePath, start, end) {
 /**
  * Reads only records terminated by a newline. A JSONL writer may leave its
  * current record half-written, which is normal for an active session.
+ * When `skipPartialStart` is set and `startOffset` lands mid-record, the
+ * first (incomplete) line is dropped so window reads start on a record
+ * boundary.
  */
-export async function readCommittedJsonlChunk(filePath, { startOffset = 0, endOffset, startIndex = 0, startLineNumber = 0 } = {}) {
+export async function readCommittedJsonlChunk(filePath, { startOffset = 0, endOffset, startIndex = 0, startLineNumber = 0, skipPartialStart = false } = {}) {
   const start = Math.max(0, Math.floor(startOffset));
   const end = Math.max(start, Math.floor(endOffset ?? start));
-  const bytes = await readBytes(filePath, start, end);
+  let bytes = await readBytes(filePath, start, end);
+  let windowStart = start;
+  if (skipPartialStart && start > 0 && bytes.length > 0) {
+    const firstNewline = bytes.indexOf(0x0a);
+    if (firstNewline < 0) {
+      return { events: [], committedByteOffset: start, recordCount: 0, lineCount: 0 };
+    }
+    bytes = bytes.subarray(firstNewline + 1);
+    windowStart = start + firstNewline + 1;
+  }
   const newline = bytes.lastIndexOf(0x0a);
   if (newline < 0) {
-    return { events: [], committedByteOffset: start, recordCount: 0, lineCount: 0 };
+    return { events: [], committedByteOffset: windowStart, recordCount: 0, lineCount: 0 };
   }
 
   const committed = bytes.subarray(0, newline + 1);
@@ -66,7 +78,7 @@ export async function readCommittedJsonlChunk(filePath, { startOffset = 0, endOf
   }
   return {
     events,
-    committedByteOffset: start + newline + 1,
+    committedByteOffset: windowStart + newline + 1,
     recordCount: recordIndex - startIndex,
     lineCount: lineNumber - startLineNumber,
   };

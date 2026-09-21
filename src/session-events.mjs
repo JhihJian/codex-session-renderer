@@ -19,6 +19,13 @@ export {
   sessionStartedFromFile,
   toIso,
 } from "./text-utils.mjs";
+export {
+  applyStaleRunningStatus,
+  applyStaleStatusToTurns,
+  isStaleRunning,
+  readTailSessionStatus,
+  staleRunningThresholdMs,
+} from "./session-status.mjs";
 export { normalizeSessionEvent } from "./session-normalizer.mjs";
 export {
   buildTrace,

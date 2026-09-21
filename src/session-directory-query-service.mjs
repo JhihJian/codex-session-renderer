@@ -1,7 +1,8 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { readJsonl, readJsonlWithDiagnostics } from "./jsonl-reader.mjs";
-import { deriveSessionStatusFromEvents, extractTitleFromEvents, sessionIdFromFile, sessionStartedFromFile, toIso } from "./session-events.mjs";
+import { extractTitleFromEvents, readTailSessionStatus, sessionIdFromFile, sessionStartedFromFile, toIso } from "./session-events.mjs";
+import { mapWithConcurrency } from "./async-concurrency.mjs";
 import { dedupeSessionFileRecords, sessionFileRoots } from "./session-catalog.mjs";
 import { parentSessionIdFromMeta, relativeCodexPath, withFileStat, withSubagentMeta } from "./session-models.mjs";
 import { isAbortError } from "./session-detail-coordinator.mjs";
@@ -10,6 +11,7 @@ import { stripLongPathPrefix } from "./sqlite-threads.mjs";
 const piTaskDirectoryPattern = /^task-[a-z0-9][a-z0-9-]{0,127}$/;
 const evaluationDirectoryPattern = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
 const evaluationSessionsDirectoryParts = ["output", "pi-sessions"];
+const listFileConcurrency = 8;
 
 export function createSessionDirectoryQueryService(dependencies) {
   return {
@@ -168,12 +170,11 @@ function piMetadata(session, info, model, thinking) {
 async function listFileSessions(dependencies, context, bounds = {}, options = {}) {
   const [index, files] = await Promise.all([readIndex(dependencies, context, options), collectSessionFileRecords(dependencies, context, { ...bounds, ...options })]);
   const recordIdByUuid = new Map(files.map((record) => [sessionIdFromFile(record.filePath), record.id]));
-  const sessions = [];
-  for (const record of files) {
+  const sessions = await mapWithConcurrency(files, listFileConcurrency, async (record) => {
     dependencies.throwIfRequestAborted(options.signal);
     const events = await readMetaEvents(record.filePath, bounds, options);
-    sessions.push(sessionFromFileRecord(context, record, events, index, recordIdByUuid));
-  }
+    return sessionFromFileRecord(context, record, events, index, recordIdByUuid);
+  });
   return sessions.sort((left, right) => new Date(right.updatedAt || right.fileModifiedAt) - new Date(left.updatedAt || left.fileModifiedAt));
 }
 
@@ -184,13 +185,24 @@ async function readMetaEvents(filePath, bounds, options) {
   });
 }
 
-function sessionFromFileRecord(context, record, events, index, recordIdByUuid) {
-  const meta = sessionMetaFromEvents(events);
-  const indexed = index.get(sessionIdFromFile(record.filePath));
-  return withSubagentMeta(sessionFileFields(context, { record, events, meta, indexed, recordIdByUuid }));
+async function readSessionFileStatus(filePath, stat) {
+  if (!filePath || !stat) return null;
+  try {
+    return await readTailSessionStatus(filePath, stat);
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    return null;
+  }
 }
 
-function sessionFileFields(context, { record, events, meta, indexed, recordIdByUuid }) {
+async function sessionFromFileRecord(context, record, events, index, recordIdByUuid) {
+  const meta = sessionMetaFromEvents(events);
+  const indexed = index.get(sessionIdFromFile(record.filePath));
+  const status = await readSessionFileStatus(record.filePath, record.stat);
+  return withSubagentMeta(sessionFileFields(context, { record, events, meta, indexed, recordIdByUuid, status }));
+}
+
+function sessionFileFields(context, { record, events, meta, indexed, recordIdByUuid, status }) {
   const parentId = parentSessionIdFromMeta(meta);
   return {
     id: record.id, sourceId: context.source.id, sourceLabel: context.source.label, dataSourceKind: context.source.kind,
@@ -198,7 +210,7 @@ function sessionFileFields(context, { record, events, meta, indexed, recordIdByU
     originator: firstValue([meta.originator]), model: firstValue([meta.model, meta.modelId, meta.model_provider]),
     reasoningEffort: firstValue([meta.reasoning_effort, meta.reasoningEffort]), source: firstValue([meta.source, context.source.kind === "pi-agent" ? "pi-agent" : null]),
     threadSource: firstValue([meta.thread_source]), modelProvider: firstValue([meta.model_provider, meta.provider]), parentSessionId: firstValue([recordIdByUuid.get(parentId), parentId]),
-    archived: record.archived, archivedAt: null, agentNickname: null, agentRole: null, preview: null, status: deriveSessionStatusFromEvents(events),
+    archived: record.archived, archivedAt: null, agentNickname: null, agentRole: null, preview: null, status,
     path: record.filePath, relativePath: relativeCodexPath(context.codexHome, record.filePath), startedAt: toIso(meta.timestamp) || sessionStartedFromFile(record.filePath),
     updatedAt: indexed?.updatedAt || toIso(record.stat.mtime), sizeBytes: record.stat.size, fileModifiedAt: toIso(record.stat.mtime),
   };
@@ -206,22 +218,25 @@ function sessionFileFields(context, { record, events, meta, indexed, recordIdByU
 
 async function enrichSessionFromFileMeta(dependencies, session, options = {}) {
   if (!session?.path) return withSubagentMeta(session);
-  if (options.context && !await dependencies.sessionFileStat(options.context, session.path, session.id)) return { ...session, path: null, relativePath: null };
+  const stat = options.context ? await dependencies.sessionFileStat(options.context, session.path, session.id) : null;
+  if (options.context && !stat) return { ...session, path: null, relativePath: null };
   const events = await readJsonl(session.path, { maxLines: 40, maxBytes: 128 * 1024, signal: options.signal }).catch((error) => {
     if (isAbortError(error)) throw error;
     return [];
   });
   const meta = sessionMetaFromEvents(events);
-  return enrichSession(session, meta);
+  const status = await readSessionFileStatus(session.path, stat);
+  return enrichSession(session, meta, status);
 }
 
-function enrichSession(session, meta) {
+function enrichSession(session, meta, status = null) {
   const source = firstValue([meta.source, session.source]);
   return { ...withSubagentMeta({
     ...session, cwd: firstValue([session.cwd, stripLongPathPrefix(meta.cwd || "")]), originator: firstValue([session.originator, meta.originator]),
     model: firstValue([session.model, meta.model, meta.modelId, meta.model_provider]), reasoningEffort: firstValue([session.reasoningEffort, meta.reasoning_effort, meta.reasoningEffort]),
     source, threadSource: firstValue([session.threadSource, meta.thread_source]), modelProvider: firstValue([session.modelProvider, meta.model_provider, meta.provider]),
     parentSessionId: firstValue([session.parentSessionId, parentSessionIdFromMeta(meta)]), startedAt: firstValue([session.startedAt, toIso(meta.timestamp)]),
+    status: status == null ? session.status : status,
   }), source: firstValue([session.source, source]) };
 }
 
@@ -236,5 +251,5 @@ async function sessionFromFilePath(dependencies, context, filePath, options = {}
     if (isAbortError(error)) throw error;
     return [];
   });
-  return withFileStat(sessionFromFileRecord(context, { id: options.sessionId || sessionIdFromFile(filePath), filePath, archived: options.archived ?? false, stat }, events, new Map(), new Map()), stat);
+  return withFileStat(await sessionFromFileRecord(context, { id: options.sessionId || sessionIdFromFile(filePath), filePath, archived: options.archived ?? false, stat }, events, new Map(), new Map()), stat);
 }

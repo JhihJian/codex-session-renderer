@@ -2,6 +2,7 @@
   const api = window.SessionWorkbench;
   const compactElementId = (...args) => api.compactElementId(...args);
   const formatDate = (...args) => api.formatDate(...args);
+  const sessionStatusLabel = (...args) => api.sessionStatusLabel(...args);
   const escapeAttr = (...args) => api.escapeAttr(...args);
   const escapeHtml = (...args) => api.escapeHtml(...args);
   const renderMarkdownTitle = (...args) => api.renderMarkdownTitle(...args);
@@ -88,7 +89,7 @@ function renderCompactSubagentReport(summary, query) {
 function renderCompactTurn(turn, context) {
   const path = context.path || `turn-${turn.turnNumber || 0}`;
   const targetId = compactElementId("turn", path);
-  const meta = [turn.status, formatDate(turn.startedAt), turn.completedAt ? `结束 ${formatDate(turn.completedAt)}` : ""]
+  const meta = [sessionStatusLabel(turn.status) || turn.status, formatDate(turn.startedAt), turn.completedAt ? `结束 ${formatDate(turn.completedAt)}` : ""]
     .filter(Boolean)
     .join(" · ");
   const users = turn.userMessages?.length

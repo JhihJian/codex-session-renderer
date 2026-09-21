@@ -13,7 +13,8 @@ Codex 与 Pi Agent 的文件布局、索引能力与事件形态不同。会话�
 - 数据源上下文拥有来源身份、可读根、SQLite 线程存储、短期目录缓存和详情协调器。
 - 目录发现以索引元数据和 JSONL 文件相互补全。Pi Agent 直接使用文件发现；同 ID 的活动和存档文件按活动优先及更新时间去重。Pi 会话首部的 `parentSession` 被解析为 `parentSessionId` 并暴露到列表与详情投影，供前端展示分叉链；父会话不存在时链在孤儿节点断开，不虚构节点。详情的 `related` 字段附带父、子和祖先链摘要，链遍历有环检测和深度上限。
 - 规范化层把异构原始事件转换为稳定内部模型；事件层由此构建轮次、工具调用、执行树、子代理关系、正文上下文事件、轮末上下文和生成 Token 摘要。事件兼容门面保持既有导出，其下按轮次、紧凑阅读、执行追踪、追踪节点和共享投影工具单向拆分；时间层计算可确认的等待输入、每轮与全会话的实际运行区间及并行构成，并只按可关联 LLM 请求区间计算并发峰值和重叠时长，按可关联 token 用量记录估算模型生成速度（会话与轮次）。步骤明细和执行树节点保留 LLM 与工具区间的返回 token；LLM 节点保留上下文用量、关联助手消息和持久化推理摘要的轻量引用，浏览器用已加载轮次中的原始正文和推理摘要展示模型输出而不在执行追踪响应重复复制大文本，并可跳转该消息的 Raw 事件。加密推理不解密，只标识为不可展示的明文。Pi 会话缺少原始窗口快照时，从同一 Pi 数据源匹配的模型窗口与 `inputTokens` 形成可用的上下文记录。工具节点不展示按返回内容推导的上下文百分比或变化，只保留返回 token。
-- 详情协调器以来源、会话、读取视图和读取开始时的文件签名作为共享读取与缓存边界。文件更新后，新请求使用新的签名绕过旧缓存。
+- 详情协调器以来源、会话、读取视图和读取开始时的文件签名作为共享读取与缓存边界。文件更新后，新请求使用新的签名绕过旧缓存；陈旧降级按签名时刻的时间桶隔离，避免“已停止”判定冻结在旧缓存里。
+- 会话状态由文件尾部推导：轮次终结事件只出现在末尾，头部窗口无法代表当前状态。推导出的 `running` 只有在文件持续写入时才可信，超过阈值未写入的会话降级为 `stopped`（已停止）；`waiting`、`completed`、`failed`、`aborted` 是终态或空闲态，不降级。列表、详情与实时流共用同一尾部推导与降级规则，心跳携带降级后的状态。
 - 实时流中心按来源和会话拥有一个尾读状态、文件代际和订阅者集合。文件监听仅触发重新检查，尾读器只提交换行结束的记录；代际变化会向所有订阅者发送重置和新快照。
 
 ## 与现有模块的交互
@@ -30,6 +31,7 @@ Codex 与 Pi Agent 的文件布局、索引能力与事件形态不同。会话�
 - 缺少完整边界的事件不得伪装为精确运行时间。分类区间允许重叠，但实际运行时长按区间并集计算。事后写入的 token 用量事件按其所属响应的生成区间归属，不得把写盘间隔当作生成时间。
 - 生成速度为估算口径：生成 token 数除以对应响应区间时长，区间含排队与首字等待；生成 token 包含供应商记录的输出、推理 token，以及按工具名和调用参数估算的工具调用命令 token；无可关联 token 记录时不展示速度，不虚构占位。
 - 分叉链只表示 Pi 会话首部的 `parentSession` 事实，不与 Codex 的 `thread_spawn` 子代理关系混用；两者语义、来源与展示分层不同。
+- 会话状态只能从文件尾部事件推导，不得用文件头部窗口推断当前状态；`running` 必须有近期的文件写入佐证，否则降级为 `stopped`。状态降级阈值可通过 `CODEX_SESSION_STALE_RUNNING_MS` 配置，默认 30 分钟。
 
 ## 交付边界
 
@@ -41,4 +43,5 @@ Codex 与 Pi Agent 的文件布局、索引能力与事件形态不同。会话�
 - `src/session-catalog.mjs`、`src/sqlite-threads.mjs` 和 `src/jsonl-reader.mjs` 负责候选发现、索引读取和 JSONL 读取。
 - `src/session-normalizer.mjs`、`src/session-events.mjs`、`src/session-turn-projection.mjs`、`src/session-compact-reading-projection.mjs`、`src/session-execution-trace-projection.mjs`、`src/session-trace-node-projection.mjs`、`src/session-projection-shared.mjs`、`src/embedded-subagents.mjs` 与 `src/session-timing.mjs` 负责稳定事件及其阅读投影。
 - `src/session-detail-coordinator.mjs` 负责详情共享读取、文件签名校验、取消和 LRU 缓存。
+- `src/session-status.mjs` 负责会话状态的尾部推导与陈旧降级（`running` 超过 `CODEX_SESSION_STALE_RUNNING_MS` 未写入降级为 `stopped`）；`src/async-concurrency.mjs` 提供有界并发映射。
 - `src/jsonl-tail-reader.mjs` 负责完整行边界读取；`src/live-session-stream.mjs` 负责同会话共享尾读、文件代际、心跳和订阅资源回收；`public/app-live.js` 负责浏览器订阅、断线状态和实时阅读归并。

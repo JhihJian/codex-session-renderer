@@ -1,4 +1,4 @@
-import { buildTrace, buildTurns, compactChildBase, compactChildPlaceholder, compactCompactSession, compactTurnsForClient, compactTurnForView, deriveSessionStatusFromTurns, findSpawnAgentEvents, findSubagentNotifications, isImportantEvent, summarizeEventPreview, summarizeEventTitle, summarizeSessionEvents, toMs } from "./session-events.mjs";
+import { applyStaleStatusToTurns, buildTrace, buildTurns, compactChildBase, compactChildPlaceholder, compactCompactSession, compactTurnsForClient, compactTurnForView, deriveSessionStatusFromTurns, findSpawnAgentEvents, findSubagentNotifications, isImportantEvent, staleRunningThresholdMs, summarizeEventPreview, summarizeEventTitle, summarizeSessionEvents, toMs } from "./session-events.mjs";
 import { normalizeSessionEvent } from "./session-normalizer.mjs";
 import { withFileStat } from "./session-models.mjs";
 import { parseSessionViewQuery, projectSessionForApi } from "./session-query.mjs";
@@ -26,11 +26,16 @@ function analysisEventFromRaw(event, index) {
 async function getSessionDetail(dependencies, context, id, options = {}) {
   dependencies.throwIfRequestAborted(options.signal);
   const session = await dependencies.getSessionById(context, id, { signal: options.signal });
-  if (!session || !await dependencies.sessionFileExists(context, session, options)) return null;
+  if (!session) return null;
+  const stat = await dependencies.sessionFileStat(context, session.path, session.id);
+  if (!stat) return null;
   const maxDepth = options.maxDepth ?? 3;
   const modelContextWindow = await dependencies.modelContextWindow?.(context, session.model) || null;
+  // The stale downgrade depends on wall-clock time, not just file content.
+  // Bucketing the cache key forces re-derivation when the bucket flips.
+  const staleBucket = Date.now() - stat.mtimeMs >= staleRunningThresholdMs() ? "stale" : "fresh";
   const result = await context.sessionDetailCoordinator.read(session, {
-    cacheKey: `detail:${context.source.id}:${id}:maxDepth=${maxDepth}:modelContextWindow=${modelContextWindow || "none"}`,
+    cacheKey: `detail:${context.source.id}:${id}:maxDepth=${maxDepth}:modelContextWindow=${modelContextWindow || "none"}:stale=${staleBucket}`,
     signal: options.signal,
     shouldCache: (detail) => detail.stats?.childThreadCount === 0,
     derive: (rawEvents, stat, signal) => deriveSessionDetail(dependencies, { context, id, session, rawEvents, stat, maxDepth, modelContextWindow, signal }),
@@ -43,7 +48,7 @@ async function deriveSessionDetail(dependencies, { context, id, session, rawEven
   const sessionWithStat = withFileStat(session, stat);
   const hierarchy = await dependencies.getThreadHierarchy(context, id, { signal });
   const analysisEvents = rawEvents.map(analysisEventFromRaw);
-  const turns = buildTurns(rawEvents);
+  const turns = applyStaleStatusToTurns(buildTurns(rawEvents), stat?.mtimeMs);
   const sessionForDetail = { ...sessionWithStat, status: deriveSessionStatusFromTurns(turns) };
   const trace = buildTrace(sessionForDetail, rawEvents, analysisEvents, turns, hierarchy, { modelContextWindow });
   const timing = buildSessionTiming(trace);

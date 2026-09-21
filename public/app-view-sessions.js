@@ -330,6 +330,7 @@ function sessionStatusLabel(status) {
   if (status === "failed") return "失败";
   if (status === "aborted") return "已中断";
   if (status === "waiting") return "等待输入";
+  if (status === "stopped") return "已停止";
   if (status === "running") return "运行中";
   return "";
 }

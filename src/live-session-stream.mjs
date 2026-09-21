@@ -1,6 +1,6 @@
 import { watch } from "node:fs";
 import { readCommittedJsonlChunk } from "./jsonl-tail-reader.mjs";
-import { deriveSessionStatusFromTurns, buildTurns } from "./session-events.mjs";
+import { applyStaleRunningStatus, deriveSessionStatusFromTurns, buildTurns } from "./session-events.mjs";
 import { normalizeSessionEvent } from "./session-normalizer.mjs";
 
 const heartbeatMs = 15_000;
@@ -10,8 +10,14 @@ function identityFor(stat) {
   return `${stat?.dev ?? "unknown"}:${stat?.ino ?? "unknown"}`;
 }
 
-function sessionStatus(events) {
-  return deriveSessionStatusFromTurns(buildTurns(events));
+function sessionStatus(events, stat) {
+  // "running" is only trustworthy while the file keeps changing; a silent
+  // file older than the stale threshold is reported as "stopped".
+  return applyStaleRunningStatus(deriveSessionStatusFromTurns(buildTurns(events)), stat?.mtimeMs);
+}
+
+function currentSessionStatus(state) {
+  return sessionStatus(state?.records, state?.observedStat);
 }
 
 function projectLiveEvent(rawEvent, index) {
@@ -96,7 +102,7 @@ class LiveHub {
   payloadSnapshot() {
     return {
       generation: this.state.generation, nextSequence: this.state.sequence,
-      cursor: cursor(this.state.generation, this.state.sequence), sessionStatus: sessionStatus(this.state.records),
+      cursor: cursor(this.state.generation, this.state.sequence), sessionStatus: currentSessionStatus(this.state),
       observedAt: new Date().toISOString(), events: this.state.records.map((event, index) => projectLiveEvent(event, index)),
     };
   }
@@ -183,7 +189,7 @@ class LiveHub {
     this.state.sequence += 1;
     this.broadcast("append", {
       generation: this.state.generation, sequence, cursor: cursor(this.state.generation, this.state.sequence),
-      sessionStatus: sessionStatus(this.state.records), observedAt: new Date().toISOString(), event: projectLiveEvent(event, sequence),
+      sessionStatus: currentSessionStatus(this.state), observedAt: new Date().toISOString(), event: projectLiveEvent(event, sequence),
     }, cursor(this.state.generation, sequence));
   }
 
@@ -191,7 +197,7 @@ class LiveHub {
     const subscriber = { res, signal, heartbeat: null };
     this.subscribers.add(subscriber);
     writeEvent(res, "snapshot", this.payloadSnapshot());
-    subscriber.heartbeat = setInterval(() => writeEvent(res, "heartbeat", { observedAt: new Date().toISOString() }), heartbeatMs);
+    subscriber.heartbeat = setInterval(() => writeEvent(res, "heartbeat", { observedAt: new Date().toISOString(), sessionStatus: currentSessionStatus(this.state) }), heartbeatMs);
     subscriber.heartbeat.unref?.();
     const onAbort = () => this.removeSubscriber(subscriber);
     signal?.addEventListener("abort", onAbort, { once: true });

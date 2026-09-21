@@ -78,3 +78,32 @@ test("live stream appends completed records and resets after replacement", async
   controller.abort();
   await pending;
 });
+
+test("live stream heartbeats carry a stale-downgraded session status", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "csr-live-stale-"));
+  const filePath = path.join(root, "session.jsonl");
+  const id = "44444444-4444-4444-8444-444444444444";
+  const session = { id, path: filePath };
+  t.after(() => rm(root, { recursive: true, force: true }));
+  // Unterminated turn: no task_complete, so the raw derivation is "running".
+  await writeFile(filePath, [
+    '{"type":"event_msg","payload":{"type":"task_started","turn_id":"t1"}}',
+    '{"type":"event_msg","payload":{"type":"user_message","message":"hi"}}',
+    '{"type":"event_msg","payload":{"type":"exec_command_begin","command":"sleep"}}',
+  ].join("\n") + "\n", "utf8");
+
+  const realStat = await stat(filePath);
+  const staleStat = { ...realStat, mtimeMs: Date.now() - 31 * 60 * 1000 };
+  const service = createLiveSessionStreamService({
+    getSessionById: async () => session,
+    sessionFileExists: async () => true,
+    sessionFileStat: async () => staleStat,
+  });
+  const controller = new AbortController();
+  const response = responseCapture();
+  const pending = service.streamSession({ source: { id: "test" } }, id, response, { signal: controller.signal });
+  await waitFor(() => response.text.includes("event: snapshot"), "stream did not send its snapshot");
+  assert.match(response.text, /"sessionStatus":"stopped"/);
+  controller.abort();
+  await pending;
+});

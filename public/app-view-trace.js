@@ -322,6 +322,7 @@ function traceStatusKind(status) {
   if (["started", "running", "in_progress"].includes(value)) return "running";
   if (value === "waiting") return "waiting";
   if (value === "pending") return "pending";
+  if (value === "stopped") return "stopped";
   return "unknown";
 }
 
@@ -332,6 +333,7 @@ function traceStatusLabel(status) {
   if (kind === "running") return "执行中";
   if (kind === "waiting") return "等待输入";
   if (kind === "pending") return "等待执行";
+  if (kind === "stopped") return "已停止";
   if (String(status || "").toLowerCase() === "open") return "记录未闭合";
   return status ? String(status) : "";
 }

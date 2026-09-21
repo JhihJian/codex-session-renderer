@@ -1,12 +1,15 @@
 import { readJsonlWithDiagnostics } from "./jsonl-reader.mjs";
 import { extractProjectedGoalObjective } from "./event-summary.mjs";
 import { isLikelyCodexGoalControlText } from "./pi-goal-projection.mjs";
+import { readTailSessionStatus } from "./session-status.mjs";
+import { mapWithConcurrency } from "./async-concurrency.mjs";
 import { fileSignature, isAbortError } from "./session-detail-coordinator.mjs";
 import { compactSessionForList, publicThreadMeta, rootSessionsOnly, sessionFromThread, sessionMatchesListType, spawnEdgesFromSessions } from "./session-models.mjs";
 import { filterSessions, paginateSessions, parseSessionListQuery, projectSessionForApi, sessionWatermark, sortSessions } from "./session-query.mjs";
 
 const recentSessionWindowMs = 24 * 60 * 60 * 1000;
 const maxSessionLineageDepth = 10;
+const statusReadConcurrency = 8;
 
 export function createSessionCatalogQueryService(dependencies) {
   return {
@@ -110,7 +113,7 @@ async function listSessions(dependencies, context, options = {}) {
   if (cached && now - cached.time < 3000) return cached.sessions;
   const threads = await context.threadStore.readThreads({ ...bounds, limit: options.maxRecords || dependencies.maxListSessions, signal: options.signal });
   if (threads.size === 0) return listSessionsFromFiles(dependencies, { context, bounds, options, now, scope });
-  const sessions = await sessionsFromThreads(dependencies, context, threads, options);
+  const sessions = await withTailDerivedStatus(dependencies, context, await sessionsFromThreads(dependencies, context, threads, options), options);
   if (sessions.length === 0) return listSessionsFromFiles(dependencies, { context, bounds, options, now, scope });
   const results = (await correctControlPacketListTitles(dependencies, context, rootSessionsOnly(sessions, []), options))
     .sort(sortByUpdatedAt)
@@ -128,6 +131,25 @@ async function sessionsFromThreads(dependencies, context, threads, options = {})
     if (await dependencies.sessionFileExists(context, session, options)) sessions.push(session);
   }
   return sessions;
+}
+
+/**
+ * Thread rows carry no status, so the displayed status is derived from each
+ * session file's tail on the same code path used by file-only listings.
+ */
+async function withTailDerivedStatus(dependencies, context, sessions, options = {}) {
+  return mapWithConcurrency(sessions, statusReadConcurrency, async (session) => {
+    dependencies.throwIfRequestAborted(options.signal);
+    const stat = session?.path ? await dependencies.sessionFileStat(context, session.path, session.id) : null;
+    if (!stat) return session;
+    try {
+      const status = await readTailSessionStatus(session.path, stat);
+      return status == null ? session : { ...session, status };
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      return session;
+    }
+  });
 }
 
 function cacheSessions(context, scope, options, now, sessions) {
@@ -176,7 +198,7 @@ async function listAllSessionsForQuery(dependencies, context) {
   if (context.allSessionCache && now - context.allSessionCacheTime < 3000) return context.allSessionCache;
   const threads = await context.threadStore.readAllThreads();
   const sessions = await sessionsFromThreads(dependencies, context, threads);
-  const enriched = await Promise.all(sessions.map((session) => dependencies.directoryQueries.enrichSessionFromFileMeta(session, { context })));
+  const enriched = await mapWithConcurrency(sessions, statusReadConcurrency, (session) => dependencies.directoryQueries.enrichSessionFromFileMeta(session, { context }));
   const resolved = enriched.length > 0 ? enriched : await dependencies.directoryQueries.listFileSessions(context);
   context.allSessionCache = await correctControlPacketListTitles(dependencies, context, resolved.slice(0, dependencies.maxListSessions), {});
   context.allSessionCacheTime = now;

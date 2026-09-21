@@ -13,7 +13,7 @@
   }
 
   function liveSessionLabel(status) {
-    return ({ running: "执行中", waiting: "等待工具或输入", completed: "已完成", aborted: "已中断", unknown: "状态未知" })[status] || "状态未知";
+    return ({ running: "执行中", waiting: "等待工具或输入", completed: "已完成", failed: "失败", aborted: "已中断", stopped: "已停止", unknown: "状态未知" })[status] || "状态未知";
   }
 
   function renderLiveStatus() {
@@ -98,6 +98,14 @@
       if (!liveStreamIsCurrent(expectedKey, stream)) return;
       const status = parseLivePayload(event);
       state.live.connection = status?.state === "degraded" ? "stale" : state.live.connection;
+      renderLiveStatus();
+    });
+    stream.addEventListener("heartbeat", (event) => {
+      if (!liveStreamIsCurrent(expectedKey, stream)) return;
+      const heartbeat = parseLivePayload(event);
+      if (!heartbeat?.sessionStatus) return;
+      state.live.sessionStatus = heartbeat.sessionStatus;
+      state.live.lastObservedAt = heartbeat.observedAt || state.live.lastObservedAt;
       renderLiveStatus();
     });
     stream.onerror = () => {

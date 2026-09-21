@@ -64,6 +64,8 @@
 
 .tool-details-status.status-running,
 .trace-status.status-running,
+.tool-details-status.status-stopped,
+.trace-status.status-stopped,
 .tool-details-status.status-waiting,
 .trace-status.status-waiting,
 .tool-details-status.status-pending,

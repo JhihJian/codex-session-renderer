@@ -5,6 +5,7 @@
   const renderMarkdownTitle = (...args) => api.renderMarkdownTitle(...args);
   const formatDate = (...args) => api.formatDate(...args);
   const shortPath = (...args) => api.shortPath(...args);
+  const sessionStatusLabel = (...args) => api.sessionStatusLabel(...args);
   const itemRef = (...args) => api.itemRef(...args);
   const itemTitle = (...args) => api.itemTitle(...args);
   const prettyMaybeJson = (...args) => api.prettyMaybeJson(...args);
@@ -77,7 +78,7 @@ function buildTerminalBlocks(detail) {
         id: `turn-${turnNumber}-meta`,
         role: "meta",
         title: `第 ${turnNumber} 轮`,
-        text: [turn.status, formatDate(turn.startedAt), turn.cwd ? shortPath(turn.cwd) : ""].filter(Boolean).join(" · "),
+        text: [sessionStatusLabel(turn.status) || turn.status, formatDate(turn.startedAt), turn.cwd ? shortPath(turn.cwd) : ""].filter(Boolean).join(" · "),
         turnIndex: turnNumber - 1,
         timestamp: turn.startedAt,
       });
