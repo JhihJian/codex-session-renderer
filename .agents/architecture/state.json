@@ -460,6 +460,7 @@
       "public/app-live.js",
       "public/app-requests.js",
       "public/app-state.js",
+      "public/app-temporary-session.js",
       "public/app-ui.js",
       "public/app-view-compact.js",
       "public/app-view-shell.js",
@@ -486,55 +487,37 @@
         "itemId": "purpose-readable-session-workbench",
         "result": "updated",
         "reason": "移除实时模式后，工作台目的恢复为静态会话阅读与诊断。",
-        "evidence": {
-          "path": "README.md",
-          "locator": "本项目专注于会话的展示效果"
-        }
+        "evidence": { "path": "README.md", "locator": "本项目专注于会话的展示效果" }
       },
       {
         "itemId": "boundary-source-records-and-local-derivatives",
         "result": "unaffected",
         "reason": "删除实时订阅不改变原始会话只读和展示结果派生边界。",
-        "evidence": {
-          "path": "README.md",
-          "locator": "原始会话文件不会被修改"
-        }
+        "evidence": { "path": "README.md", "locator": "原始会话文件不会被修改" }
       },
       {
         "itemId": "external-boundary-http-authentication",
         "result": "unaffected",
         "reason": "删除实时端点不改变主 HTTP 服务的认证规则。",
-        "evidence": {
-          "path": "src/access-control.mjs",
-          "locator": "function assertSecureListenConfig(options = {})"
-        }
+        "evidence": { "path": "src/access-control.mjs", "locator": "function assertSecureListenConfig(options = {})" }
       },
       {
         "itemId": "module-session-projection",
         "result": "updated",
         "reason": "会话投影模块移除实时流责任，保留列表、详情、诊断和状态推导职责。",
-        "evidence": {
-          "path": "docs/architecture/modules/session-projection.md",
-          "locator": "## 实现定位"
-        }
+        "evidence": { "path": "docs/architecture/modules/session-projection.md", "locator": "## 实现定位" }
       },
       {
         "itemId": "capability-session-discovery-and-view",
         "result": "updated",
         "reason": "查询服务不再公开实时会话流，能力恢复为静态列表和详情查询。",
-        "evidence": {
-          "path": "src/session-query-service.mjs",
-          "locator": "export function createSessionQueryService()"
-        }
+        "evidence": { "path": "src/session-query-service.mjs", "locator": "export function createSessionQueryService()" }
       },
       {
         "itemId": "flow-stable-session-detail",
         "result": "updated",
         "reason": "静态详情文件签名和尾部状态推导继续生效，实时代际规则已删除。",
-        "evidence": {
-          "path": "src/session-status.mjs",
-          "locator": "function applyStaleRunningStatus"
-        }
+        "evidence": { "path": "src/session-status.mjs", "locator": "function applyStaleRunningStatus" }
       }
     ],
     "unmappedPaths": [
@@ -549,46 +532,31 @@
         "path": ".agents/flows/realtime-readonly-session-delivery/FLOW.md",
         "result": "unaffected",
         "reason": "实时交付 Flow 已删除，不参与当前运行时架构。",
-        "evidence": {
-          "path": "README.md",
-          "locator": "本项目专注于会话的展示效果"
-        }
+        "evidence": { "path": "README.md", "locator": "本项目专注于会话的展示效果" }
       },
       {
         "path": "public/app-live.js",
         "result": "unaffected",
         "reason": "实时浏览器状态和展示模块已删除。",
-        "evidence": {
-          "path": "public/index.html",
-          "locator": "会话视图"
-        }
+        "evidence": { "path": "public/index.html", "locator": "会话视图" }
       },
       {
         "path": "src/live-session-stream.mjs",
         "result": "unaffected",
         "reason": "实时服务端订阅中心已删除，静态查询服务保持当前职责。",
-        "evidence": {
-          "path": "src/session-query-service.mjs",
-          "locator": "export function createSessionQueryService()"
-        }
+        "evidence": { "path": "src/session-query-service.mjs", "locator": "export function createSessionQueryService()" }
       },
       {
         "path": "test/e2e/live-mode.spec.mjs",
         "result": "unaffected",
         "reason": "实时模式端到端测试随功能删除。",
-        "evidence": {
-          "path": "test/e2e/full-content.spec.mjs",
-          "locator": "正文、执行和诊断作为完整主工作区互斥切换"
-        }
+        "evidence": { "path": "test/e2e/full-content.spec.mjs", "locator": "正文、执行和诊断作为完整主工作区互斥切换" }
       },
       {
         "path": "test/live-session-stream.test.mjs",
         "result": "unaffected",
         "reason": "实时流单元测试随功能删除，通用尾部状态测试继续保留。",
-        "evidence": {
-          "path": "test/session-status.test.mjs",
-          "locator": "readCommittedJsonlChunk"
-        }
+        "evidence": { "path": "test/session-status.test.mjs", "locator": "readCommittedJsonlChunk" }
       }
     ]
   }
