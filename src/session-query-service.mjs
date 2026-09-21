@@ -1,8 +1,10 @@
+import { stat } from "node:fs/promises";
 import { createSessionCatalogQueryService } from "./session-catalog-query-service.mjs";
 import { createSessionDetailQueryService } from "./session-detail-query-service.mjs";
 import { createSessionDirectoryQueryService } from "./session-directory-query-service.mjs";
 import { createSessionEventQueryService } from "./session-event-query-service.mjs";
 import { createSessionSourceContextService, throwIfRequestAborted } from "./session-source-context-service.mjs";
+import { compactSessionForList } from "./session-models.mjs";
 
 export function createSessionQueryService() {
   const maxListSessions = Number(process.env.CODEX_SESSION_RENDERER_LIMIT || 800);
@@ -40,8 +42,13 @@ export function createSessionQueryService() {
   });
 
   async function temporarySession(filePath, options = {}) {
-    const resolvedPath = await sourceContexts.resolveTemporarySessionFile(filePath);
+    const resolvedPath = await sourceContexts.resolveTemporarySessionPath(filePath);
     const context = sourceContexts.getTemporarySessionContext(resolvedPath);
+    if ((await stat(resolvedPath)).isDirectory()) {
+      const files = await sourceContexts.listTemporarySessionFiles(resolvedPath, { maxRecords: maxListSessions, signal: options.signal, throwIfRequestAborted });
+      const sessions = (await Promise.all(files.map((candidatePath) => directoryQueries.sessionFromFilePath(context, candidatePath, { signal: options.signal })))).filter(Boolean);
+      return { context, directoryPath: resolvedPath, sessions };
+    }
     const session = await directoryQueries.sessionFromFilePath(context, resolvedPath, { signal: options.signal });
     return session ? { context, session } : null;
   }
@@ -49,6 +56,13 @@ export function createSessionQueryService() {
   async function openTemporarySession(filePath, options = {}) {
     const target = await temporarySession(filePath, options);
     if (!target) return null;
+    if (target.sessions) {
+      return {
+        source: { id: target.context.source.id, label: target.context.source.label, kind: target.context.source.kind },
+        path: target.directoryPath,
+        sessions: target.sessions.map((session) => ({ ...compactSessionForList(session), path: session.path })),
+      };
+    }
     return detailQueries.getSessionDetailForSession(target.context, target.session, {
       signal: options.signal,
       related: null,

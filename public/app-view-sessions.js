@@ -50,7 +50,7 @@ function renderSessionList() {
     return;
   }
   const sessions = state.sessions.filter((session) => {
-    if (sessionTimeBucket(session) !== state.sessionTimeFilter) return false;
+    if (state.selectedSourceId !== "temporary" && sessionTimeBucket(session) !== state.sessionTimeFilter) return false;
     if (filter === "project" && !session.cwd) return false;
     if (filter === "projectless" && session.cwd) return false;
     return true;

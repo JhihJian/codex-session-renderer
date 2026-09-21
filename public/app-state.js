@@ -12,6 +12,7 @@ const state = {
   sources: [],
   selectedSourceId: "local",
   temporarySessionPath: "",
+  temporarySessionIsDirectory: false,
   sessions: [],
   filteredSessions: [],
   collapsedSessionDirectoryKeys: new Set(),

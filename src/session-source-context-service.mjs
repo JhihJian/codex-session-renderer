@@ -38,18 +38,37 @@ const temporarySessionSource = {
   status: {},
 };
 
-async function resolveTemporarySessionFile(value) {
+async function resolveTemporarySessionPath(value) {
   const requestedPath = String(value || "").trim();
-  if (!requestedPath || !path.isAbsolute(requestedPath) || path.extname(requestedPath).toLowerCase() !== ".jsonl") {
+  if (!requestedPath || !path.isAbsolute(requestedPath)) {
     throw invalidTemporarySessionFileError();
   }
   try {
     const filePath = await fs.realpath(requestedPath);
-    if ((await fs.stat(filePath)).isFile()) return filePath;
+    const stat = await fs.stat(filePath);
+    if (stat.isDirectory() || (stat.isFile() && path.extname(filePath).toLowerCase() === ".jsonl")) return filePath;
   } catch {
     // Normalize inaccessible and non-file paths to the same public error.
   }
   throw invalidTemporarySessionFileError();
+}
+
+async function listTemporarySessionFiles(rootPath, { maxRecords = 800, signal, throwIfRequestAborted }) {
+  const files = [];
+  async function walk(directoryPath) {
+    throwIfRequestAborted(signal);
+    const entries = await fs.readdir(directoryPath, { withFileTypes: true });
+    entries.sort((left, right) => right.name.localeCompare(left.name, "en"));
+    for (const entry of entries) {
+      throwIfRequestAborted(signal);
+      const filePath = path.join(directoryPath, entry.name);
+      if (entry.isDirectory()) await walk(filePath);
+      else if (entry.isFile() && path.extname(entry.name).toLowerCase() === ".jsonl") files.push(await fs.realpath(filePath));
+      if (files.length >= maxRecords) return;
+    }
+  }
+  await walk(rootPath);
+  return [...new Set(files)].slice(0, maxRecords);
 }
 
 function createTemporarySessionContext(filePath, { maxListSessions, sessionReadGate, requireReadableSessionFile }) {
@@ -173,7 +192,8 @@ export function createSessionSourceContextService({ maxListSessions }) {
     getSourceContext,
     getTemporarySessionContext,
     listSources: () => dataSources.listSources(),
-    resolveTemporarySessionFile,
+    listTemporarySessionFiles,
+    resolveTemporarySessionPath,
     sessionFileExists,
     sessionFileStat,
     sourceFileStat,
@@ -190,7 +210,7 @@ export function createSessionSourceContextService({ maxListSessions }) {
 }
 
 function invalidTemporarySessionFileError() {
-  const error = new Error("临时会话必须是可读取的绝对 .jsonl 文件。");
+  const error = new Error("临时会话必须是可读取的绝对 .jsonl 文件或目录。");
   error.status = 400;
   error.code = "invalid_temporary_session_file";
   return error;

@@ -5,6 +5,14 @@
   const invalidateSessionListRequests = (...args) => api.invalidateSessionListRequests(...args);
   const cancelAlternateLocalSourceDiscovery = (...args) => api.cancelAlternateLocalSourceDiscovery(...args);
   const renderSourceControls = (...args) => api.renderSourceControls(...args);
+  const renderAll = (...args) => api.renderAll(...args);
+  const renderSessionList = (...args) => api.renderSessionList(...args);
+  const clearSelectedSession = (...args) => api.clearSelectedSession(...args);
+  const setWorkbenchStatus = (...args) => api.setWorkbenchStatus(...args);
+  const setBusy = (...args) => api.setBusy(...args);
+  const upsertSource = (...args) => api.upsertSource(...args);
+  const fetchJson = (...args) => api.fetchJson(...args);
+  const temporarySessionUrl = (...args) => api.temporarySessionUrl(...args);
   const selectSession = (...args) => api.selectSession(...args);
   const showToast = (...args) => api.showToast(...args);
 
@@ -20,6 +28,8 @@
     invalidateSessionListRequests();
     cancelAlternateLocalSourceDiscovery();
     state.temporarySessionPath = requestedPath;
+    state.temporarySessionIsDirectory = false;
+
 
     state.sources = state.sources.filter((source) => source.id !== "temporary");
     state.sources.push(temporarySource());
@@ -28,7 +38,22 @@
     state.filteredSessions = [];
     state.sessionsLoadError = "";
     state.sessionTimeFilter = "earlier";
+    setBusy(false);
     renderSourceControls();
+    const data = await fetchJson(temporarySessionUrl());
+    if (Array.isArray(data.sessions)) {
+      clearSelectedSession();
+      state.temporarySessionIsDirectory = true;
+      state.sessions = data.sessions;
+      state.sessionTimeFilter = "earlier";
+      state.sessionsLoading = false;
+      if (data.source) upsertSource(data.source);
+      setWorkbenchStatus(`temporary:${Date.now()}`, `临时会话目录已加载：${state.sessions.length} 个会话`, { announce });
+      renderSourceControls();
+      renderAll();
+      renderSessionList();
+      return;
+    }
     await selectSession("temporary", { announce, immediateMobilePanel: true });
   }
 

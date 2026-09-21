@@ -20,3 +20,20 @@ test("可临时打开本机指定 JSONL 会话", async ({ page }) => {
   await page.locator("#rawViewButton").click();
   await expect(page.locator("#rawContent")).toContainText("session_meta");
 });
+
+test("可临时打开目录并选择其中的会话", async ({ page }) => {
+  const health = await (await page.request.get("/api/health")).json();
+  const codexHome = health.sources.find((source) => source.id === "local").codexHome;
+  const directoryPath = `${codexHome}/sessions/isolated/`;
+
+  await page.goto("/");
+  await page.locator(".topbar-more summary").click();
+  await page.getByRole("button", { name: "打开本机会话" }).click();
+  await page.locator("#temporarySessionPath").fill(directoryPath);
+  await page.getByRole("button", { name: "打开", exact: true }).click();
+
+  await expect(page.locator("#sourceSelect")).toHaveValue("temporary");
+  await expect(page.locator(".session-row")).toHaveCount(4);
+  await page.locator(".session-row").first().click();
+  await expect(page.locator("#sessionTitle")).not.toHaveText("选择一个会话");
+});

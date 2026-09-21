@@ -34,6 +34,7 @@ async function loadHealthAndSources({ announce = false } = {}) {
   setBusy(true);
   try {
     const health = await fetchJson("/api/health");
+    if (state.selectedSourceId === "temporary") return;
     state.sources = health.sources || [];
     state.selectedSourceId = health.defaultSourceId || "local";
     state.sessionsLoadError = "";
@@ -41,6 +42,7 @@ async function loadHealthAndSources({ announce = false } = {}) {
     els.healthStatus.textContent = health.sources?.length > 1 ? `数据源 ${health.sources.length} 个` : `只读数据源 ${health.codexHome}`;
     await loadSessions({ announce });
   } catch (error) {
+    if (state.selectedSourceId === "temporary") return;
     const message = healthUnavailableMessage(error);
     state.healthLoadError = message;
     state.sources = [{ id: "local", label: "本机 Codex Home", kind: "local", status: { error: { message } } }];
@@ -86,7 +88,7 @@ function renderSourceStatus() {
     return;
   }
   const status = source.status || {};
-  const parts = [source.kind === "temporary" ? "单个本机 JSONL 文件" : source.kind === "pi-agent" ? "Pi Agent 本机目录" : "本机 Codex 目录"];
+  const parts = [source.kind === "temporary" ? state.temporarySessionIsDirectory ? "临时本机会话目录" : "单个本机 JSONL 文件" : source.kind === "pi-agent" ? "Pi Agent 本机目录" : "本机 Codex 目录"];
   if (status.error?.message) parts.push(status.error.message);
   if (state.sessionTimeFilter === "earlier") {
     if (state.historyLoading) parts.push("历史会话读取中");
@@ -368,6 +370,10 @@ async function selectSession(id, { announce = true, focusMobilePanel = true, imm
   sessionAbortController = new AbortController();
   const sourceId = state.selectedSourceId;
   const targetSession = findSessionSummary(id);
+  if (sourceId === "temporary" && targetSession?.path) {
+    state.temporarySessionPath = targetSession.path;
+    state.temporarySessionIsDirectory = false;
+  }
   const requestKey = `${sourceId}:${id}:${Date.now()}`;
   const mobilePanelNavigationVersion = state.mobilePanelNavigationVersion;
   if (immediateMobilePanel) setMobilePanel("thread");
@@ -480,7 +486,10 @@ async function selectSource(sourceId) {
   invalidateSessionListRequests();
   cancelAlternateLocalSourceDiscovery();
   state.selectedSourceId = sourceId;
-  if (sourceId !== "temporary") state.temporarySessionPath = "";
+  if (sourceId !== "temporary") {
+    state.temporarySessionPath = "";
+    state.temporarySessionIsDirectory = false;
+  }
   state.sessions = [];
   state.filteredSessions = [];
   state.sessionsLoadError = "";
