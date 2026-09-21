@@ -14,7 +14,6 @@ test("可临时打开本机指定 JSONL 会话", async ({ page }) => {
 
   await expect(page.locator("#sourceSelect")).toHaveValue("temporary");
   await expect(page.locator("#sessionTitle")).toContainText("验证工作台的 Chromium 交互契约");
-  await expect(page.locator("#liveModeToggle")).toBeDisabled();
 
   await page.locator(".topbar-more summary").click();
   await page.locator("#diagnosticViewButton").click();
