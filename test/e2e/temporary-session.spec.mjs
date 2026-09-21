@@ -36,4 +36,5 @@ test("可临时打开目录并选择其中的会话", async ({ page }) => {
   await expect(page.locator(".session-row")).toHaveCount(4);
   await page.locator(".session-row").first().click();
   await expect(page.locator("#sessionTitle")).not.toHaveText("选择一个会话");
+  await expect(page.locator(".session-row")).toHaveCount(4);
 });

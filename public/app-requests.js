@@ -372,7 +372,6 @@ async function selectSession(id, { announce = true, focusMobilePanel = true, imm
   const targetSession = findSessionSummary(id);
   if (sourceId === "temporary" && targetSession?.path) {
     state.temporarySessionPath = targetSession.path;
-    state.temporarySessionIsDirectory = false;
   }
   const requestKey = `${sourceId}:${id}:${Date.now()}`;
   const mobilePanelNavigationVersion = state.mobilePanelNavigationVersion;
@@ -410,7 +409,7 @@ async function selectSession(id, { announce = true, focusMobilePanel = true, imm
     state.sessionLoadError = "";
     state.pendingSessionTitle = "";
     state.selectedSourceId = detail.session?.sourceId || state.selectedSourceId;
-    if (sourceId === "temporary" && detail.session) {
+    if (sourceId === "temporary" && detail.session && !state.temporarySessionIsDirectory) {
       state.selectedSessionId = detail.session.id;
       state.sessions = [{ ...detail.session, displayTitle: detail.session.title || "未命名会话" }];
       state.sessionTimeFilter = sessionTimeBucket(detail.session);
