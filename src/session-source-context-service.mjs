@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import path from "node:path";
 import { createDataSourceRegistry } from "./data-sources.mjs";
 import {
   createAbortError,
@@ -23,6 +24,59 @@ function sessionDetailCoordinatorOptions(readGate) {
     maxCacheBytes: readPositiveEnv("CODEX_SESSION_DETAIL_MAX_CACHE_BYTES", 48 * 1024 * 1024, 512 * 1024 * 1024),
     readGate,
   };
+}
+
+const temporarySessionSource = {
+  id: "temporary",
+  label: "临时本机会话",
+  kind: "temporary",
+  codexHome: "",
+  originalCodexHome: "",
+  sessionsRoot: "",
+  sessionIndexPath: "",
+  stateDbPath: "",
+  status: {},
+};
+
+async function resolveTemporarySessionFile(value) {
+  const requestedPath = String(value || "").trim();
+  if (!requestedPath || !path.isAbsolute(requestedPath) || path.extname(requestedPath).toLowerCase() !== ".jsonl") {
+    throw invalidTemporarySessionFileError();
+  }
+  try {
+    const filePath = await fs.realpath(requestedPath);
+    if ((await fs.stat(filePath)).isFile()) return filePath;
+  } catch {
+    // Normalize inaccessible and non-file paths to the same public error.
+  }
+  throw invalidTemporarySessionFileError();
+}
+
+function createTemporarySessionContext(filePath, { maxListSessions, sessionReadGate, requireReadableSessionFile }) {
+  const source = { ...temporarySessionSource, codexHome: path.dirname(filePath), originalCodexHome: path.dirname(filePath) };
+  const context = {
+    source,
+    codexHome: source.codexHome,
+    originalCodexHome: source.originalCodexHome,
+    sessionsRoot: source.sessionsRoot,
+    sessionIndexPath: source.sessionIndexPath,
+    stateDbPath: source.stateDbPath,
+    threadStore: createSqliteThreadStore({ stateDbPath: source.stateDbPath, maxListSessions }),
+    sessionCache: null,
+    sessionCacheTime: 0,
+    sessionCacheByScope: new Map(),
+    allSessionCache: null,
+    allSessionCacheTime: 0,
+    modelStorePath: null,
+    modelContextWindows: null,
+    modelStoreStamp: null,
+    sessionDetailCoordinator: null,
+  };
+  context.sessionDetailCoordinator = createSessionDetailCoordinator({
+    ...sessionDetailCoordinatorOptions(sessionReadGate),
+    stat: async (candidatePath) => requireReadableSessionFile(context, candidatePath),
+  });
+  return context;
 }
 
 export function createSessionSourceContextService({ maxListSessions }) {
@@ -110,10 +164,16 @@ export function createSessionSourceContextService({ maxListSessions }) {
     return context;
   }
 
+  function getTemporarySessionContext(filePath) {
+    return createTemporarySessionContext(filePath, { maxListSessions, sessionReadGate, requireReadableSessionFile });
+  }
+
   return {
     getDefaultSource: () => dataSources.getDefaultSource(),
     getSourceContext,
+    getTemporarySessionContext,
     listSources: () => dataSources.listSources(),
+    resolveTemporarySessionFile,
     sessionFileExists,
     sessionFileStat,
     sourceFileStat,
@@ -127,6 +187,13 @@ export function createSessionSourceContextService({ maxListSessions }) {
     modelContextWindow,
   };
 
+}
+
+function invalidTemporarySessionFileError() {
+  const error = new Error("临时会话必须是可读取的绝对 .jsonl 文件。");
+  error.status = 400;
+  error.code = "invalid_temporary_session_file";
+  return error;
 }
 
 async function modelContextWindow(context, modelId) {

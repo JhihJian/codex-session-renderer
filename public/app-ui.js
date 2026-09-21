@@ -8,6 +8,7 @@
   const selectSource = (...args) => api.selectSource(...args);
   const toggleLiveMode = (...args) => api.toggleLiveMode(...args);
   const openSettingsDialog = (...args) => api.openSettingsDialog(...args);
+  const bindTemporarySessionDialog = (...args) => api.bindTemporarySessionDialog(...args);
   const requestCloseSettingsDialog = (...args) => api.requestCloseSettingsDialog(...args);
   const saveSettingsFromForm = (...args) => api.saveSettingsFromForm(...args);
   const selectSettingsViewFromEvent = (...args) => api.selectSettingsViewFromEvent(...args);
@@ -23,6 +24,7 @@
   const clearSessionFiltersForSelectedSession = (...args) => api.clearSessionFiltersForSelectedSession(...args);
   const returnToRealtimeSessions = (...args) => api.returnToRealtimeSessions(...args);
   const renderMainContent = (...args) => api.renderMainContent(...args);
+  const renderSessionList = (...args) => api.renderSessionList(...args);
   const setViewMode = (...args) => api.setViewMode(...args);
   const setDiagnosticMode = (...args) => api.setDiagnosticMode(...args);
   const selectSettingsView = (...args) => api.selectSettingsView(...args);
@@ -33,6 +35,7 @@ function init() {
   state.summaryRules = window.ToolSummary?.loadCustomRules?.() || [];
   initializeOverflowTooltips();
   bindEvents();
+  bindTemporarySessionDialog();
   syncPanelToggleLabels();
   syncMobilePanelNavigation();
   loadHealthAndSources();
@@ -80,8 +83,11 @@ function bindEvents() {
     state.settingsView = "summary";
     renderSettingsDialog();
   });
-
   els.sessionSearch.addEventListener("input", () => {
+    if (state.selectedSourceId === "temporary") {
+      renderSessionList();
+      return;
+    }
     invalidateSessionListRequests();
     clearTimeout(sessionSearchTimer);
     sessionSearchTimer = setTimeout(() => {
@@ -95,6 +101,10 @@ function bindEvents() {
     });
   });
   els.sessionTypeFilter.addEventListener("change", () => {
+    if (state.selectedSourceId === "temporary") {
+      renderSessionList();
+      return;
+    }
     invalidateSessionListRequests();
     if (state.sessionTimeFilter === "earlier") {
       state.sessions = state.sessions.filter((session) => sessionTimeBucket(session) !== "earlier");
@@ -106,22 +116,7 @@ function bindEvents() {
 
   els.clearSessionFiltersButton?.addEventListener("click", clearSessionFiltersForSelectedSession);
   els.returnRealtimeButton?.addEventListener("click", returnToRealtimeSessions);
-  els.itemSearch.addEventListener("input", () => {
-    state.visibleThreadItems = 140;
-
-    renderMainContent();
-  });
-  els.itemTypeFilter.addEventListener("change", () => {
-    state.visibleThreadItems = 140;
-    renderMainContent();
-  });
-  els.importantOnly?.addEventListener("change", renderMainContent);
-  els.compactViewButton.addEventListener("click", () => setViewMode("compact"));
-  els.traceViewButton.addEventListener("click", () => setViewMode("trace"));
-  els.diagnosticViewButton.addEventListener("click", () => setViewMode("diagnostic"));
-  els.statsViewButton.addEventListener("click", () => setDiagnosticMode("stats"));
-  els.rawViewButton.addEventListener("click", () => setDiagnosticMode("raw"));
-
+  bindViewControls();
   bindRovingTablist(els.sessionTimeFilter, "[data-session-time]", (button) => selectSessionTimeFilter(button.dataset.sessionTime || "realtime"));
   bindRovingTablist(els.viewSwitch, "[data-view-mode]", (button) => setViewMode(button.dataset.viewMode || "compact"));
   bindRovingTablist(els.diagnosticSwitch, "[data-diagnostic-mode]", (button) => setDiagnosticMode(button.dataset.diagnosticMode || "stats"));
@@ -145,6 +140,23 @@ function bindEvents() {
     });
   });
   bindRovingTablist(document.querySelector(".mobile-tabs"), "[data-panel-target]", (button) => setMobilePanel(button.dataset.panelTarget, { userInitiated: true }));
+}
+
+function bindViewControls() {
+  els.itemSearch.addEventListener("input", () => {
+    state.visibleThreadItems = 140;
+    renderMainContent();
+  });
+  els.itemTypeFilter.addEventListener("change", () => {
+    state.visibleThreadItems = 140;
+    renderMainContent();
+  });
+  els.importantOnly?.addEventListener("change", renderMainContent);
+  els.compactViewButton.addEventListener("click", () => setViewMode("compact"));
+  els.traceViewButton.addEventListener("click", () => setViewMode("trace"));
+  els.diagnosticViewButton.addEventListener("click", () => setViewMode("diagnostic"));
+  els.statsViewButton.addEventListener("click", () => setDiagnosticMode("stats"));
+  els.rawViewButton.addEventListener("click", () => setDiagnosticMode("raw"));
 }
 
 function bindRovingTablist(tablist, selector, activate) {

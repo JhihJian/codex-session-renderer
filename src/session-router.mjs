@@ -2,8 +2,9 @@ import { sanitizeErrorMessage } from "./data-sources.mjs";
 import { sendError, sendJson, serveStaticFile } from "./http-response.mjs";
 import { isAbortError } from "./session-detail-coordinator.mjs";
 
-const READ_ONLY_API_PATHS = ["/api/health", "/api/sources"];
+const READ_ONLY_API_PATHS = ["/api/health", "/api/sources", "/api/open-session", "/api/open-session/events"];
 const READ_ONLY_API_PATTERNS = [
+  /^\/api\/open-session\/events\/\d+$/,
   /^\/api\/sessions(?:\/.*)?$/,
   /^\/api\/query\/.*$/,
   /^\/api\/sources\/[^/]+\/sessions(?:\/.*)?$/,
@@ -13,6 +14,9 @@ const READ_ONLY_API_PATTERNS = [
 const API_HANDLERS = [
   handleHealthRequest,
   handleSourcesRequest,
+  handleTemporarySessionEventRequest,
+  handleTemporarySessionEventsRequest,
+  handleTemporarySessionRequest,
   handleSessionListRequest,
   handleSourceSessionListRequest,
   handleSourceSessionLiveRequest,
@@ -125,6 +129,32 @@ function queryProjectionOptions(context, url) {
 function sendResourceResponse(res, resourceName, resource) {
   if (!resource) return sendError(res, 404, `${resourceName} not found`);
   return sendJson(res, 200, resource);
+}
+
+function temporarySessionPath(url) {
+  return url.searchParams.get("path") || "";
+}
+
+async function handleTemporarySessionRequest({ pathname, res, service, signal, url }) {
+  if (pathname !== "/api/open-session") return false;
+  const detail = await service.openTemporarySession(temporarySessionPath(url), { signal });
+  sendResourceResponse(res, "Session", detail);
+  return true;
+}
+
+async function handleTemporarySessionEventsRequest({ pathname, res, service, signal, url }) {
+  if (pathname !== "/api/open-session/events") return false;
+  const events = await service.queryTemporarySessionEvents(temporarySessionPath(url), url.searchParams, { signal });
+  sendResourceResponse(res, "Session", events);
+  return true;
+}
+
+async function handleTemporarySessionEventRequest({ pathname, res, service, signal, url }) {
+  const match = pathname.match(/^\/api\/open-session\/events\/(\d+)$/);
+  if (!match) return false;
+  const event = await service.getTemporarySessionEvent(temporarySessionPath(url), Number(match[1]), { signal });
+  sendResourceResponse(res, "Event", event);
+  return true;
 }
 
 async function sendSessionList(res, service, context, url, source) {

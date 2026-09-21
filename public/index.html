@@ -30,6 +30,7 @@
           <details class="topbar-more">
             <summary aria-label="更多操作">···</summary>
             <div class="topbar-more-menu">
+              <button class="ghost-button" id="openTemporarySessionButton" type="button">打开本机会话</button>
               <button class="ghost-button" id="settingsButton" type="button">展示规则</button>
             </div>
           </details>
@@ -157,6 +158,24 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <div class="sr-only" id="workbenchAnnouncements" role="status" aria-live="polite" aria-atomic="true"></div>
 
+    <dialog class="temporary-session-dialog" id="temporarySessionDialog" aria-labelledby="temporarySessionDialogTitle">
+      <form class="temporary-session-form" id="temporarySessionForm" method="dialog">
+        <div class="temporary-session-header">
+          <div>
+            <p class="eyebrow">临时会话</p>
+            <h2 id="temporarySessionDialogTitle">打开本机 JSONL</h2>
+          </div>
+          <button class="icon-button" id="closeTemporarySessionDialogButton" type="button" title="关闭" aria-label="关闭">×</button>
+        </div>
+        <label class="field-label" for="temporarySessionPath">会话文件绝对路径</label>
+        <input class="text-input" id="temporarySessionPath" type="text" autocomplete="off" spellcheck="false" required />
+        <p class="temporary-session-status" id="temporarySessionStatus" role="status" aria-live="polite"></p>
+        <div class="temporary-session-actions">
+          <button class="ghost-button" id="cancelTemporarySessionButton" type="button">取消</button>
+          <button class="primary-button" id="submitTemporarySessionButton" type="submit">打开</button>
+        </div>
+      </form>
+    </dialog>
 
     <dialog class="settings-dialog" id="settingsDialog" aria-labelledby="settingsDialogTitle">
       <form class="settings-panel" id="settingsForm" method="dialog" novalidate>
@@ -248,6 +267,7 @@
     <script src="./raw-event-cache.js" defer></script>
     <script src="./app-state.js" defer></script>
     <script src="./app-requests.js" defer></script>
+    <script src="./app-temporary-session.js" defer></script>
     <script src="./app-requests-response.js" defer></script>
     <script src="./app-requests-raw.js" defer></script>
     <script src="./app-live.js" defer></script>

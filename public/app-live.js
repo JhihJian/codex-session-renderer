@@ -18,10 +18,12 @@
 
   function renderLiveStatus() {
     if (!els.liveModeToggle || !els.liveStatus) return;
+    const temporarySession = state.selectedSourceId === "temporary";
+    els.liveModeToggle.disabled = temporarySession;
     els.liveModeToggle.checked = state.live.enabled;
     const label = state.live.enabled
       ? `${liveConnectionLabel(state.live.connection)} · ${liveSessionLabel(state.live.sessionStatus)}`
-      : "未开启";
+      : temporarySession ? "临时文件不支持实时模式" : "未开启";
     els.liveStatus.textContent = label;
     els.liveStatus.dataset.state = state.live.enabled ? state.live.connection : "stopped";
   }
@@ -44,7 +46,7 @@
   function startLiveSession() {
     const sessionId = state.selectedSessionId;
     const sourceId = state.selectedSourceId;
-    if (!state.live.enabled || !sessionId) return;
+    if (!state.live.enabled || !sessionId || sourceId === "temporary") return;
     stopLiveSession({ keepEnabled: true });
     state.live.connection = "connecting";
     state.live.sourceKey = `${sourceId}:${sessionId}`;

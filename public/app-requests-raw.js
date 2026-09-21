@@ -227,18 +227,27 @@ function sessionListServerType() {
 }
 
 function sourceSessionUrl(id, sourceId = state.selectedSourceId) {
+  if (sourceId === "temporary") return temporarySessionUrl();
   const params = new URLSearchParams();
   const query = params.toString();
   return `/api/sources/${encodeURIComponent(sourceId)}/sessions/${encodeURIComponent(id)}${query ? `?${query}` : ""}`;
 }
 
 function sourceEventUrl(id, index, sourceId = state.selectedSourceId) {
+  if (sourceId === "temporary") return temporarySessionUrl(`/events/${index}`);
   return `/api/sources/${encodeURIComponent(sourceId)}/sessions/${encodeURIComponent(id)}/events/${index}`;
 }
 
 function sourceSessionEventsUrl(id, sourceId = state.selectedSourceId, { cursor = 0 } = {}) {
+  if (sourceId === "temporary") return temporarySessionUrl("/events", { limit: "100", cursor: String(cursor) });
   const params = new URLSearchParams({ limit: "100", cursor: String(cursor) });
   return `/api/sources/${encodeURIComponent(sourceId)}/query/sessions/${encodeURIComponent(id)}/events?${params.toString()}`;
+}
+
+function temporarySessionUrl(suffix = "", additionalParams = {}) {
+  const params = new URLSearchParams({ path: state.temporarySessionPath });
+  for (const [key, value] of Object.entries(additionalParams)) params.set(key, value);
+  return `/api/open-session${suffix}?${params.toString()}`;
 }
 
 
@@ -312,5 +321,5 @@ function healthUnavailableMessage(error) {
   return `本机服务健康检查失败：${normalized}。请确认服务已启动后点击刷新列表重试。`;
 }
 
-  Object.assign(api, { responseScopeMatches, requireSourceResponse, loadRawDiagnosticPage, startRawDiagnosticPageRequest, rawDiagnosticDetailAvailable, rawDiagnosticRequestCursor, rawDiagnosticCachedNextPage, showCachedNextRawDiagnosticPage, rawDiagnosticPageNumber, resetRawDiagnosticPages, rawDiagnosticRequestIsCurrent, rawDiagnosticStillSelected, applyRawDiagnosticPage, retainRawEventsForDiagnosticPages, rawDiagnosticPageMatchesRequest, rawDiagnosticNextPageNumber, loadRawEvent, rawEventRequestIsCurrent, rawEventCacheKey, rawEventStillInDiagnosticPages, selectedSource, sourceLabel, upsertSource, sourceSessionsUrl, sessionListServerType, sourceSessionUrl, sourceEventUrl, sourceSessionEventsUrl, sessionKey, fetchJson, isAbortError, responseError, errorText, localizeErrorText, requestFailedMessage, healthUnavailableMessage });
+  Object.assign(api, { responseScopeMatches, requireSourceResponse, loadRawDiagnosticPage, startRawDiagnosticPageRequest, rawDiagnosticDetailAvailable, rawDiagnosticRequestCursor, rawDiagnosticCachedNextPage, showCachedNextRawDiagnosticPage, rawDiagnosticPageNumber, resetRawDiagnosticPages, rawDiagnosticRequestIsCurrent, rawDiagnosticStillSelected, applyRawDiagnosticPage, retainRawEventsForDiagnosticPages, rawDiagnosticPageMatchesRequest, rawDiagnosticNextPageNumber, loadRawEvent, rawEventRequestIsCurrent, rawEventCacheKey, rawEventStillInDiagnosticPages, selectedSource, sourceLabel, upsertSource, sourceSessionsUrl, sessionListServerType, sourceSessionUrl, sourceEventUrl, sourceSessionEventsUrl, temporarySessionUrl, sessionKey, fetchJson, isAbortError, responseError, errorText, localizeErrorText, requestFailedMessage, healthUnavailableMessage });
 }

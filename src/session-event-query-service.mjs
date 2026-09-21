@@ -32,6 +32,10 @@ export function createSessionEventQueryService({ getSessionById, sessionFileExis
   async function querySessionEvents(context, id, params, projectionOptions = {}, options = {}) {
     throwIfRequestAborted(options.signal);
     const session = await getSessionById(context, id, { signal: options.signal });
+    return querySessionEventsForSession(context, session, params, projectionOptions, options);
+  }
+
+  async function querySessionEventsForSession(context, session, params, projectionOptions = {}, options = {}) {
     if (!session?.path || !await sessionFileExists(context, session, options)) return null;
     const query = parseSessionEventQuery(params);
     const beforeStat = await sessionFileStat(context, session.path, session.id);
@@ -62,6 +66,10 @@ export function createSessionEventQueryService({ getSessionById, sessionFileExis
   async function getSessionEvent(context, id, index, options = {}) {
     throwIfRequestAborted(options.signal);
     const session = await getSessionById(context, id, { signal: options.signal });
+    return getSessionEventForSession(context, session, index, options);
+  }
+
+  async function getSessionEventForSession(context, session, index, options = {}) {
     if (!session?.path || !await sessionFileExists(context, session, options)) return null;
     const beforeStat = await sessionFileStat(context, session.path, session.id);
     if (!beforeStat) return null;
@@ -80,5 +88,5 @@ export function createSessionEventQueryService({ getSessionById, sessionFileExis
     return event ? projectEventForApi(event, index, { includePayload: true, includeRaw: true }) : null;
   }
 
-  return { getSessionEvent, querySessionEvents };
+  return { getSessionEvent, getSessionEventForSession, querySessionEvents, querySessionEventsForSession };
 }

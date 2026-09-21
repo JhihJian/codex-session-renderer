@@ -58,6 +58,18 @@ npm start
 
 非 loopback 地址必须设置 `CODEX_SESSION_RENDERER_TOKEN`。局域网访问使用 HTTP Basic 认证，用户名为 `codex`，密码为该令牌。
 
+### 临时打开单个会话
+
+页面右上角“更多操作”中的“打开本机会话”可临时读取一个本机绝对路径的 `.jsonl` 会话文件。该文件不会加入默认会话目录、索引或配置，刷新列表时只会重新读取当前文件；临时会话不提供实时模式。关闭页面后临时路径不会保留。
+
+例如：
+
+```text
+/data/work/report-agent/main/artifacts/.../pi-sessions/2026-09-21T04-21-27-146Z_01a0c232-89ea-7bf9-b447-d03517afb4ca.jsonl
+```
+
+只接受本机可读取的绝对 `.jsonl` 常规文件。评测 case 目录本身不是会话文件，需要继续选择其中 `pi-sessions` 目录下的具体 JSONL 文件。
+
 ## 开发检查
 
 ```bash

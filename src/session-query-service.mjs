@@ -45,6 +45,35 @@ export function createSessionQueryService() {
     sessionFileStat: sourceContexts.sessionFileStat,
   });
 
+  async function temporarySession(filePath, options = {}) {
+    const resolvedPath = await sourceContexts.resolveTemporarySessionFile(filePath);
+    const context = sourceContexts.getTemporarySessionContext(resolvedPath);
+    const session = await directoryQueries.sessionFromFilePath(context, resolvedPath, { signal: options.signal });
+    return session ? { context, session } : null;
+  }
+
+  async function openTemporarySession(filePath, options = {}) {
+    const target = await temporarySession(filePath, options);
+    if (!target) return null;
+    return detailQueries.getSessionDetailForSession(target.context, target.session, {
+      signal: options.signal,
+      related: null,
+      getThreadHierarchy: async () => ({ parent: null, children: [], siblings: [] }),
+    });
+  }
+
+  async function queryTemporarySessionEvents(filePath, params, options = {}) {
+    const target = await temporarySession(filePath, options);
+    if (!target) return null;
+    return eventQueries.querySessionEventsForSession(target.context, target.session, params, { sourceId: target.context.source.id }, options);
+  }
+
+  async function getTemporarySessionEvent(filePath, index, options = {}) {
+    const target = await temporarySession(filePath, options);
+    if (!target) return null;
+    return eventQueries.getSessionEventForSession(target.context, target.session, index, options);
+  }
+
   return {
     getDefaultSource: sourceContexts.getDefaultSource,
     getSourceContext: sourceContexts.getSourceContext,
@@ -56,6 +85,9 @@ export function createSessionQueryService() {
     querySessionView: detailQueries.querySessionView,
     querySessionEvents: eventQueries.querySessionEvents,
     getSessionEvent: eventQueries.getSessionEvent,
+    getTemporarySessionEvent,
+    openTemporarySession,
+    queryTemporarySessionEvents,
     streamSessionLive: liveStreams.streamSession,
   };
 }

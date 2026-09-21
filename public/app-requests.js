@@ -27,6 +27,7 @@
   const sourceSessionUrl = (...args) => api.sourceSessionUrl(...args);
   const primeTraceExpansion = (...args) => api.primeTraceExpansion(...args);
   const selectedSessionDisplayTitle = (...args) => api.selectedSessionDisplayTitle(...args);
+  const openTemporarySession = (...args) => api.openTemporarySession(...args);
 
 async function loadHealthAndSources({ announce = false } = {}) {
   state.healthLoadError = "";
@@ -85,7 +86,7 @@ function renderSourceStatus() {
     return;
   }
   const status = source.status || {};
-  const parts = [source.kind === "pi-agent" ? "Pi Agent 本机目录" : "本机 Codex 目录"];
+  const parts = [source.kind === "temporary" ? "单个本机 JSONL 文件" : source.kind === "pi-agent" ? "Pi Agent 本机目录" : "本机 Codex 目录"];
   if (status.error?.message) parts.push(status.error.message);
   if (state.sessionTimeFilter === "earlier") {
     if (state.historyLoading) parts.push("历史会话读取中");
@@ -97,6 +98,7 @@ function renderSourceStatus() {
 }
 
 function selectSessionTimeFilter(bucket) {
+  if (state.selectedSourceId === "temporary") return;
   const next = bucket || "realtime";
   const changed = next !== state.sessionTimeFilter;
   if (changed) invalidateSessionListRequests();
@@ -303,6 +305,10 @@ async function loadHistoricalSessions({ announce = false } = {}) {
 function refreshCurrentSessionList({ announce = false } = {}) {
   cancelRawDiagnosticRequest({ clear: true });
   cancelRawEventRequest();
+  if (state.selectedSourceId === "temporary" && state.temporarySessionPath) {
+    void openTemporarySession(state.temporarySessionPath, { announce });
+    return;
+  }
   if (state.sessionTimeFilter === "earlier") {
     void loadHistoricalSessions({ announce });
     return;
@@ -399,6 +405,11 @@ async function selectSession(id, { announce = true, focusMobilePanel = true, imm
     state.sessionLoadError = "";
     state.pendingSessionTitle = "";
     state.selectedSourceId = detail.session?.sourceId || state.selectedSourceId;
+    if (sourceId === "temporary" && detail.session) {
+      state.selectedSessionId = detail.session.id;
+      state.sessions = [{ ...detail.session, displayTitle: detail.session.title || "未命名会话" }];
+      state.sessionTimeFilter = sessionTimeBucket(detail.session);
+    }
     state.selectedSessionKey = sessionKey(detail.session || { id, sourceId: state.selectedSourceId });
     primeTraceExpansion(detail);
     setWorkbenchStatus(operationKey, `会话已加载：${selectedSessionDisplayTitle()}`, { announce });
@@ -472,6 +483,7 @@ async function selectSource(sourceId) {
   invalidateSessionListRequests();
   cancelAlternateLocalSourceDiscovery();
   state.selectedSourceId = sourceId;
+  if (sourceId !== "temporary") state.temporarySessionPath = "";
   state.sessions = [];
   state.filteredSessions = [];
   state.sessionsLoadError = "";
@@ -481,6 +493,7 @@ async function selectSource(sourceId) {
   renderAll();
   await loadSessions({ announce: true });
 }
+
 
 function sourceNavigationContext() {
   return JSON.stringify({

@@ -647,6 +647,58 @@
   backdrop-filter: blur(4px);
 }
 
+.temporary-session-dialog {
+  width: min(560px, calc(100vw - 28px));
+  border: 1px solid var(--hair-strong);
+  border-radius: 8px;
+  background: var(--bg-elev);
+  color: var(--text);
+  padding: 0;
+  box-shadow: var(--shadow-2);
+}
+
+.temporary-session-dialog::backdrop {
+  background: rgb(0 0 0 / 0.28);
+  backdrop-filter: blur(4px);
+}
+
+.temporary-session-form {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.temporary-session-header,
+.temporary-session-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.temporary-session-header {
+  margin: -14px -14px 0;
+  border-bottom: 1px solid var(--hair);
+  padding: 12px 14px;
+}
+
+.temporary-session-header h2 {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.temporary-session-status {
+  min-height: 18px;
+  margin: -4px 0 0;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.temporary-session-actions {
+  justify-content: flex-end;
+}
+
 .settings-panel {
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;

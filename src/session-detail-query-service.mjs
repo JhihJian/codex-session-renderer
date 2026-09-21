@@ -8,6 +8,7 @@ import { isAbortError } from "./session-detail-coordinator.mjs";
 export function createSessionDetailQueryService(dependencies) {
   return {
     getSessionDetail: (context, id, options) => getSessionDetail(dependencies, context, id, options),
+    getSessionDetailForSession: (context, session, options) => getSessionDetailForSession(dependencies, context, session, options),
     querySessionView: (context, id, params, projectionOptions, options) => querySessionView(dependencies, context, id, params, { ...options, projectionOptions }),
   };
 }
@@ -27,26 +28,33 @@ async function getSessionDetail(dependencies, context, id, options = {}) {
   dependencies.throwIfRequestAborted(options.signal);
   const session = await dependencies.getSessionById(context, id, { signal: options.signal });
   if (!session) return null;
+  return getSessionDetailForSession(dependencies, context, session, { ...options, id });
+}
+
+async function getSessionDetailForSession(dependencies, context, session, options = {}) {
+  const id = options.id || session.id;
   const stat = await dependencies.sessionFileStat(context, session.path, session.id);
   if (!stat) return null;
   const maxDepth = options.maxDepth ?? 3;
   const modelContextWindow = await dependencies.modelContextWindow?.(context, session.model) || null;
+  const getThreadHierarchy = options.getThreadHierarchy || ((threadId, queryOptions) => dependencies.getThreadHierarchy(context, threadId, queryOptions));
+  const related = options.related === undefined ? await dependencies.getSessionLineage(context, session, options) : options.related;
   // The stale downgrade depends on wall-clock time, not just file content.
   // Bucketing the cache key forces re-derivation when the bucket flips.
   const staleBucket = Date.now() - stat.mtimeMs >= staleRunningThresholdMs() ? "stale" : "fresh";
   const result = await context.sessionDetailCoordinator.read(session, {
-    cacheKey: `detail:${context.source.id}:${id}:maxDepth=${maxDepth}:modelContextWindow=${modelContextWindow || "none"}:stale=${staleBucket}`,
+    cacheKey: `detail:${context.source.id}:${session.path}:${id}:maxDepth=${maxDepth}:modelContextWindow=${modelContextWindow || "none"}:stale=${staleBucket}`,
     signal: options.signal,
     shouldCache: (detail) => detail.stats?.childThreadCount === 0,
-    derive: (rawEvents, stat, signal) => deriveSessionDetail(dependencies, { context, id, session, rawEvents, stat, maxDepth, modelContextWindow, signal }),
+    derive: (rawEvents, stat, signal) => deriveSessionDetail(dependencies, { context, id, session, rawEvents, stat, maxDepth, modelContextWindow, getThreadHierarchy, signal }),
   });
-  return { ...result.value, related: await dependencies.getSessionLineage(context, session, options) };
+  return { ...result.value, related };
 }
 
-async function deriveSessionDetail(dependencies, { context, id, session, rawEvents, stat, maxDepth, modelContextWindow, signal }) {
+async function deriveSessionDetail(dependencies, { context, id, session, rawEvents, stat, maxDepth, modelContextWindow, getThreadHierarchy, signal }) {
   dependencies.throwIfRequestAborted(signal);
   const sessionWithStat = withFileStat(session, stat);
-  const hierarchy = await dependencies.getThreadHierarchy(context, id, { signal });
+  const hierarchy = await getThreadHierarchy(id, { signal });
   const analysisEvents = rawEvents.map(analysisEventFromRaw);
   const turns = applyStaleStatusToTurns(buildTurns(rawEvents), stat?.mtimeMs);
   const sessionForDetail = { ...sessionWithStat, status: deriveSessionStatusFromTurns(turns) };

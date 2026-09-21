@@ -35,7 +35,7 @@ Codex 与 Pi Agent 的文件布局、索引能力与事件形态不同。会话�
 
 ## 交付边界
 
-浏览器布局与交互由 `public/` 负责。原始事件字段、控制包处理和兼容 profile 由[事件规范化契约](../../session-event-normalization.md)完整说明。
+浏览器布局与交互由 `public/` 负责。除固定数据源目录外，用户可临时指定一个本机绝对 `.jsonl` 文件；临时来源只为当前请求创建来源上下文，不参加目录枚举、索引和持久化配置，且不提供实时流。原始事件字段、控制包处理和兼容 profile 由[事件规范化契约](../../session-event-normalization.md)完整说明。
 
 ## 实现定位
 
@@ -43,5 +43,6 @@ Codex 与 Pi Agent 的文件布局、索引能力与事件形态不同。会话�
 - `src/session-catalog.mjs`、`src/sqlite-threads.mjs` 和 `src/jsonl-reader.mjs` 负责候选发现、索引读取和 JSONL 读取。
 - `src/session-normalizer.mjs`、`src/session-events.mjs`、`src/session-turn-projection.mjs`、`src/session-compact-reading-projection.mjs`、`src/session-execution-trace-projection.mjs`、`src/session-trace-node-projection.mjs`、`src/session-projection-shared.mjs`、`src/embedded-subagents.mjs` 与 `src/session-timing.mjs` 负责稳定事件及其阅读投影。
 - `src/session-detail-coordinator.mjs` 负责详情共享读取、文件签名校验、取消和 LRU 缓存。
+- `src/session-source-context-service.mjs` 负责临时单文件路径校验和一次性来源上下文；`src/session-router.mjs` 与 `src/session-query-service.mjs` 提供临时详情和 Raw 查询入口。
 - `src/session-status.mjs` 负责会话状态的尾部推导与陈旧降级（`running` 超过 `CODEX_SESSION_STALE_RUNNING_MS` 未写入降级为 `stopped`）；`src/async-concurrency.mjs` 提供有界并发映射。
 - `src/jsonl-tail-reader.mjs` 负责完整行边界读取；`src/live-session-stream.mjs` 负责同会话共享尾读、文件代际、心跳和订阅资源回收；`public/app-live.js` 负责浏览器订阅、断线状态和实时阅读归并。
