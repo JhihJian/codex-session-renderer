@@ -182,15 +182,12 @@ async function getSessionFromThread(dependencies, context, thread, options) {
 }
 
 async function findSessionFileRecord(dependencies, context, id, options) {
-  for (const record of await dependencies.directoryQueries.collectSessionFileRecords(context, options)) {
-    dependencies.throwIfRequestAborted(options.signal);
-    if (record.id !== id) continue;
-    const session = await dependencies.directoryQueries.sessionFromFilePath(context, record.filePath, { archived: record.archived, sessionId: record.id, signal: options.signal });
-    if (!session) return null;
-    const titled = await supplementVerifiedFileSessionTitles(dependencies, context, [session], options);
-    return (await correctControlPacketListTitles(dependencies, context, titled, options))[0];
-  }
-  return null;
+  const record = await dependencies.directoryQueries.sessionFileRecordById(context, id, options);
+  if (!record) return null;
+  const session = await dependencies.directoryQueries.sessionFromFilePath(context, record.filePath, { archived: record.archived, sessionId: record.id, signal: options.signal });
+  if (!session) return null;
+  const titled = await supplementVerifiedFileSessionTitles(dependencies, context, [session], options);
+  return (await correctControlPacketListTitles(dependencies, context, titled, options))[0];
 }
 
 async function listAllSessionsForQuery(dependencies, context) {

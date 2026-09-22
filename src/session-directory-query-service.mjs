@@ -18,6 +18,7 @@ export function createSessionDirectoryQueryService(dependencies) {
     collectSessionFileRecords: (context, options) => collectSessionFileRecords(dependencies, context, options),
     enrichSessionFromFileMeta: (session, options) => enrichSessionFromFileMeta(dependencies, session, options),
     listFileSessions: (context, bounds, options) => listFileSessions(dependencies, context, bounds, options),
+    sessionFileRecordById: (context, id, options) => sessionFileRecordById(dependencies, context, id, options),
     sessionFromFilePath: (context, filePath, options) => sessionFromFilePath(dependencies, context, filePath, options),
   };
 }
@@ -117,14 +118,71 @@ function isDatedDirectory(parts, index) {
   return /^\d{4}$/.test(parts[index]) && /^\d{2}$/.test(parts[index + 1]) && /^\d{2}$/.test(parts[index + 2]);
 }
 
+function sessionRecordId(taskId, filePath) {
+  const sessionId = sessionIdFromFile(filePath);
+  return taskId ? `${taskId}:${sessionId}` : sessionId;
+}
+
+function parseTaskScopedSessionId(id) {
+  const separator = String(id || "").indexOf(":");
+  if (separator <= 0) return null;
+  return { taskId: String(id).slice(0, separator), sessionId: String(id).slice(separator + 1) };
+}
+
+function taskScopedSessionDirectories(source, taskId) {
+  if (!source?.taskSessionsRoot && !source?.evaluationSessionsRoot) return [];
+  if (source.taskSessionsRoot && piTaskDirectoryPattern.test(taskId)) {
+    return [path.join(source.taskSessionsRoot, taskId, "artifacts", "pi-sessions")];
+  }
+  if (source.evaluationSessionsRoot && evaluationDirectoryPattern.test(taskId)) {
+    return [path.join(source.evaluationSessionsRoot, taskId, ...evaluationSessionsDirectoryParts)];
+  }
+  return [];
+}
+
+async function sessionFileRecordById(dependencies, context, id, options = {}) {
+  dependencies.throwIfRequestAborted(options.signal);
+  const scoped = parseTaskScopedSessionId(id);
+  if (scoped) {
+    for (const directory of taskScopedSessionDirectories(context.source, scoped.taskId)) {
+      const record = await findRecordInDirectory(dependencies, context, { directory, id, sessionId: scoped.sessionId, options });
+      if (record) return record;
+    }
+  }
+  return findRecordFromWalk(dependencies, context, id, options);
+}
+
+async function findRecordInDirectory(dependencies, context, { directory, id, sessionId, options }) {
+  for await (const filePath of walkJsonl(dependencies, directory, { signal: options.signal })) {
+    dependencies.throwIfRequestAborted(options.signal);
+    if (sessionIdFromFile(filePath) !== sessionId) continue;
+    const stat = await dependencies.sessionFileStat(context, filePath);
+    if (!stat) continue;
+    return { id, filePath, archived: false, stat };
+  }
+  return null;
+}
+
+async function findRecordFromWalk(dependencies, context, id, options) {
+  // Single-session lookup must not inherit the listing cap: sessions beyond the
+  // list window still deserve a resolvable detail endpoint.
+  for await (const record of walkSourceSessionFiles(dependencies, context, { signal: options.signal })) {
+    dependencies.throwIfRequestAborted(options.signal);
+    const stat = await dependencies.sessionFileStat(context, record.filePath);
+    if (!stat) continue;
+    if (sessionRecordId(record.taskId, record.filePath) !== id) continue;
+    return { id, filePath: record.filePath, archived: record.archived, stat };
+  }
+  return null;
+}
+
 async function collectSessionFileRecords(dependencies, context, options = {}) {
   const records = [];
   for await (const record of walkSourceSessionFiles(dependencies, context, options)) {
     dependencies.throwIfRequestAborted(options.signal);
     const stat = await dependencies.sessionFileStat(context, record.filePath);
     if (!stat || outsideBounds(stat, options)) continue;
-    const sessionId = sessionIdFromFile(record.filePath);
-    records.push({ id: record.taskId ? `${record.taskId}:${sessionId}` : sessionId, filePath: record.filePath, archived: record.archived, stat });
+    records.push({ id: sessionRecordId(record.taskId, record.filePath), filePath: record.filePath, archived: record.archived, stat });
     if (records.length >= (options.maxRecords || dependencies.maxListSessions)) return dedupeSessionFileRecords(records);
   }
   return dedupeSessionFileRecords(records);
