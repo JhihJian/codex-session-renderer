@@ -18,7 +18,7 @@ Codex 与 Pi Agent 的文件布局、索引能力与事件形态不同。会话�
 
 ## 与现有模块的交互
 
-浏览器由 `public/` 负责以紧凑工作目录树中的会话叶子和正文为默认阅读面，目录折叠状态按来源隔离且仅保留在当前浏览器会话中，搜索和当前会话路径自动展开；正文上下文事件只消费 Pi/Codex JSONL 中持久化的压缩和 Skill 指令/读取证据，不从当前运行环境推断历史系统提示或 Skills。桌面左侧轮次时间轴只从根会话的已渲染轮次派生压缩与内嵌子代理信号，并按已记录轮次时长比例定位，负责导航而不承担执行分析；同一主工作区提供正文、执行、诊断三视图，其中执行、统计、Raw 与工具详情仅在对应视图显示。执行视图的轮次行固定展示执行耗时，原始记录缺少轮次完成事件时以轮内最后条目的活动时间为结束边界，轮次行不展示生命周期状态，线程与工具节点保留状态标签；轮次子项按时长归因，工具/子代理之外补充模型回复区间节点，剩余未归因间隔以“其他时间”节点补足，使子项时长之和等于轮次执行耗时。统计视图分为上下文与时间两个诊断区块：上下文区按当前事件筛选展示事件概览和命中摘要规则的工具输出汇总，工具明细默认收起，展开后支持按操作、目标或返回内容筛选、排序并跳转最大返回的 Raw 事件，不另设汇总型指标卡片；时间区始终基于完整会话，展示等待输入、工具与 LLM 的可关联时间、模型生成速度估算及其数据质量，并按轮次列出时间构成：条长以最长轮次时长为 100% 归一，分段按 LLM 等待与工具执行在该轮内的覆盖占比分配，行首展示取自执行树轮次节点标题的用户输入摘要。工具摘要规则替换执行树内工具节点名称，并让事件统计在工具输出父项下按规则聚合已关联输出的操作；未匹配规则或缺少关联输出事件的记录仍只保留在父项。模型回复和轮次节点的上下文用量统一按记录展示，工具节点不展示上下文估算，只保留返回 token。正文、Raw、参数预览与工具详情使用原始记录；Pi 原生 `read` / `write` 按参数路径命名，`bash` 的组合命令会定位其中的 `rg` 子命令；访问控制和 HTTP 错误映射由主服务及响应模块负责。
+浏览器由 `public/` 负责以紧凑工作目录树中的会话叶子和正文为默认阅读面，目录折叠状态按来源隔离且仅保留在当前浏览器会话中，搜索和当前会话路径自动展开；正文上下文事件只消费 Pi/Codex JSONL 中持久化的压缩和 Skill 指令/读取证据，不从当前运行环境推断历史系统提示或 Skills。桌面左侧轮次时间轴只从根会话的已渲染轮次派生压缩与内嵌子代理信号，并按已记录轮次时长比例定位，负责导航而不承担执行分析；同一主工作区提供正文、执行、诊断三视图，其中执行、统计、Raw 与工具详情仅在对应视图显示。执行视图的轮次行固定展示执行耗时，原始记录缺少轮次完成事件时以轮内最后条目的活动时间为结束边界，轮次行不展示生命周期状态，线程与工具节点保留状态标签；轮次子项按时长归因，工具/子代理之外补充模型回复区间节点，剩余未归因间隔以“其他时间”节点补足，使子项时长之和等于轮次执行耗时；Pi `<skill>` 指令块投影为独立的“技能加载”节点（不参与时长归因），详情面板展示技能指令与触发消息并可跳转原始事件，读取 `SKILL.md` 的工具节点改用“技能读取”语义命名，技能节点与技能读取共同进入类型筛选与搜索。统计视图分为上下文与时间两个诊断区块：上下文区按当前事件筛选展示事件概览和命中摘要规则的工具输出汇总，工具明细默认收起，展开后支持按操作、目标或返回内容筛选、排序并跳转最大返回的 Raw 事件，不另设汇总型指标卡片；时间区始终基于完整会话，展示等待输入、工具与 LLM 的可关联时间、模型生成速度估算及其数据质量，并按轮次列出时间构成：条长以最长轮次时长为 100% 归一，分段按 LLM 等待与工具执行在该轮内的覆盖占比分配，行首展示取自执行树轮次节点标题的用户输入摘要。工具摘要规则替换执行树内工具节点名称，并让事件统计在工具输出父项下按规则聚合已关联输出的操作；未匹配规则或缺少关联输出事件的记录仍只保留在父项。模型回复和轮次节点的上下文用量统一按记录展示，工具节点不展示上下文估算，只保留返回 token。正文、Raw、参数预览与工具详情使用原始记录；Pi 原生 `read` / `write` 按参数路径命名，`bash` 的组合命令会定位其中的 `rg` 子命令；访问控制和 HTTP 错误映射由主服务及响应模块负责。
 
 ## 必须保持的规则
 
@@ -39,7 +39,7 @@ Codex 与 Pi Agent 的文件布局、索引能力与事件形态不同。会话�
 
 - `server.mjs` 仅装配服务；`src/session-router.mjs` 负责编排 HTTP 请求，`src/session-query-service.mjs` 装配来源上下文、目录、详情和事件查询。
 - `src/session-catalog.mjs`、`src/sqlite-threads.mjs` 和 `src/jsonl-reader.mjs` 负责候选发现、索引读取和 JSONL 读取。
-- `src/session-normalizer.mjs`、`src/session-events.mjs`、`src/session-turn-projection.mjs`、`src/session-compact-reading-projection.mjs`、`src/session-execution-trace-projection.mjs`、`src/session-trace-node-projection.mjs`、`src/session-projection-shared.mjs`、`src/embedded-subagents.mjs` 与 `src/session-timing.mjs` 负责稳定事件及其阅读投影。
+- `src/session-normalizer.mjs`、`src/session-events.mjs`、`src/session-turn-projection.mjs`、`src/session-compact-reading-projection.mjs`、`src/session-execution-trace-projection.mjs`、`src/session-trace-node-projection.mjs`、`src/session-trace-skill-projection.mjs`、`src/session-projection-shared.mjs`、`src/embedded-subagents.mjs` 与 `src/session-timing.mjs` 负责稳定事件及其阅读投影，其中 `session-trace-skill-projection.mjs` 单独维护执行树技能节点的构造与压缩投影。
 - `src/session-detail-coordinator.mjs` 负责详情共享读取、文件签名校验、取消和 LRU 缓存。
 - `src/session-source-context-service.mjs` 负责临时文件或目录路径校验、JSONL 发现和一次性来源上下文；`src/session-router.mjs` 与 `src/session-query-service.mjs` 提供临时列表、详情和 Raw 查询入口。
 - `src/session-status.mjs` 负责会话状态的尾部推导与陈旧降级（`running` 超过 `CODEX_SESSION_STALE_RUNNING_MS` 未写入降级为 `stopped`）；`src/async-concurrency.mjs` 提供有界并发映射。

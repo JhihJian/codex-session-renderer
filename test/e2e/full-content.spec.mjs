@@ -320,3 +320,28 @@ test("Pi 执行过程轮次展示执行耗时，工具保留状态", async ({ pa
   await expect(page.locator(".trace-tree")).not.toContainText("未记录");
   expect((await page.locator(".trace-duration").allTextContents()).join(" ")).not.toContain("est");
 });
+
+test("Pi 执行视图展示技能加载与技能读取节点", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#traceViewButton").click();
+  const turnToggles = page.locator('[data-trace-toggle-id^="turn:"]');
+  for (let index = 0; index < await turnToggles.count(); index += 1) {
+    await turnToggles.nth(index).click();
+  }
+  const skillNode = page.locator('.trace-row[data-trace-node-id]', { hasText: "技能加载" }).first();
+  await expect(skillNode).toContainText("release-check");
+  await expect(skillNode.locator(".trace-duration")).toHaveCount(0);
+  const skillReadNode = page.locator('.trace-row[data-trace-node-id]', { hasText: "技能读取" }).first();
+  await expect(skillReadNode).toContainText("release-check/SKILL.md");
+
+  await skillNode.click();
+  await expect(page.locator("#toolDetailsContent")).toContainText("技能指令");
+  await expect(page.locator("#toolDetailsContent")).toContainText("执行发布检查。");
+  await expect(page.locator("#toolDetailsContent")).toContainText("触发消息");
+  await expect(page.locator("#toolDetailsContent")).toContainText("检查当前分支。");
+
+  await page.selectOption("#itemTypeFilter", "skill");
+  await expect(page.locator('.trace-row[data-trace-node-id]', { hasText: "技能加载" })).toHaveCount(1);
+  await expect(page.locator('[data-trace-node-id^="response:"]')).toHaveCount(0);
+  await expect(page.locator('.trace-row[data-trace-node-id]', { hasText: "bash" })).toHaveCount(0);
+});

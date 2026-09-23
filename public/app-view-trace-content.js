@@ -24,6 +24,7 @@ function itemMatches(item, query, typeFilter) {
   if (typeFilter === "output") return item.type === "tool-output" || (item.type === "tool-call" && item.output);
   if (typeFilter === "reasoning") return item.type === "reasoning";
   if (typeFilter === "compact") return item.type === "context-compact";
+  if (typeFilter === "skill") return Boolean(item.skillDeclaration || item.skillRead);
   if (typeFilter === "system") return item.type === "event" || item.type === "token-count" || item.type === "context-compact";
   if (typeFilter === "error") return /error|failed|失败|错误/i.test(haystack);
   return true;

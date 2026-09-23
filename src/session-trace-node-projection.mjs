@@ -2,14 +2,16 @@ import { firstLine, normalizeText } from "./text-utils.mjs";
 import {
   compactTraceInfo,
   durationMs,
+  formatIsoForTrace,
   limitText,
   parseJsonObject,
   subagentNotificationAgentIds,
   subagentNotificationPayload,
 } from "./session-projection-shared.mjs";
+import { compactTraceSkillDeclaration, compactTraceSkillRead, skillDeclarationTraceNode, skillReadTraceTitle } from "./session-trace-skill-projection.mjs";
 
 function isDefaultTraceNodeForPayload(node) {
-  return ["tool", "handoff", "subagent", "embedded-subagent", "lazy-child"].includes(node.type);
+  return ["tool", "handoff", "subagent", "embedded-subagent", "lazy-child", "skill"].includes(node.type);
 }
 
 function assistantPhaseLabel(phase) {
@@ -41,6 +43,9 @@ function traceNodeFromItem(item, turnIndex, itemIndex) {
     },
   };
 
+  if (item.type === "user-message" && item.skillDeclaration) {
+    return skillDeclarationTraceNode(base, item);
+  }
   if (item.type === "user-message") {
     return {
       ...base,
@@ -81,8 +86,8 @@ function traceNodeFromItem(item, turnIndex, itemIndex) {
       ...base,
       type: isHandoff ? "handoff" : "tool",
       icon: isHandoff ? "handoff" : "tool",
-      label: isHandoff ? "委派" : "工具调用",
-      title: item.name || item.callId || "未知工具",
+      label: item.skillRead ? "技能读取" : isHandoff ? "委派" : "工具调用",
+      title: skillReadTraceTitle(item) || item.name || item.callId || "未知工具",
       subtitle: [item.status, formatIsoForTrace(item.timestamp)].filter(Boolean).join(" · "),
     };
   }
@@ -377,6 +382,8 @@ function compactTraceItem(item) {
     outputLength: output.originalLength || null,
     truncated: text.truncated || args.truncated || output.truncated,
     embeddedSubagents: item.embeddedSubagents || null,
+    skillDeclaration: item.skillDeclaration ? compactTraceSkillDeclaration(item.skillDeclaration) : null,
+    skillRead: item.skillRead ? compactTraceSkillRead(item.skillRead) : null,
     info: compactTraceInfo(item.info),
     tokenUsage: item.tokenUsage || null,
   };
@@ -454,14 +461,6 @@ function findSubagentNotifications(events, childById) {
     }
   }
   return byChild;
-}
-
-
-function formatIsoForTrace(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toISOString().replace("T", " ").slice(5, 16);
 }
 
 function shortPathServer(value) {

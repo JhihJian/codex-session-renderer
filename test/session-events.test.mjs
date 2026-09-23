@@ -789,6 +789,53 @@ test("Pi compaction and Skill evidence project into ordered reading context even
   assert.equal(JSON.stringify(view.contextEvents).includes("/data/dev/project"), false);
 });
 
+test("buildTrace projects Pi skill declaration and SKILL.md read into execution nodes", () => {
+  const events = [
+    { type: "session", id: "pi-skill-trace", timestamp: "2026-09-16T02:00:00.000Z", cwd: "/data/dev/project" },
+    {
+      type: "message",
+      id: "skill-user",
+      timestamp: "2026-09-16T02:00:01.000Z",
+      message: { role: "user", content: [{ type: "text", text: '<skill name="release-check" location="/data/dev/project/.agents/skills/release-check/SKILL.md">执行发布检查。</skill>\n\n检查当前分支。' }] },
+    },
+    {
+      type: "message",
+      id: "skill-read",
+      parentId: "skill-user",
+      timestamp: "2026-09-16T02:00:02.000Z",
+      message: { role: "assistant", content: [{ type: "toolCall", id: "read-skill", name: "read", arguments: { path: "/data/dev/project/.agents/skills/release-check/SKILL.md" } }] },
+    },
+    {
+      type: "message",
+      id: "skill-output",
+      parentId: "skill-read",
+      timestamp: "2026-09-16T02:00:03.000Z",
+      message: { role: "toolResult", toolCallId: "read-skill", toolName: "read", content: [{ type: "text", text: "# release-check" }], isError: false },
+    },
+  ];
+  const turns = buildTurns(events);
+  const trace = buildTrace({ id: "pi-skill-trace", title: "Pi" }, events, events.map(normalizeSessionEvent), turns, { children: [] });
+
+  const turn = trace.root.children[0];
+  const skillNode = turn.children.find((node) => node.type === "skill");
+  assert.ok(skillNode, "skill declaration should be a default trace node");
+  assert.equal(skillNode.label, "技能加载");
+  assert.equal(skillNode.title, "release-check");
+  assert.match(skillNode.subtitle, /SKILL\.md/);
+  assert.equal(skillNode.detail.item.skillDeclaration.name, "release-check");
+  assert.equal(skillNode.detail.item.skillDeclaration.instruction.text, "执行发布检查。");
+  assert.equal(skillNode.detail.item.skillDeclaration.userText.text, "检查当前分支。");
+
+  const skillReadNode = turn.children.find((node) => node.detail?.item?.skillRead);
+  assert.ok(skillReadNode, "SKILL.md read should stay a tool node");
+  assert.equal(skillReadNode.type, "tool");
+  assert.equal(skillReadNode.label, "技能读取");
+  assert.equal(skillReadNode.title, "release-check/SKILL.md");
+
+  // 技能节点没有独立时长，不影响轮次子项时长归因。
+  assert.equal(Number.isFinite(skillNode.durationMs), false);
+});
+
 test("compactTurnsForClient exposes attachment summary without inline data", () => {
   const dataUri = "data:image/png;base64," + Buffer.from("abc").toString("base64");
   const turns = buildTurns([

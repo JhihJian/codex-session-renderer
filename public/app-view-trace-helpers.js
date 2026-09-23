@@ -70,6 +70,7 @@ function traceIcon(node) {
   if (node.icon === "assistant") return "C";
   if (node.icon === "reasoning") return "R";
   if (node.icon === "metric") return "#";
+  if (node.icon === "skill") return "S";
   if (node.icon === "llm") return "L";
   if (node.icon === "gap") return "…";
   return "•";
@@ -249,6 +250,7 @@ const traceTypeLabels = {
   message: "消息",
   reasoning: "推理",
   metric: "指标",
+  skill: "技能",
   response: "模型回复",
   gap: "其他时间",
 };

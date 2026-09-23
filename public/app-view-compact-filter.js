@@ -33,8 +33,9 @@ function compactTurnMatches(turn, query, typeFilter) {
 
 function compactSpecialTurnMatch(turn, query, typeFilter) {
   if (typeFilter === "tool") return Boolean(turn.children?.length);
-  const { hasCompact, hasContext } = compactContextEventFlags(turn);
+  const { hasCompact, hasContext, hasSkill } = compactContextEventFlags(turn);
   if (typeFilter === "compact") return hasCompact && compactTurnQueryMatches(turn, query);
+  if (typeFilter === "skill") return hasSkill && compactTurnQueryMatches(turn, query);
   if (typeFilter === "system") return hasContext && compactTurnQueryMatches(turn, query);
   return null;
 }
@@ -58,7 +59,11 @@ function compactTurnQueryMatches(turn, query) {
 
 function compactContextEventFlags(turn) {
   const events = contextEventsForTurn(turn);
-  return { hasCompact: events.some((event) => event.contextKind === "compaction"), hasContext: events.length > 0 };
+  return {
+    hasCompact: events.some((event) => event.contextKind === "compaction"),
+    hasSkill: events.some((event) => event.contextKind === "skill-declaration" || event.contextKind === "skill-read"),
+    hasContext: events.length > 0,
+  };
 }
 
 function compactNodeMatchesType(node, typeFilter) {
@@ -66,6 +71,7 @@ function compactNodeMatchesType(node, typeFilter) {
   if (typeFilter === "message") return Boolean(node.turns?.some((turn) => turn.userMessages?.length || compactAssistantMessages(turn).length));
   if (typeFilter === "tool") return !node.session || Boolean(node.edgeStatus || node.spawnEvent || node.notificationEvent);
   if (typeFilter === "compact") return Boolean(node.turns?.some((turn) => contextEventsForTurn(turn).some((event) => event.contextKind === "compaction")));
+  if (typeFilter === "skill") return Boolean(node.turns?.some((turn) => contextEventsForTurn(turn).some((event) => event.contextKind === "skill-declaration" || event.contextKind === "skill-read")));
   if (typeFilter === "system") return Boolean(node.turns?.some((turn) => contextEventsForTurn(turn).length > 0));
   if (typeFilter === "error") return /error|failed|失败|错误/i.test(compactSearchText(node));
   return false;

@@ -161,6 +161,7 @@ function rawEventMatches(event, query, typeFilter) {
   if (typeFilter === "output") return /output|result/i.test([event.kind, event.type, event.payloadType, event.title].filter(Boolean).join(" "));
   if (typeFilter === "reasoning") return /reasoning/i.test([event.kind, event.type, event.payloadType].filter(Boolean).join(" "));
   if (typeFilter === "compact") return isCompactEvent(event);
+  if (typeFilter === "skill") return /<skill[\s>]|SKILL\.md/i.test([event.preview, event.title].filter(Boolean).join(" "));
   if (typeFilter === "system") return event.kind === "system" || event.kind === "token_count" || event.kind === "session_meta" || isCompactEvent(event);
   if (typeFilter === "error") return /error|failed|失败|错误/i.test(JSON.stringify(event));
   return true;

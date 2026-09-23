@@ -338,6 +338,10 @@
   background: var(--blue);
 }
 
+.legend-dot.skill {
+  background: var(--purple);
+}
+
 .trace-tree {
   padding: 4px 0 8px;
 }
@@ -401,6 +405,11 @@
 }
 
 .trace-icon.metric {
+  background: var(--purple-soft);
+  color: var(--purple);
+}
+
+.trace-icon.skill {
   background: var(--purple-soft);
   color: var(--purple);
 }
@@ -474,6 +483,10 @@
 
 .trace-row:has(.trace-icon.llm) .trace-bar i {
   background: var(--blue);
+}
+
+.trace-row:has(.trace-icon.skill) .trace-bar i {
+  background: var(--purple);
 }
 
 .trace-icon.llm {

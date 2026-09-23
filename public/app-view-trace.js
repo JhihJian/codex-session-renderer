@@ -40,6 +40,7 @@ function renderTrace() {
           <span><i class="legend-dot agent"></i>子代理</span>
           <span><i class="legend-dot tool"></i>工具</span>
           <span><i class="legend-dot llm"></i>模型回复</span>
+          <span><i class="legend-dot skill"></i>技能</span>
         </div>
       </div>
       <div class="trace-tree">${renderTraceNode(root, { maxDuration, depth: 0 })}</div>
@@ -69,17 +70,22 @@ function filterTraceNode(node, query, typeFilter) {
 }
 
 function isDefaultTraceNode(node) {
-  return ["thread", "turn", "tool", "handoff", "subagent", "embedded-subagent", "embedded-subagent-task", "lazy-child", "response", "gap"].includes(node.type);
+  return ["thread", "turn", "tool", "handoff", "subagent", "embedded-subagent", "embedded-subagent-task", "lazy-child", "response", "gap", "skill"].includes(node.type);
 }
 
+const traceTypeMatchers = {
+  message: (node) => node.type === "message",
+  tool: (node) => ["tool", "handoff", "subagent", "embedded-subagent", "embedded-subagent-task"].includes(node.type),
+  output: (node) => Boolean(node.detail?.item?.output),
+  reasoning: (node) => node.type === "reasoning",
+  skill: (node) => node.type === "skill" || Boolean(node.detail?.item?.skillRead),
+  system: (node) => ["event", "metric", "turn", "thread", "response", "gap"].includes(node.type),
+  error: (node) => /error|failed|失败|错误/i.test(traceSearchText(node)),
+};
+
 function traceNodeMatchesType(node, typeFilter) {
-  if (typeFilter === "message") return node.type === "message";
-  if (typeFilter === "tool") return node.type === "tool" || node.type === "handoff" || node.type === "subagent" || node.type === "embedded-subagent" || node.type === "embedded-subagent-task";
-  if (typeFilter === "output") return Boolean(node.detail?.item?.output);
-  if (typeFilter === "reasoning") return node.type === "reasoning";
-  if (typeFilter === "system") return node.type === "event" || node.type === "metric" || node.type === "turn" || node.type === "thread" || node.type === "response" || node.type === "gap";
-  if (typeFilter === "error") return /error|failed|失败|错误/i.test(traceSearchText(node));
-  return true;
+  const matcher = traceTypeMatchers[typeFilter];
+  return matcher ? matcher(node) : true;
 }
 
 function traceSearchText(node) {
@@ -108,6 +114,10 @@ function traceSearchText(node) {
     detail.task?.agent,
     detail.task?.task,
     detail.task?.summary,
+    item.skillDeclaration?.name,
+    item.skillDeclaration?.sourceFile,
+    item.skillRead?.skillNameHint,
+    item.skillRead?.sourceFile,
   ];
   return parts.filter(Boolean).join(" ").toLowerCase();
 }
@@ -281,6 +291,10 @@ function formatTraceContextChange(value) {
 }
 
 function traceToolTitle(item, node) {
+  const skillRead = item?.skillRead || node?.detail?.item?.skillRead;
+  if (skillRead) {
+    return [skillRead.skillNameHint, skillRead.sourceFile || "SKILL.md"].filter(Boolean).join("/");
+  }
   const readable = readableToolItem(item);
   return readable.matched ? readable.title : item?.name || node.title || "工具调用";
 }
@@ -353,6 +367,10 @@ function renderToolDetails(node = null) {
   const thinkingItems = node.type === "response" ? traceResponseThinkingItems(node) : [];
   const responseSourceIndex = responseItem?.sourceIndex ?? detail.response?.messageRef?.sourceIndex ?? null;
   const isTool = item?.type === "tool-call" || node.type === "tool" || node.type === "handoff";
+  const skillDeclaration = item?.skillDeclaration || detail.item?.skillDeclaration || null;
+  const skillSourceIndex = skillDeclaration ? item?.sourceIndex ?? detail.item?.sourceIndex ?? null : null;
+  const skillInstruction = skillDeclaration ? skillTextField(skillDeclaration.instruction) : "";
+  const skillUserText = skillDeclaration ? skillTextField(skillDeclaration.userText) : "";
   const title = item?.name || node.title || node.label || "执行节点";
   const argumentsText = item?.arguments
     ? prettyMaybeJson(item.arguments)
@@ -375,12 +393,21 @@ function renderToolDetails(node = null) {
     ${responseItem?.text ? `<section class="tool-details-section trace-response-output"><h4>模型输出</h4><div>${renderMarkdownMessage(responseItem.text, "")}</div></section>` : ""}
     ${thinkingItems.map((item) => `<section class="tool-details-section trace-response-output"><h4>模型推理</h4><div>${responseThinkingText(item) ? renderMarkdownMessage(responseThinkingText(item), "") : "推理内容已加密存储，当前没有可展示的明文摘要。"}</div></section>`).join("")}
     ${responseSourceIndex != null ? `<div class="trace-response-actions"><button class="ghost-button small" type="button" data-response-raw-event-index="${escapeAttr(String(responseSourceIndex))}">查看原始事件</button></div>` : ""}
+    ${skillDeclaration ? `<section class="tool-details-section trace-response-output"><h4>技能指令</h4><div>${skillInstruction ? renderMarkdownMessage(skillInstruction, "") : "会话中没有持久化该技能的指令正文。"}</div></section>` : ""}
+    ${skillDeclaration && skillUserText ? `<section class="tool-details-section trace-response-output"><h4>触发消息</h4><div>${renderMarkdownMessage(skillUserText, "")}</div></section>` : ""}
+    ${skillSourceIndex != null ? `<div class="trace-response-actions"><button class="ghost-button small" type="button" data-response-raw-event-index="${escapeAttr(String(skillSourceIndex))}">查看原始事件</button></div>` : ""}
     ${argumentsText ? `<section class="tool-details-section"><h4>${isTool ? "调用参数" : "节点信息"}</h4><pre>${escapeHtml(argumentsText)}</pre></section>` : ""}
     ${outputText ? `<section class="tool-details-section"><h4>返回结果</h4><pre>${escapeHtml(outputText)}</pre></section>` : ""}
   `;
-  els.toolDetailsContent.querySelector("[data-response-raw-event-index]")?.addEventListener("click", () => {
-    void openRawEvent(Number(responseSourceIndex));
+  els.toolDetailsContent.querySelectorAll("[data-response-raw-event-index]").forEach((button) => {
+    button.addEventListener("click", () => {
+      void openRawEvent(Number(button.dataset.responseRawEventIndex));
+    });
   });
+}
+
+function skillTextField(value) {
+  return typeof value === "string" ? value : value?.text || "";
 }
 
 function renderTraceContextDetails(metrics) {

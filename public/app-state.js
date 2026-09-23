@@ -263,6 +263,7 @@ const standardItemTypeOptions = [
   ["output", "工具输出"],
   ["reasoning", "推理摘要"],
   ["compact", "上下文压缩"],
+  ["skill", "技能加载"],
   ["system", "系统事件"],
   ["error", "错误事件"],
 ];

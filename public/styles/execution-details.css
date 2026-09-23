@@ -53,6 +53,11 @@
   font-weight: 750;
 }
 
+.tool-details-icon.skill {
+  background: var(--purple-soft);
+  color: var(--purple);
+}
+
 .tool-details-status,
 .trace-status { font-weight: 700; }
 

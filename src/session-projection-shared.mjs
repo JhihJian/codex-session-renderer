@@ -357,6 +357,13 @@ function limitText(value) {
   return { text, originalLength: text.length, truncated: false };
 }
 
+function formatIsoForTrace(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().replace("T", " ").slice(5, 16);
+}
+
 
 function compactTraceInfo(info) {
   if (!info) return null;
@@ -449,6 +456,7 @@ export {
   contextUsageFromTokenInfo,
   durationMs,
   estimateToolCallTokensInInterval,
+  formatIsoForTrace,
   limitText,
   messageRefWithin,
   parseJsonObject,

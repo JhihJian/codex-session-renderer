@@ -35,12 +35,54 @@ await import("../public/app-view-trace.js");
 
 const api = globalThis.SessionWorkbench;
 
+function skillTraceFixtureNodes() {
+  return [
+    {
+      id: "item:0:1:skill-1",
+      type: "skill",
+      icon: "skill",
+      label: "技能加载",
+      title: "release-check",
+      subtitle: "SKILL.md · 09-16 02:00",
+      timestamp: "2026-07-08T10:00:00.500Z",
+      completedAt: null,
+      durationMs: null,
+      durationEstimated: true,
+      status: null,
+      children: [],
+      detail: {
+        kind: "item",
+        item: { type: "user-message", sourceIndex: 7, skillDeclaration: { name: "release-check", sourceFile: "SKILL.md", instruction: { text: "执行发布检查。" }, userText: { text: "检查当前分支。" } } },
+        note: "Pi 会话持久化的 <skill> 指令块证据：该技能指令已随用户消息注入上下文。",
+      },
+    },
+    {
+      id: "item:0:2:call-skill",
+      type: "tool",
+      icon: "tool",
+      label: "技能读取",
+      title: "release-check/SKILL.md",
+      status: "completed",
+      timestamp: "2026-07-08T10:00:01.000Z",
+      completedAt: "2026-07-08T10:00:02.000Z",
+      durationMs: 1_000,
+      children: [],
+      detail: {
+        kind: "item",
+        item: { type: "tool-call", name: "read", status: "completed", arguments: '{ "path": "/skills/release-check/SKILL.md" }', skillRead: { sourceFile: "SKILL.md", skillNameHint: "release-check" } },
+      },
+    },
+  ];
+}
+
 function traceFixture() {
   return {
     session: { title: "示例会话" },
     turns: [{
       items: [
         { type: "assistant-message", sourceIndex: 42, text: "这是完整的模型输出。\n\n包含第二段内容。", reasoning: { summary: "先确认关联的原始事件。", encrypted: true } },
+        { type: "user-message", sourceIndex: 7, text: "<skill name=\"release-check\">执行发布检查。</skill>", skillDeclaration: { name: "release-check", sourceFile: "SKILL.md", instruction: "执行发布检查。", userText: "检查当前分支。" } },
+        { type: "tool-call", name: "read", status: "completed", arguments: '{ "path": "/skills/release-check/SKILL.md" }', skillRead: { sourceFile: "SKILL.md", skillNameHint: "release-check" } },
       ],
     }],
     trace: {
@@ -65,6 +107,7 @@ function traceFixture() {
             durationMs: 30_000,
             durationEstimated: true,
             children: [
+              ...skillTraceFixtureNodes(),
               {
                 id: "item:0:0:call-1",
                 type: "tool",
@@ -161,6 +204,45 @@ test("轮次子项包含模型回复和其他时间且不展示状态", () => {
   assert.doesNotMatch(gapRow, /trace-status/);
 });
 
+test("执行树默认展示技能加载节点和技能读取工具", () => {
+  const { html, row } = renderFixture();
+  const skillRow = row("item:0:1:skill-1");
+  assert.match(skillRow, /技能加载/);
+  assert.match(skillRow, /release-check/);
+  assert.doesNotMatch(skillRow, /trace-duration/);
+  assert.doesNotMatch(skillRow, /用户消息/);
+  const skillReadRow = row("item:0:2:call-skill");
+  assert.match(skillReadRow, /技能读取/);
+  assert.match(skillReadRow, /release-check\/SKILL\.md/);
+  assert.match(skillReadRow, /trace-duration/);
+  assert.match(html, /legend-dot skill/);
+});
+
+test("技能加载详情面板展示指令、触发消息和原始事件入口", () => {
+  api.state.detail = traceFixture();
+  const skillNode = api.state.detail.trace.root.children[0].children.find((node) => node.type === "skill");
+  api.renderToolDetails(skillNode);
+  const detailsHtml = api.els.toolDetailsContent.innerHTML;
+  assert.match(detailsHtml, /release-check/);
+  assert.match(detailsHtml, /技能指令/);
+  assert.match(detailsHtml, /执行发布检查。/);
+  assert.match(detailsHtml, /触发消息/);
+  assert.match(detailsHtml, /检查当前分支。/);
+  assert.match(detailsHtml, /节点信息/);
+  assert.match(detailsHtml, /data-response-raw-event-index="7"/);
+});
+
+test("技能加载筛选只保留技能声明与技能读取节点", () => {
+  api.state.detail = traceFixture();
+  const root = api.filterTraceNode(api.state.detail.trace.root, "", "skill");
+  assert.ok(root);
+  const turn = root.children[0];
+  assert.deepEqual(turn.children.map((node) => node.type), ["skill", "tool"]);
+  assert.equal(api.traceNodeMatchesType({ type: "skill" }, "skill"), true);
+  assert.equal(api.traceNodeMatchesType({ type: "tool", detail: { item: { skillRead: {} } } }, "skill"), true);
+  assert.equal(api.traceNodeMatchesType({ type: "response" }, "skill"), false);
+});
+
 test("模型回复详情面板展示回复信息", () => {
   api.state.detail = traceFixture();
   const responseNode = api.state.detail.trace.root.children[0].children.find((node) => node.type === "response");
@@ -205,7 +287,7 @@ test("轮次详情面板不再展示生命周期状态", () => {
 
 test("工具详情面板继续展示状态", () => {
   api.state.detail = traceFixture();
-  const toolNode = api.state.detail.trace.root.children[0].children[0];
+  const toolNode = api.state.detail.trace.root.children[0].children.find((node) => node.id === "item:0:0:call-1");
   api.renderToolDetails(toolNode);
   assert.match(api.els.toolDetailsContent.innerHTML, /tool-details-status status-success/);
   assert.match(api.els.toolDetailsContent.innerHTML, /执行成功/);

@@ -48,6 +48,8 @@ function compactItemForClient(item, turnIndex, itemIndex, options = {}) {
   }
   if (item.compact) base.compact = item.compact;
   if (item.embeddedSubagents) base.embeddedSubagents = item.embeddedSubagents;
+  if (item.skillDeclaration) base.skillDeclaration = item.skillDeclaration;
+  if (item.skillRead) base.skillRead = item.skillRead;
   if (item.attachments?.length) base.attachments = item.attachments;
   const info = compactTraceInfo(item.info);
   if (info) base.info = info;
