@@ -1,8 +1,8 @@
 import { sanitizeErrorMessage } from "./data-sources.mjs";
-import { sendError, sendJson, serveStaticFile } from "./http-response.mjs";
+import { sendError, sendJson, sendText, serveStaticFile } from "./http-response.mjs";
 import { isAbortError } from "./session-detail-coordinator.mjs";
 
-const READ_ONLY_API_PATHS = ["/api/health", "/api/sources", "/api/open-session", "/api/open-session/events"];
+const READ_ONLY_API_PATHS = ["/api/health", "/api/sources", "/api/open-session", "/api/open-session/events", "/api/open-session/execution-export"];
 const READ_ONLY_API_PATTERNS = [
   /^\/api\/open-session\/events\/\d+$/,
   /^\/api\/sessions(?:\/.*)?$/,
@@ -14,12 +14,14 @@ const READ_ONLY_API_PATTERNS = [
 const API_HANDLERS = [
   handleHealthRequest,
   handleSourcesRequest,
+  handleTemporarySessionExecutionExportRequest,
   handleTemporarySessionEventRequest,
   handleTemporarySessionEventsRequest,
   handleTemporarySessionRequest,
   handleSessionListRequest,
   handleSourceSessionListRequest,
   handleSourceEventRequest,
+  handleSourceSessionExecutionExportRequest,
   handleSourceSessionRequest,
   handleSessionQueryRequest,
   handleSessionViewQueryRequest,
@@ -28,6 +30,7 @@ const API_HANDLERS = [
   handleSourceSessionViewQueryRequest,
   handleSourceSessionEventsQueryRequest,
   handleEventRequest,
+  handleSessionExecutionExportRequest,
   handleSessionRequest,
 ];
 
@@ -133,6 +136,20 @@ function temporarySessionPath(url) {
   return url.searchParams.get("path") || "";
 }
 
+function sendExecutionExportResponse(res, executionExport) {
+  if (!executionExport) return sendError(res, 404, "Session not found");
+  return sendText(res, 200, executionExport.text, {
+    "content-disposition": `attachment; filename="${executionExport.filename}"`,
+  });
+}
+
+async function handleTemporarySessionExecutionExportRequest({ pathname, res, service, signal, url }) {
+  if (pathname !== "/api/open-session/execution-export") return false;
+  const executionExport = await service.getTemporarySessionExecutionExport(temporarySessionPath(url), { signal });
+  sendExecutionExportResponse(res, executionExport);
+  return true;
+}
+
 async function handleTemporarySessionRequest({ pathname, res, service, signal, url }) {
   if (pathname !== "/api/open-session") return false;
   const detail = await service.openTemporarySession(temporarySessionPath(url), { signal });
@@ -208,6 +225,16 @@ async function handleSourceEventRequest({ pathname, res, service, signal }) {
   if (!context) return true;
   const event = await service.getSessionEvent(context, decodeURIComponent(match[2]), Number(match[3]), { signal });
   sendResourceResponse(res, "Event", event);
+  return true;
+}
+
+async function handleSourceSessionExecutionExportRequest({ pathname, res, service, signal }) {
+  const match = pathname.match(/^\/api\/sources\/([^/]+)\/sessions\/([^/]+)\/execution-export$/);
+  if (!match) return false;
+  const context = resolveSourceOrRespond(res, service.getSourceContext(decodeURIComponent(match[1])));
+  if (!context) return true;
+  const executionExport = await service.getSessionExecutionExport(context, decodeURIComponent(match[2]), { signal });
+  sendExecutionExportResponse(res, executionExport);
   return true;
 }
 
@@ -287,6 +314,16 @@ async function handleEventRequest({ pathname, res, service, signal, url }) {
   if (!context) return true;
   const event = await service.getSessionEvent(context, decodeURIComponent(match[1]), Number(match[2]), { signal });
   sendResourceResponse(res, "Event", event);
+  return true;
+}
+
+async function handleSessionExecutionExportRequest({ pathname, res, service, signal, url }) {
+  const match = pathname.match(/^\/api\/sessions\/([^/]+)\/execution-export$/);
+  if (!match) return false;
+  const context = resolveSourceOrRespond(res, resolveRequestSource(service, url));
+  if (!context) return true;
+  const executionExport = await service.getSessionExecutionExport(context, decodeURIComponent(match[1]), { signal });
+  sendExecutionExportResponse(res, executionExport);
   return true;
 }
 

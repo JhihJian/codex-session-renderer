@@ -44,6 +44,7 @@ const state = {
   selectedDetailsNodeId: null,
 
   selectedTraceNodeId: null,
+  executionExportLoading: false,
 
   selectedTerminalBlockId: null,
   expandedTraceNodeIds: new Set(),

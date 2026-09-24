@@ -218,6 +218,12 @@ test("执行树默认展示技能加载节点和技能读取工具", () => {
   assert.match(html, /legend-dot skill/);
 });
 
+test("执行视图提供文本导出操作", () => {
+  const { html } = renderFixture();
+  assert.match(html, /data-execution-export/);
+  assert.match(html, /导出文本/);
+});
+
 test("技能加载详情面板展示指令、触发消息和原始事件入口", () => {
   api.state.detail = traceFixture();
   const skillNode = api.state.detail.trace.root.children[0].children.find((node) => node.type === "skill");

@@ -313,6 +313,16 @@
   font-size: 11px;
 }
 
+.trace-actions {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.trace-export-button {
+  min-width: 86px;
+}
+
 .trace-legend span {
   display: inline-flex;
   align-items: center;

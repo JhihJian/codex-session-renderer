@@ -15,6 +15,7 @@
   const formatDate = (...args) => api.formatDate(...args);
   const renderMarkdownMessage = (...args) => api.renderMarkdownMessage(...args);
   const openRawEvent = (...args) => api.openRawEvent(...args);
+  const exportExecutionText = (...args) => api.exportExecutionText(...args);
 function renderTrace() {
   const detail = state.detail;
   if (!detail?.trace?.root) {
@@ -36,11 +37,14 @@ function renderTrace() {
           <p class="eyebrow">执行过程</p>
           <p class="trace-session-title" data-overflow-tooltip>${escapeHtml(detail.session.title || "未命名会话")}</p>
         </div>
-        <div class="trace-legend">
-          <span><i class="legend-dot agent"></i>子代理</span>
-          <span><i class="legend-dot tool"></i>工具</span>
-          <span><i class="legend-dot llm"></i>模型回复</span>
-          <span><i class="legend-dot skill"></i>技能</span>
+        <div class="trace-actions">
+          <div class="trace-legend">
+            <span><i class="legend-dot agent"></i>子代理</span>
+            <span><i class="legend-dot tool"></i>工具</span>
+            <span><i class="legend-dot llm"></i>模型回复</span>
+            <span><i class="legend-dot skill"></i>技能</span>
+          </div>
+          <button class="ghost-button small trace-export-button" type="button" data-execution-export ${state.executionExportLoading ? "disabled" : ""}>${state.executionExportLoading ? "导出中" : "导出文本"}</button>
         </div>
       </div>
       <div class="trace-tree">${renderTraceNode(root, { maxDuration, depth: 0 })}</div>
@@ -54,6 +58,9 @@ function renderTrace() {
       event.stopPropagation();
       toggleTraceNode(button.dataset.traceToggleId);
     });
+  });
+  els.traceContent.querySelectorAll("[data-execution-export]").forEach((button) => {
+    button.addEventListener("click", () => { void exportExecutionText(); });
   });
 }
 

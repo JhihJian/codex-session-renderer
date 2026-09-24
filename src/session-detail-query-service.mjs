@@ -4,11 +4,14 @@ import { withFileStat } from "./session-models.mjs";
 import { parseSessionViewQuery, projectSessionForApi } from "./session-query.mjs";
 import { buildSessionTiming } from "./session-timing.mjs";
 import { isAbortError } from "./session-detail-coordinator.mjs";
+import { buildExecutionExport } from "./session-execution-export-projection.mjs";
 
 export function createSessionDetailQueryService(dependencies) {
   return {
     getSessionDetail: (context, id, options) => getSessionDetail(dependencies, context, id, options),
     getSessionDetailForSession: (context, session, options) => getSessionDetailForSession(dependencies, context, session, options),
+    getSessionExecutionExport: (context, id, options) => getSessionExecutionExport(dependencies, context, id, options),
+    getSessionExecutionExportForSession: (context, session, options) => getSessionExecutionExportForSession(dependencies, context, session, options),
     querySessionView: (context, id, params, projectionOptions, options) => querySessionView(dependencies, context, id, params, { ...options, projectionOptions }),
   };
 }
@@ -49,6 +52,24 @@ async function getSessionDetailForSession(dependencies, context, session, option
     derive: (rawEvents, stat, signal) => deriveSessionDetail(dependencies, { context, id, session, rawEvents, stat, maxDepth, modelContextWindow, getThreadHierarchy, signal }),
   });
   return { ...result.value, related };
+}
+
+async function getSessionExecutionExport(dependencies, context, id, options = {}) {
+  const detail = await getSessionDetail(dependencies, context, id, options);
+  return detail ? executionExport(detail) : null;
+}
+
+async function getSessionExecutionExportForSession(dependencies, context, session, options = {}) {
+  const detail = await getSessionDetailForSession(dependencies, context, session, options);
+  return detail ? executionExport(detail) : null;
+}
+
+function executionExport(detail) {
+  return { filename: `execution-${safeFilenamePart(detail.session?.id || "session")}.md`, text: buildExecutionExport(detail) };
+}
+
+function safeFilenamePart(value) {
+  return String(value).replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "session";
 }
 
 async function deriveSessionDetail(dependencies, { context, id, session, rawEvents, stat, maxDepth, modelContextWindow, getThreadHierarchy, signal }) {

@@ -82,6 +82,16 @@ export function createSessionQueryService() {
     return eventQueries.getSessionEventForSession(target.context, target.session, index, options);
   }
 
+  async function getTemporarySessionExecutionExport(filePath, options = {}) {
+    const target = await temporarySession(filePath, options);
+    if (!target?.session) return null;
+    return detailQueries.getSessionExecutionExportForSession(target.context, target.session, {
+      signal: options.signal,
+      related: null,
+      getThreadHierarchy: async () => ({ parent: null, children: [], siblings: [] }),
+    });
+  }
+
   return {
     getDefaultSource: sourceContexts.getDefaultSource,
     getSourceContext: sourceContexts.getSourceContext,
@@ -89,11 +99,13 @@ export function createSessionQueryService() {
     normalizeSessionCatalogScope: catalogQueries.normalizeSessionCatalogScope,
     listSessionsForDisplay: catalogQueries.listSessionsForDisplay,
     getSessionDetail: detailQueries.getSessionDetail,
+    getSessionExecutionExport: detailQueries.getSessionExecutionExport,
     querySessions: catalogQueries.querySessions,
     querySessionView: detailQueries.querySessionView,
     querySessionEvents: eventQueries.querySessionEvents,
     getSessionEvent: eventQueries.getSessionEvent,
     getTemporarySessionEvent,
+    getTemporarySessionExecutionExport,
     openTemporarySession,
     queryTemporarySessionEvents,
   };

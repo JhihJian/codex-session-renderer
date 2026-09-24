@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 import { selectCodexSource } from "./source-helpers.mjs";
+import { fullToolOutput } from "./fixture-session.mjs";
 
 test("正文展示 Pi 压缩和 Skill 上下文事件，并可跳转原始记录", async ({ page }) => {
   await page.goto("/");
@@ -148,6 +150,22 @@ test("正文、执行和诊断作为完整主工作区互斥切换", async ({ pa
   await expect(page.locator("#diagnosticContent")).toBeVisible();
   await page.locator("#compactViewButton").click();
   await expect(page.locator("#compactContent")).toBeVisible();
+});
+
+test("执行文本导出保留过程并省略工具输出正文", async ({ page }) => {
+  await page.goto("/");
+  await selectCodexSource(page);
+  await page.locator("#traceViewButton").click();
+  const downloadPromise = page.waitForEvent("download");
+  await page.locator("[data-execution-export]").click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/^execution-.*\.md$/);
+  const output = await readFile(await download.path(), "utf8");
+  await expect(page.locator("#workbenchOperationStatus")).toContainText("执行文本已导出");
+  expect(output).toContain("执行诊断记录");
+  expect(output).toContain("npm test");
+  expect(output).toContain(`已持久化 ${Buffer.byteLength(fullToolOutput, "utf8")} UTF-8 字节`);
+  expect(output).not.toContain("FULL_TOOL_OUTPUT_END");
 });
 
 test("摘要规则只替换执行树的工具节点名称", async ({ page }) => {
