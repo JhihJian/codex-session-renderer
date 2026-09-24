@@ -141,6 +141,8 @@ test("正文、执行和诊断作为完整主工作区互斥切换", async ({ pa
   const traceWidth = await page.locator(".trace-shell").evaluate((element) => ({ client: element.clientWidth, scroll: element.scrollWidth }));
   expect(traceWidth.scroll).toBeLessThanOrEqual(traceWidth.client);
   await expect(page.locator("#toolDetailsContent .tool-details-status")).toHaveText("执行成功");
+  await page.locator("#toolDetailsContent [data-tool-raw-event-index]").click();
+  await expect(page.locator("#rawContent .raw-preview")).toContainText("FULL_TOOL_OUTPUT_END");
   await page.locator("#diagnosticViewButton").click();
   await expect(page.locator("#executionWorkspace")).toBeHidden();
   await expect(page.locator("#diagnosticContent")).toBeVisible();

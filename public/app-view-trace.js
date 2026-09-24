@@ -378,6 +378,8 @@ function renderToolDetails(node = null) {
       ? prettyMaybeJson(detail.response)
       : detail.note || task?.task || "";
   const outputText = item?.output == null || item.output === "" ? "" : String(item.output);
+  const outputTruncation = sourceOutputTruncation(item?.name, outputText);
+  const toolRawEventIndex = isTool ? item?.outputSourceIndex ?? item?.sourceIndex ?? null : null;
   // 轮次状态多为回放投影产物（如“执行中”），详情面板同样不展示，避免误导。
   const statusValue = node.type === "turn" ? null : node.status || item?.status || task?.status;
   const status = traceStatusLabel(statusValue);
@@ -390,6 +392,7 @@ function renderToolDetails(node = null) {
     </div>
     ${metadata ? `<div class="tool-details-meta">${escapeHtml(metadata)}</div>` : ""}
     ${renderTraceContextDetails(contextMetrics)}
+    ${outputTruncation ? `<div class="truncation-notice">Pi 的 ${escapeHtml(outputTruncation.toolName)} 返回结果已在执行时按 ${escapeHtml(outputTruncation.limit)} 截断。完整输出只曾保存在临时文件中，不属于会话记录，之后可能已被清理。</div>` : ""}
     ${responseItem?.text ? `<section class="tool-details-section trace-response-output"><h4>模型输出</h4><div>${renderMarkdownMessage(responseItem.text, "")}</div></section>` : ""}
     ${thinkingItems.map((item) => `<section class="tool-details-section trace-response-output"><h4>模型推理</h4><div>${responseThinkingText(item) ? renderMarkdownMessage(responseThinkingText(item), "") : "推理内容已加密存储，当前没有可展示的明文摘要。"}</div></section>`).join("")}
     ${responseSourceIndex != null ? `<div class="trace-response-actions"><button class="ghost-button small" type="button" data-response-raw-event-index="${escapeAttr(String(responseSourceIndex))}">查看原始事件</button></div>` : ""}
@@ -398,12 +401,23 @@ function renderToolDetails(node = null) {
     ${skillSourceIndex != null ? `<div class="trace-response-actions"><button class="ghost-button small" type="button" data-response-raw-event-index="${escapeAttr(String(skillSourceIndex))}">查看原始事件</button></div>` : ""}
     ${argumentsText ? `<section class="tool-details-section"><h4>${isTool ? "调用参数" : "节点信息"}</h4><pre>${escapeHtml(argumentsText)}</pre></section>` : ""}
     ${outputText ? `<section class="tool-details-section"><h4>返回结果</h4><pre>${escapeHtml(outputText)}</pre></section>` : ""}
+    ${toolRawEventIndex != null ? `<div class="trace-response-actions"><button class="ghost-button small" type="button" data-tool-raw-event-index="${escapeAttr(String(toolRawEventIndex))}">查看原始事件</button></div>` : ""}
   `;
   els.toolDetailsContent.querySelectorAll("[data-response-raw-event-index]").forEach((button) => {
     button.addEventListener("click", () => {
       void openRawEvent(Number(button.dataset.responseRawEventIndex));
     });
   });
+  els.toolDetailsContent.querySelectorAll("[data-tool-raw-event-index]").forEach((button) => {
+    button.addEventListener("click", () => {
+      void openRawEvent(Number(button.dataset.toolRawEventIndex));
+    });
+  });
+}
+
+function sourceOutputTruncation(toolName, output) {
+  const match = String(output || "").match(/\[Showing lines \d+-\d+ of \d+ \(([^)]+)\)\. Full output: [^\]\n]+\]/);
+  return match ? { toolName: toolName || "bash", limit: match[1] } : null;
 }
 
 function skillTextField(value) {
@@ -422,5 +436,5 @@ function renderTraceContextDetails(metrics) {
   return `<section class="trace-context-details"><h4>${heading}</h4><div>${values.map(([label, value]) => `<span><em>${escapeHtml(label)}</em><strong>${escapeHtml(value)}</strong></span>`).join("")}</div></section>`;
 }
 
-  Object.assign(api, { renderTrace, filterTraceNode, isDefaultTraceNode, traceNodeMatchesType, traceSearchText, renderTraceNode, traceContextMetrics, renderTraceResultMetrics, traceNodeModelUsage, renderTurnTokenBars, renderTraceUsageMetrics, renderTraceContextSummary, traceContextUsageTitle, traceContextSourceLabel, formatTraceTokenCount, formatTraceCost, formatTraceContextPercent, formatTraceContextChange, traceToolTitle, fullTraceItem, traceResponseItem, traceResponseThinkingItems, responseThinkingText, traceArgumentPreview, traceStatusKind, traceStatusLabel, renderToolDetails, renderTraceContextDetails });
+  Object.assign(api, { renderTrace, filterTraceNode, isDefaultTraceNode, traceNodeMatchesType, traceSearchText, renderTraceNode, traceContextMetrics, renderTraceResultMetrics, traceNodeModelUsage, renderTurnTokenBars, renderTraceUsageMetrics, renderTraceContextSummary, traceContextUsageTitle, traceContextSourceLabel, formatTraceTokenCount, formatTraceCost, formatTraceContextPercent, formatTraceContextChange, traceToolTitle, fullTraceItem, traceResponseItem, traceResponseThinkingItems, responseThinkingText, traceArgumentPreview, traceStatusKind, traceStatusLabel, renderToolDetails, renderTraceContextDetails, sourceOutputTruncation });
 }

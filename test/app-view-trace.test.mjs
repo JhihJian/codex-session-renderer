@@ -294,4 +294,25 @@ test("工具详情面板继续展示状态", () => {
   assert.match(api.els.toolDetailsContent.innerHTML, /返回指标/);
   assert.match(api.els.toolDetailsContent.innerHTML, /估算 100 tok/);
   assert.doesNotMatch(api.els.toolDetailsContent.innerHTML, /上下文/);
+  assert.match(api.els.toolDetailsContent.innerHTML, /data-tool-raw-event-index="42"/);
+});
+
+test("工具详情明确标识 Pi 在运行时截断的 bash 返回结果", () => {
+  const output = "最后一段内容\n\n[Showing lines 27-30 of 30 (50.0KB limit). Full output: /tmp/pi-bash-example.log]";
+  assert.deepEqual(api.sourceOutputTruncation("bash", output), { toolName: "bash", limit: "50.0KB limit" });
+  assert.equal(api.sourceOutputTruncation("bash", "完整输出"), null);
+
+  api.renderToolDetails({
+    id: "tool:truncated-bash",
+    type: "tool",
+    label: "工具调用",
+    title: "bash",
+    status: "completed",
+    detail: {
+      item: { type: "tool-call", name: "bash", status: "completed", sourceIndex: 12, outputSourceIndex: 13, output },
+    },
+  });
+  assert.match(api.els.toolDetailsContent.innerHTML, /返回结果已在执行时按 50\.0KB limit 截断/);
+  assert.match(api.els.toolDetailsContent.innerHTML, /不属于会话记录/);
+  assert.match(api.els.toolDetailsContent.innerHTML, /data-tool-raw-event-index="13"/);
 });

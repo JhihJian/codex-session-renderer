@@ -8,7 +8,7 @@ Codex 会话工作台把 Codex 与 Pi Agent 写入 JSONL 的会话记录投影�
 
 ## 系统边界
 
-系统读取本机 Codex Home 与可选 Pi Agent 会话根。原始会话文件保持不变。主 HTTP 服务默认只监听 loopback；非 loopback 监听要求令牌认证。
+系统读取本机 Codex Home 与可选 Pi Agent 会话根。原始会话文件保持不变，工具返回结果以其中已持久化的内容为界；输出内指向的临时文件不属于会话来源，服务不会读取它来补全内容。主 HTTP 服务默认只监听 loopback；非 loopback 监听要求令牌认证。
 
 ## 主要责任单元
 
