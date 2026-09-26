@@ -71,6 +71,12 @@ const state = {
   settingsFeedbackMessage: "",
   settingsFeedbackStatus: "",
   settingsDialogOpener: null,
+  dataSourceConfig: null,
+  dataSourceDraft: null,
+  dataSourceLoadError: "",
+  dataSourceSaving: false,
+  dataSourceFieldErrors: [],
+  dataSourceFeedback: "",
 
 
   alternateLocalSource: null,
@@ -232,6 +238,7 @@ const els = {
   settingsTabs: document.getElementById("settingsTabs"),
   summaryRuleList: document.getElementById("summaryRuleList"),
   defaultSummaryRuleList: document.getElementById("defaultSummaryRuleList"),
+  dataSourceConfigBody: document.getElementById("dataSourceConfigBody"),
 
   addSummaryRuleButton: document.getElementById("addSummaryRuleButton"),
   resetSummaryRulesButton: document.getElementById("resetSummaryRulesButton"),
@@ -276,6 +283,7 @@ const rawItemTypeOptions = standardItemTypeOptions.map(([value, label]) => [valu
 const settingsViewOptions = [
   { id: "summary", label: "摘要规则" },
   { id: "structured", label: "结构化展示" },
+  { id: "dataSource", label: "数据源" },
 ];
 const settingsViewIds = new Set(settingsViewOptions.map((view) => view.id));
 

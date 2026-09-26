@@ -12,12 +12,16 @@ function createDataSourceRegistry(options = {}) {
   const env = options.env || process.env;
   const homeDir = options.homeDir || os.homedir();
   const localCodexHome = path.resolve(env.CODEX_HOME || path.join(homeDir, ".codex"));
-  const piAgentDefinition = parsePiAgentDefinition(env, homeDir);
+  const envDefinition = parsePiAgentDefinition(env, homeDir);
+  const override = options.piAgentRootOverride || null;
+  const configError = options.configError || null;
+  const piAgentDefinition = override ? overridePiAgentDefinition(override) : envDefinition;
   const sources = new Map();
   const localSource = createLocalDataSource({ codexHome: localCodexHome });
   sources.set(localSource.id, localSource);
   if (piAgentDefinition) {
     const piAgentSource = createPiAgentDataSource(piAgentDefinition);
+    if (configError) piAgentSource.status = { error: { code: "config_parse_error", message: configError } };
     sources.set(piAgentSource.id, piAgentSource);
   }
   const defaultSourceId = sources.has(piAgentSourceId) ? piAgentSourceId : "local";
@@ -79,6 +83,24 @@ function firstEnvValue(env, keys) {
   return "";
 }
 
+function overridePiAgentDefinition({ type, path: rootPath }) {
+  const sessionsRoot = path.resolve(rootPath);
+  return {
+    agentHome: sessionsRoot,
+    sessionsRoot,
+    ...(type === "sessions" ? {} : { [`${type}Root`]: sessionsRoot }),
+    autoDetected: false,
+  };
+}
+
+function envPiAgentRootDescription(env = process.env, homeDir = os.homedir()) {
+  const definition = parsePiAgentDefinition(env, homeDir);
+  if (!definition) return null;
+  if (definition.evaluationsRoot) return { type: "evaluations", path: definition.evaluationsRoot };
+  if (definition.tasksRoot) return { type: "tasks", path: definition.tasksRoot };
+  return { type: "sessions", path: definition.sessionsRoot };
+}
+
 function createPiAgentDataSource({ agentHome, sessionsRoot, tasksRoot, evaluationsRoot, autoDetected }) {
   const sessionsAvailable = existsSync(sessionsRoot);
   return {
@@ -122,4 +144,4 @@ function sanitizeErrorMessage(message) {
     .replaceAll(authPlaceholder, "authorization=Bearer [redacted]");
 }
 
-export { createDataSourceRegistry, parsePiAgentDefinition, piAgentSourceId, publicDataSource, sanitizeErrorMessage };
+export { createDataSourceRegistry, envPiAgentRootDescription, parsePiAgentDefinition, piAgentSourceId, publicDataSource, sanitizeErrorMessage };

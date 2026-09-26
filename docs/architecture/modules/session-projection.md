@@ -10,7 +10,7 @@ Codex 与 Pi Agent 的文件布局、索引能力与事件形态不同。会话�
 
 ## 核心模型
 
-- 数据源上下文拥有来源身份、可读根、SQLite 线程存储、短期目录缓存和详情协调器。
+- 数据源上下文拥有来源身份、可读根、SQLite 线程存储、短期目录缓存和详情协调器。固定 Pi 根可被服务端配置文件覆盖：覆盖值整体替换环境变量 Pi 根（含根类型），保存时先构建新注册表再原子落盘并整体替换，重建失败保留旧注册表；配置文件缺失或损坏不阻断启动，回退环境变量来源并在 Pi 来源状态展示解析错误。
 - 目录发现以索引元数据和 JSONL 文件相互补全。Pi Agent 直接使用文件发现；同 ID 的活动和存档文件按活动优先及更新时间去重。单会话定位不继承列表窗口上限：`taskId:sessionId` 形式的 ID 直接在对应任务的 pi-sessions 目录内查找，普通 ID 通过无上限目录扫描兜底，保证列表窗口之外或任务目录持续变动时详情仍可解析。Pi 会话首部的 `parentSession` 被解析为 `parentSessionId` 并暴露到列表与详情投影，供前端展示分叉链；父会话不存在时链在孤儿节点断开，不虚构节点。详情的 `related` 字段附带父、子和祖先链摘要，链遍历有环检测和深度上限。
 - 规范化层把异构原始事件转换为稳定内部模型；事件层由此构建轮次、工具调用、执行树、子代理关系、正文上下文事件、轮末上下文和生成 Token 摘要。事件兼容门面保持既有导出，其下按轮次、紧凑阅读、执行追踪、追踪节点和共享投影工具单向拆分；时间层计算可确认的等待输入、每轮与全会话的实际运行区间及并行构成，并只按可关联 LLM 请求区间计算并发峰值和重叠时长，按可关联 token 用量记录估算模型生成速度（会话与轮次）。步骤明细和执行树节点保留 LLM 与工具区间的返回 token；LLM 节点保留上下文用量、关联助手消息和持久化推理摘要的轻量引用，浏览器用已加载轮次中的原始正文和推理摘要展示模型输出而不在执行追踪响应重复复制大文本，并可跳转该消息的 Raw 事件。加密推理不解密，只标识为不可展示的明文。Pi 会话缺少原始窗口快照时，从同一 Pi 数据源匹配的模型窗口与 `inputTokens` 形成可用的上下文记录。工具节点不展示按返回内容推导的上下文百分比或变化，只保留返回 token。
 - 执行文本投影从完整详情构建独立白名单 Markdown，供 agent 排查耗时和过程合理性。它只临时读取工具输出以计算 UTF-8 字节数和识别生产者截断，文本中不包含工具输出正文、预览、Raw 索引或输出中引用的临时路径。
@@ -25,7 +25,7 @@ Codex 与 Pi Agent 的文件布局、索引能力与事件形态不同。会话�
 
 ## 必须保持的规则
 
-- 原始 Codex 与 Pi Agent 会话只读。浏览、搜索、Raw均从读取结果派生。工具返回内容即使带有生产者截断标记，也不得通过结果文本中引用的临时路径补全或替换；详情只显示该限制并允许跳转关联的 Raw 事件。
+- 原始 Codex 与 Pi Agent 会话只读。浏览、搜索、Raw均从读取结果派生。工具返回内容即使带有生产者截断标记，也不得通过结果文本中引用的临时路径补全或替换；详情只显示该限制并允许跳转关联的 Raw 事件。服务唯一可写的会话相关文件是自身的运行时配置（Pi 读取根覆盖），不得把会话内容、索引或派生数据写入磁盘。
 - 执行文本只能使用白名单字段。工具输出可用于计算已持久化 UTF-8 字节数和来源截断状态，但其正文、预览、Raw 索引、输出 token 估算及输出中引用的路径不得进入导出文件。
 - 所有公开投影都携带来源身份；不同来源中的同名会话不得共用缓存或相互覆盖。
 
@@ -45,5 +45,5 @@ Codex 与 Pi Agent 的文件布局、索引能力与事件形态不同。会话�
 - `src/session-catalog.mjs`、`src/sqlite-threads.mjs` 和 `src/jsonl-reader.mjs` 负责候选发现、索引读取和 JSONL 读取。
 - `src/session-normalizer.mjs`、`src/session-events.mjs`、`src/session-turn-projection.mjs`、`src/session-compact-reading-projection.mjs`、`src/session-execution-trace-projection.mjs`、`src/session-trace-node-projection.mjs`、`src/session-trace-skill-projection.mjs`、`src/session-projection-shared.mjs`、`src/embedded-subagents.mjs` 与 `src/session-timing.mjs` 负责稳定事件及其阅读投影，其中 `session-trace-skill-projection.mjs` 单独维护执行树技能节点的构造与压缩投影。
 - `src/session-detail-coordinator.mjs` 负责详情共享读取、文件签名校验、取消和 LRU 缓存。
-- `src/session-source-context-service.mjs` 负责临时文件或目录路径校验、JSONL 发现和一次性来源上下文；`src/session-router.mjs` 与 `src/session-query-service.mjs` 提供临时列表、详情和 Raw 查询入口。
+- `src/session-source-context-service.mjs` 负责临时文件或目录路径校验、JSONL 发现和一次性来源上下文，并维护固定数据源注册表的生命周期（含界面配置触发的热重建）；`src/data-source-config.mjs` 负责运行时配置文件的读取、校验与原子写入，`src/request-body.mjs` 负责配置写接口的 JSON 请求体解析（Content-Type、体积上限与 JSON 校验）；`src/session-router.mjs` 与 `src/session-query-service.mjs` 提供临时列表、详情、Raw 查询以及 `GET/PUT /api/data-source-config` 入口。
 - `src/session-status.mjs` 负责会话状态的尾部推导与陈旧降级（`running` 超过 `CODEX_SESSION_STALE_RUNNING_MS` 未写入降级为 `stopped`）；`src/async-concurrency.mjs` 提供有界并发映射。

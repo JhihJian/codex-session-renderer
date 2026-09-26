@@ -1,5 +1,6 @@
 import { sanitizeErrorMessage } from "./data-sources.mjs";
 import { sendError, sendJson, sendText, serveStaticFile } from "./http-response.mjs";
+import { readJsonRequestBody } from "./request-body.mjs";
 import { isAbortError } from "./session-detail-coordinator.mjs";
 
 const READ_ONLY_API_PATHS = ["/api/health", "/api/sources", "/api/open-session", "/api/open-session/events", "/api/open-session/execution-export"];
@@ -14,6 +15,7 @@ const READ_ONLY_API_PATTERNS = [
 const API_HANDLERS = [
   handleHealthRequest,
   handleSourcesRequest,
+  handleDataSourceConfigRequest,
   handleTemporarySessionExecutionExportRequest,
   handleTemporarySessionEventRequest,
   handleTemporarySessionEventsRequest,
@@ -197,6 +199,25 @@ function handleHealthRequest({ pathname, res, service }) {
 function handleSourcesRequest({ pathname, res, service }) {
   if (pathname !== "/api/sources") return false;
   sendJson(res, 200, { sources: service.listSources() });
+  return true;
+}
+
+async function handleDataSourceConfigRequest({ pathname, req, res, service }) {
+  if (pathname !== "/api/data-source-config") return false;
+  if (req.method === "GET") {
+    sendJson(res, 200, await service.describeDataSourceConfig());
+    return true;
+  }
+  if (req.method !== "PUT") {
+    sendError(res, 405, "Method not allowed", null, { allow: "GET, PUT" });
+    return true;
+  }
+  const body = await readJsonRequestBody(req);
+  if (body.error) {
+    sendError(res, body.error.status, body.error.message, null, body.error.status === 415 ? { accept: "application/json" } : {});
+    return true;
+  }
+  sendJson(res, 200, await service.updateDataSourceConfig(body.value));
   return true;
 }
 

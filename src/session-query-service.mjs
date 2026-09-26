@@ -96,6 +96,8 @@ export function createSessionQueryService() {
     getDefaultSource: sourceContexts.getDefaultSource,
     getSourceContext: sourceContexts.getSourceContext,
     listSources: sourceContexts.listSources,
+    describeDataSourceConfig: sourceContexts.describeDataSourceConfig,
+    updateDataSourceConfig: sourceContexts.updateDataSourceConfig,
     normalizeSessionCatalogScope: catalogQueries.normalizeSessionCatalogScope,
     listSessionsForDisplay: catalogQueries.listSessionsForDisplay,
     getSessionDetail: detailQueries.getSessionDetail,

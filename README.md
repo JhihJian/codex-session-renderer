@@ -30,6 +30,8 @@ Codex 会话工作台是只读的会话浏览器。它把 Codex 与 Pi Agent 的
 
 Pi Agent 会话目录可用时，工作台默认展示 Pi 数据源；未发现 Pi Agent 会话目录时，自动回退到本机 Codex 数据源。
 
+设置 `CODEX_SESSION_RENDERER_CONFIG_PATH`（绝对路径）后，可以在设置对话框的「数据源」标签页查看与修改 Pi 会话读取根：根类型（sessions、tasks、evaluations）加绝对路径，保存后原子写入配置文件并立即热重建数据源，重启后保持。有效配置整体覆盖环境变量中的 Pi 根，清除覆盖即回到环境变量默认；配置文件损坏时不阻断启动，回退环境变量来源并把解析错误展示在 Pi 来源状态中。写接口为 `PUT /api/data-source-config`，仅接受 `application/json`。未设置该环境变量时功能整体禁用，行为与现状一致。
+
 原始会话文件不会被修改，浏览器展示均基于本地文件。
 
 ## 完整详情与诊断预算

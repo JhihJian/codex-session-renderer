@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { createDataSourceConfigStore } from "./data-source-config.mjs";
 import { createDataSourceRegistry } from "./data-sources.mjs";
 import {
   createAbortError,
@@ -98,13 +99,6 @@ function createTemporarySessionContext(filePath, { maxListSessions, sessionReadG
   return context;
 }
 
-export function createSessionSourceContextService({ maxListSessions }) {
-  const sessionReadGate = createConcurrencyGate(readPositiveEnv("CODEX_SESSION_DETAIL_MAX_CONCURRENT_READS", 4, 32));
-  const dataSources = createDataSourceRegistry();
-  const sourceContexts = new Map();
-  const piAgentContext = dataSources.getSource("pi-agent");
-  if (piAgentContext) getSourceContext(piAgentContext.id);
-
   async function regularFileStat(filePath) {
     const stat = await fs.stat(filePath);
     return stat.isFile() ? stat : null;
@@ -152,6 +146,48 @@ export function createSessionSourceContextService({ maxListSessions }) {
     return Boolean(stat);
   }
 
+export function createSessionSourceContextService({ maxListSessions, env, homeDir, configStore = createDataSourceConfigStore() }) {
+  const sessionReadGate = createConcurrencyGate(readPositiveEnv("CODEX_SESSION_DETAIL_MAX_CONCURRENT_READS", 4, 32));
+  function buildRegistry({ override = null, configError = null } = {}) {
+    return createDataSourceRegistry({ env, homeDir, piAgentRootOverride: override, configError });
+  }
+  const startupConfig = configStore.readSync();
+  let dataSources = buildRegistry({ override: startupConfig.override, configError: startupConfig.error });
+  const sourceContexts = new Map();
+  warmPiAgentContext();
+
+  function warmPiAgentContext() {
+    const piAgentContext = dataSources.getSource("pi-agent");
+    if (piAgentContext) getSourceContext(piAgentContext.id);
+  }
+
+  async function describeDataSourceConfig() {
+    return configStore.describe();
+  }
+
+  async function updateDataSourceConfig(requestBody) {
+    if (!configStore.enabled) {
+      const error = new Error("数据源界面配置未启用：未设置 CODEX_SESSION_RENDERER_CONFIG_PATH。");
+      error.status = 404;
+      error.code = "data_source_config_disabled";
+      throw error;
+    }
+    const hasPiAgentRoot = requestBody !== null && typeof requestBody === "object" && !Array.isArray(requestBody) && Object.hasOwn(requestBody, "piAgentRoot");
+    if (!hasPiAgentRoot) {
+      const error = new Error("请求体必须是包含 piAgentRoot 字段的 JSON 对象。");
+      error.status = 400;
+      error.code = "invalid_data_source_config";
+      throw error;
+    }
+    const override = await configStore.validateOverrideForWrite(requestBody.piAgentRoot);
+    const nextRegistry = buildRegistry({ override });
+    await configStore.write(override);
+    dataSources = nextRegistry;
+    sourceContexts.clear();
+    warmPiAgentContext();
+    return { ...(await configStore.describe()), sources: dataSources.listSources() };
+  }
+
   function getSourceContext(sourceId = "local") {
     const source = dataSources.getSource(sourceId || "local");
     if (!source) return null;
@@ -192,6 +228,8 @@ export function createSessionSourceContextService({ maxListSessions }) {
     getSourceContext,
     getTemporarySessionContext,
     listSources: () => dataSources.listSources(),
+    describeDataSourceConfig,
+    updateDataSourceConfig,
     listTemporarySessionFiles,
     resolveTemporarySessionPath,
     sessionFileExists,

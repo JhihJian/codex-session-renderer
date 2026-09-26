@@ -110,6 +110,12 @@ function showToast(message) {
   showToast.timer = setTimeout(() => els.toast.classList.remove("show"), 2200);
 }
 
+function collapseTopbarMenus() {
+  document.querySelectorAll("details.topbar-more[open]").forEach((details) => {
+    details.open = false;
+  });
+}
+
 function emptyState(title, subtitle, action = "") {
   return `<div class="empty-state"><div><strong>${escapeHtml(title)}</strong><br /><span>${escapeHtml(subtitle)}</span>${action}</div></div>`;
 }
@@ -190,5 +196,5 @@ function setMarkdownCache(key, html) {
 
 window.SessionWorkbench.renderMarkdownFence = renderMarkdownFence;
 
-  Object.assign(api, { handleMarkdownCodeCopy, copyWithToast, copyWithToastWhileCurrent, copyText, clipboardWriteTextWithTimeout, errorTextFromError, showToast, emptyState, renderMarkdownFence, markdownFenceLanguage, renderMarkdownMessage, renderMarkdownTitle, renderDetailValue, renderSubagentMiniTitle, markdownToHtml, markdownInlineToHtml, setMarkdownCache });
+  Object.assign(api, { handleMarkdownCodeCopy, copyWithToast, copyWithToastWhileCurrent, copyText, clipboardWriteTextWithTimeout, errorTextFromError, showToast, collapseTopbarMenus, emptyState, renderMarkdownFence, markdownFenceLanguage, renderMarkdownMessage, renderMarkdownTitle, renderDetailValue, renderSubagentMiniTitle, markdownToHtml, markdownInlineToHtml, setMarkdownCache });
 }

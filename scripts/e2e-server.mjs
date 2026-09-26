@@ -7,6 +7,8 @@ import { piGoalArchivePrefix, piGoalPrompt, piGoalState, piGoalStateEvent, piGoa
 import { knownCodexGoalControlText } from "../src/pi-goal-projection.mjs";
 
 const tempRoot = await mkdtemp(path.join(os.tmpdir(), "csr-e2e-"));
+const stateDir = path.join(tempRoot, "state");
+await mkdir(stateDir, { recursive: true });
 const codexHome = path.join(tempRoot, ".codex");
 const sessionDir = path.join(codexHome, "sessions", "isolated");
 const sessionPath = path.join(sessionDir, `rollout-2025-01-02T03-04-05-${sessionId}.jsonl`);
@@ -103,6 +105,7 @@ process.env.CODEX_HOME = codexHome;
 process.env.HOME = tempRoot;
 process.env.USERPROFILE = tempRoot;
 process.env.PI_AGENT_SESSIONS_ROOT = piSessionsRoot;
+process.env.CODEX_SESSION_RENDERER_CONFIG_PATH = path.join(stateDir, "data-source-config.json");
 
 process.env.HOST = "127.0.0.1";
 process.env.PORT = process.env.PORT || "4799";

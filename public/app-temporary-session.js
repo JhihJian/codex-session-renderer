@@ -2,6 +2,7 @@
   const api = window.SessionWorkbench;
   const { els } = api;
   const { state } = api;
+  const collapseTopbarMenus = (...args) => api.collapseTopbarMenus(...args);
   const invalidateSessionListRequests = (...args) => api.invalidateSessionListRequests(...args);
   const cancelAlternateLocalSourceDiscovery = (...args) => api.cancelAlternateLocalSourceDiscovery(...args);
   const renderSourceControls = (...args) => api.renderSourceControls(...args);
@@ -59,6 +60,7 @@
 
   function openTemporarySessionDialog() {
     opener = document.activeElement;
+    collapseTopbarMenus();
     els.temporarySessionStatus.textContent = "";
     els.temporarySessionPath.value = "";
     els.temporarySessionDialog.showModal();

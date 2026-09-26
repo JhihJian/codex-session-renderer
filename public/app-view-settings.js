@@ -7,15 +7,24 @@
   const showToast = (...args) => api.showToast(...args);
   const reloadSelectedSessionDetail = (...args) => api.reloadSelectedSessionDetail(...args);
   const renderMainContent = (...args) => api.renderMainContent(...args);
+  const collapseTopbarMenus = (...args) => api.collapseTopbarMenus(...args);
+  const resetDataSourcePanelState = (...args) => api.resetDataSourcePanelState(...args);
+  const loadDataSourceConfig = (...args) => api.loadDataSourceConfig(...args);
+  const renderDataSourcePanel = (...args) => api.renderDataSourcePanel(...args);
+  const dataSourceOverviewValue = (...args) => api.dataSourceOverviewValue(...args);
+  const dataSourceOverviewDetail = (...args) => api.dataSourceOverviewDetail(...args);
 function openSettingsDialog() {
   const opener = document.activeElement;
   state.settingsDialogOpener = opener && opener !== document.body ? opener : els.settingsButton;
+  collapseTopbarMenus();
   clearSettingsValidationState();
   state.summaryRules = window.ToolSummary?.loadCustomRules?.() || [];
   normalizeSettingsView();
   state.settingsInitialSnapshot = settingsSnapshot();
+  resetDataSourcePanelState();
   renderSettingsDialog();
   els.settingsDialog?.showModal();
+  void loadDataSourceConfig();
 }
 
 function requestCloseSettingsDialog() {
@@ -167,6 +176,13 @@ function settingsOverviewItems() {
       value: "3",
       detail: "Git、搜索、测试检查结构化视图",
     },
+
+    {
+      id: "dataSource",
+      label: "数据源",
+      value: dataSourceOverviewValue(),
+      detail: dataSourceOverviewDetail(),
+    },
   ];
 }
 
@@ -191,6 +207,7 @@ function renderActiveSettingsPanel() {
     renderSummaryRuleList();
     renderDefaultSummaryRuleList();
   }
+  if (state.settingsView === "dataSource") renderDataSourcePanel();
 }
 
 function clearSettingsValidationState() {

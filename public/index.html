@@ -193,6 +193,10 @@
           <button class="settings-tab" id="settingsTabStructured" type="button" role="tab" aria-selected="false" aria-controls="settingsSectionStructured" data-settings-view="structured">
             <span>结构化展示</span>
           </button>
+
+          <button class="settings-tab" id="settingsTabDataSource" type="button" role="tab" aria-selected="false" aria-controls="settingsSectionDataSource" data-settings-view="dataSource">
+            <span>数据源</span>
+          </button>
         </div>
 
         <div class="settings-panel-body">
@@ -240,6 +244,14 @@
             <div class="rule-empty compact">命中这些模式时，摘要页和证据卡会使用结构化视图；未命中时仍按普通摘要或原始文本展示。自定义摘要规则影响标题和短摘要，不改变这里的输出解析。</div>
           </section>
 
+          <section class="settings-section" id="settingsSectionDataSource" role="tabpanel" aria-labelledby="settingsTabDataSource" data-settings-panel="dataSource" hidden>
+            <div class="section-title-row">
+              <h3>会话读取根</h3>
+              <span class="muted">保存后立即生效</span>
+            </div>
+            <div id="dataSourceConfigBody"></div>
+          </section>
+
 
         </div>
 
@@ -269,6 +281,7 @@
     <script src="./app-requests-export.js" defer></script>
     <script src="./app-view-shared.js" defer></script>
     <script src="./app-view-settings.js" defer></script>
+    <script src="./app-view-data-source.js" defer></script>
     <script src="./app-view-sessions.js" defer></script>
     <script src="./app-view-compact.js" defer></script>
     <script src="./app-view-compact-filter.js" defer></script>
