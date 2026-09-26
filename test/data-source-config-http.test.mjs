@@ -76,7 +76,7 @@ test("data source config API reports the effective state and rejects unsupported
     assert.equal(initial.configPath, configPath);
     assert.equal(initial.writable, true);
     assert.equal(initial.override, null);
-    assert.deepEqual(initial.envDefault, { type: "sessions", path: sessionsRoot });
+    assert.deepEqual(initial.envDefault, { path: sessionsRoot });
     assert.equal(initial.parseError, null);
 
     assert.equal((await fetch(`${baseUrl}/api/data-source-config`, { method: "POST", body: "{}" })).status, 405);
@@ -102,16 +102,21 @@ test("data source config PUT validates content type, JSON, size and fields", asy
     assert.match((await missingField.json()).error, /piAgentRoot/);
 
     const badType = await putJson(baseUrl, { piAgentRoot: { type: "unknown", path: "/tmp" } });
-    assert.equal(badType.status, 400);
-    assert.match((await badType.json()).error, /piAgentRoot\.type/);
+    assert.equal(badType.status, 200);
+    assert.deepEqual((await badType.json()).override, { path: "/tmp" });
+    await putJson(baseUrl, { piAgentRoot: null });
 
-    const relativePath = await putJson(baseUrl, { piAgentRoot: { type: "sessions", path: "relative/path" } });
+    const relativePath = await putJson(baseUrl, { piAgentRoot: { path: "relative/path" } });
     assert.equal(relativePath.status, 400);
     assert.match((await relativePath.json()).error, /绝对路径/);
 
-    const missingDirectory = await putJson(baseUrl, { piAgentRoot: { type: "sessions", path: "/definitely/missing/root" } });
+    const missingDirectory = await putJson(baseUrl, { piAgentRoot: { path: "/definitely/missing/root" } });
     assert.equal(missingDirectory.status, 400);
     assert.match((await missingDirectory.json()).error, /无法解析|目录/);
+
+    const badWildcardPrefix = await putJson(baseUrl, { piAgentRoot: { path: "/definitely/missing/*/pi-sessions" } });
+    assert.equal(badWildcardPrefix.status, 400);
+    assert.match((await badWildcardPrefix.json()).error, /固定前缀必须是已存在的目录/);
 
     const config = await (await fetch(`${baseUrl}/api/data-source-config`)).json();
     assert.equal(config.override, null);
@@ -120,10 +125,10 @@ test("data source config PUT validates content type, JSON, size and fields", asy
 
 test("data source config PUT saves hot and health reflects the new root immediately", async (t) => {
   await withServerEnv(t, {}, async ({ baseUrl, sessionsRoot, overrideRoot }) => {
-    const saved = await putJson(baseUrl, { piAgentRoot: { type: "sessions", path: overrideRoot } });
+    const saved = await putJson(baseUrl, { piAgentRoot: { path: overrideRoot } });
     assert.equal(saved.status, 200);
     const savedBody = await saved.json();
-    assert.deepEqual(savedBody.override, { type: "sessions", path: overrideRoot });
+    assert.deepEqual(savedBody.override, { path: overrideRoot });
     assert.ok(savedBody.sources.some((source) => source.id === "pi-agent" && source.isDefault));
 
     const health = await (await fetch(`${baseUrl}/api/health`)).json();
@@ -146,7 +151,7 @@ test("data source config stays disabled without the environment variable", async
     const describe = await (await fetch(`${baseUrl}/api/data-source-config`)).json();
     assert.equal(describe.configPath, null);
     assert.equal(describe.writable, false);
-    assert.deepEqual(describe.envDefault, { type: "sessions", path: sessionsRoot });
+    assert.deepEqual(describe.envDefault, { path: sessionsRoot });
 
     const update = await putJson(baseUrl, { piAgentRoot: null });
     assert.equal(update.status, 404);

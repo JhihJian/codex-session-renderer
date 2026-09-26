@@ -1,9 +1,9 @@
 import { constants as fsConstants, readFileSync, promises as fs } from "node:fs";
 import path from "node:path";
+import { containsWildcard, wildcardStaticPrefix } from "./root-pattern.mjs";
 import { envPiAgentRootDescription } from "./data-sources.mjs";
 
 const CONFIG_VERSION = 1;
-const rootTypes = ["sessions", "tasks", "evaluations"];
 
 function resolveConfigPathFromEnv(env = process.env) {
   const raw = String(env.CODEX_SESSION_RENDERER_CONFIG_PATH || "").trim();
@@ -19,10 +19,10 @@ function resolveConfigPathFromEnv(env = process.env) {
 function parseOverrideShape(value) {
   if (value === null || value === undefined) return { override: null, error: null };
   if (typeof value !== "object" || Array.isArray(value)) return { override: null, error: "piAgentRoot 必须是对象或 null。" };
-  if (!rootTypes.includes(value.type)) return { override: null, error: "piAgentRoot.type 必须是 sessions、tasks 或 evaluations。" };
+  // 兼容旧配置中的 type 字段：根类型概念已移除，统一按路径（可含 * 通配符）读取。
   const rootPath = typeof value.path === "string" ? value.path.trim() : "";
-  if (!rootPath || !path.isAbsolute(rootPath)) return { override: null, error: "piAgentRoot.path 必须是绝对路径。" };
-  return { override: { type: value.type, path: rootPath }, error: null };
+  if (!rootPath || !path.isAbsolute(rootPath)) return { override: null, error: "piAgentRoot.path 必须是绝对路径，可含 * 通配符。" };
+  return { override: { path: rootPath }, error: null };
 }
 
 function badRequest(message, field = "piAgentRoot") {
@@ -95,6 +95,12 @@ function createDataSourceConfigStore(options = {}) {
     const { override, error } = parseOverrideShape(value);
     if (error) throw badRequest(error);
     if (!override) return null;
+    if (containsWildcard(override.path)) {
+      const prefix = wildcardStaticPrefix(override.path);
+      const prefixStat = await fs.stat(prefix).catch(() => null);
+      if (!prefixStat?.isDirectory()) throw badRequest(`piAgentRoot.path 固定前缀必须是已存在的目录：${prefix || "/"}`, "piAgentRoot.path");
+      return { path: override.path };
+    }
     let resolved;
     try {
       resolved = await fs.realpath(override.path);
@@ -103,7 +109,7 @@ function createDataSourceConfigStore(options = {}) {
     }
     const stat = await fs.stat(resolved).catch(() => null);
     if (!stat?.isDirectory()) throw badRequest(`piAgentRoot.path 必须是已存在的目录：${override.path}`, "piAgentRoot.path");
-    return { type: override.type, path: resolved };
+    return { path: resolved };
   }
 
   async function write(override) {

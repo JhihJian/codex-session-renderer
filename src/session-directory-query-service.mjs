@@ -6,12 +6,9 @@ import { mapWithConcurrency } from "./async-concurrency.mjs";
 import { dedupeSessionFileRecords, sessionFileRoots } from "./session-catalog.mjs";
 import { parentSessionIdFromMeta, relativeCodexPath, withFileStat, withSubagentMeta } from "./session-models.mjs";
 import { isAbortError } from "./session-detail-coordinator.mjs";
+import { containsWildcard, expandWildcardDirectories } from "./root-pattern.mjs";
 import { stripLongPathPrefix } from "./sqlite-threads.mjs";
 
-const piTaskDirectoryPattern = /^task-[a-z0-9][a-z0-9-]{0,127}$/;
-const evaluationDirectoryPattern = /^(?:[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}|[a-f0-9]{64})$/i;
-const piSessionsDirectoryName = "pi-sessions";
-const evaluationSessionsDirectoryParts = ["output", piSessionsDirectoryName];
 const listFileConcurrency = 8;
 
 export function createSessionDirectoryQueryService(dependencies) {
@@ -46,76 +43,17 @@ async function* walkJsonl({ throwIfRequestAborted }, directoryPath, options = {}
 }
 
 async function* walkSourceSessionFiles(dependencies, context, options = {}) {
-  if (context.source.taskSessionsRoot) {
-    yield* walkPiTaskSessions(dependencies, context.source.taskSessionsRoot, options);
-    return;
-  }
-  if (context.source.evaluationSessionsRoot) {
-    yield* walkPiEvaluationSessions(dependencies, context.source.evaluationSessionsRoot, options);
-    return;
-  }
   for (const entry of sessionFileRoots(context.codexHome, context.sessionsRoot, true)) {
-    if (!await dependencies.sourceSessionRootIsReadable(context, entry.root)) continue;
-    for await (const filePath of walkJsonl(dependencies, entry.root, options)) yield { filePath, taskId: null, archived: entry.archived };
-  }
-}
-
-async function* walkPiTaskSessions(dependencies, tasksRoot, options = {}) {
-  let tasks;
-  try {
-    tasks = await fs.readdir(tasksRoot, { withFileTypes: true });
-  } catch {
-    return;
-  }
-  tasks.sort((left, right) => right.name.localeCompare(left.name, "en"));
-  for (const task of tasks) {
-    dependencies.throwIfRequestAborted(options.signal);
-    if (!task.isDirectory() || !piTaskDirectoryPattern.test(task.name)) continue;
-    const taskRoot = path.join(tasksRoot, task.name);
-    const artifactsRoot = path.join(taskRoot, "artifacts");
-    const sessionsRoot = path.join(artifactsRoot, "pi-sessions");
-    if (!await isRegularDirectory(taskRoot) || !await isRegularDirectory(artifactsRoot) || !await isRegularDirectory(sessionsRoot)) continue;
-    for await (const filePath of walkJsonl(dependencies, sessionsRoot, options)) yield { filePath, taskId: task.name, archived: false };
-  }
-}
-
-async function* walkPiEvaluationSessions(dependencies, evaluationsRoot, options = {}) {
-  for (const evaluation of await readDirectoryEntries(evaluationsRoot)) {
-    dependencies.throwIfRequestAborted(options.signal);
-    if (!evaluation.isDirectory() || !evaluationDirectoryPattern.test(evaluation.name)) continue;
-    const evaluationRoot = path.join(evaluationsRoot, evaluation.name);
-    const outputRoot = path.join(evaluationRoot, "output");
-    yield* walkEvaluationSessionDirectory(dependencies, path.join(evaluationRoot, ...evaluationSessionsDirectoryParts), evaluation.name, options);
-    for (const run of await readDirectoryEntries(outputRoot)) {
-      dependencies.throwIfRequestAborted(options.signal);
-      if (!run.isDirectory() || run.name === piSessionsDirectoryName) continue;
-      yield* walkEvaluationSessionDirectory(dependencies, path.join(outputRoot, run.name, piSessionsDirectoryName), `${evaluation.name}/${run.name}`, options);
+    for (const root of await resolveSessionRootDirectories(dependencies, entry.root, options)) {
+      if (!await dependencies.sourceSessionRootIsReadable(context, root)) continue;
+      for await (const filePath of walkJsonl(dependencies, root, options)) yield { filePath, archived: entry.archived };
     }
   }
 }
 
-async function* walkEvaluationSessionDirectory(dependencies, sessionsRoot, taskId, options) {
-  if (!await isRegularDirectory(sessionsRoot)) return;
-  for await (const filePath of walkJsonl(dependencies, sessionsRoot, options)) yield { filePath, taskId, archived: false };
-}
-
-async function readDirectoryEntries(directoryPath) {
-  try {
-    const entries = await fs.readdir(directoryPath, { withFileTypes: true });
-    entries.sort((left, right) => right.name.localeCompare(left.name, "en"));
-    return entries;
-  } catch {
-    return [];
-  }
-}
-
-async function isRegularDirectory(directoryPath) {
-  try {
-    const stat = await fs.lstat(directoryPath);
-    return stat.isDirectory() && !stat.isSymbolicLink();
-  } catch {
-    return false;
-  }
+async function resolveSessionRootDirectories(dependencies, rootPattern, options = {}) {
+  if (!containsWildcard(rootPattern)) return [rootPattern];
+  return expandWildcardDirectories(rootPattern, { throwIfRequestAborted: dependencies.throwIfRequestAborted, signal: options.signal });
 }
 
 function datedDirectoryEndsBefore(directoryPath, cutoffMs) {
@@ -131,78 +69,27 @@ function isDatedDirectory(parts, index) {
   return /^\d{4}$/.test(parts[index]) && /^\d{2}$/.test(parts[index + 1]) && /^\d{2}$/.test(parts[index + 2]);
 }
 
-function sessionRecordId(taskId, filePath) {
-  const sessionId = sessionIdFromFile(filePath);
-  return taskId ? `${taskId}:${sessionId}` : sessionId;
-}
-
-function parseTaskScopedSessionId(id) {
-  const separator = String(id || "").indexOf(":");
-  if (separator <= 0) return null;
-  return { taskId: String(id).slice(0, separator), sessionId: String(id).slice(separator + 1) };
-}
-
-function taskScopedSessionDirectories(source, taskId) {
-  if (!source?.taskSessionsRoot && !source?.evaluationSessionsRoot) return [];
-  if (source.taskSessionsRoot && piTaskDirectoryPattern.test(taskId)) {
-    return [path.join(source.taskSessionsRoot, taskId, "artifacts", "pi-sessions")];
-  }
-  if (source.evaluationSessionsRoot) {
-    const scope = parseEvaluationScope(taskId);
-    if (scope) {
-      const parts = scope.runId ? ["output", scope.runId, piSessionsDirectoryName] : evaluationSessionsDirectoryParts;
-      return [path.join(source.evaluationSessionsRoot, scope.evaluationId, ...parts)];
-    }
-  }
-  return [];
-}
-
-function parseEvaluationScope(taskId) {
-  const value = String(taskId || "");
-  const separator = value.indexOf("/");
-  if (separator < 0) return evaluationDirectoryPattern.test(value) ? { evaluationId: value, runId: null } : null;
-  const evaluationId = value.slice(0, separator);
-  const runId = value.slice(separator + 1);
-  if (!evaluationDirectoryPattern.test(evaluationId) || !isSafePathSegment(runId)) return null;
-  return { evaluationId, runId };
-}
-
-function isSafePathSegment(segment) {
-  return Boolean(segment) && segment !== "." && segment !== ".." && !segment.includes("/");
+function legacyScopedSessionId(id) {
+  const match = /^([a-z0-9][a-z0-9-]{0,127}):([^/.\\][^/\\]*)$/i.exec(String(id || ""));
+  return match ? match[2] : null;
 }
 
 async function sessionFileRecordById(dependencies, context, id, options = {}) {
   dependencies.throwIfRequestAborted(options.signal);
-  const scoped = parseTaskScopedSessionId(id);
-  if (scoped) {
-    for (const directory of taskScopedSessionDirectories(context.source, scoped.taskId)) {
-      const record = await findRecordInDirectory(dependencies, context, { directory, id, sessionId: scoped.sessionId, options });
-      if (record) return record;
-    }
-  }
-  return findRecordFromWalk(dependencies, context, id, options);
+  // 兼容旧版 task/evaluation 作用域 ID（前缀:uuid）：仅剥掉不含路径分隔符与点号前缀的安全形式。
+  const sessionId = legacyScopedSessionId(id) ?? String(id || "");
+  return findRecordFromWalk(dependencies, context, sessionId, options);
 }
 
-async function findRecordInDirectory(dependencies, context, { directory, id, sessionId, options }) {
-  for await (const filePath of walkJsonl(dependencies, directory, { signal: options.signal })) {
-    dependencies.throwIfRequestAborted(options.signal);
-    if (sessionIdFromFile(filePath) !== sessionId) continue;
-    const stat = await dependencies.sessionFileStat(context, filePath);
-    if (!stat) continue;
-    return { id, filePath, archived: false, stat };
-  }
-  return null;
-}
-
-async function findRecordFromWalk(dependencies, context, id, options) {
+async function findRecordFromWalk(dependencies, context, sessionId, options) {
   // Single-session lookup must not inherit the listing cap: sessions beyond the
   // list window still deserve a resolvable detail endpoint.
   for await (const record of walkSourceSessionFiles(dependencies, context, { signal: options.signal })) {
     dependencies.throwIfRequestAborted(options.signal);
+    if (sessionIdFromFile(record.filePath) !== sessionId) continue;
     const stat = await dependencies.sessionFileStat(context, record.filePath);
     if (!stat) continue;
-    if (sessionRecordId(record.taskId, record.filePath) !== id) continue;
-    return { id, filePath: record.filePath, archived: record.archived, stat };
+    return { id: sessionId, filePath: record.filePath, archived: record.archived, stat };
   }
   return null;
 }
@@ -213,7 +100,7 @@ async function collectSessionFileRecords(dependencies, context, options = {}) {
     dependencies.throwIfRequestAborted(options.signal);
     const stat = await dependencies.sessionFileStat(context, record.filePath);
     if (!stat || outsideBounds(stat, options)) continue;
-    records.push({ id: sessionRecordId(record.taskId, record.filePath), filePath: record.filePath, archived: record.archived, stat });
+    records.push({ id: sessionIdFromFile(record.filePath), filePath: record.filePath, archived: record.archived, stat });
     if (records.length >= (options.maxRecords || dependencies.maxListSessions)) return dedupeSessionFileRecords(records);
   }
   return dedupeSessionFileRecords(records);
@@ -258,11 +145,10 @@ function piMetadata(session, info, model, thinking) {
 
 async function listFileSessions(dependencies, context, bounds = {}, options = {}) {
   const [index, files] = await Promise.all([readIndex(dependencies, context, options), collectSessionFileRecords(dependencies, context, { ...bounds, ...options })]);
-  const recordIdByUuid = new Map(files.map((record) => [sessionIdFromFile(record.filePath), record.id]));
   const sessions = await mapWithConcurrency(files, listFileConcurrency, async (record) => {
     dependencies.throwIfRequestAborted(options.signal);
     const events = await readMetaEvents(record.filePath, bounds, options);
-    return sessionFromFileRecord(context, record, events, index, recordIdByUuid);
+    return sessionFromFileRecord(context, record, events, index);
   });
   return sessions.sort((left, right) => new Date(right.updatedAt || right.fileModifiedAt) - new Date(left.updatedAt || left.fileModifiedAt));
 }
@@ -284,21 +170,20 @@ async function readSessionFileStatus(filePath, stat) {
   }
 }
 
-async function sessionFromFileRecord(context, record, events, index, recordIdByUuid) {
+async function sessionFromFileRecord(context, record, events, index) {
   const meta = sessionMetaFromEvents(events);
   const indexed = index.get(sessionIdFromFile(record.filePath));
   const status = await readSessionFileStatus(record.filePath, record.stat);
-  return withSubagentMeta(sessionFileFields(context, { record, events, meta, indexed, recordIdByUuid, status }));
+  return withSubagentMeta(sessionFileFields(context, { record, events, meta, indexed, status }));
 }
 
-function sessionFileFields(context, { record, events, meta, indexed, recordIdByUuid, status }) {
-  const parentId = parentSessionIdFromMeta(meta);
+function sessionFileFields(context, { record, events, meta, indexed, status }) {
   return {
     id: record.id, sourceId: context.source.id, sourceLabel: context.source.label, dataSourceKind: context.source.kind,
     title: firstValue([indexed?.title, meta.title, extractTitleFromEvents(events, path.basename(record.filePath, ".jsonl"))]), cwd: firstValue([stripLongPathPrefix(meta.cwd || "")]),
     originator: firstValue([meta.originator]), model: firstValue([meta.model, meta.modelId, meta.model_provider]),
     reasoningEffort: firstValue([meta.reasoning_effort, meta.reasoningEffort]), source: firstValue([meta.source, context.source.kind === "pi-agent" ? "pi-agent" : null]),
-    threadSource: firstValue([meta.thread_source]), modelProvider: firstValue([meta.model_provider, meta.provider]), parentSessionId: firstValue([recordIdByUuid.get(parentId), parentId]),
+    threadSource: firstValue([meta.thread_source]), modelProvider: firstValue([meta.model_provider, meta.provider]), parentSessionId: parentSessionIdFromMeta(meta),
     archived: record.archived, archivedAt: null, agentNickname: null, agentRole: null, preview: null, status,
     path: record.filePath, relativePath: relativeCodexPath(context.codexHome, record.filePath), startedAt: toIso(meta.timestamp) || sessionStartedFromFile(record.filePath),
     updatedAt: indexed?.updatedAt || toIso(record.stat.mtime), sizeBytes: record.stat.size, fileModifiedAt: toIso(record.stat.mtime),
@@ -340,5 +225,5 @@ async function sessionFromFilePath(dependencies, context, filePath, options = {}
     if (isAbortError(error)) throw error;
     return [];
   });
-  return withFileStat(await sessionFromFileRecord(context, { id: options.sessionId || sessionIdFromFile(filePath), filePath, archived: options.archived ?? false, stat }, events, new Map(), new Map()), stat);
+  return withFileStat(await sessionFromFileRecord(context, { id: options.sessionId || sessionIdFromFile(filePath), filePath, archived: options.archived ?? false, stat }, events, new Map()), stat);
 }

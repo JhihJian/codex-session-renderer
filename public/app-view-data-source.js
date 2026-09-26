@@ -11,20 +11,10 @@
   const renderSettingsDialog = (...args) => api.renderSettingsDialog(...args);
   const closeSettingsDialogAndRestoreFocus = (...args) => api.closeSettingsDialogAndRestoreFocus(...args);
 
-const dataSourceRootTypeOptions = [
-  ["sessions", "会话根 sessions"],
-  ["tasks", "任务根 tasks"],
-  ["evaluations", "评估根 evaluations"],
-];
-
-function dataSourceRootTypeLabel(type) {
-  return dataSourceRootTypeOptions.find(([value]) => value === type)?.[1] || type || "";
-}
-
 function dataSourceOverviewValue() {
   const config = state.dataSourceConfig;
   if (!config) return "…";
-  return config.override ? dataSourceRootTypeLabel(config.override.type) : "环境默认";
+  return config.override ? "界面覆盖" : "环境默认";
 }
 
 function dataSourceOverviewDetail() {
@@ -43,9 +33,8 @@ function resetDataSourcePanelState() {
 }
 
 function initDataSourceDraft(config) {
-  if (config.override) return { mode: "override", type: config.override.type, path: config.override.path };
-  const fallbackType = config.envDefault?.type || "sessions";
-  return { mode: "clear", type: fallbackType, path: "" };
+  if (config.override) return { mode: "override", path: config.override.path };
+  return { mode: "clear", path: config.envDefault?.path || "" };
 }
 
 async function loadDataSourceConfig() {
@@ -62,8 +51,8 @@ async function loadDataSourceConfig() {
 }
 
 function dataSourceEffectiveDescription(config) {
-  if (config.override) return `覆盖生效：${dataSourceRootTypeLabel(config.override.type)} · ${config.override.path}`;
-  if (config.envDefault) return `环境默认：${dataSourceRootTypeLabel(config.envDefault.type)} · ${config.envDefault.path}`;
+  if (config.override) return `覆盖生效：${config.override.path}`;
+  if (config.envDefault) return `环境默认：${config.envDefault.path}`;
   return "当前未配置 Pi 根，默认使用本机 Codex Home。";
 }
 
@@ -101,19 +90,12 @@ function renderDataSourcePanel() {
     ${parseErrorNote}
     ${writableNote}
     <fieldset class="summary-rule-card" ${state.dataSourceSaving ? "disabled" : ""}>
-      <legend class="field-label">根类型</legend>
-      <div class="command-capability-list" role="radiogroup" aria-label="根类型">
-        ${dataSourceRootTypeOptions.map(([value, label]) => `
-          <label class="toggle-control">
-            <input type="radio" name="dataSourceRootType" value="${escapeAttr(value)}" ${draft.type === value ? "checked" : ""} data-data-source-field="type" />
-            <span>${escapeHtml(label)}</span>
-          </label>
-        `).join("")}
-      </div>
+      <legend class="field-label">Pi 会话根</legend>
       <label>
-        <span class="field-label">根目录绝对路径</span>
-        <input class="text-input" type="text" value="${escapeAttr(draft.path)}" data-data-source-field="path" placeholder="/srv/report-agent/tasks/sw" spellcheck="false" ${dataSourceFieldAttrs("path")} />
+        <span class="field-label">根路径（支持 * 通配符）</span>
+        <input class="text-input" type="text" value="${escapeAttr(draft.path)}" data-data-source-field="path" placeholder="/srv/report-agent/tasks/sw/*/output/*/pi-sessions" spellcheck="false" ${dataSourceFieldAttrs("path")} />
         ${renderDataSourceFieldError("path")}
+        <span class="field-hint">* 匹配一层目录名，不匹配点开头的目录；会递归读取所有匹配目录下的 .jsonl 会话文件，新建目录无需重启即可发现。</span>
       </label>
       ${modeNote}
       <div class="settings-actions">
@@ -153,9 +135,7 @@ function bindDataSourcePanelEvents() {
 function updateDataSourceDraftFromInput(input) {
   const draft = state.dataSourceDraft;
   if (!draft) return;
-  const field = input.dataset.dataSourceField;
-  if (field === "type") draft.type = input.value;
-  if (field === "path") draft.path = input.value;
+  if (input.dataset.dataSourceField === "path") draft.path = input.value;
   draft.mode = "override";
   state.dataSourceFieldErrors = [];
   state.dataSourceFeedback = "";
@@ -165,7 +145,7 @@ function updateDataSourceDraftFromInput(input) {
 function restoreDataSourceEnvDefault() {
   const config = state.dataSourceConfig;
   if (!config?.configPath) return;
-  state.dataSourceDraft = { mode: "clear", type: config.envDefault?.type || "sessions", path: "" };
+  state.dataSourceDraft = { mode: "clear", path: config.envDefault?.path || "" };
   state.dataSourceFieldErrors = [];
   state.dataSourceFeedback = "";
   renderDataSourcePanel();
@@ -174,12 +154,9 @@ function restoreDataSourceEnvDefault() {
 function validateDataSourceDraft(draft) {
   if (draft.mode === "clear") return [];
   const errors = [];
-  if (!dataSourceRootTypeOptions.some(([value]) => value === draft.type)) {
-    errors.push({ field: "type", message: "根类型必须是 sessions、tasks 或 evaluations。" });
-  }
   const rootPath = String(draft.path || "").trim();
-  if (!rootPath) errors.push({ field: "path", message: "根目录绝对路径不能为空。" });
-  else if (!rootPath.startsWith("/")) errors.push({ field: "path", message: "根目录必须是绝对路径。" });
+  if (!rootPath) errors.push({ field: "path", message: "根路径不能为空。" });
+  else if (!rootPath.startsWith("/")) errors.push({ field: "path", message: "根路径必须是绝对路径。" });
   return errors;
 }
 
@@ -196,7 +173,7 @@ async function saveDataSourceConfig() {
   state.dataSourceSaving = true;
   state.dataSourceFeedback = "";
   renderDataSourcePanel();
-  const requestBody = draft.mode === "clear" ? null : { type: draft.type, path: String(draft.path).trim() };
+  const requestBody = draft.mode === "clear" ? null : { path: String(draft.path).trim() };
   try {
     const result = await fetchJson("/api/data-source-config", {
       method: "PUT",
@@ -229,5 +206,5 @@ async function saveDataSourceConfig() {
   }
 }
 
-  Object.assign(api, { dataSourceRootTypeLabel, dataSourceOverviewValue, dataSourceOverviewDetail, resetDataSourcePanelState, loadDataSourceConfig, renderDataSourcePanel, updateDataSourceDraftFromInput, restoreDataSourceEnvDefault, saveDataSourceConfig });
+  Object.assign(api, { dataSourceOverviewValue, dataSourceOverviewDetail, resetDataSourcePanelState, loadDataSourceConfig, renderDataSourcePanel, updateDataSourceDraftFromInput, restoreDataSourceEnvDefault, saveDataSourceConfig });
 }

@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { containsWildcard, wildcardStaticPrefix } from "./root-pattern.mjs";
 
 const piAgentSourceId = "pi-agent";
 const piAgentSessionsRootEnvKeys = ["CODEX_SESSION_RENDERER_PI_AGENT_SESSIONS_ROOT", "PI_AGENT_SESSIONS_ROOT", "PI_AGENT_SESSIONS"];
@@ -51,15 +52,8 @@ function parsePiAgentDefinition(env = process.env, homeDir = os.homedir()) {
   const root = resolvePiAgentRoot(env, homeDir);
   const configuredAgentHome = firstEnvValue(env, piAgentHomeEnvKeys);
   const autoDetected = !root.configured && !configuredAgentHome;
-  const sessionsRoot = root.sessionsRoot;
-  if (autoDetected && !existsSync(sessionsRoot)) return null;
-  const agentHome = path.resolve(configuredAgentHome || root.agentHome);
-  return {
-    agentHome,
-    sessionsRoot,
-    ...root.dynamicRoot,
-    autoDetected,
-  };
+  if (autoDetected && !rootPathExists(root.sessionsRoot)) return null;
+  return { agentHome: path.resolve(configuredAgentHome || root.agentHome), sessionsRoot: root.sessionsRoot, autoDetected };
 }
 
 function resolvePiAgentRoot(env, homeDir) {
@@ -71,8 +65,11 @@ function resolvePiAgentRoot(env, homeDir) {
   if (configuredRoots.length > 1) throw new Error("PI Agent 会话、任务和评估根目录不能同时配置。");
   const configuredRoot = configuredRoots[0];
   const sessionsRoot = path.resolve(configuredRoot?.value || path.join(homeDir, ".pi", "agent", "sessions"));
-  const dynamicRoot = configuredRoot && configuredRoot.kind !== "sessions" ? { [`${configuredRoot.kind}Root`]: sessionsRoot } : {};
-  return { configured: Boolean(configuredRoot), sessionsRoot, agentHome: configuredRoot ? sessionsRoot : path.dirname(sessionsRoot), dynamicRoot };
+  return { configured: Boolean(configuredRoot), sessionsRoot, agentHome: configuredRoot && configuredRoot.kind !== "sessions" ? sessionsRoot : path.dirname(sessionsRoot) };
+}
+
+function rootPathExists(rootPath) {
+  return existsSync(containsWildcard(rootPath) ? wildcardStaticPrefix(rootPath) : rootPath);
 }
 
 function firstEnvValue(env, keys) {
@@ -83,26 +80,19 @@ function firstEnvValue(env, keys) {
   return "";
 }
 
-function overridePiAgentDefinition({ type, path: rootPath }) {
+function overridePiAgentDefinition({ path: rootPath }) {
   const sessionsRoot = path.resolve(rootPath);
-  return {
-    agentHome: sessionsRoot,
-    sessionsRoot,
-    ...(type === "sessions" ? {} : { [`${type}Root`]: sessionsRoot }),
-    autoDetected: false,
-  };
+  const agentHome = containsWildcard(sessionsRoot) ? path.resolve(wildcardStaticPrefix(sessionsRoot)) : sessionsRoot;
+  return { agentHome, sessionsRoot, autoDetected: false };
 }
 
 function envPiAgentRootDescription(env = process.env, homeDir = os.homedir()) {
   const definition = parsePiAgentDefinition(env, homeDir);
-  if (!definition) return null;
-  if (definition.evaluationsRoot) return { type: "evaluations", path: definition.evaluationsRoot };
-  if (definition.tasksRoot) return { type: "tasks", path: definition.tasksRoot };
-  return { type: "sessions", path: definition.sessionsRoot };
+  return definition ? { path: definition.sessionsRoot } : null;
 }
 
-function createPiAgentDataSource({ agentHome, sessionsRoot, tasksRoot, evaluationsRoot, autoDetected }) {
-  const sessionsAvailable = existsSync(sessionsRoot);
+function createPiAgentDataSource({ agentHome, sessionsRoot, autoDetected }) {
+  const sessionsAvailable = rootPathExists(sessionsRoot);
   return {
     id: piAgentSourceId,
     label: "Pi Agent Sessions",
@@ -111,11 +101,9 @@ function createPiAgentDataSource({ agentHome, sessionsRoot, tasksRoot, evaluatio
     originalCodexHome: agentHome,
     sessionsRoot,
     modelStorePath: path.join(path.dirname(sessionsRoot), "models-store.json"),
-    taskSessionsRoot: tasksRoot,
-    evaluationSessionsRoot: evaluationsRoot,
     sessionIndexPath: path.join(agentHome, "session_index.jsonl"),
     stateDbPath: path.join(agentHome, "state_5.sqlite"),
-    origin: { type: "pi-agent", sessionsRoot, taskSessionsRoot: tasksRoot, evaluationSessionsRoot: evaluationsRoot, autoDetected },
+    origin: { type: "pi-agent", sessionsRoot, autoDetected },
     status: sessionsAvailable ? {} : { error: { code: "missing_sessions_root", message: "Pi Agent 会话目录不存在。" } },
   };
 }

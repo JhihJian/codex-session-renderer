@@ -371,6 +371,12 @@
   font-weight: 680;
 }
 
+.field-hint {
+  color: var(--text-3);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 .source-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

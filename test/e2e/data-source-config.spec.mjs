@@ -62,13 +62,13 @@ test("设置页可切换 Pi 会话根，取消不落盘", async ({ page, request
     await expect(page.locator(".session-row")).toHaveCount(1);
     await expect(page.locator(".session-row").first()).toContainText("界面切换数据源后的会话 first");
     expect((await (await request.get("/api/health")).json()).sessionsRoot).toBe(first.sessionsRoot);
-    expect((await describeConfig(request)).override).toEqual({ type: "sessions", path: first.sessionsRoot });
+    expect((await describeConfig(request)).override).toEqual({ path: first.sessionsRoot });
 
     await openDataSourceSettingsTab(page);
     await expect(page.locator("#dataSourceConfigBody")).toContainText("覆盖生效");
     await page.locator("[data-data-source-field='path']").fill(second.sessionsRoot);
     await page.getByRole("button", { name: "取消" }).click();
-    expect((await describeConfig(request)).override).toEqual({ type: "sessions", path: first.sessionsRoot });
+    expect((await describeConfig(request)).override).toEqual({ path: first.sessionsRoot });
 
     await openDataSourceSettingsTab(page);
     await page.getByRole("button", { name: "恢复环境变量默认" }).click();

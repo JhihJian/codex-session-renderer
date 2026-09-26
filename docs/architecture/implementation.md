@@ -9,9 +9,9 @@
 
 ## 数据源
 
-`src/data-sources.mjs` 创建本机 Codex 与可选 Pi Agent 来源。Pi Agent 可读取直接会话根、任务归档根或评估根；评估根仅发现 UUID 或 64 位十六进制评估目录中 `output/pi-sessions/` 与 `output/<运行>/pi-sessions/` 下的 JSONL，并把评估 ID（嵌套运行以 `<评估>/<运行>` 组合）纳入会话身份。Pi Agent 会话根存在时成为默认来源，否则使用本机 Codex；来源均只读。环境变量三根互斥校验仅约束环境变量自身。临时文件或目录读取由 `src/session-source-context-service.mjs` 校验绝对路径，目录递归发现 `.jsonl` 文件后创建一次性来源上下文，不加入来源注册表或固定来源目录扫描。
+`src/data-sources.mjs` 创建本机 Codex 与可选 Pi Agent 来源。Pi Agent 读取单个根路径（环境变量 `PI_AGENT_SESSIONS_ROOT`、`PI_AGENT_TASKS_ROOT`、`PI_AGENT_EVALUATIONS_ROOT` 互斥配置，仅作同一路径的别名），统一递归发现根目录下的 JSONL，会话 ID 取文件名中的 UUID。根路径可含 `*` 通配符（每个 `*` 匹配一层目录、跳过点开头目录），由 `src/root-pattern.mjs` 在每次读取时重新展开，新建目录无需重启。Pi Agent 会话根存在时成为默认来源，否则使用本机 Codex；来源均只读。临时文件或目录读取由 `src/session-source-context-service.mjs` 校验绝对路径，目录递归发现 `.jsonl` 文件后创建一次性来源上下文，不加入来源注册表或固定来源目录扫描。
 
-`src/data-source-config.mjs` 提供运行时配置文件：仅在 `CODEX_SESSION_RENDERER_CONFIG_PATH` 指向绝对路径时启用，内容为单个 Pi 根覆盖（根类型加绝对路径，realpath 规范化）。保存路径为先构建新注册表、后同目录临时文件加 rename 原子写入，成功后整体替换注册表并清空来源缓存，失败保留旧状态；清除覆盖（null）不做路径校验，作为配置损坏时的自救通道。`PUT /api/data-source-config` 仅接受 `application/json`（415）、请求体上限 16KB（413）、字段校验失败返回 400，认证沿用全局 Basic 或 Bearer 前置校验。
+`src/data-source-config.mjs` 提供运行时配置文件：仅在 `CODEX_SESSION_RENDERER_CONFIG_PATH` 指向绝对路径时启用，内容为单个 Pi 根覆盖（绝对路径，可含 `*` 通配符；无通配符时 realpath 规范化，含通配符时校验固定前缀存在）。保存路径为先构建新注册表、后同目录临时文件加 rename 原子写入，成功后整体替换注册表并清空来源缓存，失败保留旧状态；清除覆盖（null）不做路径校验，作为配置损坏时的自救通道。`PUT /api/data-source-config` 仅接受 `application/json`（415）、请求体上限 16KB（413）、字段校验失败返回 400，认证沿用全局 Basic 或 Bearer 前置校验。
 
 ## 会话与阅读投影
 
@@ -26,7 +26,7 @@
 
 `public/app.js` 只负责初始化。`public/app-state.js` 持有浏览器状态和共享格式化依赖，`public/app-requests*.js` 负责来源、列表、详情与 Raw 请求，`public/app-view-*.js` 负责会话目录、正文、紧凑阅读、执行、统计、诊断、终端和设置渲染，`public/app-ui.js` 绑定交互。它们按 `public/index.html` 中的依赖顺序通过 `window.SessionWorkbench` 显式注册能力。工具摘要由 `public/tool-summary.js` 保持稳定门面，规则、文本提取、补丁解析和命令输出模型分别由 `public/tool-summary-{rules,text,patch,command-output}.js` 提供，按依赖顺序注册内部能力；`public/package.json` 仅为 Node 测试保留同一门面的 CommonJS 入口。样式仍由 `public/index.html` 加载 `public/styles.css`，后者按既有层叠顺序导入 `public/styles/` 下的基础、工作区、阅读、各视图与响应式样式。默认阅读面限制为紧凑目录和正文，执行与诊断在切换后占据完整主工作区。筛选与低频管理能力按需展开。`src/pi-context-events.mjs` 仅从 Pi JSONL 投影 Skill 指令块和 `SKILL.md` 读取证据，不扫描当前磁盘作为历史事实。`public/app-format.js`、`public/tool-summary.js`、`public/raw-event-cache.js` 与 `public/evidence-id.js` 提供展示格式、工具摘要、诊断缓存和稳定定位辅助。浏览器不直接读取会话来源路径。
 
-`public/app-requests-export.js` 请求执行文本附件并以浏览器下载方式交付，不将正文写入 DOM、会话状态或剪贴板。`public/app-view-data-source.js` 负责设置对话框的数据源页：展示当前生效根、根类型与路径编辑、字段错误与恢复环境默认，保存成功后清空选中会话并重拉 health 与来源列表；未启用配置文件时只读展示环境默认。设置对话框从顶栏菜单打开时会收起菜单。
+`public/app-requests-export.js` 请求执行文本附件并以浏览器下载方式交付，不将正文写入 DOM、会话状态或剪贴板。`public/app-view-data-source.js` 负责设置对话框的数据源页：展示当前生效根与路径编辑（含 `*` 通配符语义提示）、字段错误与恢复环境默认，保存成功后清空选中会话并重拉 health 与来源列表；未启用配置文件时只读展示环境默认。设置对话框从顶栏菜单打开时会收起菜单。
 
 ## 验证入口
 

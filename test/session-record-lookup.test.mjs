@@ -42,7 +42,7 @@ test("sessionFileRecordById resolves evaluation sessions beyond the listing cap"
     const deps = directoryDeps({ maxListSessions: 1 });
     const service = createSessionDirectoryQueryService(deps);
     const context = {
-      source: { evaluationSessionsRoot: evaluationsRoot },
+      source: {},
       codexHome: evaluationsRoot,
       sessionsRoot: evaluationsRoot,
     };
@@ -53,7 +53,7 @@ test("sessionFileRecordById resolves evaluation sessions beyond the listing cap"
     const targetId = `${taskIds[2]}:${taskIds[2]}`;
     const record = await service.sessionFileRecordById(context, targetId);
     assert.ok(record);
-    assert.equal(record.id, targetId);
+    assert.equal(record.id, taskIds[2]);
     assert.equal(path.dirname(record.filePath), path.join(evaluationsRoot, taskIds[2], "output", "pi-sessions"));
     assert.equal(record.stat.isFile(), true);
   } finally {
@@ -74,7 +74,7 @@ test("sessionFileRecordById resolves task-root sessions beyond the listing cap",
     const deps = directoryDeps({ maxListSessions: 1 });
     const service = createSessionDirectoryQueryService(deps);
     const context = {
-      source: { taskSessionsRoot: tasksRoot },
+      source: {},
       codexHome: tasksRoot,
       sessionsRoot: tasksRoot,
     };
@@ -124,7 +124,7 @@ test("sessionFileRecordById rejects traversal-shaped ids without matching", asyn
   try {
     const service = createSessionDirectoryQueryService(directoryDeps());
     const context = {
-      source: { evaluationSessionsRoot: evaluationsRoot },
+      source: {},
       codexHome: evaluationsRoot,
       sessionsRoot: evaluationsRoot,
     };
@@ -157,7 +157,7 @@ test("catalog findSessionFileRecord resolves sessions beyond the listing cap", a
     };
     const catalog = createSessionCatalogQueryService(catalogDeps);
     const context = {
-      source: { id: "pi-agent", kind: "pi-agent", evaluationSessionsRoot: evaluationsRoot },
+      source: { id: "pi-agent", kind: "pi-agent" },
       codexHome: evaluationsRoot,
       sessionsRoot: evaluationsRoot,
       sessionCacheByScope: new Map(),
@@ -172,7 +172,7 @@ test("catalog findSessionFileRecord resolves sessions beyond the listing cap", a
     const targetId = `${taskIds[2]}:${taskIds[2]}`;
     const session = await catalog.getSessionById(context, targetId);
     assert.ok(session);
-    assert.equal(session.id, targetId);
+    assert.equal(session.id, taskIds[2]);
     assert.ok(session.path.includes(taskIds[2]));
   } finally {
     await rm(dir, { recursive: true, force: true });

@@ -25,12 +25,12 @@ Codex 会话工作台是只读的会话浏览器。它把 Codex 与 Pi Agent 的
 
 - Codex 元数据：`~/.codex/state_5.sqlite`
 - Codex 会话：`~/.codex/sessions/**/*.jsonl`
-- Pi Agent 会话：自动发现 `~/.pi/agent/sessions/**/*.jsonl`，也可通过 `PI_AGENT_SESSIONS_ROOT`、`PI_AGENT_TASKS_ROOT` 或 `PI_AGENT_EVALUATIONS_ROOT` 配置。评估根目录按 `<evaluation_id>/output/pi-sessions/**/*.jsonl` 与 `<evaluation_id>/output/<run>/pi-sessions/**/*.jsonl`（嵌套运行目录）读取，`evaluation_id` 必须是 UUID 或 64 位十六进制标识；嵌套运行的会话 ID 使用 `<evaluation_id>/<run>` 组合，避免同名文件互相覆盖。三种显式根目录配置互斥。内嵌 `subagent` 调用会按轮次汇总为连续执行组，展示每次调用的任务、状态与短回报预览，完整回报按需展开，并保留原始事件跳转；会话侧栏目录和执行过程树同时展示“内嵌调用 → 子代理”节点。各处投影都不会伪装成可打开的独立子会话。Pi 会话首部的 `parentSession` 会解析为分叉链：列表中同项目的子会话缩进展示并带“分叉”徽标，详情头部提供“⤴ 分叉自 …”“分叉出 N 个会话”的跳转链接，父会话已被清理时如实标注不在当前目录。Pi `compaction` 直接展示摘要；`<skill>` 指令块和读取 `SKILL.md` 只展示会话内可验证的声明或读取证据，不宣称启动时已加载的 Skills。
+- Pi Agent 会话：自动发现 `~/.pi/agent/sessions/**/*.jsonl`，也可通过 `PI_AGENT_SESSIONS_ROOT`、`PI_AGENT_TASKS_ROOT` 或 `PI_AGENT_EVALUATIONS_ROOT` 配置（三个环境变量互斥，仅作为同一根路径的别名，不再区分根类型）。根路径支持 `*` 通配符，每个 `*` 匹配一层目录名（不匹配点开头的目录），例如 `/srv/report-agent/tasks/sw/*/output/*/pi-sessions`；服务会递归读取所有匹配目录下的 `.jsonl` 会话文件，通配符在每次读取时重新展开，新建目录无需重启即可发现。会话 ID 直接取自文件名中的会话 UUID，旧版按评估/任务目录加前缀的 ID 仍可打开。内嵌 `subagent` 调用会按轮次汇总为连续执行组，展示每次调用的任务、状态与短回报预览，完整回报按需展开，并保留原始事件跳转；会话侧栏目录和执行过程树同时展示“内嵌调用 → 子代理”节点。各处投影都不会伪装成可打开的独立子会话。Pi 会话首部的 `parentSession` 会解析为分叉链：列表中同项目的子会话缩进展示并带“分叉”徽标，详情头部提供“⤴ 分叉自 …”“分叉出 N 个会话”的跳转链接，父会话已被清理时如实标注不在当前目录。Pi `compaction` 直接展示摘要；`<skill>` 指令块和读取 `SKILL.md` 只展示会话内可验证的声明或读取证据，不宣称启动时已加载的 Skills。
 
 
 Pi Agent 会话目录可用时，工作台默认展示 Pi 数据源；未发现 Pi Agent 会话目录时，自动回退到本机 Codex 数据源。
 
-设置 `CODEX_SESSION_RENDERER_CONFIG_PATH`（绝对路径）后，可以在设置对话框的「数据源」标签页查看与修改 Pi 会话读取根：根类型（sessions、tasks、evaluations）加绝对路径，保存后原子写入配置文件并立即热重建数据源，重启后保持。有效配置整体覆盖环境变量中的 Pi 根，清除覆盖即回到环境变量默认；配置文件损坏时不阻断启动，回退环境变量来源并把解析错误展示在 Pi 来源状态中。写接口为 `PUT /api/data-source-config`，仅接受 `application/json`。未设置该环境变量时功能整体禁用，行为与现状一致。
+设置 `CODEX_SESSION_RENDERER_CONFIG_PATH`（绝对路径）后，可以在设置对话框的「数据源」标签页查看与修改 Pi 会话读取根：单个根路径（支持 `*` 通配符，每个 `*` 匹配一层目录），保存后原子写入配置文件并立即热重建数据源，重启后保持。有效配置整体覆盖环境变量中的 Pi 根，清除覆盖即回到环境变量默认；配置文件损坏时不阻断启动，回退环境变量来源并把解析错误展示在 Pi 来源状态中。写接口为 `PUT /api/data-source-config`，仅接受 `application/json`。未设置该环境变量时功能整体禁用，行为与现状一致。旧配置文件中的 `type` 字段会被忽略，无需迁移。
 
 原始会话文件不会被修改，浏览器展示均基于本地文件。
 

@@ -49,12 +49,12 @@ test("config store reports corrupted JSON as parse error and keeps override null
   });
 });
 
-test("config store reads a valid override and normalizes the shape", async () => {
+test("config store reads a valid override and ignores the legacy type field", async () => {
   await withTempRoot(async (root) => {
     const configPath = path.join(root, "data-source-config.json");
     await writeFile(configPath, JSON.stringify({ version: 1, piAgentRoot: { type: "tasks", path: "/srv/tasks" } }), "utf8");
     const store = createDataSourceConfigStore({ configPath });
-    assert.deepEqual(await store.read(), { override: { type: "tasks", path: "/srv/tasks" }, error: null });
+    assert.deepEqual(await store.read(), { override: { path: "/srv/tasks" }, error: null });
   });
 });
 
@@ -65,9 +65,9 @@ test("config store rejects unsupported versions and malformed overrides", async 
     const versioned = createDataSourceConfigStore({ configPath });
     assert.match((await versioned.read()).error, /版本不受支持/);
 
-    await writeFile(configPath, JSON.stringify({ version: 1, piAgentRoot: { type: "unknown", path: "/srv" } }), "utf8");
+    await writeFile(configPath, JSON.stringify({ version: 1, piAgentRoot: { path: "relative/path" } }), "utf8");
     const malformed = createDataSourceConfigStore({ configPath });
-    assert.match((await malformed.read()).error, /piAgentRoot\.type/);
+    assert.match((await malformed.read()).error, /piAgentRoot\.path/);
   });
 });
 
@@ -77,11 +77,11 @@ test("config store writes atomically and leaves no temporary files", async () =>
     await mkdir(stateDir, { recursive: true });
     const configPath = path.join(stateDir, "data-source-config.json");
     const store = createDataSourceConfigStore({ configPath });
-    await store.write({ type: "evaluations", path: "/srv/eval" });
+    await store.write({ path: "/srv/eval/*/pi-sessions" });
 
     const files = await readdir(stateDir);
     assert.deepEqual(files, ["data-source-config.json"]);
-    assert.deepEqual(JSON.parse(await readFileUtf8(configPath)), { version: 1, piAgentRoot: { type: "evaluations", path: "/srv/eval" } });
+    assert.deepEqual(JSON.parse(await readFileUtf8(configPath)), { version: 1, piAgentRoot: { path: "/srv/eval/*/pi-sessions" } });
   });
 });
 
@@ -108,16 +108,25 @@ test("validateOverrideForWrite accepts null without touching the filesystem", as
   });
 });
 
-test("validateOverrideForWrite rejects invalid types, relative paths, missing paths and files", async () => {
+test("validateOverrideForWrite rejects relative paths, missing paths and files", async () => {
   await withTempRoot(async (root) => {
     const store = createDataSourceConfigStore({ configPath: path.join(root, "data-source-config.json") });
-    await assert.rejects(() => store.validateOverrideForWrite({ type: "unknown", path: root }), /piAgentRoot\.type/);
-    await assert.rejects(() => store.validateOverrideForWrite({ type: "sessions", path: "relative/path" }), /绝对路径/);
-    await assert.rejects(() => store.validateOverrideForWrite({ type: "sessions", path: path.join(root, "missing") }), /无法解析/);
+    await assert.rejects(() => store.validateOverrideForWrite({ path: "relative/path" }), /绝对路径/);
+    await assert.rejects(() => store.validateOverrideForWrite({ path: path.join(root, "missing") }), /无法解析/);
 
     const filePath = path.join(root, "not-a-dir.jsonl");
     await writeFile(filePath, "", "utf8");
-    await assert.rejects(() => store.validateOverrideForWrite({ type: "sessions", path: filePath }), /必须是已存在的目录/);
+    await assert.rejects(() => store.validateOverrideForWrite({ path: filePath }), /必须是已存在的目录/);
+  });
+});
+
+test("validateOverrideForWrite validates only the static prefix of wildcard patterns", async () => {
+  await withTempRoot(async (root) => {
+    const store = createDataSourceConfigStore({ configPath: path.join(root, "data-source-config.json") });
+    const pattern = path.join(root, "tasks", "*", "output", "*", "pi-sessions");
+    await mkdir(path.join(root, "tasks"), { recursive: true });
+    await assert.rejects(() => store.validateOverrideForWrite({ path: path.join(root, "missing", "*", "pi-sessions") }), /固定前缀必须是已存在的目录/);
+    assert.deepEqual(await store.validateOverrideForWrite({ path: pattern }), { path: pattern });
   });
 });
 
@@ -128,7 +137,7 @@ test("validateOverrideForWrite resolves the override to a canonical realpath dir
     await mkdir(realDir, { recursive: true });
     await symlink(realDir, linkPath);
     const store = createDataSourceConfigStore({ configPath: path.join(root, "data-source-config.json") });
-    assert.deepEqual(await store.validateOverrideForWrite({ type: "sessions", path: linkPath }), { type: "sessions", path: realDir });
+    assert.deepEqual(await store.validateOverrideForWrite({ path: linkPath }), { path: realDir });
   });
 });
 
@@ -137,26 +146,40 @@ async function symlink(target, linkPath) {
   await createLink(target, linkPath);
 }
 
-test("registry override replaces the env Pi root including type", async () => {
+test("registry override replaces the env Pi root", async () => {
   await withTempRoot(async (root) => {
     const env = tempEnv(root);
     const overrideRoot = path.join(root, "override-sessions");
     await mkdir(overrideRoot, { recursive: true });
 
-    const registry = createDataSourceRegistry({ env, homeDir: root, piAgentRootOverride: { type: "evaluations", path: overrideRoot } });
+    const registry = createDataSourceRegistry({ env, homeDir: root, piAgentRootOverride: { path: overrideRoot } });
     const piAgent = registry.getSource("pi-agent");
-    assert.equal(piAgent.evaluationSessionsRoot, overrideRoot);
     assert.equal(piAgent.sessionsRoot, overrideRoot);
-    assert.equal(piAgent.taskSessionsRoot, undefined);
     assert.equal(registry.getDefaultSource().id, "pi-agent");
     assert.deepEqual(registry.getSource("local").codexHome, path.join(root, ".codex"));
+  });
+});
+
+test("registry override with wildcards keeps sessionsRoot as the pattern and checks the static prefix", async () => {
+  await withTempRoot(async (root) => {
+    const env = tempEnv(root);
+    await mkdir(path.join(root, "tasks"), { recursive: true });
+    const registry = createDataSourceRegistry({ env, homeDir: root, piAgentRootOverride: { path: path.join(root, "tasks", "*", "pi-sessions") } });
+    const piAgent = registry.getSource("pi-agent");
+    assert.equal(piAgent.sessionsRoot, path.join(root, "tasks", "*", "pi-sessions"));
+    assert.equal(piAgent.codexHome, path.join(root, "tasks"));
+    assert.deepEqual(piAgent.status, {});
+
+    const missing = createDataSourceRegistry({ env, homeDir: root, piAgentRootOverride: { path: path.join(root, "missing", "*", "pi-sessions") } });
+    assert.deepEqual(missing.getSource("pi-agent").status.error?.code, "missing_sessions_root");
+    assert.equal(missing.getDefaultSource().id, "pi-agent");
   });
 });
 
 test("registry override without the directory keeps the missing_sessions_root soft status", async () => {
   await withTempRoot(async (root) => {
     const env = tempEnv(root);
-    const registry = createDataSourceRegistry({ env, homeDir: root, piAgentRootOverride: { type: "sessions", path: path.join(root, "missing") } });
+    const registry = createDataSourceRegistry({ env, homeDir: root, piAgentRootOverride: { path: path.join(root, "missing") } });
     assert.deepEqual(registry.getSource("pi-agent").status.error?.code, "missing_sessions_root");
     assert.equal(registry.getDefaultSource().id, "pi-agent");
   });
@@ -166,7 +189,7 @@ test("registry still enforces the env mutual exclusion with an override present"
   await withTempRoot(async (root) => {
     const env = tempEnv(root, { PI_AGENT_TASKS_ROOT: path.join(root, "tasks") });
     assert.throws(
-      () => createDataSourceRegistry({ env, homeDir: root, piAgentRootOverride: { type: "sessions", path: root } }),
+      () => createDataSourceRegistry({ env, homeDir: root, piAgentRootOverride: { path: root } }),
       /不能同时配置/,
     );
   });
@@ -180,13 +203,13 @@ test("registry surfaces the config parse error on the pi-agent source status", a
   });
 });
 
-test("envPiAgentRootDescription reports the env-configured root", async () => {
+test("envPiAgentRootDescription reports the env-configured root path", async () => {
   await withTempRoot(async (root) => {
     const env = tempEnv(root);
-    assert.deepEqual(envPiAgentRootDescription(env, root), { type: "sessions", path: path.join(root, ".pi", "agent", "sessions") });
+    assert.deepEqual(envPiAgentRootDescription(env, root), { path: path.join(root, ".pi", "agent", "sessions") });
 
     const evaluationsEnv = tempEnv(root, { PI_AGENT_SESSIONS_ROOT: "", PI_AGENT_EVALUATIONS_ROOT: path.join(root, "eval") });
-    assert.deepEqual(envPiAgentRootDescription(evaluationsEnv, root), { type: "evaluations", path: path.join(root, "eval") });
+    assert.deepEqual(envPiAgentRootDescription(evaluationsEnv, root), { path: path.join(root, "eval") });
   });
 });
 
@@ -204,8 +227,8 @@ test("service rebuild swaps contexts and clears the cache after saving", async (
     const piAgentContextBefore = service.getSourceContext("pi-agent");
     assert.equal(piAgentContextBefore.sessionsRoot, envSessionsRoot);
 
-    const result = await service.updateDataSourceConfig({ piAgentRoot: { type: "sessions", path: overrideRoot } });
-    assert.deepEqual(result.override, { type: "sessions", path: overrideRoot });
+    const result = await service.updateDataSourceConfig({ piAgentRoot: { path: overrideRoot } });
+    assert.deepEqual(result.override, { path: overrideRoot });
     assert.equal(service.getSourceContext("pi-agent").sessionsRoot, overrideRoot);
     assert.notEqual(service.getSourceContext("pi-agent"), piAgentContextBefore);
     assert.notEqual(service.getSourceContext("local"), localContextBefore);
@@ -213,7 +236,7 @@ test("service rebuild swaps contexts and clears the cache after saving", async (
     assert.equal(service.getDefaultSource().id, "pi-agent");
     assert.deepEqual(
       JSON.parse(await readFileUtf8(store.configPath)),
-      { version: 1, piAgentRoot: { type: "sessions", path: overrideRoot } },
+      { version: 1, piAgentRoot: { path: overrideRoot } },
     );
 
     await service.updateDataSourceConfig({ piAgentRoot: null });
@@ -234,7 +257,7 @@ test("service update keeps the old registry when the write fails", async () => {
     const store = createDataSourceConfigStore({ configPath: path.join(unwritableDir, "data-source-config.json") });
     const service = createSessionSourceContextService({ maxListSessions: 5, env: tempEnv(root), homeDir: root, configStore: store });
 
-    await assert.rejects(() => service.updateDataSourceConfig({ piAgentRoot: { type: "sessions", path: overrideRoot } }), /配置文件写入失败/);
+    await assert.rejects(() => service.updateDataSourceConfig({ piAgentRoot: { path: overrideRoot } }), /配置文件写入失败/);
     assert.equal(service.getSourceContext("pi-agent").sessionsRoot, envSessionsRoot);
     assert.equal(service.getDefaultSource().id, "pi-agent");
   });
