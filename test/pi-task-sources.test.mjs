@@ -63,7 +63,7 @@ test("evaluation-root discovery only reads Pi sessions below each evaluation out
   const dir = await mkdtemp(path.join(os.tmpdir(), "csr-pi-evaluation-discovery-"));
   try {
     const evaluationsRoot = path.join(dir, "evaluations");
-    const evaluationIds = ["11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"];
+    const evaluationIds = ["11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222", "a".repeat(64)];
     for (const evaluationId of evaluationIds) {
       const sessionsRoot = path.join(evaluationsRoot, evaluationId, "output", "pi-sessions", "2026", "09", "18");
       await mkdir(sessionsRoot, { recursive: true });
@@ -72,6 +72,8 @@ test("evaluation-root discovery only reads Pi sessions below each evaluation out
     }
     await mkdir(path.join(evaluationsRoot, "not-an-evaluation"), { recursive: true });
     await writeFile(path.join(evaluationsRoot, "not-an-evaluation", "pi-stdout.jsonl"), "{}\n", "utf8");
+    await mkdir(path.join(evaluationsRoot, "b".repeat(63), "output", "pi-sessions"), { recursive: true });
+    await writeFile(path.join(evaluationsRoot, "b".repeat(63), "output", "pi-sessions", "pi-stdout.jsonl"), "{}\n", "utf8");
 
     const service = createSessionDirectoryQueryService({
       maxListSessions: 10,
@@ -87,7 +89,7 @@ test("evaluation-root discovery only reads Pi sessions below each evaluation out
     });
 
     assert.deepEqual(records.map((record) => record.id).sort(), evaluationIds.map((id) => `${id}:pi-stdout`).sort());
-    assert.deepEqual(records.map((record) => path.basename(record.filePath)), ["pi-stdout.jsonl", "pi-stdout.jsonl"]);
+    assert.deepEqual(records.map((record) => path.basename(record.filePath)), evaluationIds.map(() => "pi-stdout.jsonl"));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

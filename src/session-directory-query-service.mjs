@@ -9,7 +9,7 @@ import { isAbortError } from "./session-detail-coordinator.mjs";
 import { stripLongPathPrefix } from "./sqlite-threads.mjs";
 
 const piTaskDirectoryPattern = /^task-[a-z0-9][a-z0-9-]{0,127}$/;
-const evaluationDirectoryPattern = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
+const evaluationDirectoryPattern = /^(?:[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}|[a-f0-9]{64})$/i;
 const evaluationSessionsDirectoryParts = ["output", "pi-sessions"];
 const listFileConcurrency = 8;
 
