@@ -9,7 +9,7 @@
 
 ## 数据源
 
-`src/data-sources.mjs` 创建本机 Codex 与可选 Pi Agent 来源。Pi Agent 可读取直接会话根、任务归档根或评估根；评估根仅发现 UUID 或 64 位十六进制评估目录中 `output/pi-sessions/` 下的 JSONL，并把评估 ID 纳入会话身份。Pi Agent 会话根存在时成为默认来源，否则使用本机 Codex；来源均只读。环境变量三根互斥校验仅约束环境变量自身。临时文件或目录读取由 `src/session-source-context-service.mjs` 校验绝对路径，目录递归发现 `.jsonl` 文件后创建一次性来源上下文，不加入来源注册表或固定来源目录扫描。
+`src/data-sources.mjs` 创建本机 Codex 与可选 Pi Agent 来源。Pi Agent 可读取直接会话根、任务归档根或评估根；评估根仅发现 UUID 或 64 位十六进制评估目录中 `output/pi-sessions/` 与 `output/<运行>/pi-sessions/` 下的 JSONL，并把评估 ID（嵌套运行以 `<评估>/<运行>` 组合）纳入会话身份。Pi Agent 会话根存在时成为默认来源，否则使用本机 Codex；来源均只读。环境变量三根互斥校验仅约束环境变量自身。临时文件或目录读取由 `src/session-source-context-service.mjs` 校验绝对路径，目录递归发现 `.jsonl` 文件后创建一次性来源上下文，不加入来源注册表或固定来源目录扫描。
 
 `src/data-source-config.mjs` 提供运行时配置文件：仅在 `CODEX_SESSION_RENDERER_CONFIG_PATH` 指向绝对路径时启用，内容为单个 Pi 根覆盖（根类型加绝对路径，realpath 规范化）。保存路径为先构建新注册表、后同目录临时文件加 rename 原子写入，成功后整体替换注册表并清空来源缓存，失败保留旧状态；清除覆盖（null）不做路径校验，作为配置损坏时的自救通道。`PUT /api/data-source-config` 仅接受 `application/json`（415）、请求体上限 16KB（413）、字段校验失败返回 400，认证沿用全局 Basic 或 Bearer 前置校验。
 

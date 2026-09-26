@@ -10,7 +10,8 @@ import { stripLongPathPrefix } from "./sqlite-threads.mjs";
 
 const piTaskDirectoryPattern = /^task-[a-z0-9][a-z0-9-]{0,127}$/;
 const evaluationDirectoryPattern = /^(?:[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}|[a-f0-9]{64})$/i;
-const evaluationSessionsDirectoryParts = ["output", "pi-sessions"];
+const piSessionsDirectoryName = "pi-sessions";
+const evaluationSessionsDirectoryParts = ["output", piSessionsDirectoryName];
 const listFileConcurrency = 8;
 
 export function createSessionDirectoryQueryService(dependencies) {
@@ -79,20 +80,32 @@ async function* walkPiTaskSessions(dependencies, tasksRoot, options = {}) {
 }
 
 async function* walkPiEvaluationSessions(dependencies, evaluationsRoot, options = {}) {
-  let evaluations;
-  try {
-    evaluations = await fs.readdir(evaluationsRoot, { withFileTypes: true });
-  } catch {
-    return;
-  }
-  evaluations.sort((left, right) => right.name.localeCompare(left.name, "en"));
-  for (const evaluation of evaluations) {
+  for (const evaluation of await readDirectoryEntries(evaluationsRoot)) {
     dependencies.throwIfRequestAborted(options.signal);
     if (!evaluation.isDirectory() || !evaluationDirectoryPattern.test(evaluation.name)) continue;
     const evaluationRoot = path.join(evaluationsRoot, evaluation.name);
-    const sessionsRoot = path.join(evaluationRoot, ...evaluationSessionsDirectoryParts);
-    if (!await isRegularDirectory(evaluationRoot) || !await isRegularDirectory(sessionsRoot)) continue;
-    for await (const filePath of walkJsonl(dependencies, sessionsRoot, options)) yield { filePath, taskId: evaluation.name, archived: false };
+    const outputRoot = path.join(evaluationRoot, "output");
+    yield* walkEvaluationSessionDirectory(dependencies, path.join(evaluationRoot, ...evaluationSessionsDirectoryParts), evaluation.name, options);
+    for (const run of await readDirectoryEntries(outputRoot)) {
+      dependencies.throwIfRequestAborted(options.signal);
+      if (!run.isDirectory() || run.name === piSessionsDirectoryName) continue;
+      yield* walkEvaluationSessionDirectory(dependencies, path.join(outputRoot, run.name, piSessionsDirectoryName), `${evaluation.name}/${run.name}`, options);
+    }
+  }
+}
+
+async function* walkEvaluationSessionDirectory(dependencies, sessionsRoot, taskId, options) {
+  if (!await isRegularDirectory(sessionsRoot)) return;
+  for await (const filePath of walkJsonl(dependencies, sessionsRoot, options)) yield { filePath, taskId, archived: false };
+}
+
+async function readDirectoryEntries(directoryPath) {
+  try {
+    const entries = await fs.readdir(directoryPath, { withFileTypes: true });
+    entries.sort((left, right) => right.name.localeCompare(left.name, "en"));
+    return entries;
+  } catch {
+    return [];
   }
 }
 
@@ -134,10 +147,28 @@ function taskScopedSessionDirectories(source, taskId) {
   if (source.taskSessionsRoot && piTaskDirectoryPattern.test(taskId)) {
     return [path.join(source.taskSessionsRoot, taskId, "artifacts", "pi-sessions")];
   }
-  if (source.evaluationSessionsRoot && evaluationDirectoryPattern.test(taskId)) {
-    return [path.join(source.evaluationSessionsRoot, taskId, ...evaluationSessionsDirectoryParts)];
+  if (source.evaluationSessionsRoot) {
+    const scope = parseEvaluationScope(taskId);
+    if (scope) {
+      const parts = scope.runId ? ["output", scope.runId, piSessionsDirectoryName] : evaluationSessionsDirectoryParts;
+      return [path.join(source.evaluationSessionsRoot, scope.evaluationId, ...parts)];
+    }
   }
   return [];
+}
+
+function parseEvaluationScope(taskId) {
+  const value = String(taskId || "");
+  const separator = value.indexOf("/");
+  if (separator < 0) return evaluationDirectoryPattern.test(value) ? { evaluationId: value, runId: null } : null;
+  const evaluationId = value.slice(0, separator);
+  const runId = value.slice(separator + 1);
+  if (!evaluationDirectoryPattern.test(evaluationId) || !isSafePathSegment(runId)) return null;
+  return { evaluationId, runId };
+}
+
+function isSafePathSegment(segment) {
+  return Boolean(segment) && segment !== "." && segment !== ".." && !segment.includes("/");
 }
 
 async function sessionFileRecordById(dependencies, context, id, options = {}) {

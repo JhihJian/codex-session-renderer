@@ -59,6 +59,50 @@ test("createDataSourceRegistry supports an evaluation-root Pi Agent source", asy
   }
 });
 
+test("evaluation-root discovery reads sessions from nested run output directories", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "csr-pi-evaluation-runs-"));
+  try {
+    const evaluationsRoot = path.join(dir, "evaluations");
+    const evaluationId = "c".repeat(64);
+    const mainSessionsRoot = path.join(evaluationsRoot, evaluationId, ...["output", "pi-sessions"]);
+    await mkdir(mainSessionsRoot, { recursive: true });
+    await writeFile(path.join(mainSessionsRoot, "main.jsonl"), "{\"type\":\"session\",\"version\":3}\n", "utf8");
+    const firstRunRoot = path.join(evaluationsRoot, evaluationId, "output", "e-11111111111111111111111111111111", "pi-sessions");
+    await mkdir(firstRunRoot, { recursive: true });
+    await writeFile(path.join(firstRunRoot, "first.jsonl"), "{\"type\":\"session\",\"version\":3}\n", "utf8");
+    const secondRunRoot = path.join(evaluationsRoot, evaluationId, "output", "e-22222222222222222222222222222222", "pi-sessions");
+    await mkdir(secondRunRoot, { recursive: true });
+    await writeFile(path.join(secondRunRoot, "second.jsonl"), "{\"type\":\"session\",\"version\":3}\n", "utf8");
+    const logsRoot = path.join(evaluationsRoot, evaluationId, "output", "logs");
+    await mkdir(logsRoot, { recursive: true });
+    await writeFile(path.join(logsRoot, "pi-stdout.jsonl"), "{}\n", "utf8");
+    await mkdir(path.join(evaluationsRoot, evaluationId, "output", "e-empty"), { recursive: true });
+
+    const service = createSessionDirectoryQueryService({
+      maxListSessions: 10,
+      sessionFileStat: async (_context, filePath) => stat(filePath),
+      sourceFileStat: async (_context, filePath) => stat(filePath),
+      sourceSessionRootIsReadable: async () => true,
+      throwIfRequestAborted: () => {},
+    });
+    const context = { source: { evaluationSessionsRoot: evaluationsRoot }, codexHome: evaluationsRoot, sessionsRoot: evaluationsRoot };
+    const records = await service.collectSessionFileRecords(context);
+
+    assert.deepEqual(records.map((record) => record.id).sort(), [
+      `${evaluationId}/e-11111111111111111111111111111111:first`,
+      `${evaluationId}/e-22222222222222222222222222222222:second`,
+      `${evaluationId}:main`,
+    ]);
+
+    const scopedRecord = await service.sessionFileRecordById(context, `${evaluationId}/e-11111111111111111111111111111111:first`);
+    assert.equal(scopedRecord?.filePath, path.join(firstRunRoot, "first.jsonl"));
+    assert.equal(await service.sessionFileRecordById(context, `${evaluationId}/../..:main`), null);
+    assert.equal(await service.sessionFileRecordById(context, `${evaluationId}/logs:pi-stdout`), null);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("evaluation-root discovery only reads Pi sessions below each evaluation output directory", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "csr-pi-evaluation-discovery-"));
   try {
