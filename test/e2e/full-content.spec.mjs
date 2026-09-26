@@ -252,7 +252,6 @@ test("执行树保留模型回复上下文并隐藏工具上下文估算", async
   await selectCodexSource(page);
   await page.locator("#traceViewButton").click();
   await expect(page.locator('[data-trace-node-id^="turn:"]')).toBeVisible();
-  await page.locator('[data-trace-toggle-id^="turn:"]').click();
 
   const response = page.locator('[data-trace-node-id^="response:"]').first();
   const tool = page.locator('[data-trace-node-id^="item:"]', { hasText: "npm test" }).first();
@@ -330,7 +329,6 @@ test("缺失窗口或轮次指标时不保留未记录占位", async ({ page }) 
 test("Pi 执行过程轮次展示执行耗时，工具保留状态", async ({ page }) => {
   await page.goto("/");
   await page.locator("#traceViewButton").click();
-  await page.locator("[data-trace-toggle-id]").nth(1).click();
   const turnRow = page.locator('.trace-row[data-trace-node-id^="turn:"]').first();
   await expect(turnRow.locator(".trace-duration")).toBeVisible();
   await expect(turnRow).not.toContainText("等待输入");
@@ -344,10 +342,6 @@ test("Pi 执行过程轮次展示执行耗时，工具保留状态", async ({ pa
 test("Pi 执行视图展示技能加载与技能读取节点", async ({ page }) => {
   await page.goto("/");
   await page.locator("#traceViewButton").click();
-  const turnToggles = page.locator('[data-trace-toggle-id^="turn:"]');
-  for (let index = 0; index < await turnToggles.count(); index += 1) {
-    await turnToggles.nth(index).click();
-  }
   const skillNode = page.locator('.trace-row[data-trace-node-id]', { hasText: "技能加载" }).first();
   await expect(skillNode).toContainText("release-check");
   await expect(skillNode.locator(".trace-duration")).toHaveCount(0);

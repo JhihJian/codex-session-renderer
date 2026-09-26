@@ -406,3 +406,13 @@ test("空路径时整体内容按 Markdown 渲染", () => {
   api.state.toolFieldPath = "";
   api.state.toolRenderMode = "raw";
 });
+
+test("执行视图加载后默认展开到轮次一级", async () => {
+  await import("../public/app-view-shell.js");
+  api.state.detail = traceFixture();
+  api.primeTraceExpansion(api.state.detail);
+  assert.ok(api.state.expandedTraceNodeIds.has("thread:1"));
+  assert.ok(api.state.expandedTraceNodeIds.has("turn:1:0"));
+  api.primeTraceExpansion(null);
+  assert.equal(api.state.expandedTraceNodeIds.size, 0);
+});

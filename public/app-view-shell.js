@@ -167,7 +167,16 @@ function syncItemTypeFilterOptions() {
 
 function primeTraceExpansion(detail) {
   const root = detail?.trace?.root;
-  state.expandedTraceNodeIds = new Set(root ? [root.id] : []);
+  if (!root) {
+    state.expandedTraceNodeIds = new Set();
+    return;
+  }
+  // 默认展开到轮次一级：进入执行视图即可看到每轮的工具调用；子代理容器保持收起，避免懒加载占位和行数膨胀。
+  const expanded = new Set([root.id]);
+  for (const child of root.children || []) {
+    if (child.type === "turn") expanded.add(child.id);
+  }
+  state.expandedTraceNodeIds = expanded;
 }
 
 function renderStatusbar() {
