@@ -45,6 +45,8 @@ const state = {
 
   selectedTraceNodeId: null,
   executionExportLoading: false,
+  toolFieldPath: "",
+  toolRenderMode: "raw",
 
   selectedTerminalBlockId: null,
   expandedTraceNodeIds: new Set(),

@@ -26,6 +26,9 @@ globalThis.SessionWorkbench = {
   prettyMaybeJson: (value) => (value == null ? "" : JSON.stringify(value, null, 2)),
   formatDate: () => "",
   renderMarkdownMessage: (text) => `<div class="markdown">${text}</div>`,
+  renderToolExtractBar: () => "<div class=\"tool-extract-bar\"><input data-tool-field-path></div>",
+  renderToolTextBody: (extractable, source, prettyText) => `<pre>${prettyText}</pre>`,
+  bindToolExtractBar: () => {},
   openRawEvent: () => {},
   selectTraceNode: () => {},
   toggleTraceNode: () => {},
@@ -321,4 +324,85 @@ test("工具详情明确标识 Pi 在运行时截断的 bash 返回结果", () =
   assert.match(api.els.toolDetailsContent.innerHTML, /返回结果已在执行时按 50\.0KB limit 截断/);
   assert.match(api.els.toolDetailsContent.innerHTML, /不属于会话记录/);
   assert.match(api.els.toolDetailsContent.innerHTML, /data-tool-raw-event-index="13"/);
+});
+
+function jsonToolNode() {
+  return {
+    id: "tool:json-output",
+    type: "tool",
+    label: "工具调用",
+    title: "bash",
+    status: "completed",
+    detail: {
+      item: {
+        type: "tool-call",
+        name: "bash",
+        status: "completed",
+        arguments: JSON.stringify({ content: "# 参数标题\n\n- 列表项" }),
+        output: JSON.stringify({ content: "# 结果标题\n\n正文 **加粗**", items: [{ text: "条目" }] }),
+      },
+    },
+  };
+}
+
+test("JSON 路径提取支持嵌套字段、数组下标和失败提示", async () => {
+  await import("../public/app-view-trace-extract.js");
+  assert.deepEqual(api.parseJsonPathSegments(".content"), ["content"]);
+  assert.deepEqual(api.parseJsonPathSegments("$.choices[0].message.content"), ["choices", 0, "message", "content"]);
+  assert.deepEqual(api.parseJsonPathSegments(""), []);
+
+  const payload = JSON.stringify({ content: "# 标题\n正文", items: [{ text: "a" }] });
+  assert.equal(api.extractJsonFieldValue(payload, ".content").value, "# 标题\n正文");
+  assert.equal(api.extractJsonFieldValue(payload, ".items[0].text").value, "a");
+  assert.equal(api.extractJsonFieldValue(payload, ".items[5].text").ok, false);
+  assert.equal(api.extractJsonFieldValue(payload, ".missing").reason, "not-found");
+  assert.equal(api.extractJsonFieldValue("不是 JSON", ".content").reason, "not-json");
+});
+
+test("工具详情面板支持按 JSON 路径渲染 Markdown", () => {
+  api.state.detail = traceFixture();
+  api.state.toolFieldPath = ".content";
+  api.state.toolRenderMode = "markdown";
+  api.renderToolDetails(jsonToolNode());
+  const html = api.els.toolDetailsContent.innerHTML;
+  assert.match(html, /data-tool-field-path/);
+  assert.match(html, /value="\.content"/);
+  assert.match(html, /data-tool-render-mode="markdown"[^>]*class="active"/);
+  assert.match(html, /class="markdown"># 结果标题[\s\S]*?正文 \*\*加粗\*\*</);
+  assert.match(html, /class="markdown"># 参数标题/);
+  api.state.toolFieldPath = "";
+  api.state.toolRenderMode = "raw";
+});
+
+test("路径提取失败时提示可用字段并回退原文", () => {
+  api.state.detail = traceFixture();
+  api.state.toolFieldPath = ".missing";
+  api.state.toolRenderMode = "markdown";
+  api.renderToolDetails(jsonToolNode());
+  const html = api.els.toolDetailsContent.innerHTML;
+  assert.match(html, /没有找到字段 \.missing/);
+  assert.match(html, /可用字段/);
+  assert.match(html, /data-tool-field-suggest="\.content"/);
+  assert.match(html, /<pre>/);
+  api.state.toolFieldPath = "";
+  api.state.toolRenderMode = "raw";
+});
+
+test("空路径时整体内容按 Markdown 渲染", () => {
+  api.state.detail = traceFixture();
+  api.state.toolFieldPath = "";
+  api.state.toolRenderMode = "markdown";
+  api.renderToolDetails({
+    id: "tool:plain-markdown",
+    type: "tool",
+    label: "工具调用",
+    title: "bash",
+    status: "completed",
+    detail: { item: { type: "tool-call", name: "bash", status: "completed", output: "# 纯文本标题\n\n正文" } },
+  });
+  const html = api.els.toolDetailsContent.innerHTML;
+  assert.match(html, /class="markdown"># 纯文本标题/);
+  assert.doesNotMatch(html, /tool-extract-note/);
+  api.state.toolFieldPath = "";
+  api.state.toolRenderMode = "raw";
 });

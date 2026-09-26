@@ -16,6 +16,9 @@
   const renderMarkdownMessage = (...args) => api.renderMarkdownMessage(...args);
   const openRawEvent = (...args) => api.openRawEvent(...args);
   const exportExecutionText = (...args) => api.exportExecutionText(...args);
+  const renderToolExtractBar = (...args) => api.renderToolExtractBar(...args);
+  const renderToolTextBody = (...args) => api.renderToolTextBody(...args);
+  const bindToolExtractBar = (...args) => api.bindToolExtractBar(...args);
 function renderTrace() {
   const detail = state.detail;
   if (!detail?.trace?.root) {
@@ -379,8 +382,9 @@ function renderToolDetails(node = null) {
   const skillInstruction = skillDeclaration ? skillTextField(skillDeclaration.instruction) : "";
   const skillUserText = skillDeclaration ? skillTextField(skillDeclaration.userText) : "";
   const title = item?.name || node.title || node.label || "执行节点";
-  const argumentsText = item?.arguments
-    ? prettyMaybeJson(item.arguments)
+  const argumentsSource = item?.arguments ?? null;
+  const argumentsText = argumentsSource != null && argumentsSource !== ""
+    ? prettyMaybeJson(argumentsSource)
     : detail.response
       ? prettyMaybeJson(detail.response)
       : detail.note || task?.task || "";
@@ -406,10 +410,12 @@ function renderToolDetails(node = null) {
     ${skillDeclaration ? `<section class="tool-details-section trace-response-output"><h4>技能指令</h4><div>${skillInstruction ? renderMarkdownMessage(skillInstruction, "") : "会话中没有持久化该技能的指令正文。"}</div></section>` : ""}
     ${skillDeclaration && skillUserText ? `<section class="tool-details-section trace-response-output"><h4>触发消息</h4><div>${renderMarkdownMessage(skillUserText, "")}</div></section>` : ""}
     ${skillSourceIndex != null ? `<div class="trace-response-actions"><button class="ghost-button small" type="button" data-response-raw-event-index="${escapeAttr(String(skillSourceIndex))}">查看原始事件</button></div>` : ""}
-    ${argumentsText ? `<section class="tool-details-section"><h4>${isTool ? "调用参数" : "节点信息"}</h4><pre>${escapeHtml(argumentsText)}</pre></section>` : ""}
-    ${outputText ? `<section class="tool-details-section"><h4>返回结果</h4><pre>${escapeHtml(outputText)}</pre></section>` : ""}
+    ${isTool && (argumentsSource != null || outputText) ? renderToolExtractBar() : ""}
+    ${argumentsText ? `<section class="tool-details-section"><h4>${isTool ? "调用参数" : "节点信息"}</h4>${renderToolTextBody(isTool, argumentsSource, argumentsText)}</section>` : ""}
+    ${outputText ? `<section class="tool-details-section"><h4>返回结果</h4>${renderToolTextBody(isTool, outputText, outputText)}</section>` : ""}
     ${toolRawEventIndex != null ? `<div class="trace-response-actions"><button class="ghost-button small" type="button" data-tool-raw-event-index="${escapeAttr(String(toolRawEventIndex))}">查看原始事件</button></div>` : ""}
   `;
+  bindToolExtractBar(node);
   els.toolDetailsContent.querySelectorAll("[data-response-raw-event-index]").forEach((button) => {
     button.addEventListener("click", () => {
       void openRawEvent(Number(button.dataset.responseRawEventIndex));
