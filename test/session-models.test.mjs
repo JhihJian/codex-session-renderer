@@ -5,6 +5,7 @@ import {
   compactSessionForList,
   displayTitleForList,
 
+  maxSessionListTitleChars,
   mapCodexHomePath,
   parentSessionIdFromMeta,
   publicThreadMeta,
@@ -46,7 +47,7 @@ test("sessionFromThread creates the API session model without touching the file"
   assert.equal(session.archived, true);
 });
 
-test("compactSessionForList preserves the complete display title and preview", () => {
+test("compactSessionForList bounds display titles while preserving the preview", () => {
   const compact = compactSessionForList({
     id: "thread-1",
     title: "x".repeat(200),
@@ -67,9 +68,13 @@ test("compactSessionForList preserves the complete display title and preview", (
   assert.equal(compact.sourceId, "local");
 });
 
-test("displayTitleForList normalizes whitespace without shortening content", () => {
+test("displayTitleForList normalizes whitespace and bounds oversized titles", () => {
   assert.deepEqual(displayTitleForList("  第一行\n第二行  "), { displayTitle: "第一行 第二行", titleTruncated: false });
-  assert.deepEqual(displayTitleForList("a".repeat(1000)), { displayTitle: "a".repeat(1000), titleTruncated: false });
+  assert.deepEqual(displayTitleForList("a".repeat(maxSessionListTitleChars)), { displayTitle: "a".repeat(maxSessionListTitleChars), titleTruncated: false });
+  assert.deepEqual(displayTitleForList("a".repeat(maxSessionListTitleChars + 1)), {
+    displayTitle: `${"a".repeat(maxSessionListTitleChars - 1)}…`,
+    titleTruncated: true,
+  });
 });
 
 test("rootSessionsOnly removes subagent child threads from the standalone list", () => {

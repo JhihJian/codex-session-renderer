@@ -15,7 +15,7 @@
 
 ## 会话与阅读投影
 
-- `src/session-catalog.mjs`、`src/sqlite-threads.mjs`、`src/jsonl-reader.mjs` 和 `src/session-models.mjs` 负责目录发现、索引读取、JSONL 读取和来源化会话模型。
+- `src/session-catalog.mjs`、`src/sqlite-threads.mjs`、`src/jsonl-reader.mjs` 和 `src/session-models.mjs` 负责目录发现、索引读取、JSONL 读取和来源化会话模型；列表 `displayTitle` 会在规范化后限制为 400 个字符，并以 `titleTruncated` 标识超长标题。
 - `src/session-normalizer.mjs`、`src/session-events.mjs`、`src/embedded-subagents.mjs`、`src/event-summary.mjs` 与 `src/session-timing.mjs` 负责事件稳定化、子代理、摘要和时间投影。`src/session-events.mjs` 保持历史 API；其投影实现按 `session-turn-projection.mjs`、`session-compact-reading-projection.mjs`、`session-execution-trace-projection.mjs`、`session-trace-node-projection.mjs` 和 `session-projection-shared.mjs` 的单向依赖拆分。
 - `src/session-execution-export-projection.mjs` 从完整详情生成只含白名单字段的 Markdown 文本；`src/session-detail-query-service.mjs`、`src/session-query-service.mjs` 与 `src/session-router.mjs` 分别公开固定来源及临时会话的只读下载接口。
 - `src/session-source-context-service.mjs`、`src/session-directory-query-service.mjs`、`src/session-catalog-query-service.mjs`、`src/session-detail-query-service.mjs` 与 `src/session-event-query-service.mjs` 分别负责来源状态、目录、列表、详情和 Raw 事件查询；它们由查询服务装配层对路由公开。

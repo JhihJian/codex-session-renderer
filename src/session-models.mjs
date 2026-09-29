@@ -8,6 +8,7 @@ import {
 import { stripLongPathPrefix } from "./sqlite-threads.mjs";
 
 const sessionListTypes = new Set(["all", "error", "tool"]);
+const maxSessionListTitleChars = 400;
 const sessionListTypePatterns = {
   error: /error|failed|失败|错误/i,
   tool: /tool|mcp|command|shell|工具|命令/i,
@@ -27,7 +28,11 @@ function sessionMatchesListType(session, type = "all") {
 
 function displayTitleForList(title) {
   const normalized = String(title || "未命名会话").replace(/\s+/g, " ").trim() || "未命名会话";
-  return { displayTitle: normalized, titleTruncated: false };
+  const titleTruncated = normalized.length > maxSessionListTitleChars;
+  return {
+    displayTitle: titleTruncated ? `${normalized.slice(0, maxSessionListTitleChars - 1)}…` : normalized,
+    titleTruncated,
+  };
 }
 
 function mapCodexHomePath(filePath, codexHome, originalCodexHome = codexHome) {
@@ -235,6 +240,8 @@ function publicThreadMeta(thread, codexHome, options = {}) {
 export {
   compactSessionForList,
   displayTitleForList,
+
+  maxSessionListTitleChars,
 
   mapCodexHomePath,
   parentSessionIdFromMeta,
