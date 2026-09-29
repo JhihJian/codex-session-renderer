@@ -222,7 +222,7 @@ function renderSessionDirectoryTree(sessions, query) {
 
 function renderSessionDirectoryNode(node, query) {
   const key = sessionDirectoryKey(node.path);
-  const forcedOpen = Boolean(query) || directoryContainsSelectedSession(node);
+  const forcedOpen = Boolean(query);
   const open = forcedOpen || !state.collapsedSessionDirectoryKeys.has(key);
   const directRows = nestSessionChains(node.sessions).map(({ session, depth }) => renderSessionRow(session, query, depth)).join("");
   const children = node.children.map((child) => renderSessionDirectoryNode(child, query)).join("");
@@ -244,13 +244,6 @@ function renderSessionDirectoryNode(node, query) {
 
 function sessionDirectoryKey(path) {
   return JSON.stringify([state.selectedSourceId, path]);
-}
-
-function directoryContainsSelectedSession(node) {
-  const selectedKey = state.selectedSessionKey;
-  if (!selectedKey) return false;
-  if (node.sessions.some((session) => sessionKey(session) === selectedKey)) return true;
-  return node.children.some((child) => directoryContainsSelectedSession(child));
 }
 
 function bindSessionDirectoryTree() {
@@ -484,5 +477,5 @@ function tokenUsageTotal(usage) {
   return null;
 }
 
-  Object.assign(api, { renderSessionList, renderSessionListActionEmptyState, bindSessionListEmptyActions, mergedVisibleSessions, findSessionSummary, currentSessionFilteredOut, clearSessionFiltersForSelectedSession, returnToRealtimeSessions, reloadCurrentSessionListForFilters, renderSessionFilterNotice, selectedSessionDisplayTitle, sessionPlaceholderState, renderSessionPlaceholder, syncSessionTimeFilter, sessionTimeFilterCopy, renderSessionDirectoryTree, renderSessionDirectoryNode, sessionDirectoryKey, directoryContainsSelectedSession, bindSessionDirectoryTree, renderSessionRow, evidenceScopeForSession, sessionEvidenceId, rawEventEvidenceId, traceNodeEvidenceId, itemEvidenceId, sessionStatusLabel, renderThreadHeader, sessionFileLocation, renderSessionLineage, renderStats, renderSessionHandoff, sessionHandoffFacts, handoffSessionStatus, handoffChildText, handoffFact, tokenUsageTotal });
+  Object.assign(api, { renderSessionList, renderSessionListActionEmptyState, bindSessionListEmptyActions, mergedVisibleSessions, findSessionSummary, currentSessionFilteredOut, clearSessionFiltersForSelectedSession, returnToRealtimeSessions, reloadCurrentSessionListForFilters, renderSessionFilterNotice, selectedSessionDisplayTitle, sessionPlaceholderState, renderSessionPlaceholder, syncSessionTimeFilter, sessionTimeFilterCopy, renderSessionDirectoryTree, renderSessionDirectoryNode, sessionDirectoryKey, bindSessionDirectoryTree, renderSessionRow, evidenceScopeForSession, sessionEvidenceId, rawEventEvidenceId, traceNodeEvidenceId, itemEvidenceId, sessionStatusLabel, renderThreadHeader, sessionFileLocation, renderSessionLineage, renderStats, renderSessionHandoff, sessionHandoffFacts, handoffSessionStatus, handoffChildText, handoffFact, tokenUsageTotal });
 }

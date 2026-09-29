@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { openSessionFilters, selectCodexSource } from "./source-helpers.mjs";
+import { sessionId } from "./fixture-session.mjs";
 
 const earlierSession = {
   id: "history-scope-session",
@@ -33,6 +34,24 @@ test("会话目录按项目路径展开为树，叶子会话不重复", async ({
   await expect(projectless).toHaveJSProperty("open", false);
   await page.locator("#refreshButton").click();
   await expect(projectless).toHaveJSProperty("open", false);
+});
+
+test("选中会话所在目录仍可折叠并在重新渲染后保持", async ({ page }) => {
+  await page.goto("/");
+  await selectCodexSource(page);
+  const session = page.locator(`[data-session-id="${sessionId}"]`);
+  await expect(session).toBeVisible();
+  await session.click();
+  await expect(session).toHaveClass(/active/);
+
+  const selectedDirectory = session.locator("xpath=ancestor::details[1]");
+  const directoryKey = await selectedDirectory.getAttribute("data-directory-key");
+  await selectedDirectory.locator("summary").click();
+  const directory = page.locator(`details[data-directory-key='${directoryKey}']`);
+  await expect(directory).toHaveJSProperty("open", false);
+
+  await page.locator("#refreshButton").click();
+  await expect(directory).toHaveJSProperty("open", false);
 });
 
 test("过期 recent 列表不会污染更早范围、自动打开详情或提前释放刷新状态", async ({ page }) => {
