@@ -2,8 +2,8 @@
   "version": 4,
   "documentStatus": "active",
   "snapshot": {
-    "commit": "07aae91b0e74a3bb72fc9566a5feefafbbe36090",
-    "acceptedAt": "2026-09-29T09:33:57.073Z",
+    "commit": "1e78ff60cc9c3f173b290227c87556cb0142fe93",
+    "acceptedAt": "2026-09-29T10:04:24.263Z",
     "files": [
       {
         "path": "README.md",
@@ -19,7 +19,7 @@
       },
       {
         "path": "docs/architecture/modules/session-projection.md",
-        "sha256": "sha256:ca6f578b6dd13f2d1dd4adc2928f37b7ac14886173c1252ab096255baaeae828"
+        "sha256": "sha256:e1720db755464fc182bb62792ab2fb325f76d76d276587e21a047b87a976c57f"
       },
       {
         "path": "docs/data-source-config-design.md",
@@ -303,7 +303,7 @@
       },
       {
         "path": "src/session-compact-reading-projection.mjs",
-        "sha256": "sha256:f925387a5dc372c81fd011670df87e54f4484bbb2c8ca38e8cad5f5cbca315a3"
+        "sha256": "sha256:63b5774c37a59f35d39762b56556d3b1647c49c967ab5166c2e9e1f8c7477367"
       },
       {
         "path": "src/session-detail-coordinator.mjs",
@@ -311,7 +311,7 @@
       },
       {
         "path": "src/session-detail-query-service.mjs",
-        "sha256": "sha256:8332e6a6c70badfcd4b51d10910fedb262f2b5a2938a98781017def8d42af504"
+        "sha256": "sha256:19666d8de078104dd184ae2b994d11d2537aedc7a14c0fd85923c44e41bc54d9"
       },
       {
         "path": "src/session-directory-query-service.mjs",
@@ -335,7 +335,7 @@
       },
       {
         "path": "src/session-execution-trace-projection.mjs",
-        "sha256": "sha256:099092e05f084efad83dc6afab9c69408647689d8526e662e2a1bc46583c90db"
+        "sha256": "sha256:1da55e3e6da8c5ca1ba7b9ff68fe9e08de42a2b7b29ca4ee4632c98f5069ebce"
       },
       {
         "path": "src/session-format-adapters/adapter-registry.mjs",
@@ -367,7 +367,7 @@
       },
       {
         "path": "src/session-query.mjs",
-        "sha256": "sha256:621e8322021a8b192b06794b0090fe017018252ae3f4d3eee407d4c8fd6b60e0"
+        "sha256": "sha256:afc613e57bf8c11cac1a2e424fae71792565eed9e0cf275474579d5954a8f810"
       },
       {
         "path": "src/session-router.mjs",
@@ -499,7 +499,7 @@
       },
       {
         "path": "test/session-events.test.mjs",
-        "sha256": "sha256:e3bc7b0105092559fae765211f9a009b4d6380415896d11bcfb11eea4bf570e3"
+        "sha256": "sha256:371bb3517eef8958115ff5ca130d935a5f363894914f1b591f83c2468f5250a9"
       },
       {
         "path": "test/session-execution-export-http.test.mjs",
@@ -523,7 +523,7 @@
       },
       {
         "path": "test/session-query.test.mjs",
-        "sha256": "sha256:7642851fd48c9cb05edbea078e7d170c9106e56cd0142b5280e4014fd7697606"
+        "sha256": "sha256:ba892892b4d0b0f9152c93493e0ff2d3a80845b97ff11c7ea65aeaf5bc235dbd"
       },
       {
         "path": "test/session-record-lookup.test.mjs",
