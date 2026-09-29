@@ -18,8 +18,9 @@ function buildTrace(session, rawEvents, normalizedEvents, turns, hierarchy, opti
   const responsesByTurnIndex = groupResponsesByTurnIndex(responseIntervals);
   const traceContext = buildTraceContext(session, normalizedEvents, turns, hierarchy);
   const root = createTraceRoot(session, hierarchy, turns, traceContext.timing);
-  appendTraceTurns(root, turns, hierarchy, traceContext, responsesByTurnIndex);
-  appendUnplacedChildTraces(root, hierarchy, traceContext);
+  const placedChildIds = new Set();
+  appendTraceTurns(root, turns, hierarchy, { ...traceContext, responsesByTurnIndex, placedChildIds });
+  appendUnplacedChildTraces(root, hierarchy, traceContext, placedChildIds);
   applyExecutionContextMetrics(root);
   applyTurnModelUsage(root);
 
@@ -63,7 +64,7 @@ function createTraceRoot(session, hierarchy, turns, timing) {
   };
 }
 
-function appendTraceTurns(root, turns, hierarchy, traceContext, responsesByTurnIndex) {
+function appendTraceTurns(root, turns, hierarchy, traceContext) {
   for (const [turnIndex, turn] of turns.entries()) {
     const turnSummary = summarizeTurnForTrace(turn, hierarchy);
     const turnEndedAt = turn.completedAt || lastTurnActivityAt(turn);
@@ -93,17 +94,15 @@ function appendTraceTurns(root, turns, hierarchy, traceContext, responsesByTurnI
       hierarchy,
       spawnByChildId: traceContext.spawnByChildId,
       notificationByChildId: traceContext.notificationByChildId,
-      responsesByTurnIndex,
+      responsesByTurnIndex: traceContext.responsesByTurnIndex,
+      placedChildIds: traceContext.placedChildIds,
     });
 
     root.children.push(turnNode);
   }
 }
 
-function appendUnplacedChildTraces(root, hierarchy, traceContext) {
-  const placedChildIds = new Set(
-    root.children.flatMap((turn) => turn.children.filter((node) => node.type === "subagent").map((node) => node.threadId)),
-  );
+function appendUnplacedChildTraces(root, hierarchy, traceContext, placedChildIds) {
   for (const child of hierarchy.children) {
     if (!placedChildIds.has(child.childThreadId)) {
       root.children.push(traceNodeFromChildThread(child, traceContext.spawnByChildId.get(child.childThreadId), traceContext.notificationByChildId.get(child.childThreadId)));
@@ -123,27 +122,29 @@ function groupResponsesByTurnIndex(responseIntervals) {
 
 // 轮次于项按时长归因：工具/子代理 + 模型回复区间 + 未归因剩余，按开始时间排序。
 function attachTurnChildren(turnNode, turn, turnIndex, context) {
-  const { hierarchy, spawnByChildId, notificationByChildId, responsesByTurnIndex } = context;
+  const { hierarchy, spawnByChildId, notificationByChildId, responsesByTurnIndex, placedChildIds } = context;
   for (const [itemIndex, item] of turn.items.entries()) {
     const itemNode = traceNodeFromItem(item, turnIndex, itemIndex);
     if (itemNode && isDefaultTraceNodeForPayload(itemNode)) turnNode.children.push(itemNode);
   }
-  attachTurnChildThreads(turnNode, turn, hierarchy, spawnByChildId, notificationByChildId);
+  attachTurnChildThreads(turnNode, turn, { hierarchy, spawnByChildId, notificationByChildId, placedChildIds });
   attachTurnResponses(turnNode, turn, turnIndex, responsesByTurnIndex);
   appendUnattributedGapNode(turnNode);
   turnNode.children.sort(byStartTimestamp);
 }
 
-function attachTurnChildThreads(turnNode, turn, hierarchy, spawnByChildId, notificationByChildId) {
+function attachTurnChildThreads(turnNode, turn, { hierarchy, spawnByChildId, notificationByChildId, placedChildIds }) {
   const turnStart = toMs(turn.startedAt) ?? -Infinity;
   const turnEnd = toMs(turn.completedAt) ?? Infinity;
   for (const child of hierarchy.children) {
+    if (placedChildIds.has(child.childThreadId)) continue;
     const spawnEvent = spawnByChildId.get(child.childThreadId);
     const notificationEvent = notificationByChildId.get(child.childThreadId);
     const anchor = spawnEvent || notificationEvent;
     const anchorMs = toMs(anchor?.timestamp);
     if (anchor && anchorMs != null && anchorMs >= turnStart && anchorMs <= turnEnd) {
       turnNode.children.push(traceNodeFromChildThread(child, anchor, notificationEvent));
+      placedChildIds.add(child.childThreadId);
     }
   }
 }

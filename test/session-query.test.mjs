@@ -7,11 +7,17 @@ import {
   paginateSessions,
   parseSessionEventQuery,
   parseSessionListQuery,
+  parseSessionViewQuery,
   projectEventForApi,
   projectSessionForApi,
   sessionWatermark,
   sortSessions,
 } from "../src/session-query.mjs";
+
+test("session view queries leave child session bodies unloaded by default", () => {
+  assert.deepEqual(parseSessionViewQuery(new URLSearchParams()), { view: "compact", maxDepth: 0 });
+  assert.deepEqual(parseSessionViewQuery(new URLSearchParams("view=compact&maxDepth=2")), { view: "compact", maxDepth: 2 });
+});
 
 test("session query filters root sessions by time, text and child state", () => {
   const sessions = [

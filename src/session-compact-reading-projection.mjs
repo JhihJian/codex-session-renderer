@@ -10,6 +10,10 @@ import {
   toMs,
 } from "./session-projection-shared.mjs";
 
+const compactItemIdentityIndexes = new WeakMap();
+const compactItemSearchTexts = new WeakMap();
+const compactOwnerIndexes = new WeakMap();
+
 function compactTurnsForClient(turns) {
   return turns.map((turn, turnIndex) => ({
     ...turn,
@@ -392,13 +396,13 @@ function compactReplacementTargetItem(turns = [], entry = {}) {
 function compactReplacementTargetItemIndex(items = [], entry = {}) {
   const messageId = normalizeText(entry.messageId);
   if (messageId) {
-    const index = items.findIndex((item) => item.messageId === messageId || item.id === messageId);
+    const index = compactItemIdentityIndex(items).messageIds.get(messageId);
     if (index >= 0) return index;
   }
 
   const callId = normalizeText(entry.callId);
   if (callId) {
-    const index = items.findIndex((item) => item.callId === callId || item.id === callId);
+    const index = compactItemIdentityIndex(items).callIds.get(callId);
     if (index >= 0) return index;
   }
 
@@ -406,7 +410,10 @@ function compactReplacementTargetItemIndex(items = [], entry = {}) {
   if (!candidates.length) return null;
   const preview = normalizeText(entry.preview).toLowerCase();
   if (preview) {
-    const matched = candidates.find((index) => compactReplacementItemSearchText(items[index]).includes(preview) || preview.includes(firstLine(compactReplacementItemSearchText(items[index]), 80)));
+    const matched = candidates.find((index) => {
+      const text = compactReplacementItemSearchText(items[index]);
+      return text.includes(preview) || preview.includes(text.slice(0, 80));
+    });
     if (Number.isInteger(matched)) return matched;
   }
   if (candidates.length === 1) return candidates[0];
@@ -423,6 +430,20 @@ function compactReplacementTargetItemIndex(items = [], entry = {}) {
   const role = String(entry.role || "").toLowerCase();
   if (role === "assistant") return candidates.at(-1);
   return candidates[0];
+}
+
+function compactItemIdentityIndex(items) {
+  const existing = compactItemIdentityIndexes.get(items);
+  if (existing) return existing;
+  const indexes = { messageIds: new Map(), callIds: new Map() };
+  for (const [index, item] of items.entries()) {
+    const messageId = String(item.messageId || item.id || "");
+    const callId = String(item.callId || item.id || "");
+    if (messageId && !indexes.messageIds.has(messageId)) indexes.messageIds.set(messageId, index);
+    if (callId && !indexes.callIds.has(callId)) indexes.callIds.set(callId, index);
+  }
+  compactItemIdentityIndexes.set(items, indexes);
+  return indexes;
 }
 
 function compactReplacementCandidateIndexes(items = [], entry = {}) {
@@ -444,20 +465,38 @@ function compactReplacementCandidateIndexes(items = [], entry = {}) {
 }
 
 function compactReplacementItemSearchText(item = {}) {
-  return [item.text, item.arguments, item.output, item.name, item.callId, item.messageId].filter(Boolean).join(" ").toLowerCase();
+  const existing = compactItemSearchTexts.get(item);
+  if (existing) return existing;
+  const text = [item.text, item.arguments, item.output, item.name, item.callId, item.messageId].filter(Boolean).join(" ").toLowerCase();
+  compactItemSearchTexts.set(item, text);
+  return text;
 }
 
 function compactCompressionOwnerItemIndex(items = [], itemIndex) {
+  let indexes = compactOwnerIndexes.get(items);
+  if (!indexes) {
+    indexes = new Map();
+    compactOwnerIndexes.set(items, indexes);
+  }
+  if (indexes.has(itemIndex)) return indexes.get(itemIndex);
   const item = items[itemIndex];
   if (!item) return null;
-  if (item.type === "user-message" || item.type === "assistant-message") return itemIndex;
+  if (item.type === "user-message" || item.type === "assistant-message") {
+    indexes.set(itemIndex, itemIndex);
+    return itemIndex;
+  }
   const previousAssistant = items
     .map((candidate, index) => ({ candidate, index }))
     .filter(({ candidate, index }) => index <= itemIndex && candidate.type === "assistant-message" && normalizeText(candidate.text))
     .at(-1);
-  if (previousAssistant) return previousAssistant.index;
+  if (previousAssistant) {
+    indexes.set(itemIndex, previousAssistant.index);
+    return previousAssistant.index;
+  }
   const nextAssistant = items.findIndex((candidate, index) => index > itemIndex && candidate.type === "assistant-message" && normalizeText(candidate.text));
-  return nextAssistant >= 0 ? nextAssistant : null;
+  const ownerIndex = nextAssistant >= 0 ? nextAssistant : null;
+  indexes.set(itemIndex, ownerIndex);
+  return ownerIndex;
 }
 
 

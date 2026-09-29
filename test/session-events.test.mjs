@@ -197,6 +197,31 @@ test("buildTrace estimates open turn duration from last item activity", () => {
   assert.equal(childrenSum, turn.durationMs);
 });
 
+test("buildTrace places a child thread only once when open turns overlap", () => {
+  const childId = "child-1";
+  const trace = buildTrace(
+    { id: "thread-1", title: "" },
+    [],
+    [{
+      kind: "function_call",
+      timestamp: "2026-07-08T10:00:03.000Z",
+      payload: { name: "spawn_agent", arguments: JSON.stringify({ agent_id: childId }) },
+    }],
+    [
+      { id: "turn-1", startedAt: "2026-07-08T10:00:00.000Z", completedAt: null, status: "running", items: [] },
+      { id: "turn-2", startedAt: "2026-07-08T10:00:02.000Z", completedAt: null, status: "running", items: [] },
+    ],
+    { children: [{ childThreadId: childId, status: "closed", thread: { id: childId, title: "子代理" } }], siblings: [] },
+  );
+
+  const placements = trace.root.children.flatMap((turn) => turn.children.filter((node) => node.type === "subagent"));
+
+  assert.equal(placements.length, 1);
+  assert.equal(placements[0].threadId, childId);
+  assert.equal(trace.root.children[0].children.some((node) => node.type === "subagent"), true);
+  assert.equal(trace.root.children[1].children.some((node) => node.type === "subagent"), false);
+});
+
 test("buildTrace keeps observed turn duration when turn completion exists", () => {
   const trace = buildTrace(
     { id: "thread-1", title: "" },

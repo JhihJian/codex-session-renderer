@@ -38,7 +38,7 @@ async function getSessionDetailForSession(dependencies, context, session, option
   const id = options.id || session.id;
   const stat = await dependencies.sessionFileStat(context, session.path, session.id);
   if (!stat) return null;
-  const maxDepth = options.maxDepth ?? 3;
+  const maxDepth = options.maxDepth ?? 0;
   const modelContextWindow = await dependencies.modelContextWindow?.(context, session.model) || null;
   const getThreadHierarchy = options.getThreadHierarchy || ((threadId, queryOptions) => dependencies.getThreadHierarchy(context, threadId, queryOptions));
   const related = options.related === undefined ? await dependencies.getSessionLineage(context, session, options) : options.related;
@@ -142,6 +142,7 @@ function compactTurn({ turn, index, children, nodes, spawns, notifications, plac
   const start = toMs(turn.startedAt) ?? -Infinity;
   const end = toMs(turn.completedAt) ?? Infinity;
   const nested = children.filter((child) => {
+    if (placed.has(child.childThreadId)) return false;
     const time = toMs((spawns.get(child.childThreadId) || notifications.get(child.childThreadId))?.timestamp);
     if (time == null || time < start || time > end) return false;
     placed.add(child.childThreadId);
