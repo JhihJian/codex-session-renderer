@@ -19,7 +19,7 @@
   const loadHistoricalSessions = (...args) => api.loadHistoricalSessions(...args);
   const loadSessions = (...args) => api.loadSessions(...args);
   const selectSessionTimeFilter = (...args) => api.selectSessionTimeFilter(...args);
-  const sessionTimeBucket = (...args) => api.sessionTimeBucket(...args);
+
   const clearSessionFiltersForSelectedSession = (...args) => api.clearSessionFiltersForSelectedSession(...args);
   const returnToRealtimeSessions = (...args) => api.returnToRealtimeSessions(...args);
   const renderMainContent = (...args) => api.renderMainContent(...args);
@@ -105,7 +105,6 @@ function bindEvents() {
     }
     invalidateSessionListRequests();
     if (state.sessionTimeFilter === "earlier") {
-      state.sessions = state.sessions.filter((session) => sessionTimeBucket(session) !== "earlier");
       state.historyLoaded = false;
       void loadHistoricalSessions({ announce: true });
     }

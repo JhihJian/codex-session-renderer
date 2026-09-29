@@ -105,23 +105,24 @@ function selectSessionTimeFilter(bucket) {
   const changed = next !== state.sessionTimeFilter;
   if (changed) invalidateSessionListRequests();
   state.sessionTimeFilter = next;
-  if (state.sessionTimeFilter === "earlier" && !state.historyLoaded) {
+  if (state.sessionTimeFilter === "earlier") {
+    state.historyLoaded = false;
     renderSessionList();
     void loadHistoricalSessions({ announce: true });
   } else {
-    renderSessionList();
-    selectFirstVisibleSession();
+    void loadSessions({ announce: true });
   }
 }
 
 async function loadSessions({ announce = false } = {}) {
   cancelAlternateLocalSourceDiscovery();
   const sourceId = state.selectedSourceId;
+  const scope = sessionCatalogScopeForTimeFilter();
   const scopeVersion = state.sessionListScopeVersion;
   const controller = new AbortController();
   state.sessionsAbortController?.abort();
   state.sessionsAbortController = controller;
-  const requestKey = `sessions:${++state.sessionsRequestSeq}:${sourceId}:recent24h:${scopeVersion}`;
+  const requestKey = `sessions:${++state.sessionsRequestSeq}:${sourceId}:${scope}:${scopeVersion}`;
   state.sessionsRequestKey = requestKey;
   state.sessionsLoading = true;
   state.sessionsLoadError = "";
@@ -131,14 +132,16 @@ async function loadSessions({ announce = false } = {}) {
   state.historyLoadError = "";
   state.historyLoaded = false;
   state.historyRequestKey = `inactive:${++state.historyRequestSeq}`;
+  state.sessions = [];
+  state.filteredSessions = [];
   const operationKey = `${requestKey}:status`;
   setWorkbenchStatus(operationKey, `正在加载${selectedSource()?.label || "当前数据源"}会话列表`, { announce });
   setBusy(true);
   renderSessionList();
   try {
-    const data = await fetchJson(sourceSessionsUrl(sourceId, "recent24h"), { signal: controller.signal });
+    const data = await fetchJson(sourceSessionsUrl(sourceId, scope), { signal: controller.signal });
     if (!sessionListRequestIsCurrent({ requestKey, sourceId, scopeVersion, kind: "sessions" })) return;
-    requireSourceResponse(data, sourceId, "sessions", "recent24h");
+    requireSourceResponse(data, sourceId, "sessions", scope);
     state.healthLoadError = "";
     if (data.source) upsertSource(data.source);
     state.sessions = data.sessions || [];
@@ -213,7 +216,7 @@ function canDiscoverAlternateLocalSource() {
       els.sessionTypeFilter.value === "all" &&
       !state.sessionsLoading &&
       !state.sessionsLoadError &&
-      !state.sessions.some((session) => sessionTimeBucket(session) === state.sessionTimeFilter) &&
+      state.sessions.length === 0 &&
       alternateLocalSourceCandidate(),
   );
 }
@@ -223,7 +226,7 @@ function alternateLocalSourceDiscoveryCurrent(requestKey) {
 }
 
 function alternateLocalSourceResult(data, source) {
-  const visibleCount = (data.sessions || []).filter((session) => sessionTimeBucket(session) === state.sessionTimeFilter).length;
+  const visibleCount = (data.sessions || []).length;
   return visibleCount > 0 ? { id: source.id, label: data.source?.label || source.label || source.id } : null;
 }
 
@@ -243,9 +246,9 @@ async function discoverAlternateLocalSource() {
   const requestKey = `${scope}:${source.id}:${Date.now()}`;
   state.alternateLocalSourceRequestKey = requestKey;
   try {
-    const data = await fetchJson(sourceSessionsUrl(source.id, "recent24h"), { signal: controller.signal });
+    const data = await fetchJson(sourceSessionsUrl(source.id, "realtime"), { signal: controller.signal });
     if (!alternateLocalSourceDiscoveryCurrent(requestKey)) return;
-    requireSourceResponse(data, source.id, "sessions", "recent24h");
+    requireSourceResponse(data, source.id, "sessions", "realtime");
     if (data.source) upsertSource(data.source);
     state.alternateLocalSource = alternateLocalSourceResult(data, source);
   } catch (error) {
@@ -265,25 +268,24 @@ async function loadHistoricalSessions({ announce = false } = {}) {
   const controller = new AbortController();
   state.historyAbortController?.abort();
   state.historyAbortController = controller;
-  const requestKey = `history:${++state.historyRequestSeq}:${sourceId}:history:${scopeVersion}`;
+  const requestKey = `history:${++state.historyRequestSeq}:${sourceId}:earlier:${scopeVersion}`;
   state.historyRequestKey = requestKey;
   state.historyLoading = true;
   state.sessionsLoadError = "";
   state.historyLoadError = "";
+  state.sessions = [];
+  state.filteredSessions = [];
   const operationKey = `${requestKey}:status`;
   setWorkbenchStatus(operationKey, "正在读取更早会话", { announce });
   setBusy(true);
   renderSourceStatus();
   renderSessionList();
   try {
-    const data = await fetchJson(sourceSessionsUrl(sourceId, "history"), { signal: controller.signal });
+    const data = await fetchJson(sourceSessionsUrl(sourceId, "earlier"), { signal: controller.signal });
     if (!sessionListRequestIsCurrent({ requestKey, sourceId, scopeVersion, kind: "history" })) return;
-    requireSourceResponse(data, sourceId, "sessions", "history");
+    requireSourceResponse(data, sourceId, "sessions", "earlier");
     if (data.source) upsertSource(data.source);
-    const priorSessions = state.sessions.filter((session) => sessionTimeBucket(session) !== "earlier");
-    const byKey = new Map(priorSessions.map((session) => [sessionKey(session), session]));
-    for (const session of data.sessions || []) byKey.set(sessionKey(session), session);
-    state.sessions = [...byKey.values()];
+    state.sessions = data.sessions || [];
     state.historyLoaded = true;
     state.historyLoadError = "";
     setWorkbenchStatus(operationKey, `更早会话已加载：${state.sessions.length} 个会话`, { announce });
@@ -510,6 +512,12 @@ function sourceNavigationContext() {
   });
 }
 
+function sessionCatalogScopeForTimeFilter(bucket = state.sessionTimeFilter) {
+  if (bucket === "day") return "day";
+  if (bucket === "earlier") return "earlier";
+  return "realtime";
+}
+
 function sourceNavigationRequestIsCurrent({ requestKey, expectedRequestKey, sourceId, context }) {
   return sourceRequestOwnsState({ requestKey, expectedRequestKey, sourceId }) && sourceNavigationContext() === context;
 }
@@ -517,5 +525,5 @@ function sourceNavigationRequestIsCurrent({ requestKey, expectedRequestKey, sour
 function sourceRequestOwnsState({ requestKey, expectedRequestKey, sourceId }) {
   return requestKey === expectedRequestKey && state.selectedSourceId === sourceId;
 }
-  Object.assign(api, { loadHealthAndSources, renderSourceControls, renderSourceStatus, selectSessionTimeFilter, loadSessions, selectFirstVisibleSession, cancelAlternateLocalSourceDiscovery, alternateLocalSourceCandidate, canDiscoverAlternateLocalSource, alternateLocalSourceDiscoveryCurrent, alternateLocalSourceResult, alternateLocalSourceDiscoveryFailed, discoverAlternateLocalSource, loadHistoricalSessions, refreshCurrentSessionList, invalidateSessionListRequests, sessionListRequestIsCurrent, setBusy, setWorkbenchStatus, syncAsyncAccessibility, setAriaBusy, selectSession, reloadSelectedSessionDetail, clearSelectedSession, selectSource, sourceNavigationContext, sourceNavigationRequestIsCurrent, sourceRequestOwnsState });
+  Object.assign(api, { loadHealthAndSources, renderSourceControls, renderSourceStatus, selectSessionTimeFilter, loadSessions, selectFirstVisibleSession, cancelAlternateLocalSourceDiscovery, alternateLocalSourceCandidate, canDiscoverAlternateLocalSource, alternateLocalSourceDiscoveryCurrent, alternateLocalSourceResult, alternateLocalSourceDiscoveryFailed, discoverAlternateLocalSource, loadHistoricalSessions, refreshCurrentSessionList, invalidateSessionListRequests, sessionListRequestIsCurrent, setBusy, setWorkbenchStatus, syncAsyncAccessibility, setAriaBusy, selectSession, reloadSelectedSessionDetail, clearSelectedSession, selectSource, sourceNavigationContext, sessionCatalogScopeForTimeFilter, sourceNavigationRequestIsCurrent, sourceRequestOwnsState });
 }

@@ -26,11 +26,11 @@ function sessionMatchesListType(session, type = "all") {
   return sessionListTypePatterns[normalizedType].test(searchable);
 }
 
-function displayTitleForList(title) {
+function displayTitleForList(title, maxChars = maxSessionListTitleChars) {
   const normalized = String(title || "未命名会话").replace(/\s+/g, " ").trim() || "未命名会话";
-  const titleTruncated = normalized.length > maxSessionListTitleChars;
+  const titleTruncated = maxChars != null && normalized.length > maxChars;
   return {
-    displayTitle: titleTruncated ? `${normalized.slice(0, maxSessionListTitleChars - 1)}…` : normalized,
+    displayTitle: titleTruncated ? `${normalized.slice(0, maxChars - 1)}…` : normalized,
     titleTruncated,
   };
 }
@@ -108,9 +108,9 @@ function parentSessionIdFromMeta(meta) {
   return sessionId || null;
 }
 
-function compactSessionForList(session) {
+function compactSessionForList(session, options = {}) {
   const enriched = withSubagentMeta(session);
-  const title = displayTitleForList(enriched.title);
+  const title = displayTitleForList(enriched.title, options.fullTitle ? null : maxSessionListTitleChars);
   return {
     id: enriched.id,
     sourceId: enriched.sourceId || "local",

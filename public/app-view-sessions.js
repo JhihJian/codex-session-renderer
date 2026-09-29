@@ -50,7 +50,6 @@ function renderSessionList() {
     return;
   }
   const sessions = state.sessions.filter((session) => {
-    if (state.selectedSourceId !== "temporary" && sessionTimeBucket(session) !== state.sessionTimeFilter) return false;
     if (filter === "project" && !session.cwd) return false;
     if (filter === "projectless" && session.cwd) return false;
     return true;
@@ -148,7 +147,6 @@ function returnToRealtimeSessions() {
 
 function reloadCurrentSessionListForFilters() {
   if (state.sessionTimeFilter === "earlier") {
-    state.sessions = state.sessions.filter((session) => sessionTimeBucket(session) !== "earlier");
     state.historyLoaded = false;
     void loadHistoricalSessions({ announce: true });
     return;

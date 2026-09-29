@@ -77,6 +77,14 @@ test("displayTitleForList normalizes whitespace and bounds oversized titles", ()
   });
 });
 
+test("compactSessionForList keeps the complete title for a filtered result", () => {
+  const title = "x".repeat(maxSessionListTitleChars + 1);
+  const compact = compactSessionForList({ id: "thread-filtered", title }, { fullTitle: true });
+
+  assert.equal(compact.displayTitle, title);
+  assert.equal(compact.titleTruncated, false);
+});
+
 test("rootSessionsOnly removes subagent child threads from the standalone list", () => {
   const sessions = [
     { id: "root", title: "根会话" },

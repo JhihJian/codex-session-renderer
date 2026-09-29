@@ -23,19 +23,23 @@ export function createSessionCatalogQueryService(dependencies) {
 }
 
 function normalizeSessionCatalogScope(scope) {
-  return ["recent24h", "history", "all"].includes(scope) ? scope : "all";
+  return ["realtime", "day", "earlier", "recent24h", "history", "all"].includes(scope) ? scope : "all";
 }
 
-function sessionCatalogBounds(scope) {
-  const cutoffMs = Date.now() - recentSessionWindowMs;
-  if (scope === "recent24h") return { sinceMs: cutoffMs };
-  if (scope === "history") return { beforeMs: cutoffMs };
+function sessionCatalogBounds(scope, nowMs = Date.now()) {
+  const recentCutoffMs = nowMs - recentSessionWindowMs;
+  const realtimeCutoffMs = nowMs - 3 * 60 * 60 * 1000;
+  if (scope === "realtime") return { sinceMs: realtimeCutoffMs };
+  if (scope === "day") return { sinceMs: recentCutoffMs, beforeMs: realtimeCutoffMs };
+  if (scope === "earlier") return { beforeMs: recentCutoffMs, includeUnknown: true };
+  if (scope === "recent24h") return { sinceMs: recentCutoffMs };
+  if (scope === "history") return { beforeMs: recentCutoffMs, includeUnknown: true };
   return {};
 }
 
 function sessionMatchesCatalogBounds(session, bounds) {
   const timestamp = new Date(session.updatedAt || session.fileModifiedAt || session.startedAt || "").getTime();
-  if (!Number.isFinite(timestamp)) return bounds.beforeMs != null;
+  if (!Number.isFinite(timestamp)) return bounds.includeUnknown ?? (bounds.sinceMs == null && bounds.beforeMs == null);
   if (bounds.sinceMs != null && timestamp < bounds.sinceMs) return false;
   if (bounds.beforeMs != null && timestamp >= bounds.beforeMs) return false;
   return true;
@@ -204,10 +208,12 @@ async function listAllSessionsForQuery(dependencies, context) {
 
 async function listSessionsForDisplay(dependencies, context, scope, params) {
   const query = String(params.get("q") || "").trim().toLowerCase();
+  const type = String(params.get("type") || "all").trim().toLowerCase();
+  const fullTitle = Boolean(query || type === "error" || type === "tool");
   return (await listSessions(dependencies, context, { scope }))
-    .filter((session) => sessionMatchesListType(session, params.get("type")))
+    .filter((session) => sessionMatchesListType(session, type))
     .filter((session) => !query || displaySearchText(session).includes(query))
-    .map(compactSessionForList);
+    .map((session) => compactSessionForList(session, { fullTitle }));
 }
 
 function displaySearchText(session) {
@@ -310,3 +316,5 @@ function lineageTimeMs(session) {
   }
   return 0;
 }
+
+export { sessionCatalogBounds, sessionMatchesCatalogBounds };

@@ -18,7 +18,7 @@ test("会话目录按项目路径展开为树，叶子会话不重复", async ({
     { id: "tree-none", sourceId: "local", displayTitle: "无项目会话", updatedAt, cwd: "" },
   ];
   await page.route("**/api/sources/local/sessions?*", async (route) => {
-    const scope = new URL(route.request().url()).searchParams.get("scope") || "recent24h";
+    const scope = new URL(route.request().url()).searchParams.get("scope") || "realtime";
     await route.fulfill({ json: { source: { id: "local", label: "本机 Codex Home", kind: "local" }, scope, sessions } });
   });
   await page.goto("/");
@@ -34,6 +34,27 @@ test("会话目录按项目路径展开为树，叶子会话不重复", async ({
   await expect(projectless).toHaveJSProperty("open", false);
   await page.locator("#refreshButton").click();
   await expect(projectless).toHaveJSProperty("open", false);
+});
+
+test("固定来源的时间分类由服务端目录范围决定，浏览器不重复排除会话", async ({ page }) => {
+  const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
+  await page.route("**/api/sources/local/sessions?*", async (route) => {
+    const scope = new URL(route.request().url()).searchParams.get("scope");
+    const session = scope === "day"
+      ? { id: "day-scope-session", sourceId: "local", displayTitle: "服务端近一天范围", updatedAt: fourHoursAgo, cwd: "/workspace/day" }
+      : { id: "realtime-scope-session", sourceId: "local", displayTitle: "服务端实时范围", updatedAt: fourHoursAgo, cwd: "/workspace/realtime" };
+    await route.fulfill({ json: { source: { id: "local", label: "本机 Codex Home", kind: "local" }, scope, sessions: [session] } });
+  });
+
+  await page.goto("/");
+  await selectCodexSource(page);
+  await expect(page.locator('[data-session-id="realtime-scope-session"]')).toBeVisible();
+
+  const dayRequest = page.waitForRequest((request) => new URL(request.url()).searchParams.get("scope") === "day");
+  await openSessionFilters(page);
+  await page.locator("#sessionTimeFilter [data-session-time=day]").click();
+  await dayRequest;
+  await expect(page.locator('[data-session-id="day-scope-session"]')).toBeVisible();
 });
 
 test("选中会话所在目录仍可折叠并在重新渲染后保持", async ({ page }) => {
@@ -65,7 +86,7 @@ test("过期 recent 列表不会污染更早范围、自动打开详情或提前
   await page.route("**/api/sources/local/sessions?*", async (route) => {
     const url = new URL(route.request().url());
     const scope = url.searchParams.get("scope");
-    if (scope === "recent24h") {
+    if (scope === "realtime") {
       recentRequests += 1;
       if (recentRequests === 1) {
         await route.fulfill({ json: { source: { id: "local", label: "本机 Codex Home", kind: "local" }, scope, sessions: [] } });
@@ -79,7 +100,7 @@ test("过期 recent 列表不会污染更早范围、自动打开详情或提前
       } }).catch(() => {});
       return;
     }
-    if (scope === "history") {
+    if (scope === "earlier") {
       await historyReleased;
       await route.fulfill({ json: { source: { id: "local", label: "本机 Codex Home", kind: "local" }, scope, sessions: [earlierSession] } });
       return;
@@ -123,7 +144,7 @@ test("桌面端切换到更早范围时，过期 recent 响应不会释放当前
   let recentRequests = 0;
   await page.route("**/api/sources/local/sessions?*", async (route) => {
     const scope = new URL(route.request().url()).searchParams.get("scope");
-    if (scope === "recent24h") {
+    if (scope === "realtime") {
       recentRequests += 1;
       if (recentRequests === 1) {
         await route.fulfill({ json: { source: { id: "local", label: "本机 Codex Home", kind: "local" }, scope, sessions: [] } });
