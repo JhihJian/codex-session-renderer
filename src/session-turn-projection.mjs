@@ -77,6 +77,11 @@ function buildTurns(events) {
     if (!current && shouldStartImplicitTurn(event)) ensureTurn(event);
     if (!current) continue;
 
+    if (event.toolResults?.length) {
+      for (const toolResult of event.toolResults) registerEmbeddedToolOutput(current, activeCall, event, toolResult, sourceIndex);
+      if (event.semanticKind === "tool_result") continue;
+    }
+
     if (event.semanticKind === "diagnostic") {
       current.items.push({
         id: `item-${current.items.length}`,
@@ -371,6 +376,29 @@ function registerEmbeddedToolCall(turn, activeCall, event, toolCall, sourceIndex
   if (item.name === "subagent") item.embeddedSubagents = piEmbeddedSubagentCall(item.arguments);
   activeCall.set(callId, item);
   turn.items.push(item);
+}
+
+function registerEmbeddedToolOutput(turn, activeCall, event, toolResult, sourceIndex) {
+  const callId = toolResult.callId || `${event.messageId || sourceIndex}:tool-result-${turn.items.length}`;
+  const target = activeCall.get(callId);
+  if (target) {
+    target.output = mergeToolOutput(target.output, toolResult.output);
+    target.status = toolResult.success === false ? "failed" : "completed";
+    target.completedAt = event.timestamp;
+    target.outputSourceIndex = sourceIndex;
+    return;
+  }
+  turn.items.push({
+    id: callId,
+    type: "tool-call",
+    sourceIndex,
+    timestamp: event.timestamp,
+    name: toolResult.name || "tool",
+    callId,
+    status: toolResult.success === false ? "failed" : "completed",
+    arguments: null,
+    output: toolResult.output ?? null,
+  });
 }
 
 function registerToolOutput(turn, activeCall, event, sourceIndex) {

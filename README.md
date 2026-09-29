@@ -1,6 +1,6 @@
 # Codex 会话工作台
 
-Codex 会话工作台是只读的会话浏览器。它把 Codex 与 Pi Agent 的 JSONL 会话记录整理为适合阅读的界面，帮助用户快速理解 agent 收到的任务、生成的回复、调用的工具、委派的子代理和执行时间。
+Codex 会话工作台是只读的会话浏览器。它把 Codex、Pi Agent 与已识别的 Claude Code JSONL 会话记录整理为适合阅读的界面，帮助用户快速理解 agent 收到的任务、生成的回复、调用的工具、委派的子代理和执行时间。
 
 ## 产品决策
 
@@ -29,6 +29,8 @@ Codex 会话工作台是只读的会话浏览器。它把 Codex 与 Pi Agent 的
 
 
 Pi Agent 会话目录可用时，工作台默认展示 Pi 数据源；未发现 Pi Agent 会话目录时，自动回退到本机 Codex 数据源。
+
+会话格式与文件位置分离：Pi 根或临时打开目录中的 Claude Code SDK CLI 轨迹会按内容自动匹配 `claude-code` profile。该 profile 读取 `message.content`、`uuid` / `parentUuid` 与 `tool_use` / `tool_result`，但不改变数据源身份、不会迁移原始文件，也不会读取记录中引用的外置工具结果文件。
 
 设置 `CODEX_SESSION_RENDERER_CONFIG_PATH`（绝对路径）后，可以在设置对话框的「数据源」标签页查看与修改 Pi 会话读取根：单个根路径（支持 `*` 通配符，每个 `*` 匹配一层目录），保存后原子写入配置文件并立即热重建数据源，重启后保持。有效配置整体覆盖环境变量中的 Pi 根，清除覆盖即回到环境变量默认；配置文件损坏时不阻断启动，回退环境变量来源并把解析错误展示在 Pi 来源状态中。写接口为 `PUT /api/data-source-config`，仅接受 `application/json`。未设置该环境变量时功能整体禁用，行为与现状一致。旧配置文件中的 `type` 字段会被忽略，无需迁移。
 

@@ -6,6 +6,7 @@ import {
   redactSensitiveText,
   safeStringifyRedacted,
 } from "../src/session-normalizer.mjs";
+import { readSpecialSessionFixture } from "./helpers/special-fixtures.mjs";
 
 test("normalizeSessionEvent absorbs field drift for time, text and tool fields", () => {
   const event = {
@@ -106,6 +107,31 @@ test("normalizer maps Pi Agent message records to stable message and tool fields
   assert.equal(toolResult.callId, "call-write");
   assert.equal(toolResult.toolName, "write");
   assert.equal(toolResult.toolOutput, "Successfully wrote file");
+});
+
+test("normalizer consumes the Claude Code adapter contract without losing message content", async () => {
+  const events = await readSpecialSessionFixture("claude-code-sdk-cli.jsonl");
+  const assistant = normalizeSessionEvent(events[2], 2);
+  const results = normalizeSessionEvent(events[3], 3);
+
+  assert.equal(assistant.format, "claude-code");
+  assert.equal(assistant.text, "我先读取文件。");
+  assert.equal(assistant.messageId, "22222222-2222-4222-8222-222222222222");
+  assert.equal(assistant.parentId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(assistant.toolCalls.length, 2);
+  assert.equal(results.semanticKind, "tool_result");
+  assert.equal(results.role, "tool");
+  assert.equal(results.toolResults.length, 2);
+  assert.equal(results.toolResults[1].success, false);
+});
+
+test("normalizer preserves repeated content blocks in source order", () => {
+  const normalized = normalizeSessionEvent({
+    type: "assistant",
+    content: [{ type: "output_text", text: "继续" }, { type: "output_text", text: "继续" }],
+  });
+
+  assert.equal(normalized.text, "继续\n\n继续");
 });
 
 test("normalizer preserves Pi compaction summary without materializing retained context", () => {

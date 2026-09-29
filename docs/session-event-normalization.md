@@ -1,6 +1,6 @@
-# Codex/Pi Agent JSONL 事件规范化契约
+# Codex/Pi Agent/Claude Code JSONL 事件规范化契约
 
-本项目把 Codex 和 Pi Agent 会话文件视为 UTF-8 JSONL 事件流读取。不同客户端和版本可能记录不同字段形态，因此服务端先把原始事件转换为内部稳定事件模型，再供会话摘要、Turn 聚合、Audit、Trace、Raw 视图和外部查询 API 使用。
+本项目把 Codex、Pi Agent 和 Claude Code 会话文件视为 UTF-8 JSONL 事件流读取。不同客户端和版本可能记录不同字段形态，因此服务端先以会话格式适配器提取稳定封套，再由规范化层转换为内部稳定事件模型，供会话摘要、Turn 聚合、Audit、Trace、Raw 视图和外部查询 API 使用。
 
 ## 稳定字段
 
@@ -13,13 +13,23 @@
 - `text`、`textParts`：从字符串字段和 content parts 提取的可读文本。
 - `toolName`、`toolInput`、`toolOutput`：从 `tool`、`name`、`function.name`、`arguments`、`input`、`stdout`、`stderr`、`result`、`output` 等字段归一化。
 - `toolCalls`：Pi Agent 把工具调用嵌入到助手消息的 `message.content[].type = "toolCall"` 中时，规范化层会提取调用 ID、名称和参数，Turn 聚合再把它们展开成独立 `tool-call` item。
+- `toolResults`：一个源事件中内嵌的多个工具结果。Turn 聚合按调用 ID 逐一回填，避免将 Claude Code 的工具结果误投影为用户消息。
+- `format`：已匹配的会话格式 profile，当前为 `generic`、`pi-agent` 或 `claude-code`。
 - `attachments`：图片和附件的安全摘要。
 - `reasoning`：reasoning 摘要和加密状态。
 - `compact`：Codex 与 Pi 上下文压缩事件的摘要、来源、窗口或保留上下文计数，以及可用的替换历史短预览和阶段。
 - `raw`、`payload`、`rawSize`、`payloadSize`：原始事件引用和体积信息。
 - `diagnostic`：JSONL 解析失败行的行号、错误类别和安全预览。
 
-未知字段不会被丢弃。Raw event 仍可通过按需接口查看，规范化层只为常用视图提供稳定读法。
+未知字段不会被丢弃。Raw event 仍可通过按需接口查看，规范化层只为常用视图提供稳定读法。一个内容数组中的文本块按原始顺序保留，不因文本相同而去重。
+
+## 会话格式适配器
+
+`src/session-format-adapters/adapter-registry.mjs` 是格式识别的唯一入口。它把单条原始记录转换为带 `payload`、消息谱系、嵌入式工具调用和工具结果的封套；`src/session-normalizer.mjs` 只消费该封套，不直接依赖某个客户端的私有字段。未匹配 profile 的记录使用 `generic` 透传封套，保持既有 Codex 兼容路径。
+
+- `pi-agent-session-adapter.mjs` 负责 Pi 顶层 `type: "message"`、`toolResult` 和 Pi 会话元数据。
+- `claude-code-session-adapter.mjs` 仅在顶层 `user` / `assistant` 记录同时拥有 `uuid`、`parentUuid`、`sessionId` 和对象型 `message` 时匹配，防止宽松猜测误判普通 JSONL。
+- 格式适配不改变 JSONL 行、事件逻辑索引、Raw 接口、文件扫描或详情缓存。一个源事件对应一个封套，多个工具结果保留为同一封套内的有序数组。
 
 ## 字段漂移兼容
 
@@ -39,6 +49,15 @@
 - 输出：`stdout` / `stderr`、`result`、`output`。
 - Pi Agent 工具调用：助手消息 `content` 中的 `toolCall.id/name/arguments`。
 - Pi Agent 工具结果：`message.role = "toolResult"` 的 `toolCallId`、`toolName` 和文本 `content`。
+- Claude Code 用户/助手消息：`message.content`、`uuid`、`parentUuid` 和 `message.role`。
+- Claude Code 工具调用：助手 `message.content[].type = "tool_use"` 的 `id`、`name` 和 `input`。
+- Claude Code 工具结果：用户 `message.content[].type = "tool_result"` 的 `tool_use_id`、`content` 和 `is_error`。同一源消息的多个结果分别关联，结果本身不作为用户输入显示。
+
+## Claude Code 会话
+
+Claude Code profile 支持以 SDK CLI 轨迹形式持久化的 JSONL：普通对话记录的顶层类型为 `user` 或 `assistant`，消息正文位于 `message.content`，谱系使用 `uuid` / `parentUuid`。适配器从首条匹配的对话记录提取 `cwd`、模型和开始时间供文件列表使用；标题仍由首条可读用户消息按通用标题规则派生。列表先在 64 KiB 前缀快速探测，缺少可识别元数据时才以 4 MiB 有界预算重读，避免超长队列操作遮蔽或截断首条对话记录。
+
+工具输出可能由生产者外置保存。适配器只使用 JSONL 已持久化的 `tool_result.content`，不会根据结果中的路径读取任何外置文件。Raw API 始终返回未转换的原始 JSONL 记录。
 
 ## Pi Agent 会话
 
@@ -200,6 +219,7 @@ Raw event 仍可按需查看完整原始 JSON。默认视图、事件预览和�
 - 字段漂移的文本、时间、工具名、参数和输出。
 - `function_call` / `function_result` 兼容映射。
 - Pi Agent `message.content` 文本、嵌入式 `toolCall` 和 `toolResult`。
+- Claude Code `message.content` 正文、`uuid` / `parentUuid` 谱系、多个 `tool_use` / `tool_result` 的回合关联和失败状态。
 - Pi v3 的完整 `pi-goal@0.15.1` 启动/更新、恢复/自动续跑、安全失败关闭、目标搜索、原始单事件保留以及大文件前缀归档。
 - Codex `thread_goal_updated -> response_item` 完整控制包、同目标续跑抑制、标题前缀探测、失败关闭、Turn/Audit/归档/Markdown/搜索投影、HTTP Raw 单事件保留和 Chromium 阅读路径。
 - 同一 `messageId` 的 delta 合并。

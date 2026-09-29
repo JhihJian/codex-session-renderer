@@ -8,8 +8,10 @@ import { parentSessionIdFromMeta, relativeCodexPath, withFileStat, withSubagentM
 import { isAbortError } from "./session-detail-coordinator.mjs";
 import { containsWildcard, expandWildcardDirectories } from "./root-pattern.mjs";
 import { stripLongPathPrefix } from "./sqlite-threads.mjs";
+import { sessionMetadataFromEvents } from "./session-format-adapters/adapter-registry.mjs";
 
 const listFileConcurrency = 8;
+const metadataProbeMaxBytes = 4 * 1024 * 1024;
 
 export function createSessionDirectoryQueryService(dependencies) {
   return {
@@ -124,23 +126,7 @@ async function readIndex(dependencies, context, options = {}) {
 }
 
 function sessionMetaFromEvents(events) {
-  const codexMeta = events.find((event) => event.type === "session_meta")?.payload;
-  if (codexMeta) return codexMeta;
-  const records = piMetadataRecords(events);
-  if (!records.some(Boolean)) return {};
-  return piMetadata(...records);
-}
-
-function piMetadataRecords(events) {
-  return [events.find((event) => event.type === "session") || null, events.find((event) => event.type === "session_info") || null, [...events].reverse().find((event) => event.type === "model_change") || null, [...events].reverse().find((event) => event.type === "thinking_level_change") || null];
-}
-
-function piMetadata(session, info, model, thinking) {
-  return {
-    title: firstValue([info?.name]), cwd: firstValue([session?.cwd]), timestamp: firstValue([session?.timestamp]),
-    model: firstValue([model?.modelId, model?.model]), model_provider: firstValue([model?.provider]),
-    reasoningEffort: firstValue([thinking?.thinkingLevel]), originator: "pi_agent", source: "pi-agent", parent_session: firstValue([session?.parentSession]),
-  };
+  return sessionMetadataFromEvents(events);
 }
 
 async function listFileSessions(dependencies, context, bounds = {}, options = {}) {
@@ -154,9 +140,15 @@ async function listFileSessions(dependencies, context, bounds = {}, options = {}
 }
 
 async function readMetaEvents(filePath, bounds, options) {
-  return readJsonlWithDiagnostics(filePath, { maxLines: bounds.beforeMs != null ? 1 : 40, maxBytes: 64 * 1024, signal: options.signal }).catch((error) => {
+  const maxLines = bounds.beforeMs != null ? 1 : 40;
+  const initial = await readJsonlWithDiagnostics(filePath, { maxLines, maxBytes: 64 * 1024, signal: options.signal }).catch((error) => {
     if (isAbortError(error)) throw error;
     return [];
+  });
+  if (bounds.beforeMs != null || Object.keys(sessionMetadataFromEvents(initial)).length > 0) return initial;
+  return readJsonlWithDiagnostics(filePath, { maxLines, maxBytes: metadataProbeMaxBytes, signal: options.signal }).catch((error) => {
+    if (isAbortError(error)) throw error;
+    return initial;
   });
 }
 

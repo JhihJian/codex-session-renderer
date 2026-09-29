@@ -1,5 +1,6 @@
 import { isToolCallOutput, isToolCallStart, toolArgumentsFromPayload, toolNameFromPayload, toolOutputFromPayload } from "./tool-events.mjs";
 import { cleanUserMessageText } from "./user-message-cleanup.mjs";
+import { adaptSessionEvent } from "./session-format-adapters/adapter-registry.mjs";
 
 const timeKeys = ["timestamp", "time", "ts", "created", "created_at", "datetime", "date", "event_time", "when", "at"];
 const dataUriPattern = /data:([a-zA-Z0-9.+-]+\/[a-zA-Z0-9.+-]+)?(?:;[^,]*)?,[A-Za-z0-9+/=._~%-]+/g;
@@ -8,7 +9,8 @@ function normalizeSessionEvent(rawEvent, index = null) {
   if (rawEvent?.__jsonlDiagnostic) return normalizeDiagnosticEvent(rawEvent, index);
 
   const raw = isObject(rawEvent) ? rawEvent : {};
-  const payload = eventPayload(raw);
+  const adapted = adaptSessionEvent(raw);
+  const payload = adapted.payload;
   const rawType = stringOrNull(raw.type);
   const payloadType = stringOrNull(payload.type);
   const role = normalizeRole(payload.role ?? raw.role ?? raw.message?.role);
@@ -19,13 +21,14 @@ function normalizeSessionEvent(rawEvent, index = null) {
   const reasoning = extractReasoning(payload, raw, semanticKind);
   const tokenUsage = extractTokenUsage(payload, raw);
   const compact = extractCompact(payload, raw, kind, rawType);
-  const toolCalls = extractEmbeddedToolCalls(payload, raw);
+  const toolCalls = [...(adapted.toolCalls || []), ...extractEmbeddedToolCalls(payload, raw)];
+  const toolResults = adapted.toolResults || [];
   const toolName = semanticKind === "tool_call" || semanticKind === "tool_result" ? toolNameFromPayload(payload) : null;
   const toolInput = semanticKind === "tool_call" ? stringifyMaybe(toolArgumentsFromPayload(payload)) : null;
   const toolOutput = semanticKind === "tool_result" ? stringifyMaybe(toolOutputFromPayload(payload)) : null;
   const text = textParts.join("\n\n");
-  const messageId = stringOrNull(raw.message_id ?? raw.id ?? payload.message_id ?? payload.id);
-  const parentId = stringOrNull(raw.parent_id ?? raw.parentId ?? payload.parent_id ?? payload.parentId);
+  const messageId = stringOrNull(adapted.messageId ?? raw.message_id ?? raw.id ?? payload.message_id ?? payload.id);
+  const parentId = stringOrNull(adapted.parentId ?? raw.parent_id ?? raw.parentId ?? payload.parent_id ?? payload.parentId);
   const hasDeltaIndex = raw.delta_index != null || payload.delta_index != null;
   const isDelta = Boolean(raw.delta ?? raw.chunk ?? payload.delta ?? payload.chunk ?? hasDeltaIndex);
 
@@ -34,6 +37,7 @@ function normalizeSessionEvent(rawEvent, index = null) {
     __normalized: true,
     index,
     raw,
+    format: adapted.format,
     payload,
     rawType,
     payloadType,
@@ -52,6 +56,7 @@ function normalizeSessionEvent(rawEvent, index = null) {
     toolInput,
     toolOutput,
     toolCalls,
+    toolResults,
     attachments,
     reasoning,
     tokenUsage,
@@ -201,42 +206,6 @@ function mergeText(previous, next) {
   return `${previous}${next}`;
 }
 
-function eventPayload(raw) {
-  if (isPiAgentMessageEvent(raw)) return piAgentMessagePayload(raw);
-  if (isObject(raw.payload)) return raw.payload;
-  return raw;
-}
-
-function isPiAgentMessageEvent(raw) {
-  return raw?.type === "message" && isObject(raw.message);
-}
-
-function piAgentMessagePayload(raw) {
-  const message = raw.message || {};
-  const role = normalizeRole(message.role);
-  const base = {
-    ...message,
-    id: message.id ?? raw.id,
-    parent_id: message.parent_id ?? raw.parent_id ?? raw.parentId,
-    timestamp: message.timestamp ?? raw.timestamp,
-    role,
-  };
-  if (message.role === "toolResult" || role === "tool") {
-    return {
-      ...base,
-      type: "function_call_output",
-      call_id: message.toolCallId ?? message.call_id ?? message.callId,
-      name: message.toolName ?? message.name,
-      output: piAgentContentText(message.content),
-      success: message.isError == null ? undefined : message.isError === false,
-    };
-  }
-  return {
-    ...base,
-    type: "message",
-    message_id: message.message_id ?? raw.id,
-  };
-}
 
 function classifyNormalizedKind({ rawType, payloadType, role }) {
   if (rawType === "session_meta") return "meta";
@@ -333,7 +302,7 @@ function extractTextParts(payload, raw) {
     for (const key of ["text", "message", "value"]) push(raw[key]);
   }
 
-  return [...new Set(parts)];
+  return parts;
 }
 
 function extractEmbeddedToolCalls(payload, raw) {
@@ -364,20 +333,6 @@ function extractEmbeddedToolCalls(payload, raw) {
   return calls;
 }
 
-function piAgentContentText(content) {
-  const parts = [];
-  for (const part of Array.isArray(content) ? content : [content]) {
-    if (part == null) continue;
-    if (typeof part === "string") {
-      parts.push(part);
-      continue;
-    }
-    if (!isObject(part)) continue;
-    const text = part.text ?? part.value ?? part.output;
-    if (text != null) parts.push(String(text));
-  }
-  return [...new Set(parts.map(redactSensitiveText).filter(Boolean))].join("\n\n");
-}
 
 function extractReasoning(payload, raw, semanticKind) {
   const source = payload.type === "reasoning" ? payload : isObject(raw.reasoning) ? raw.reasoning : piThinkingContent(raw);

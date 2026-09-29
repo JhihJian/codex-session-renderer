@@ -69,6 +69,22 @@ test("buildTurns keeps visible behavior while deduplicating response echoes", ()
   assert.equal(turns[0].items[1].output, "found 2");
 });
 
+test("buildTurns associates Claude Code embedded tool results without rendering them as user messages", async () => {
+  const events = await readSpecialSessionFixture("claude-code-sdk-cli.jsonl");
+  const turns = buildTurns(events);
+
+  assert.equal(turns.length, 1);
+  assert.deepEqual(turns[0].items.map((item) => item.type), ["user-message", "assistant-message", "tool-call", "tool-call", "assistant-message"]);
+  assert.equal(turns[0].items[0].text, "请检查项目。");
+  assert.deepEqual(
+    turns[0].items.filter((item) => item.type === "tool-call").map((item) => ({ name: item.name, output: item.output, status: item.status })),
+    [
+      { name: "Read", output: "# README", status: "completed" },
+      { name: "Bash", output: "README.md\nsrc/app.mjs", status: "failed" },
+    ],
+  );
+});
+
 test("event summaries keep diagnostics readable", () => {
   const events = [
     {
