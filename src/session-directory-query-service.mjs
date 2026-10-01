@@ -135,6 +135,10 @@ function escapeFindPattern(value) {
 }
 
 async function collectSessionFileRecords(dependencies, context, options = {}) {
+  if (context.source.kind === "pi-agent" && (options.sinceMs != null || options.beforeMs != null)) {
+    const records = await collectPiSessionFileRecords(dependencies, context, options);
+    if (records !== undefined) return records;
+  }
   const records = [];
   for await (const record of walkSourceSessionFiles(dependencies, context, options)) {
     dependencies.throwIfRequestAborted(options.signal);
@@ -144,6 +148,49 @@ async function collectSessionFileRecords(dependencies, context, options = {}) {
     if (records.length >= (options.maxRecords || dependencies.maxListSessions)) return dedupeSessionFileRecords(records);
   }
   return dedupeSessionFileRecords(records);
+}
+
+async function collectPiSessionFileRecords(dependencies, context, options) {
+  if (process.platform !== "linux") return undefined;
+  try {
+    const records = [];
+    for (const entry of sessionFileRoots(context.codexHome, context.sessionsRoot, true)) {
+      dependencies.throwIfRequestAborted(options.signal);
+      const result = await findPiSessionFiles(entry.root, options);
+      if (result === undefined) return undefined;
+      records.push(...result.map((record) => ({ ...record, archived: entry.archived })));
+    }
+    const limit = options.maxRecords || dependencies.maxListSessions;
+    return dedupeSessionFileRecords(records).sort((left, right) => right.stat.mtimeMs - left.stat.mtimeMs).slice(0, limit);
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    return undefined;
+  }
+}
+
+async function findPiSessionFiles(rootPath, options) {
+  const searchRoot = containsWildcard(rootPath) ? wildcardStaticPrefix(rootPath) : rootPath;
+  const argumentsList = [searchRoot, "-type", "f", "-path", path.join(rootPath, "*"), "-name", "*.jsonl"];
+  if (options.sinceMs != null) argumentsList.push("-newermt", `@${options.sinceMs / 1000}`);
+  if (options.beforeMs != null) argumentsList.push("!", "-newermt", `@${options.beforeMs / 1000}`);
+  argumentsList.push("-printf", "%T@\t%s\t%p\n");
+  try {
+    const result = await execFileAsync("find", argumentsList, { encoding: "utf8", maxBuffer: 8 * 1024 * 1024, signal: options.signal });
+    return result.stdout.split("\n").filter(Boolean).map(piSessionFileRecordFromFind).filter((record) => record && !outsideBounds(record.stat, options));
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    // A missing archived root is equivalent to no archive. Other failures use
+    // the portable directory walker instead of making list requests fail.
+    return error?.code === 1 ? [] : undefined;
+  }
+}
+
+function piSessionFileRecordFromFind(line) {
+  const [modifiedAt, size, filePath] = line.split("\t", 3);
+  const mtimeMs = Number(modifiedAt) * 1000;
+  const fileSize = Number(size);
+  if (!filePath || !Number.isFinite(mtimeMs) || !Number.isFinite(fileSize)) return null;
+  return { id: sessionIdFromFile(filePath), filePath, stat: { mtimeMs, mtime: new Date(mtimeMs), size: fileSize } };
 }
 
 function outsideBounds(stat, options) {

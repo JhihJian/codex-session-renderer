@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createDataSourceRegistry, parsePiAgentDefinition } from "../src/data-sources.mjs";
@@ -125,6 +125,35 @@ test("wildcard session roots discover sessions from every matching directory", a
 
     const record = await directoryService().sessionFileRecordById(context, duplicateId);
     assert.equal(record?.filePath, path.join(tasksRoot, "sw-alpha", "output", "run-2", "pi-sessions", `2026-09-22T00-00-00-000Z_${duplicateId}.jsonl`));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("Pi time-bounded discovery only returns files in the requested window", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "csr-pi-time-bounds-"));
+  try {
+    const tasksRoot = path.join(dir, "tasks");
+    const oldId = "77777777-7777-4777-8777-777777777777";
+    const freshId = "88888888-8888-4888-8888-888888888888";
+    const now = Date.now();
+    const files = [
+      { id: oldId, ageMs: 4 * 60 * 60 * 1000 },
+      { id: freshId, ageMs: 60 * 60 * 1000 },
+    ];
+    for (const { id, ageMs } of files) {
+      const sessionsRoot = path.join(tasksRoot, `sw-${id}`, "output", "run-1", "pi-sessions");
+      await mkdir(sessionsRoot, { recursive: true });
+      const filePath = path.join(sessionsRoot, `2026-09-22T00-00-00-000Z_${id}.jsonl`);
+      await writeFile(filePath, "{\"type\":\"session\",\"version\":3}\n", "utf8");
+      const timestamp = new Date(now - ageMs);
+      await utimes(filePath, timestamp, timestamp);
+    }
+
+    const context = { source: { kind: "pi-agent" }, codexHome: dir, sessionsRoot: path.join(tasksRoot, "sw-*", "output", "*", "pi-sessions") };
+    const records = await directoryService().collectSessionFileRecords(context, { sinceMs: now - 3 * 60 * 60 * 1000 });
+
+    assert.deepEqual(records.map((record) => record.id), [freshId]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
