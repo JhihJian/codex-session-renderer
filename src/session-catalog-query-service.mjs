@@ -172,8 +172,10 @@ async function getSessionById(dependencies, context, id, options = {}) {
   const thread = (await context.threadStore.readThreadRowsByIds([id], { signal: options.signal })).get(id);
   const fromThread = await getSessionFromThread(dependencies, context, thread, options);
   if (fromThread) return fromThread;
-  const listed = (await listSessions(dependencies, context, { ...options, scope: "all" })).find((session) => session.id === id);
-  if (listed) return listed;
+  if (context.source.kind !== "pi-agent") {
+    const listed = (await listSessions(dependencies, context, { ...options, scope: "all" })).find((session) => session.id === id);
+    if (listed) return listed;
+  }
   return findSessionFileRecord(dependencies, context, id, options);
 }
 
@@ -277,11 +279,21 @@ async function getSessionLineage(dependencies, context, session, options = {}) {
 
 async function safeSessionCatalog(dependencies, context, options) {
   try {
+    const cached = freshCachedSessions(context, "all");
+    if (cached) return cached;
+    // Related Pi sessions are optional. A cold archive-wide catalog must not
+    // delay opening one session from a high-cardinality task output root.
+    if (context.source.kind === "pi-agent") return [];
     return await listSessions(dependencies, context, { ...options, scope: "all" });
   } catch (error) {
     if (isAbortError(error)) throw error;
     return [];
   }
+}
+
+function freshCachedSessions(context, scope, now = Date.now()) {
+  const cached = context.sessionCacheByScope.get(scope);
+  return cached && now - cached.time < 3000 ? cached.sessions : null;
 }
 
 function collectSessionLineage(catalog, session) {

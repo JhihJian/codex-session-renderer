@@ -113,13 +113,18 @@ test("wildcard session roots discover sessions from every matching directory", a
     }
     await mkdir(path.join(tasksRoot, ".hidden", "output", "run-1", "pi-sessions"), { recursive: true });
     await writeFile(path.join(tasksRoot, ".hidden", "output", "run-1", "pi-sessions", "hidden.jsonl"), "{}\n", "utf8");
+    const duplicateId = "22222222-2222-4222-8222-222222222222";
+    const decoyDirectory = path.join(tasksRoot, "not-sw", "output", "run-1", "pi-sessions");
+    await mkdir(decoyDirectory, { recursive: true });
+    await writeFile(path.join(decoyDirectory, `2026-09-22T00-00-00-000Z_${duplicateId}.jsonl`), "{}\n", "utf8");
 
     const pattern = path.join(tasksRoot, "sw-*", "output", "*", "pi-sessions");
-    const records = await directoryService().collectSessionFileRecords({ source: {}, codexHome: dir, sessionsRoot: pattern });
+    const context = { source: { kind: "pi-agent" }, codexHome: dir, sessionsRoot: pattern };
+    const records = await directoryService().collectSessionFileRecords(context);
     assert.deepEqual(records.map((record) => record.id).sort(), sessions.map((session) => session.id).sort());
 
-    const record = await directoryService().sessionFileRecordById({ source: {}, codexHome: dir, sessionsRoot: pattern }, "22222222-2222-4222-8222-222222222222");
-    assert.equal(record?.filePath, path.join(tasksRoot, "sw-alpha", "output", "run-2", "pi-sessions", "2026-09-22T00-00-00-000Z_22222222-2222-4222-8222-222222222222.jsonl"));
+    const record = await directoryService().sessionFileRecordById(context, duplicateId);
+    assert.equal(record?.filePath, path.join(tasksRoot, "sw-alpha", "output", "run-2", "pi-sessions", `2026-09-22T00-00-00-000Z_${duplicateId}.jsonl`));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

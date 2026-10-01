@@ -1,4 +1,6 @@
 import { promises as fs } from "node:fs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import path from "node:path";
 import { readJsonl, readJsonlWithDiagnostics } from "./jsonl-reader.mjs";
 import { extractTitleFromEvents, readTailSessionStatus, sessionIdFromFile, sessionStartedFromFile, toIso } from "./session-events.mjs";
@@ -6,12 +8,13 @@ import { mapWithConcurrency } from "./async-concurrency.mjs";
 import { dedupeSessionFileRecords, sessionFileRoots } from "./session-catalog.mjs";
 import { parentSessionIdFromMeta, relativeCodexPath, withFileStat, withSubagentMeta } from "./session-models.mjs";
 import { isAbortError } from "./session-detail-coordinator.mjs";
-import { containsWildcard, expandWildcardDirectories } from "./root-pattern.mjs";
+import { containsWildcard, expandWildcardDirectories, wildcardStaticPrefix } from "./root-pattern.mjs";
 import { stripLongPathPrefix } from "./sqlite-threads.mjs";
 import { sessionMetadataFromEvents } from "./session-format-adapters/adapter-registry.mjs";
 
 const listFileConcurrency = 8;
 const metadataProbeMaxBytes = 4 * 1024 * 1024;
+const execFileAsync = promisify(execFile);
 
 export function createSessionDirectoryQueryService(dependencies) {
   return {
@@ -84,6 +87,10 @@ async function sessionFileRecordById(dependencies, context, id, options = {}) {
 }
 
 async function findRecordFromWalk(dependencies, context, sessionId, options) {
+  if (context.source.kind === "pi-agent") {
+    const record = await findPiSessionFileRecord(dependencies, context, sessionId, options);
+    if (record !== undefined) return record;
+  }
   // Single-session lookup must not inherit the listing cap: sessions beyond the
   // list window still deserve a resolvable detail endpoint.
   for await (const record of walkSourceSessionFiles(dependencies, context, { signal: options.signal })) {
@@ -94,6 +101,37 @@ async function findRecordFromWalk(dependencies, context, sessionId, options) {
     return { id: sessionId, filePath: record.filePath, archived: record.archived, stat };
   }
   return null;
+}
+
+async function findPiSessionFileRecord(dependencies, context, sessionId, options) {
+  try {
+    const roots = sessionFileRoots(context.codexHome, context.sessionsRoot, true);
+    for (const entry of roots) {
+      dependencies.throwIfRequestAborted(options.signal);
+      const filePath = await findFirstPiSessionFile(entry.root, sessionId, options.signal);
+      if (!filePath) continue;
+      const stat = await dependencies.sessionFileStat(context, filePath, sessionId);
+      if (stat) return { id: sessionId, filePath, archived: entry.archived, stat };
+    }
+    return null;
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    return undefined;
+  }
+}
+
+async function findFirstPiSessionFile(rootPath, sessionId, signal) {
+  const searchRoot = containsWildcard(rootPath) ? wildcardStaticPrefix(rootPath) : rootPath;
+  const result = await execFileAsync("find", [searchRoot, "-type", "f", "-path", path.join(rootPath, "*"), "-name", `*_${escapeFindPattern(sessionId)}.jsonl`, "-print", "-quit"], {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024,
+    signal,
+  });
+  return result.stdout.trim() || null;
+}
+
+function escapeFindPattern(value) {
+  return String(value).replace(/[\\*?[\]]/g, "\\$&");
 }
 
 async function collectSessionFileRecords(dependencies, context, options = {}) {
